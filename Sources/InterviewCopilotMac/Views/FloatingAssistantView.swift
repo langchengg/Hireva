@@ -23,6 +23,9 @@ struct FloatingAssistantView: View {
     private var header: some View {
         HStack(spacing: 8) {
             StatusPill(title: appState.liveState.displayName, systemImage: "dot.radiowaves.left.and.right", tint: stateTint)
+            
+            MicLevelIndicatorView(appState: appState, isMini: true)
+            
             StatusPill(
                 title: appState.activeRealtimeProviderBadge,
                 systemImage: appState.activeRealtimeProvider?.kind == .ollamaLocal ? "desktopcomputer" : "cloud",

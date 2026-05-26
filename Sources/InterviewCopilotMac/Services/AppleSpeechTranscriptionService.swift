@@ -2,10 +2,9 @@ import AVFoundation
 import Foundation
 import Speech
 
-final class AppleSpeechTranscriptionService: TranscriptionProvider {
+final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineBufferDelegate {
     let providerName = "Apple Speech"
 
-    private let audioEngine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -30,15 +29,8 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider {
         request.shouldReportPartialResults = true
         self.request = request
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, _ in
-            self?.request?.append(buffer)
-        }
-
-        audioEngine.prepare()
-        try audioEngine.start()
+        // Register to the shared AudioEngineManager
+        AudioEngineManager.shared.register(self)
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -55,11 +47,16 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider {
         recognitionTask = nil
         request?.endAudio()
         request = nil
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        
+        // Unregister from the shared AudioEngineManager
+        AudioEngineManager.shared.unregister(self)
+        
         sessionID = nil
+    }
+
+    // AudioEngineBufferDelegate conformance
+    func audioEngineDidReceiveBuffer(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+        request?.append(buffer)
     }
 
     private func emit(text: String) {

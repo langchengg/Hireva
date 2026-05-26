@@ -81,12 +81,12 @@ struct LiveInterviewView: View {
             Button {
                 appState.manualAnswerNow()
             } label: {
-                Label("Answer Now", systemImage: "sparkles")
+                Label("Answer Fallback", systemImage: "keyboard")
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
             .disabled(!appState.liveState.canAnswerNow || appState.liveBlockedReason != nil)
-            .help("Fallback: generate a suggestion from the recent transcript.")
+            .help("Fallback: manually trigger generation from the recent transcript.")
 
             Button {
                 appState.clearLiveSession()
@@ -97,6 +97,10 @@ struct LiveInterviewView: View {
             .controlSize(.large)
 
             Spacer()
+            
+            // Integrated visual mic level indicator
+            MicLevelIndicatorView(appState: appState)
+
             Button {
                 appState.selectSection(.permissions)
             } label: {
@@ -164,25 +168,28 @@ struct LiveInterviewView: View {
     }
 
     private var floatingAssistantStatus: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "macwindow")
-                .font(.title2)
+        HStack(spacing: 16) {
+            Image(systemName: "macwindow.badge.plus")
+                .font(.system(size: 32))
                 .foregroundStyle(.blue)
+            
             VStack(alignment: .leading, spacing: 4) {
-                Text("Floating Assistant")
+                Text("Floating Assistant Overlay")
                     .font(.headline)
-                Text(appState.isFloatingAssistantVisible ? "Visible above normal app windows." : "Opens automatically after Start Listening succeeds.")
+                Text("This app operates primarily as an always-on-top floating card. Position the assistant over Zoom/Teams/Meet for hands-free real-time suggestions.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button(appState.isFloatingAssistantVisible ? "Show" : "Open") {
+            Button(appState.isFloatingAssistantVisible ? "Show Overlay" : "Launch Overlay") {
                 appState.showFloatingAssistant()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var autoDetectionStatus: some View {

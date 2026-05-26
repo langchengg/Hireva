@@ -2,14 +2,14 @@ import AVFoundation
 import Foundation
 
 @MainActor
-final class MicrophoneDiagnosticsService: ObservableObject {
+final class MicrophoneDiagnosticsService: ObservableObject, AudioEngineBufferDelegate {
     @Published var isRunning = false
     @Published var rmsLevel: Double = 0
     @Published var decibels: Double = -90
     @Published var selectedInputDeviceName: String = "Default Input"
     @Published var lastError: String?
 
-    private let audioEngine = AVAudioEngine()
+    private var lastUpdateTimestamp = Date.distantPast
 
     var normalizedLevel: Double {
         min(max((decibels + 60) / 60, 0), 1)
@@ -24,38 +24,34 @@ final class MicrophoneDiagnosticsService: ObservableObject {
         refreshSelectedInputDevice()
         lastError = nil
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, _ in
-            let metrics = Self.audioMetrics(from: buffer)
-            Task { @MainActor [weak self] in
-                self?.rmsLevel = metrics.rms
-                self?.decibels = metrics.decibels
-            }
-        }
-
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
-            isRunning = true
-        } catch {
-            inputNode.removeTap(onBus: 0)
-            isRunning = false
-            rmsLevel = 0
-            decibels = -90
-            lastError = error.localizedDescription
-        }
+        AudioEngineManager.shared.register(self)
+        isRunning = true
     }
 
     func stopMicTest() {
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        AudioEngineManager.shared.unregister(self)
         isRunning = false
         rmsLevel = 0
         decibels = -90
+    }
+
+    // AudioEngineBufferDelegate conformance
+    nonisolated func audioEngineDidReceiveBuffer(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+        let metrics = Self.audioMetrics(from: buffer)
+        
+        // Lightweight callback: compute and dispatch throttled updates to @MainActor
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let now = Date()
+            // Throttle UI level updates to at most ~25 FPS (0.04s interval)
+            guard now.timeIntervalSince(self.lastUpdateTimestamp) >= 0.04 else { return }
+            self.lastUpdateTimestamp = now
+
+            // Apply exponential moving average (alpha = 0.3) for level smoothing
+            let alpha = 0.3
+            self.rmsLevel = alpha * metrics.rms + (1.0 - alpha) * self.rmsLevel
+            self.decibels = alpha * metrics.decibels + (1.0 - alpha) * self.decibels
+        }
     }
 
     private nonisolated static func audioMetrics(from buffer: AVAudioPCMBuffer) -> (rms: Double, decibels: Double) {
