@@ -2,17 +2,8 @@ import AVFoundation
 import Foundation
 import Speech
 
-enum TranscriptionServiceState: String, Codable {
-    case idle
-    case starting
-    case running
-    case recoveringRoute
-    case stopped
-    case failed
-}
-
-final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineBufferDelegate {
-    let providerName = "Apple Speech"
+final class MicrophoneTranscriptionPipeline: NSObject, TranscriptionProvider, AudioEngineBufferDelegate {
+    let providerName = "Microphone ASR Pipeline"
 
     private let recognizer = SFSpeechRecognizer()
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -27,12 +18,14 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineB
         self.continuation = continuation
     }
 
-    init() {}
+    override init() {
+        super.init()
+    }
 
     func start(sessionID: String) async throws {
         guard let recognizer, recognizer.isAvailable else {
             self.serviceState = .failed
-            throw TranscriptionError.unavailable("Apple Speech recognition is not available for the current locale.")
+            throw TranscriptionError.unavailable("Apple Speech recognition is not available for the locale.")
         }
 
         stop()
@@ -56,7 +49,7 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineB
                     self.emit(text: text)
                 }
             } else if error != nil {
-                print("[AppleSpeechTranscriptionService] Recognition task error: \(error?.localizedDescription ?? "")")
+                print("[MicrophoneTranscriptionPipeline] Speech recognition task error: \(error?.localizedDescription ?? "")")
             }
         }
     }
@@ -88,7 +81,7 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineB
         _ manager: AudioEngineManager
     ) {
         guard self.sessionID != nil else { return }
-        print("[AppleSpeechTranscriptionService] Re-initializing speech capture request after route change...")
+        print("[MicrophoneTranscriptionPipeline] Re-initializing microphone speech capture request after route change...")
 
         self.serviceState = .recoveringRoute
 
@@ -111,7 +104,7 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineB
                     self.emit(text: text)
                 }
             } else if error != nil {
-                print("[AppleSpeechTranscriptionService] Recognition task error during route recovery: \(error?.localizedDescription ?? "")")
+                print("[MicrophoneTranscriptionPipeline] Recognition task error during route recovery: \(error?.localizedDescription ?? "")")
             }
         }
 
@@ -122,7 +115,7 @@ final class AppleSpeechTranscriptionService: TranscriptionProvider, AudioEngineB
         _ manager: AudioEngineManager,
         didFailWith error: Error
     ) {
-        print("[AppleSpeechTranscriptionService] Failed with error: \(error.localizedDescription)")
+        print("[MicrophoneTranscriptionPipeline] Failed with error: \(error.localizedDescription)")
         self.serviceState = .failed
     }
 

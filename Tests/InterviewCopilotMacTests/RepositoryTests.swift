@@ -41,7 +41,7 @@ struct RepositoryTests {
         let segment = TranscriptSegment(
             id: UUID().uuidString,
             sessionID: session.id,
-            speaker: .audioInput,
+            speaker: .unknown,
             text: "Can you walk me through your robotics project?",
             startTime: nil,
             endTime: nil,

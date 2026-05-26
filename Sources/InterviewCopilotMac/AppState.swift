@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import SwiftUI
 
@@ -79,6 +80,17 @@ final class AppState: ObservableObject {
     @Published var microphonePermissionState: MicrophonePermissionState = .unknown
     @Published var diagnostics = DeveloperDiagnostics.empty
 
+    @Published var currentInputDeviceName: String = "Default Input"
+    @Published var selectedMockSpeaker: SpeakerRole = .interviewer {
+        didSet {
+            mockTranscriptionService.selectedMockSpeaker = selectedMockSpeaker
+        }
+    }
+    @Published var isRecoveringAudioRoute: Bool = false
+    @Published var audioRouteError: String?
+    @Published var lastAudioBufferAt: Date?
+    @Published var noAudioWarningVisible: Bool = false
+
     let documentRepository: DocumentRepository
     let sessionRepository: SessionRepository
     let transcriptRepository: TranscriptRepository
@@ -99,6 +111,16 @@ final class AppState: ObservableObject {
     private var appleSpeechService: AppleSpeechTranscriptionService?
     private var activeTranscriptionProvider: TranscriptionProvider?
     private var transcriptionTask: Task<Void, Never>?
+    private var microphonePipeline: MicrophoneTranscriptionPipeline?
+    private var systemAudioPipeline: SystemAudioTranscriptionPipeline?
+    private var micTranscriptionTask: Task<Void, Never>?
+    private var systemTranscriptionTask: Task<Void, Never>?
+    
+    private struct RecentSystemAudioRecord {
+        let text: String
+        let timestamp: Date
+    }
+    private var recentSystemAudioRecords: [RecentSystemAudioRecord] = []
     private var detectionDebounceTask: Task<Void, Never>?
     private var activeAITask: Task<Void, Never>?
     private var lastDetectionAt: Date?
@@ -107,6 +129,8 @@ final class AppState: ObservableObject {
 
     private var activeObserverToken: NSObjectProtocol?
     private var recentQuestionsFingerprints = [String]()
+    private var cancellables = Set<AnyCancellable>()
+    private var audioSignalMonitoringTimer: Timer?
 
     private let detectionDebounceSeconds: TimeInterval = 2
     private let autoSuggestionCooldownSeconds: TimeInterval = 5
@@ -167,6 +191,35 @@ final class AppState: ObservableObject {
         
         // Initialize notifications and refresh permissions on startup and when application didBecomeActive
         refreshAll()
+
+        AudioDeviceRouteMonitor.shared.$currentInputDeviceName
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] name in
+                self?.currentInputDeviceName = name
+            }
+            .store(in: &cancellables)
+
+        AudioDeviceRouteMonitor.shared.$isRecoveringAudioRoute
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isRecovering in
+                guard let self else { return }
+                self.isRecoveringAudioRoute = isRecovering
+                if isRecovering {
+                    self.audioRouteError = "Audio device changed. Reconnecting..."
+                    self.noAudioWarningVisible = true
+                    self.microphoneDiagnostics.markAsRecovering()
+                } else {
+                    let state = AudioEngineManager.shared.audioRecoveryState
+                    if state == "Active" {
+                        self.audioRouteError = "Audio input restored."
+                        self.noAudioWarningVisible = false
+                    } else if state == "Failed" {
+                        self.audioRouteError = "Could not restore audio input. Try Stop Listening and Start Listening again."
+                        self.noAudioWarningVisible = true
+                    }
+                }
+            }
+            .store(in: &cancellables)
 
         self.activeObserverToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
@@ -444,28 +497,42 @@ final class AppState: ObservableObject {
             liveState = .requestingPermission
             refreshPermissions()
             if mode == .microphone {
-                var microphone = permissionService.checkMicrophonePermission()
-                if microphone == .notDetermined {
-                    microphone = await permissionService.requestMicrophonePermission()
-                    refreshPermissions()
-                }
+                let captureMode = settings.audioCaptureMode
+                
+                // Verify Microphone and Speech permissions if mic is needed
+                if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
+                    var microphone = permissionService.checkMicrophonePermission()
+                    if microphone == .notDetermined {
+                        microphone = await permissionService.requestMicrophonePermission()
+                        refreshPermissions()
+                    }
 
-                guard microphone == .authorized else {
-                    liveState = .permissionDenied
-                    showError("Grant microphone permission to start live transcription. You can change this in macOS Privacy & Security settings.")
-                    return
-                }
+                    guard microphone == .authorized else {
+                        liveState = .permissionDenied
+                        showError("Grant microphone permission to start live transcription. You can change this in macOS Privacy & Security settings.")
+                        return
+                    }
 
-                var speech = permissionService.speechStatus()
-                if speech == .notDetermined {
-                    speech = await permissionService.requestSpeechRecognition()
-                    refreshPermissions()
-                }
+                    var speech = permissionService.speechStatus()
+                    if speech == .notDetermined {
+                        speech = await permissionService.requestSpeechRecognition()
+                        refreshPermissions()
+                    }
 
-                guard speech == .granted else {
-                    liveState = .permissionDenied
-                    showError("Speech Recognition permission is required for Apple Speech transcription. Grant access in macOS Privacy & Security settings, or use Practice Testing.")
-                    return
+                    guard speech == .granted else {
+                        liveState = .permissionDenied
+                        showError("Speech Recognition permission is required for Apple Speech transcription. Grant access in macOS Privacy & Security settings, or use Practice Testing.")
+                        return
+                    }
+                }
+                
+                // Verify Screen & System Audio recording permission if system capture is needed
+                if captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem {
+                    guard CGPreflightScreenCaptureAccess() else {
+                        liveState = .permissionDenied
+                        showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                        return
+                    }
                 }
                 refreshPermissions()
             }
@@ -478,27 +545,57 @@ final class AppState: ObservableObject {
             }
             currentSession = session
             if transcriptSegments.isEmpty {
-                transcriptSegments.append(.system("Live interview session started in \(mode.displayName).", sessionID: session.id))
+                transcriptSegments.append(.system("Live interview session started in \(mode.displayName). Mode: \(settings.audioCaptureMode.displayName)", sessionID: session.id))
             }
 
-            let provider: TranscriptionProvider
-            switch mode {
-            case .mock:
-                provider = mockTranscriptionService
-            case .microphone:
-                let apple = AppleSpeechTranscriptionService()
-                appleSpeechService = apple
-                provider = apple
+            if mode == .mock {
+                let provider = mockTranscriptionService
+                activeTranscriptionProvider = provider
+                try await provider.start(sessionID: session.id)
+                liveState = .listening
+                showFloatingAssistant()
+                consumeSegments(from: provider)
+            } else {
+                let captureMode = settings.audioCaptureMode
                 
-                // Keep diagnostics active during transcription for real-time visual levels
-                microphoneDiagnostics.refreshSelectedInputDevice()
-                AudioEngineManager.shared.register(microphoneDiagnostics)
+                // Start Microphone Pipeline
+                if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
+                    let micPipeline = MicrophoneTranscriptionPipeline()
+                    self.microphonePipeline = micPipeline
+                    try await micPipeline.start(sessionID: session.id)
+                    
+                    micTranscriptionTask = Task { [weak self] in
+                        for await segment in micPipeline.segments {
+                            guard !Task.isCancelled else { return }
+                            await self?.handleTranscriptSegment(segment)
+                        }
+                    }
+                    
+                    // Keep diagnostics active during transcription for real-time visual levels
+                    microphoneDiagnostics.refreshSelectedInputDevice()
+                    AudioEngineManager.shared.register(microphoneDiagnostics)
+                }
+                
+                // Start System Audio Pipeline
+                if captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem {
+                    let sysPipeline = SystemAudioTranscriptionPipeline()
+                    self.systemAudioPipeline = sysPipeline
+                    try await sysPipeline.start(sessionID: session.id)
+                    
+                    systemTranscriptionTask = Task { [weak self] in
+                        for await segment in sysPipeline.segments {
+                            guard !Task.isCancelled else { return }
+                            await self?.handleTranscriptSegment(segment)
+                        }
+                    }
+                }
+                
+                liveState = .listening
+                showFloatingAssistant()
+                
+                // Start background silence / signal validation
+                startAudioSignalMonitoring()
             }
-            activeTranscriptionProvider = provider
-            try await provider.start(sessionID: session.id)
-            liveState = .listening
-            showFloatingAssistant()
-            consumeSegments(from: provider)
         } catch {
             let message = userFacing(error)
             liveState = .error(message)
@@ -511,12 +608,23 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
+        micTranscriptionTask?.cancel()
+        systemTranscriptionTask?.cancel()
+        
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        
+        microphonePipeline?.stop()
+        microphonePipeline = nil
+        systemAudioPipeline?.stop()
+        systemAudioPipeline = nil
         
         // Stop diagnostics level metering
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
         microphoneDiagnostics.stopMicTest()
+        
+        stopAudioSignalMonitoring()
+        recentQuestionsFingerprints.removeAll()
         
         if let sessionID = currentSession?.id {
             try? sessionRepository.endSession(id: sessionID)
@@ -529,12 +637,23 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
+        micTranscriptionTask?.cancel()
+        systemTranscriptionTask?.cancel()
+        
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        
+        microphonePipeline?.stop()
+        microphonePipeline = nil
+        systemAudioPipeline?.stop()
+        systemAudioPipeline = nil
         
         // Ensure diagnostics are unregistered
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
         microphoneDiagnostics.stopMicTest()
+        
+        stopAudioSignalMonitoring()
+        recentQuestionsFingerprints.removeAll()
         
         currentSession = nil
         transcriptSegments = []
@@ -572,11 +691,16 @@ final class AppState: ObservableObject {
                     let segment = TranscriptSegment(
                         id: UUID().uuidString,
                         sessionID: session.id,
-                        speaker: .audioInput,
+                        source: .mock,
+                        speaker: self.selectedMockSpeaker,
                         text: trimmed,
                         startTime: nil,
                         endTime: nil,
-                        createdAt: Date()
+                        createdAt: Date(),
+                        inputDeviceName: "Manual Inject",
+                        outputDeviceName: nil,
+                        deviceID: nil,
+                        confidence: 1.0
                     )
                     await self.handleTranscriptSegment(segment)
                 } catch {
@@ -771,7 +895,57 @@ final class AppState: ObservableObject {
             try? transcriptRepository.saveSegment(segment)
         }
 
-        if settings.automaticQuestionDetectionEnabled && !settings.manualOnlyMode {
+        // Echo/Leakage Protection sliding window update
+        if segment.source == .systemAudio {
+            recentSystemAudioRecords.append(RecentSystemAudioRecord(text: segment.text, timestamp: Date()))
+            recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
+        }
+
+        var isEchoLeakage = false
+        if segment.source == .microphone {
+            recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
+            
+            let micWords = Set(segment.text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+            if !micWords.isEmpty {
+                for record in recentSystemAudioRecords {
+                    let systemWords = Set(record.text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+                    let intersection = micWords.intersection(systemWords)
+                    let union = micWords.union(systemWords)
+                    if !union.isEmpty {
+                        let similarity = Double(intersection.count) / Double(union.count)
+                        if similarity >= 0.5 { // 50% Jaccard word overlap indicates interviewer echo leak
+                            isEchoLeakage = true
+                            print("[EchoProtection] Detected interviewer leakage in mic stream: \"\(segment.text)\" matches recent system: \"\(record.text)\" with similarity \(String(format: "%.2f", similarity)). Question detection bypassed.")
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
+        var shouldTriggerDetection = false
+        if settings.automaticQuestionDetectionEnabled && !settings.manualOnlyMode && !isEchoLeakage {
+            switch segment.source {
+            case .systemAudio, .processAudio:
+                if segment.speaker == .interviewer {
+                    shouldTriggerDetection = true
+                }
+            case .mock:
+                if segment.speaker == .interviewer {
+                    shouldTriggerDetection = true
+                }
+            case .microphone:
+                if settings.allowQuestionDetectionFromMicrophoneOnly {
+                    shouldTriggerDetection = true
+                }
+            case .mixed:
+                if settings.allowQuestionDetectionFromMicrophoneOnly {
+                    shouldTriggerDetection = true
+                }
+            }
+        }
+
+        if shouldTriggerDetection {
             maybeRunAutomaticDetection(triggeringSegment: segment)
         } else {
             liveState = .listening
@@ -914,7 +1088,12 @@ final class AppState: ObservableObject {
             lastAutoSuggestionAt = Date()
             let fingerprint = normalizedQuestion(question.questionText)
             lastAutoQuestionText = fingerprint
-            recentQuestionsFingerprints.insert(fingerprint)
+            if !recentQuestionsFingerprints.contains(fingerprint) {
+                recentQuestionsFingerprints.append(fingerprint)
+            }
+            if recentQuestionsFingerprints.count > 30 {
+                recentQuestionsFingerprints.removeFirst()
+            }
         }
         updateDiagnostics {
             $0.lastSuggestionJSON = result.card.rawJSON
@@ -978,5 +1157,62 @@ final class AppState: ObservableObject {
         var next = diagnostics
         mutate(&next)
         diagnostics = next
+    }
+
+    // MARK: - Audio Signal and Route Recovery monitoring
+
+    public func restartAudioInput() {
+        AudioEngineManager.shared.restartForRouteChange(reason: "Manual restart requested by user")
+    }
+
+    private func startAudioSignalMonitoring() {
+        audioSignalMonitoringTimer?.invalidate()
+        audioSignalMonitoringTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.monitorAudioSignal()
+            }
+        }
+    }
+
+    private func stopAudioSignalMonitoring() {
+        audioSignalMonitoringTimer?.invalidate()
+        audioSignalMonitoringTimer = nil
+        noAudioWarningVisible = false
+        audioRouteError = nil
+    }
+
+    private func monitorAudioSignal() {
+        guard liveState == .listening || liveState == .transcribing else {
+            noAudioWarningVisible = false
+            return
+        }
+
+        // Only monitor mic levels if microphone pipeline is actually running
+        guard microphonePipeline != nil else {
+            noAudioWarningVisible = false
+            return
+        }
+
+        if let lastBuffer = AudioEngineManager.shared.lastAudioBufferAt {
+            self.lastAudioBufferAt = lastBuffer
+            let elapsed = Date().timeIntervalSince(lastBuffer)
+            if elapsed > 3.0 {
+                self.noAudioWarningVisible = true
+                self.audioRouteError = "No microphone signal detected. Check input device or restart audio capture."
+            } else {
+                self.noAudioWarningVisible = false
+                if self.audioRouteError == "No microphone signal detected. Check input device or restart audio capture." {
+                    self.audioRouteError = "Audio input restored."
+                }
+            }
+        } else {
+            let elapsed = Date().timeIntervalSince(lastDetectionAt ?? Date())
+            if elapsed > 3.0 {
+                self.noAudioWarningVisible = true
+                self.audioRouteError = "No microphone signal detected. Check input device or restart audio capture."
+            }
+        }
+        
+        self.currentInputDeviceName = AudioDeviceRouteMonitor.shared.currentInputDeviceName
     }
 }

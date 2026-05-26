@@ -74,11 +74,12 @@ struct PermissionSnapshot: Hashable {
 
 final class PermissionService {
     func snapshot() -> PermissionSnapshot {
-        PermissionSnapshot(
+        let screenState: PermissionState = CGPreflightScreenCaptureAccess() ? .granted : .notDetermined
+        return PermissionSnapshot(
             microphone: checkMicrophonePermission().legacyState,
             speechRecognition: speechStatus(),
-            screenRecording: CGPreflightScreenCaptureAccess() ? .granted : .notDetermined,
-            systemAudioCapture: .notDetermined
+            screenRecording: screenState,
+            systemAudioCapture: screenState
         )
     }
 

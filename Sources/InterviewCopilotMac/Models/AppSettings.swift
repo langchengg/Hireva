@@ -1,12 +1,12 @@
 import Foundation
 
-enum DeepSeekModel: String, CaseIterable, Identifiable, Codable {
+public enum DeepSeekModel: String, CaseIterable, Identifiable, Codable {
     case realtime = "deepseek-v4-flash"
     case analysis = "deepseek-v4-pro"
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .realtime:
             return "deepseek-v4-flash"
@@ -16,18 +16,80 @@ enum DeepSeekModel: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-struct AppSettings: Hashable, Codable {
-    var realtimeModel: DeepSeekModel
-    var recapModel: DeepSeekModel
-    var automaticQuestionDetectionEnabled: Bool
-    var manualOnlyMode: Bool
-    var saveTranscriptsLocally: Bool
+public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
+    case microphoneOnly = "microphoneOnly"
+    case systemAudioOnly = "systemAudioOnly"
+    case microphoneAndSystem = "microphoneAndSystem"
 
-    static let `default` = AppSettings(
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .microphoneOnly:
+            return "Microphone Only (Candidate Only)"
+        case .systemAudioOnly:
+            return "System Audio Only (Interviewer Only)"
+        case .microphoneAndSystem:
+            return "Microphone + System Audio (Recommended)"
+        }
+    }
+}
+
+public struct AppSettings: Hashable, Codable {
+    public var realtimeModel: DeepSeekModel
+    public var recapModel: DeepSeekModel
+    public var automaticQuestionDetectionEnabled: Bool
+    public var manualOnlyMode: Bool
+    public var saveTranscriptsLocally: Bool
+    public var allowQuestionDetectionFromMicrophoneOnly: Bool
+    public var audioCaptureMode: AudioCaptureMode
+
+    public static let `default` = AppSettings(
         realtimeModel: .realtime,
         recapModel: .analysis,
         automaticQuestionDetectionEnabled: true,
         manualOnlyMode: false,
-        saveTranscriptsLocally: true
+        saveTranscriptsLocally: true,
+        allowQuestionDetectionFromMicrophoneOnly: false,
+        audioCaptureMode: .microphoneAndSystem
     )
+
+    enum CodingKeys: String, CodingKey {
+        case realtimeModel
+        case recapModel
+        case automaticQuestionDetectionEnabled
+        case manualOnlyMode
+        case saveTranscriptsLocally
+        case allowQuestionDetectionFromMicrophoneOnly
+        case audioCaptureMode
+    }
+
+    public init(
+        realtimeModel: DeepSeekModel,
+        recapModel: DeepSeekModel,
+        automaticQuestionDetectionEnabled: Bool,
+        manualOnlyMode: Bool,
+        saveTranscriptsLocally: Bool,
+        allowQuestionDetectionFromMicrophoneOnly: Bool,
+        audioCaptureMode: AudioCaptureMode
+    ) {
+        self.realtimeModel = realtimeModel
+        self.recapModel = recapModel
+        self.automaticQuestionDetectionEnabled = automaticQuestionDetectionEnabled
+        self.manualOnlyMode = manualOnlyMode
+        self.saveTranscriptsLocally = saveTranscriptsLocally
+        self.allowQuestionDetectionFromMicrophoneOnly = allowQuestionDetectionFromMicrophoneOnly
+        self.audioCaptureMode = audioCaptureMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.realtimeModel = try container.decodeIfPresent(DeepSeekModel.self, forKey: .realtimeModel) ?? .realtime
+        self.recapModel = try container.decodeIfPresent(DeepSeekModel.self, forKey: .recapModel) ?? .analysis
+        self.automaticQuestionDetectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .automaticQuestionDetectionEnabled) ?? true
+        self.manualOnlyMode = try container.decodeIfPresent(Bool.self, forKey: .manualOnlyMode) ?? false
+        self.saveTranscriptsLocally = try container.decodeIfPresent(Bool.self, forKey: .saveTranscriptsLocally) ?? true
+        self.allowQuestionDetectionFromMicrophoneOnly = try container.decodeIfPresent(Bool.self, forKey: .allowQuestionDetectionFromMicrophoneOnly) ?? false
+        self.audioCaptureMode = try container.decodeIfPresent(AudioCaptureMode.self, forKey: .audioCaptureMode) ?? .microphoneAndSystem
+    }
 }

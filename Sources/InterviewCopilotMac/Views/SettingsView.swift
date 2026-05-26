@@ -78,6 +78,7 @@ struct SettingsView: View {
             Toggle("Enable automatic question detection", isOn: $settings.automaticQuestionDetectionEnabled)
             Toggle("Enable manual-only mode", isOn: $settings.manualOnlyMode)
             Toggle("Save transcripts locally", isOn: $settings.saveTranscriptsLocally)
+            Toggle("Allow question detection from microphone-only audio", isOn: $settings.allowQuestionDetectionFromMicrophoneOnly)
             Button("Save Settings") {
                 appState.saveSettings(settings)
             }

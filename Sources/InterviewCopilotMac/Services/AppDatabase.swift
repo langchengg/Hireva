@@ -155,6 +155,14 @@ final class AppDatabase {
             try db.execute(sql: "ALTER TABLE recap_reports ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0")
         }
 
+        migrator.registerMigration("v3_speaker_attribution") { db in
+            try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN source TEXT")
+            try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN input_device_name TEXT")
+            try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN output_device_name TEXT")
+            try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN device_id TEXT")
+            try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN confidence REAL")
+        }
+
         return migrator
     }
 }

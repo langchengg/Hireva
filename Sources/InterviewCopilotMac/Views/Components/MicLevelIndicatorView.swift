@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// A premium real-time visual indicator for microphone capture levels, permission state, and audio engine errors.
+/// A premium real-time visual indicator for microphone (candidate) and system audio (interviewer) capture levels.
 struct MicLevelIndicatorView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var micDiagnostics: MicrophoneDiagnosticsService
+    @ObservedObject var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
     var isMini: Bool
 
     init(appState: AppState, isMini: Bool = false) {
@@ -13,54 +14,84 @@ struct MicLevelIndicatorView: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
-            indicatorIcon
-                .font(isMini ? .callout : .title3)
-            
-            if !isMini {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statusTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(statusColor)
+        HStack(spacing: 12) {
+            // Render Microphone Level Meter if capture mode uses Microphone
+            if appState.settings.audioCaptureMode == .microphoneOnly || appState.settings.audioCaptureMode == .microphoneAndSystem {
+                HStack(spacing: 6) {
+                    micIcon
+                        .font(isMini ? .caption : .subheadline)
                     
-                    if appState.microphonePermissionState == .authorized, micDiagnostics.lastError == nil {
-                        Text(String(format: "dBFS: %.1f", micDiagnostics.decibels))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(statusSubtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                
-                if appState.microphonePermissionState == .authorized, micDiagnostics.lastError == nil {
-                    // Small real-time level bar
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color.secondary.opacity(0.2))
-                                .frame(height: 6)
-                            
-                            Capsule()
-                                .fill(levelColor)
-                                .frame(width: geo.size.width * CGFloat(micDiagnostics.normalizedLevel), height: 6)
-                                .animation(.interactiveSpring(response: 0.15, dampingFraction: 0.8), value: micDiagnostics.normalizedLevel)
+                    if !isMini {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Candidate Mic")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.microphonePermissionState == .authorized && micDiagnostics.lastError == nil ? String(format: "%.1f dB", micDiagnostics.decibels) : "Mic Off")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(micStatusColor)
                         }
-                        .frame(height: 6)
-                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                        
+                        if appState.microphonePermissionState == .authorized, micDiagnostics.lastError == nil {
+                            levelBar(level: micDiagnostics.normalizedLevel, color: micLevelColor)
+                        }
                     }
-                    .frame(width: 60, height: 12)
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            // Render System Audio Level Meter if capture mode uses System Audio
+            if appState.settings.audioCaptureMode == .systemAudioOnly || appState.settings.audioCaptureMode == .microphoneAndSystem {
+                HStack(spacing: 6) {
+                    systemAudioIcon
+                        .font(isMini ? .caption : .subheadline)
+                    
+                    if !isMini {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Interviewer Audio")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.secondary)
+                            Text(systemAudio.isCapturing && systemAudio.lastError == nil ? String(format: "%.1f dB", systemAudio.decibels) : "Sys Off")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(systemAudioStatusColor)
+                        }
+                        
+                        if systemAudio.isCapturing, systemAudio.lastError == nil {
+                            levelBar(level: systemAudio.normalizedLevel, color: systemAudioLevelColor)
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
             }
         }
-        .padding(.horizontal, isMini ? 6 : 12)
-        .padding(.vertical, isMini ? 4 : 8)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     @ViewBuilder
-    private var indicatorIcon: some View {
+    private func levelBar(level: Double, color: Color) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.15))
+                    .frame(height: 5)
+                
+                Capsule()
+                    .fill(color)
+                    .frame(width: geo.size.width * CGFloat(level), height: 5)
+                    .animation(.interactiveSpring(response: 0.15, dampingFraction: 0.8), value: level)
+            }
+            .frame(height: 5)
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+        }
+        .frame(width: 45, height: 10)
+    }
+
+    // MARK: - Mic Status Aesthetics
+
+    @ViewBuilder
+    private var micIcon: some View {
         if appState.microphonePermissionState != .authorized {
             Image(systemName: "mic.slash.fill")
                 .foregroundStyle(.red)
@@ -69,12 +100,10 @@ struct MicLevelIndicatorView: View {
                 .foregroundStyle(.red)
         } else if micDiagnostics.isRunning || appState.liveState == .listening || appState.liveState == .transcribing {
             if micDiagnostics.decibels > -45.0 {
-                // Active speech / audio capturing (glow green)
                 Image(systemName: "waveform.and.mic")
                     .foregroundStyle(.green)
                     .symbolEffect(.bounce, options: .repeating, value: micDiagnostics.decibels > -45.0)
             } else {
-                // Silence (grey/inactive status)
                 Image(systemName: "mic.fill")
                     .foregroundStyle(.secondary)
             }
@@ -84,31 +113,7 @@ struct MicLevelIndicatorView: View {
         }
     }
 
-    private var statusTitle: String {
-        if appState.microphonePermissionState != .authorized {
-            return "Mic Blocked"
-        } else if micDiagnostics.lastError != nil {
-            return "Audio Error"
-        } else if micDiagnostics.isRunning || appState.liveState == .listening || appState.liveState == .transcribing {
-            return micDiagnostics.decibels > -45.0 ? "Audio Active" : "Silence"
-        } else {
-            return "Mic Idle"
-        }
-    }
-
-    private var statusSubtitle: String {
-        if appState.microphonePermissionState == .denied || appState.microphonePermissionState == .restricted {
-            return "System Settings denied"
-        } else if appState.microphonePermissionState == .notDetermined {
-            return "Pending Authorization"
-        } else if let error = micDiagnostics.lastError {
-            return error.prefix(25) + "..."
-        } else {
-            return "Not capturing"
-        }
-    }
-
-    private var statusColor: Color {
+    private var micStatusColor: Color {
         if appState.microphonePermissionState != .authorized || micDiagnostics.lastError != nil {
             return .red
         } else if micDiagnostics.isRunning || appState.liveState == .listening || appState.liveState == .transcribing {
@@ -118,13 +123,55 @@ struct MicLevelIndicatorView: View {
         }
     }
 
-    private var levelColor: Color {
+    private var micLevelColor: Color {
         if micDiagnostics.decibels > -20.0 {
-            return .orange // Loud
+            return .orange
         } else if micDiagnostics.decibels > -45.0 {
-            return .green // Normal
+            return .green
         } else {
-            return .secondary // Quiet / Silence
+            return .secondary
+        }
+    }
+
+    // MARK: - System Audio Status Aesthetics
+
+    @ViewBuilder
+    private var systemAudioIcon: some View {
+        if systemAudio.lastError != nil {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+        } else if systemAudio.isCapturing {
+            if systemAudio.decibels > -45.0 {
+                Image(systemName: "speaker.wave.2.bubble")
+                    .foregroundStyle(.blue)
+                    .symbolEffect(.bounce, options: .repeating, value: systemAudio.decibels > -45.0)
+            } else {
+                Image(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Image(systemName: "speaker.wave.2")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var systemAudioStatusColor: Color {
+        if systemAudio.lastError != nil {
+            return .red
+        } else if systemAudio.isCapturing {
+            return systemAudio.decibels > -45.0 ? .blue : .secondary
+        } else {
+            return .secondary
+        }
+    }
+
+    private var systemAudioLevelColor: Color {
+        if systemAudio.decibels > -20.0 {
+            return .orange
+        } else if systemAudio.decibels > -45.0 {
+            return .blue
+        } else {
+            return .secondary
         }
     }
 }

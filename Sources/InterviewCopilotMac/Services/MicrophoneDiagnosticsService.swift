@@ -33,10 +33,16 @@ final class MicrophoneDiagnosticsService: ObservableObject, AudioEngineBufferDel
         isRunning = false
         rmsLevel = 0
         decibels = -90
+        lastError = nil
     }
 
-    // AudioEngineBufferDelegate conformance
-    nonisolated func audioEngineDidReceiveBuffer(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+    // MARK: - AudioEngineBufferDelegate conformance
+
+    nonisolated func audioEngineManager(
+        _ manager: AudioEngineManager,
+        didReceive buffer: AVAudioPCMBuffer,
+        at time: AVAudioTime
+    ) {
         let metrics = Self.audioMetrics(from: buffer)
         
         // Lightweight callback: compute and dispatch throttled updates to @MainActor
@@ -51,7 +57,43 @@ final class MicrophoneDiagnosticsService: ObservableObject, AudioEngineBufferDel
             let alpha = 0.3
             self.rmsLevel = alpha * metrics.rms + (1.0 - alpha) * self.rmsLevel
             self.decibels = alpha * metrics.decibels + (1.0 - alpha) * self.decibels
+            
+            // Clear route recovery message if audio buffers resume
+            if self.lastError == "Recovering audio input..." {
+                self.lastError = nil
+            }
         }
+    }
+
+    nonisolated func audioEngineManagerDidRestartAfterRouteChange(
+        _ manager: AudioEngineManager
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.rmsLevel = 0
+            self.decibels = -90
+            self.lastError = nil
+            self.refreshSelectedInputDevice()
+        }
+    }
+
+    nonisolated func audioEngineManager(
+        _ manager: AudioEngineManager,
+        didFailWith error: Error
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.rmsLevel = 0
+            self.decibels = -90
+            self.lastError = error.localizedDescription
+        }
+    }
+
+    /// Sets the status explicitly during the recovery process.
+    func markAsRecovering() {
+        self.rmsLevel = 0
+        self.decibels = -90
+        self.lastError = "Recovering audio input..."
     }
 
     private nonisolated static func audioMetrics(from buffer: AVAudioPCMBuffer) -> (rms: Double, decibels: Double) {

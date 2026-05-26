@@ -3,10 +3,12 @@ import SwiftUI
 struct FloatingAssistantView: View {
     @ObservedObject var appState: AppState
     @State private var compact = false
+    @ObservedObject var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            deviceBanner
             Divider()
 
             if compact {
@@ -22,7 +24,7 @@ struct FloatingAssistantView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            StatusPill(title: appState.liveState.displayName, systemImage: "dot.radiowaves.left.and.right", tint: stateTint)
+            StatusPill(title: activeStatusTitle, systemImage: "dot.radiowaves.left.and.right", tint: activeStatusTint)
             
             MicLevelIndicatorView(appState: appState, isMini: true)
             
@@ -193,6 +195,10 @@ struct FloatingAssistantView: View {
     }
 
     private var secondaryStatusText: String {
+        let mode = appState.settings.audioCaptureMode
+        if mode == .microphoneOnly && AudioDeviceManager.shared.isUsingHeadphonesOrBluetooth {
+            return "Headset mode warning: microphone captures you; interviewer audio requires System Audio capture mode."
+        }
         switch appState.liveState {
         case .requestingPermission:
             return "Requesting microphone and speech recognition permissions."
@@ -226,6 +232,61 @@ struct FloatingAssistantView: View {
         }
     }
 
+    private var activeStatusTitle: String {
+        if appState.isRecoveringAudioRoute {
+            return "Reconnecting audio"
+        }
+        if appState.noAudioWarningVisible {
+            if appState.audioRouteError?.contains("No microphone signal") == true {
+                return "No input signal"
+            }
+            if appState.audioRouteError == "Audio input restored." {
+                return "Restored"
+            }
+            return "Audio issue"
+        }
+        switch appState.liveState {
+        case .listening, .transcribing:
+            return "Listening"
+        case .requestingPermission:
+            return "Requesting access"
+        case .permissionDenied:
+            return "Permission blocked"
+        case .detectingQuestion:
+            return "Detecting..."
+        case .generatingSuggestion:
+            return "Generating..."
+        case .stopped:
+            return "Stopped"
+        case .error:
+            return "Error"
+        default:
+            return "Idle"
+        }
+    }
+
+    private var activeStatusTint: Color {
+        if appState.isRecoveringAudioRoute {
+            return .orange
+        }
+        if appState.noAudioWarningVisible {
+            if appState.audioRouteError == "Audio input restored." {
+                return .green
+            }
+            return .red
+        }
+        switch appState.liveState {
+        case .listening, .transcribing:
+            return .green
+        case .permissionDenied, .error:
+            return .red
+        case .generatingSuggestion, .detectingQuestion:
+            return .blue
+        default:
+            return .secondary
+        }
+    }
+
     private func bulletSection(_ title: String, items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -242,6 +303,50 @@ struct FloatingAssistantView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+    }
+
+    private var deviceBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: AudioDeviceManager.shared.isUsingHeadphonesOrBluetooth ? "headphones" : "speaker.wave.2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(AudioDeviceManager.shared.routeDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+            
+            HStack(spacing: 12) {
+                Text("Mode: \(appState.settings.audioCaptureMode.displayName)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+                
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(AudioEngineManager.shared.isEngineRunning ? Color.green : Color.red)
+                        .frame(width: 5, height: 5)
+                    Text("Mic")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                }
+                
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(systemAudio.isCapturing ? Color.green : Color.red)
+                        .frame(width: 5, height: 5)
+                    Text("System")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 4)
         }
     }
 }

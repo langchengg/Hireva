@@ -12,8 +12,11 @@ final class TranscriptRepository {
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO transcript_segments (id, session_id, speaker, text, start_time, end_time, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO transcript_segments (
+                    id, session_id, speaker, text, start_time, end_time, created_at,
+                    source, input_device_name, output_device_name, device_id, confidence
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     segment.id,
@@ -22,7 +25,12 @@ final class TranscriptRepository {
                     segment.text,
                     segment.startTime,
                     segment.endTime,
-                    DateCoding.string(from: segment.createdAt)
+                    DateCoding.string(from: segment.createdAt),
+                    segment.source.rawValue,
+                    segment.inputDeviceName,
+                    segment.outputDeviceName,
+                    segment.deviceID,
+                    segment.confidence
                 ]
             )
         }
@@ -50,14 +58,32 @@ final class TranscriptRepository {
     }
 
     private static func makeSegment(row: Row) -> TranscriptSegment {
-        TranscriptSegment(
+        let speakerStr: String = row["speaker"]
+        let speaker: SpeakerRole
+        if speakerStr == "audio_input" {
+            speaker = .unknown
+        } else {
+            speaker = SpeakerRole(rawValue: speakerStr) ?? .unknown
+        }
+
+        let sourceStr: String? = row["source"]
+        let source = sourceStr.flatMap(AudioSourceType.init(rawValue:)) ?? .microphone
+
+        let confidence: Double? = row["confidence"]
+
+        return TranscriptSegment(
             id: row["id"],
             sessionID: row["session_id"],
-            speaker: SpeakerRole(rawValue: row["speaker"]) ?? .audioInput,
+            source: source,
+            speaker: speaker,
             text: row["text"],
             startTime: row["start_time"],
             endTime: row["end_time"],
-            createdAt: DateCoding.date(from: row["created_at"])
+            createdAt: DateCoding.date(from: row["created_at"]),
+            inputDeviceName: row["input_device_name"],
+            outputDeviceName: row["output_device_name"],
+            deviceID: row["device_id"],
+            confidence: confidence ?? 1.0
         )
     }
 }

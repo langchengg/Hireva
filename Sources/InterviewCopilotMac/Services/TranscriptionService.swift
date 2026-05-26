@@ -23,6 +23,9 @@ final class MockTranscriptionService: TranscriptionProvider {
     private var continuation: AsyncStream<TranscriptSegment>.Continuation?
     private var currentSessionID: String?
 
+    // Allows user to manually select a speaker role for mock inputs
+    var selectedMockSpeaker: SpeakerRole = .interviewer
+
     lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { continuation in
         self.continuation = continuation
     }
@@ -31,19 +34,27 @@ final class MockTranscriptionService: TranscriptionProvider {
         currentSessionID = sessionID
     }
 
-    func submit(_ text: String, speaker: SpeakerRole = .audioInput) {
+    func submit(_ text: String, speaker: SpeakerRole? = nil) {
         guard let currentSessionID else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        let finalSpeaker = speaker ?? selectedMockSpeaker
+
         continuation?.yield(
             TranscriptSegment(
                 id: UUID().uuidString,
                 sessionID: currentSessionID,
-                speaker: speaker,
+                source: .mock,
+                speaker: finalSpeaker,
                 text: trimmed,
                 startTime: nil,
                 endTime: nil,
-                createdAt: Date()
+                createdAt: Date(),
+                inputDeviceName: "Mock Input",
+                outputDeviceName: "Mock Output",
+                deviceID: "mock_id",
+                confidence: 1.0
             )
         )
     }

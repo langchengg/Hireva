@@ -17,6 +17,8 @@ struct LiveInterviewView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
                             statusStrip
+                            audioDeviceConfigPanel
+                            audioRouteWarning
                             permissionRecovery
                             floatingAssistantStatus
                             autoDetectionStatus
@@ -53,6 +55,16 @@ struct LiveInterviewView: View {
             ) {
                 appState.startListening(mode: .microphone)
             }
+
+            Picker("", selection: audioCaptureModeBinding) {
+                ForEach(AudioCaptureMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 250)
+            .disabled(!appState.liveState.canStartListening)
+            .help("Choose what audio streams to capture for candidate and interviewer speech.")
 
             Button {
                 appState.stopListening()
@@ -96,9 +108,18 @@ struct LiveInterviewView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
 
+            Button {
+                appState.restartAudioInput()
+            } label: {
+                Label("Restart", systemImage: "arrow.clockwise.circle")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .help("Manual audio capture reset if device changes.")
+
             Spacer()
             
-            // Integrated visual mic level indicator
+            // Integrated visual mic level indicators
             MicLevelIndicatorView(appState: appState)
 
             Button {
@@ -129,7 +150,11 @@ struct LiveInterviewView: View {
                     systemImage: "mic",
                     tint: appState.microphonePermissionState == .authorized ? .green : .orange
                 )
-                StatusPill(title: "ASR Apple Speech", systemImage: "text.bubble", tint: .blue)
+                StatusPill(
+                    title: "System Audio \(appState.permissionSnapshot.systemAudioCapture == .granted ? "Granted" : "Required")",
+                    systemImage: "speaker.wave.2",
+                    tint: appState.permissionSnapshot.systemAudioCapture == .granted ? .green : .orange
+                )
                 StatusPill(title: appState.activeRealtimeProviderBadge, systemImage: "brain", tint: appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue)
                 StatusPill(title: appState.onboardingComplete ? "CV/JD loaded" : "CV/JD missing", systemImage: "doc.on.doc", tint: appState.onboardingComplete ? .green : .red)
             }
@@ -138,24 +163,51 @@ struct LiveInterviewView: View {
 
     @ViewBuilder
     private var permissionRecovery: some View {
-        if appState.liveState == .permissionDenied || appState.microphonePermissionState == .denied || appState.microphonePermissionState == .restricted {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Grant microphone permission to start live transcription", systemImage: "mic.slash")
-                    .font(.headline)
-                Text("After granting access in macOS, return here and Start Listening again. If the badge does not update, use Refresh or restart the app.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button("Request Permission") {
-                        appState.requestMicrophonePermission()
-                    }
-                    .buttonStyle(.bordered)
+        let captureMode = appState.settings.audioCaptureMode
+        let needsScreen = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
+        let hasScreen = appState.permissionSnapshot.screenRecording == .granted
+        let hasMic = appState.microphonePermissionState == .authorized
+        let needsMic = captureMode == .microphoneOnly || captureMode == .microphoneAndSystem
 
+        if appState.liveState == .permissionDenied || 
+            (!hasMic && needsMic) || 
+            (!hasScreen && needsScreen) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Permissions required to start interview", systemImage: "hand.raised.fill")
+                    .font(.headline)
+                
+                if !hasMic && needsMic {
+                    Text("• Microphone & Speech recognition permissions are required for candidate speech. Grant access in macOS Privacy & Security.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                
+                if needsScreen && !hasScreen {
+                    Text("• Screen & System Audio Recording permission is required for interviewer speech. Enable Screen & System Audio Recording in System Settings -> Privacy & Security.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                
+                HStack {
+                    if !hasMic && needsMic {
+                        Button("Request Microphone") {
+                            appState.requestMicrophonePermission()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
+                    if needsScreen && !hasScreen {
+                        Button("Request Screen Recording") {
+                            appState.requestScreenRecordingPermission()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
                     Button("Open System Settings") {
                         appState.openMicrophonePrivacySettings()
                     }
                     .buttonStyle(.borderedProminent)
-
+                    
                     Button("Refresh") {
                         appState.refreshPermissions()
                     }
@@ -239,13 +291,22 @@ struct LiveInterviewView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
     }
-
+    
     private var practiceTestingSection: some View {
         DisclosureGroup(isExpanded: $practiceExpanded) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Use this to test the full AI pipeline without microphone input: mock transcript → question detection → context retrieval → suggestion generation.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                
+                Picker("Mock Speaker", selection: $appState.selectedMockSpeaker) {
+                    Text("Interviewer").tag(SpeakerRole.interviewer)
+                    Text("Candidate").tag(SpeakerRole.candidate)
+                    Text("Unknown").tag(SpeakerRole.unknown)
+                }
+                .pickerStyle(.segmented)
+                .padding(.vertical, 4)
+
                 HStack(spacing: 10) {
                     TextField("Paste an interviewer question, for example: Walk me through your robotics project.", text: $mockQuestion, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
@@ -267,6 +328,17 @@ struct LiveInterviewView: View {
         }
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var audioCaptureModeBinding: Binding<AudioCaptureMode> {
+        Binding(
+            get: { appState.settings.audioCaptureMode },
+            set: { mode in
+                var next = appState.settings
+                next.audioCaptureMode = mode
+                appState.saveSettings(next)
+            }
+        )
     }
 
     private var automaticDetectionBinding: Binding<Bool> {
@@ -307,5 +379,122 @@ struct LiveInterviewView: View {
         }
         .padding(14)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private var audioRouteWarning: some View {
+        if appState.noAudioWarningVisible, let error = appState.audioRouteError {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.red)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Audio Input Alert")
+                        .font(.subheadline.weight(.bold))
+                    Text(error)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                Spacer()
+                
+                Button("Restart Audio Input") {
+                    appState.restartAudioInput()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(12)
+            .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    @ViewBuilder
+    private var audioDeviceConfigPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Audio Hardware Status", systemImage: "speaker.wave.2.fill")
+                    .font(.headline)
+                Spacer()
+                Text("Capture Mode: \(captureModeDescription)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.blue)
+            }
+
+            Divider()
+
+            HStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Input Device (Mac Mic)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(AudioDeviceManager.shared.currentInputDeviceName)
+                        .font(.callout.weight(.medium))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Output Device")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(AudioDeviceManager.shared.currentOutputDeviceName)
+                        .font(.callout.weight(.medium))
+                }
+            }
+
+            if let warningText = routeWarningMessage {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(warningText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var captureModeDescription: String {
+        guard let session = appState.currentSession else {
+            return appState.settings.audioCaptureMode.displayName
+        }
+        switch session.mode {
+        case .mock:
+            return "Mock"
+        case .microphone:
+            return appState.settings.audioCaptureMode.displayName
+        }
+    }
+
+    private var routeWarningMessage: String? {
+        let manager = AudioDeviceManager.shared
+        let sessionMode = appState.currentSession?.mode ?? .microphone
+        
+        if sessionMode == .mock {
+            return nil
+        }
+        
+        var baseWarning = ""
+        let captureMode = appState.settings.audioCaptureMode
+        
+        if captureMode == .microphoneOnly {
+            baseWarning = "Automatic interviewer question detection requires System Audio capture. Microphone-only mode cannot reliably hear the interviewer if you are wearing headphones."
+            if !appState.settings.allowQuestionDetectionFromMicrophoneOnly {
+                baseWarning += " Note: Microphone-only question detection is off by default for safety."
+            }
+        } else {
+            if manager.isUsingHeadphonesOrBluetooth {
+                baseWarning = "Headset mode: microphone captures you (Candidate); interviewer audio captured from system audio (Interviewer) for perfect separation."
+            } else {
+                baseWarning = "Speaker mode: microphone captures you; system audio captures interviewer. Warning: microphone may capture speaker leak. Echo protection is active."
+            }
+        }
+        
+        return baseWarning
     }
 }
