@@ -1,0 +1,45 @@
+import AppKit
+import SwiftUI
+
+public struct InterviewCopilotMacApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var appState = AppState.bootstrap()
+
+    public init() {}
+
+    public var body: some Scene {
+        WindowGroup {
+            RootView(appState: appState)
+                .frame(minWidth: 1_120, minHeight: 720)
+        }
+        .windowStyle(.titleBar)
+        .commands {
+            CommandGroup(after: .appSettings) {
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandMenu("Assistant") {
+                Button {
+                    appState.showFloatingAssistant()
+                } label: {
+                    Label("Show Floating Assistant", systemImage: "macwindow.badge.plus")
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
+        }
+
+        Settings {
+            SettingsView(appState: appState)
+                .frame(width: 720, height: 640)
+        }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}

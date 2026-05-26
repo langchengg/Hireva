@@ -1,0 +1,3 @@
+import InterviewCopilotMac
+
+InterviewCopilotMacApp.main()
