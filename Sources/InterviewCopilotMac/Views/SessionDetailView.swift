@@ -64,7 +64,7 @@ struct SessionDetailView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(appState.selectedSessionSuggestions) { card in
-                            SuggestionCardView(card: card)
+                            SuggestionCardView(card: card, retrievedChunks: appState.historicalSuggestionChunks[card.id] ?? [], isSourcesExpandedInitially: true)
                                 .frame(minHeight: 240)
                         }
                     }

@@ -163,6 +163,44 @@ final class AppDatabase {
             try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN confidence REAL")
         }
 
+        migrator.registerMigration("v4_rag_attribution") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(document_chunks)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+            
+            if !columnNames.contains("section_title") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN section_title TEXT")
+            }
+            if !columnNames.contains("word_count") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN word_count INTEGER")
+            }
+            if !columnNames.contains("metadata_json") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN metadata_json TEXT")
+            }
+            
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS suggestion_card_retrieved_chunks (
+                id TEXT PRIMARY KEY,
+                suggestion_card_id TEXT NOT NULL REFERENCES suggestion_cards(id) ON DELETE CASCADE,
+                chunk_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                document_type TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                content_preview TEXT NOT NULL,
+                full_content TEXT NOT NULL,
+                keywords_json TEXT NOT NULL,
+                score REAL NOT NULL,
+                keyword_overlap_count INTEGER NOT NULL,
+                content_overlap_count INTEGER NOT NULL,
+                rank INTEGER NOT NULL,
+                is_included INTEGER NOT NULL DEFAULT 1,
+                section_title TEXT,
+                word_count INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """)
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_suggestion_card_retrieved_chunks_card_id ON suggestion_card_retrieved_chunks(suggestion_card_id)")
+        }
+
         return migrator
     }
 }

@@ -47,6 +47,7 @@ struct WindowMinSizeEnforcer: NSViewRepresentable {
         DispatchQueue.main.async {
             if let window = view.window, !(window is NSPanel) {
                 window.minSize = NSSize(width: minWidth, height: minHeight)
+                window.setFrame(NSRect(x: 20, y: 100, width: 1120, height: 720), display: true, animate: false)
             }
         }
         return view

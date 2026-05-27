@@ -47,8 +47,11 @@ final class DocumentRepository {
             for (index, chunk) in chunks.enumerated() {
                 try db.execute(
                     sql: """
-                    INSERT INTO document_chunks (id, document_id, document_type, chunk_index, content, keywords, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO document_chunks (
+                        id, document_id, document_type, chunk_index, content, keywords,
+                        section_title, word_count, metadata_json, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         UUID().uuidString,
@@ -57,6 +60,9 @@ final class DocumentRepository {
                         index,
                         chunk.content,
                         chunk.keywords.joined(separator: ","),
+                        chunk.sectionTitle,
+                        chunk.wordCount,
+                        chunk.metadataJSON,
                         DateCoding.string(from: now)
                     ]
                 )
@@ -147,6 +153,9 @@ final class DocumentRepository {
             chunkIndex: row["chunk_index"],
             content: row["content"],
             keywords: keywordsString?.split(separator: ",").map(String.init) ?? [],
+            sectionTitle: row["section_title"],
+            wordCount: row["word_count"],
+            metadataJSON: row["metadata_json"],
             createdAt: DateCoding.date(from: row["created_at"])
         )
     }

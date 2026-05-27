@@ -101,6 +101,9 @@ final class AppState: ObservableObject {
     @Published public var systemAudioPermissionState: ScreenSystemAudioPermissionState = .permissionMissing
     @Published public var systemAudioProbeResult: ScreenSystemAudioPermissionProbeResult? = nil
     @Published var diagnostics = DeveloperDiagnostics.empty
+    @Published var lastRetrievalTrace: RetrievalTrace?
+    @Published var currentSuggestionRetrievedChunks: [RetrievedChunk] = []
+    @Published var historicalSuggestionChunks: [String: [RetrievedChunk]] = [:]
 
     // MARK: - Manual Capture Push-to-Ask state
     @Published public var interviewCopilotMode: InterviewCopilotMode = .autoDetect {
@@ -185,6 +188,7 @@ final class AppState: ObservableObject {
     @Published public var floatingPanelUpdated: Bool = false
 
 
+    let database: AppDatabase
     let documentRepository: DocumentRepository
     let sessionRepository: SessionRepository
     let transcriptRepository: TranscriptRepository
@@ -263,6 +267,7 @@ final class AppState: ObservableObject {
         let router = llmRouter ?? LLMRouter(settingsRepository: settings, apiKeyStore: keychain)
 
 
+        self.database = database
         self.documentRepository = documents
         self.sessionRepository = sessions
         self.transcriptRepository = transcripts
@@ -410,8 +415,20 @@ final class AppState: ObservableObject {
                 guard let account = provider.apiKeyAccount else { return false }
                 return keychainService.hasAPIKey(account: account)
             }
+            let cvCount = (try? documentRepository.chunks(type: .cv).count) ?? 0
+            let jdCount = (try? documentRepository.chunks(type: .jobDescription).count) ?? 0
             refreshPermissions()
-            updateDiagnostics { $0.apiCallCount = (try? settingsRepository.apiCallCount()) ?? 0 }
+            updateDiagnostics {
+                $0.storedCVChunkCount = cvCount
+                $0.storedJDChunkCount = jdCount
+                $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? 0
+            }
+            injectVerificationMockData()
+            if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1",
+               let sectionStr = ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"],
+               let sec = AppSection(rawValue: sectionStr) {
+                self.selectedSection = sec
+            }
         } catch {
             showError(error.localizedDescription)
         }
@@ -1113,12 +1130,13 @@ final class AppState: ObservableObject {
             guard let self else { return }
             do {
                 let transcript = try transcriptRepository.segments(sessionID: session.id)
-                let context = try contextRetrievalService.retrieveContext(
+                let (context, trace) = try contextRetrievalService.retrieveContextWithTrace(
                     question: transcript.map(\.text).joined(separator: "\n"),
                     intent: .unclear,
                     maxCVWords: 1_500,
                     maxJDWords: 1_000
                 )
+                self.lastRetrievalTrace = trace
                 let result = try await recapGenerationService.generate(
                     session: session,
                     transcript: transcript,
@@ -1158,6 +1176,12 @@ final class AppState: ObservableObject {
             selectedSessionTranscript = try transcriptRepository.segments(sessionID: sessionID)
             selectedSessionSuggestions = try suggestionRepository.suggestions(sessionID: sessionID)
             selectedSessionRecap = try recapRepository.recap(sessionID: sessionID)
+            
+            var chunksDict: [String: [RetrievedChunk]] = [:]
+            for card in selectedSessionSuggestions {
+                chunksDict[card.id] = (try? suggestionRepository.retrievedChunks(suggestionCardID: card.id)) ?? []
+            }
+            historicalSuggestionChunks = chunksDict
         } catch {
             showError("Could not load session: \(error.localizedDescription)")
         }
@@ -1597,14 +1621,16 @@ final class AppState: ObservableObject {
         self.floatingPanelUpdated = false
         
         var retrievedContext: RetrievedContext? = nil
+        var retrievalTrace: RetrievalTrace? = nil
         do {
-            let context = try contextRetrievalService.retrieveContext(
+            let (context, trace) = try contextRetrievalService.retrieveContextWithTrace(
                 question: question.questionText,
                 intent: question.intent,
                 maxCVWords: 1_500,
                 maxJDWords: 1_000
             )
             retrievedContext = context
+            retrievalTrace = trace
             let result = try await suggestionGenerationService.generate(
                 question: question,
                 context: context,
@@ -1618,7 +1644,9 @@ final class AppState: ObservableObject {
             }
             self.lastSuggestionGenerationProvider = result.response.providerName
             self.lastSuggestionGenerationModel = result.response.modelName
-            try suggestionRepository.saveSuggestionCard(result.card)
+            try suggestionRepository.saveSuggestionCard(result.card, retrievedChunks: trace.rankedCVChunks + trace.rankedJDChunks)
+            self.lastRetrievalTrace = trace
+            self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
             currentSuggestion = result.card
             possibleQuestion = nil
             if autoGenerated {
@@ -1637,6 +1665,7 @@ final class AppState: ObservableObject {
                 $0.lastAPILatencyMS = result.response.latencyMS
                 $0.lastProviderName = result.response.providerName
                 $0.lastProviderModel = result.response.modelName
+                $0.lastRetrievalTrace = retrievalTrace
                 $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
             }
             
@@ -2027,7 +2056,7 @@ final class AppState: ObservableObject {
                 )
                 
                 // gate context to 800 CV / 600 JD words
-                let context = try contextRetrievalService.retrieveContext(
+                let (context, trace) = try contextRetrievalService.retrieveContextWithTrace(
                     question: text,
                     intent: .technical,
                     maxCVWords: 800,
@@ -2085,9 +2114,13 @@ final class AppState: ObservableObject {
                     
                     var savedCard = result.card
                     savedCard.questionID = savedQuestion.id
-                    try? self.suggestionRepository.saveSuggestionCard(savedCard)
+                    
+                    // Save card and retrieved chunks atomically
+                    try self.suggestionRepository.saveSuggestionCard(savedCard, retrievedChunks: trace.rankedCVChunks + trace.rankedJDChunks)
                     
                     // Update AppState current suggestions
+                    self.lastRetrievalTrace = trace
+                    self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
                     self.currentSuggestion = savedCard
                     self.lastDetectedQuestion = savedQuestion
                     
@@ -2097,16 +2130,20 @@ final class AppState: ObservableObject {
                         diag.lastAPILatencyMS = result.response.latencyMS
                         diag.lastProviderName = result.response.providerName
                         diag.lastProviderModel = result.response.modelName
+                        diag.lastRetrievalTrace = trace
                         diag.rawTranscript = rawText
                         diag.cleanedQuestion = text
                     }
                 } else {
                     // Update diagnostics even if session doesn't run
+                    self.lastRetrievalTrace = trace
+                    self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
                     self.updateDiagnostics { diag in
                         diag.apiCallCount += 1
                         diag.lastAPILatencyMS = result.response.latencyMS
                         diag.lastProviderName = result.response.providerName
                         diag.lastProviderModel = result.response.modelName
+                        diag.lastRetrievalTrace = trace
                         diag.rawTranscript = rawText
                         diag.cleanedQuestion = text
                     }
@@ -2183,5 +2220,221 @@ final class AppState: ObservableObject {
               self.manualCaptureState == .suggestionReady || 
               caseSuggestionError(self.manualCaptureState) else { return }
         sendManualCaptureToAI()
+    }
+
+    @MainActor
+    func injectVerificationMockData() {
+        guard ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" else { return }
+        
+        let cvChunks = [
+            RetrievedChunk(
+                id: "cv-chunk-1",
+                documentID: "doc-cv-1",
+                documentType: .cv,
+                chunkIndex: 0,
+                contentPreview: "Led development of a deep learning-based robotic arm manipulation project...",
+                fullContent: "Led development of a deep learning-based robotic arm manipulation project using PyTorch and ROS. Achieved a 95% grasp success rate in unstructured environments.",
+                keywords: ["robotic", "PyTorch", "ROS", "manipulation", "deep learning"],
+                score: 8.5,
+                keywordOverlapCount: 3,
+                contentOverlapCount: 5,
+                rank: 1,
+                isIncludedInPrompt: true,
+                sectionTitle: "ROBOTICS PROJECT",
+                wordCount: 22
+            ),
+            RetrievedChunk(
+                id: "cv-chunk-2",
+                documentID: "doc-cv-1",
+                documentType: .cv,
+                chunkIndex: 1,
+                contentPreview: "Implemented reinforcement learning policies for obstacle avoidance in mobile...",
+                fullContent: "Implemented reinforcement learning policies for obstacle avoidance in mobile robots using DDPG and gazebo simulations. Tested and deployed on turtlebot platforms.",
+                keywords: ["reinforcement learning", "obstacle avoidance", "mobile robots", "turtlebot"],
+                score: 6.0,
+                keywordOverlapCount: 2,
+                contentOverlapCount: 3,
+                rank: 2,
+                isIncludedInPrompt: true,
+                sectionTitle: "ROBOTICS PROJECT",
+                wordCount: 20
+            ),
+            RetrievedChunk(
+                id: "cv-chunk-3",
+                documentID: "doc-cv-1",
+                documentType: .cv,
+                chunkIndex: 2,
+                contentPreview: "Designed custom mechanical mounts and sensory integration brackets for 3D...",
+                fullContent: "Designed custom mechanical mounts and sensory integration brackets for 3D LIDAR sensors on self-driving prototypes. Formulated thermal dissipation plans.",
+                keywords: ["mechanical mounts", "LIDAR", "self-driving", "prototype"],
+                score: 1.5,
+                keywordOverlapCount: 0,
+                contentOverlapCount: 1,
+                rank: 3,
+                isIncludedInPrompt: false,
+                sectionTitle: "HARDWARE DESIGN",
+                wordCount: 18
+            )
+        ]
+        
+        let jdChunks = [
+            RetrievedChunk(
+                id: "jd-chunk-1",
+                documentID: "doc-jd-1",
+                documentType: .jobDescription,
+                chunkIndex: 0,
+                contentPreview: "We are seeking a Robotics Engineer experienced in ROS, motion planning, and...",
+                fullContent: "We are seeking a Robotics Engineer experienced in ROS, motion planning, and deep learning for autonomous systems. Experience with physical deployment is a plus.",
+                keywords: ["Robotics Engineer", "ROS", "motion planning", "autonomous"],
+                score: 9.0,
+                keywordOverlapCount: 4,
+                contentOverlapCount: 6,
+                rank: 1,
+                isIncludedInPrompt: true,
+                sectionTitle: "ROLE OVERVIEW",
+                wordCount: 23
+            )
+        ]
+        
+        let trace = RetrievalTrace(
+            id: UUID(),
+            query: "Can you tell me about your robotics project?",
+            intent: "technical",
+            createdAt: Date(),
+            rankedCVChunks: cvChunks,
+            rankedJDChunks: jdChunks,
+            includedCVChunks: [cvChunks[0], cvChunks[1]],
+            includedJDChunks: [jdChunks[0]],
+            excludedCVChunks: [cvChunks[2]],
+            excludedJDChunks: [],
+            cvWordsUsed: 42,
+            jdWordsUsed: 23,
+            cvWordBudget: 350,
+            jdWordBudget: 350,
+            retrievalLatencyMS: 12.45,
+            emptyQueryFallbackUsed: false,
+            zeroScoreFallbackUsed: false
+        )
+        
+        self.lastRetrievalTrace = trace
+        
+        let mockCard = SuggestionCard(
+            id: "mock-suggestion-card-id",
+            sessionID: "mock-session-id",
+            questionID: nil,
+            strategy: "Project Walkthrough",
+            sayFirst: "Sure! I led the development of a deep learning-based robotic arm manipulation project using PyTorch and ROS.",
+            keyPoints: [
+                "Adapted visual feedback loops to achieve 95% grasp success rate.",
+                "Implemented ROS nodes for real-time trajectory execution.",
+                "Integrated reinforcement learning obstacle avoidance models."
+            ],
+            followUpReady: [
+                "What reinforcement learning algorithm did you use?",
+                "How did you calibrate the robotic arm coordinate frames?"
+            ],
+            confidence: 0.95,
+            caution: "Emphasize manipulation success rates over simulation-only results.",
+            evidenceUsed: [
+                "PyTorch and ROS robotic arm manipulation",
+                "95% grasp success in unstructured environments"
+            ],
+            riskLevel: .low,
+            modelName: "gemma4:26b",
+            promptVersion: "v1.0",
+            providerKind: .ollamaLocal,
+            providerName: "Local Ollama",
+            providerBaseURL: "http://localhost:11434",
+            latencyMS: 1250,
+            isLocal: true,
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        
+        self.currentSuggestion = mockCard
+        self.currentSuggestionRetrievedChunks = cvChunks.filter { $0.isIncludedInPrompt } + jdChunks.filter { $0.isIncludedInPrompt }
+        self.manualCaptureSuggestion = mockCard
+        self.manualCaptureState = .suggestionReady
+        
+        let mockQuestion = DetectedQuestion(
+            id: "mock-question-id",
+            sessionID: "mock-session-id",
+            transcriptSegmentID: "mock-segment-id",
+            questionText: "Can you tell me about your robotics project?",
+            intent: .technical,
+            answerStrategy: .projectWalkthrough,
+            confidence: 0.95,
+            reason: "Verifying robotics experience",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "gemma4:26b",
+            promptVersion: "v1.0",
+            providerKind: .ollamaLocal,
+            providerName: "Local Ollama",
+            providerBaseURL: "http://localhost:11434",
+            latencyMS: 1250,
+            isLocal: true,
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        self.lastDetectedQuestion = mockQuestion
+        self.lastDetectedQuestionText = mockQuestion.questionText
+        
+        do {
+            try? self.sessionRepository.deleteSession(id: "mock-session-id")
+            
+            let mockSession = InterviewSession(
+                id: "mock-session-id",
+                title: "Mock Interview - Robotics",
+                company: "RoboCorp",
+                role: "Robotics Engineer",
+                startedAt: Date().addingTimeInterval(-3600),
+                endedAt: Date(),
+                mode: .mock,
+                createdAt: Date()
+            )
+            
+            try self.database.dbQueue.write { db in
+                try db.execute(
+                    sql: """
+                    INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        mockSession.id,
+                        mockSession.title,
+                        mockSession.company,
+                        mockSession.role,
+                        DateCoding.string(from: mockSession.startedAt),
+                        mockSession.endedAt.map(DateCoding.string),
+                        mockSession.mode.rawValue,
+                        DateCoding.string(from: mockSession.createdAt)
+                    ]
+                )
+            }
+            self.sessions = try self.sessionRepository.listSessions()
+            
+            let mockSegment = TranscriptSegment(
+                id: "mock-segment-id",
+                sessionID: "mock-session-id",
+                source: .mock,
+                speaker: .interviewer,
+                text: "Can you tell me about your robotics project?",
+                startTime: 0,
+                endTime: 5,
+                createdAt: Date()
+            )
+            try self.transcriptRepository.saveSegment(mockSegment)
+            try self.suggestionRepository.saveSuggestionCard(mockCard, retrievedChunks: cvChunks + jdChunks)
+            
+            if ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"] == "sessions" {
+                self.selectedSessionID = "mock-session-id"
+                loadSessionDetails(sessionID: "mock-session-id")
+            } else if ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"] == "floating" {
+                self.showFloatingAssistant()
+            }
+        } catch {
+            print("Failed to save mock database elements: \(error)")
+        }
     }
 }

@@ -8,6 +8,20 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Interview Copilot")
                     .font(.largeTitle.weight(.bold))
+                
+                if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("DEVELOPER WARNING: Verification Mocks Active")
+                            .font(.headline)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundStyle(.orange)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
                 Text("A native macOS assistant for candidate-owned context, real-time notes, concise suggestions, and post-interview practice.")
                     .font(.title3)
                     .foregroundStyle(.secondary)

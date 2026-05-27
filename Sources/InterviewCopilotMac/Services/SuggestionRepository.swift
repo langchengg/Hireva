@@ -45,6 +45,10 @@ final class SuggestionRepository {
     }
 
     func saveSuggestionCard(_ card: SuggestionCard) throws {
+        try saveSuggestionCard(card, retrievedChunks: [])
+    }
+
+    func saveSuggestionCard(_ card: SuggestionCard, retrievedChunks: [RetrievedChunk]) throws {
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
@@ -79,6 +83,68 @@ final class SuggestionRepository {
                     DateCoding.string(from: card.createdAt)
                 ]
             )
+
+            for chunk in retrievedChunks {
+                try db.execute(
+                    sql: """
+                    INSERT INTO suggestion_card_retrieved_chunks (
+                        id, suggestion_card_id, chunk_id, document_id, document_type, chunk_index,
+                        content_preview, full_content, keywords_json, score, keyword_overlap_count,
+                        content_overlap_count, rank, is_included, section_title, word_count, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        UUID().uuidString,
+                        card.id,
+                        chunk.id,
+                        chunk.documentID,
+                        chunk.documentType.rawValue,
+                        chunk.chunkIndex,
+                        chunk.contentPreview,
+                        chunk.fullContent,
+                        JSONParsing.jsonString(chunk.keywords),
+                        chunk.score,
+                        chunk.keywordOverlapCount,
+                        chunk.contentOverlapCount,
+                        chunk.rank,
+                        chunk.isIncludedInPrompt ? 1 : 0,
+                        chunk.sectionTitle,
+                        chunk.wordCount,
+                        DateCoding.string(from: card.createdAt)
+                    ]
+                )
+            }
+        }
+    }
+
+    func retrievedChunks(suggestionCardID: String) throws -> [RetrievedChunk] {
+        try database.dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM suggestion_card_retrieved_chunks WHERE suggestion_card_id = ? ORDER BY rank ASC",
+                arguments: [suggestionCardID]
+            ).map { row in
+                let typeString: String = row["document_type"]
+                let keywordsString: String = row["keywords_json"]
+                let keywords = JSONParsing.decodeArray(String.self, from: keywordsString)
+                return RetrievedChunk(
+                    id: row["chunk_id"],
+                    documentID: row["document_id"],
+                    documentType: DocumentType(rawValue: typeString) ?? .cv,
+                    chunkIndex: row["chunk_index"],
+                    contentPreview: row["content_preview"],
+                    fullContent: row["full_content"],
+                    keywords: keywords,
+                    score: row["score"],
+                    keywordOverlapCount: row["keyword_overlap_count"] ?? 0,
+                    contentOverlapCount: row["content_overlap_count"] ?? 0,
+                    rank: row["rank"],
+                    isIncludedInPrompt: (row["is_included"] as Int) != 0,
+                    sectionTitle: row["section_title"],
+                    wordCount: row["word_count"]
+                )
+            }
         }
     }
 

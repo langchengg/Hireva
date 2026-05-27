@@ -2,6 +2,9 @@ import SwiftUI
 
 struct SuggestionCardView: View {
     var card: SuggestionCard?
+    var retrievedChunks: [RetrievedChunk] = []
+    var isSourcesExpandedInitially: Bool = false
+    @State private var isSourcesExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -33,6 +36,57 @@ struct SuggestionCardView: View {
                             }
                         }
 
+                        let included = retrievedChunks.filter { $0.isIncludedInPrompt }
+                        if !included.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                DisclosureGroup(isExpanded: $isSourcesExpanded) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ForEach(included) { chunk in
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                HStack {
+                                                    Text(chunk.documentType == .cv ? "CV" : "JD")
+                                                        .font(.caption2.weight(.bold))
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(chunk.documentType == .cv ? Color.blue.opacity(0.15) : Color.purple.opacity(0.15))
+                                                        .foregroundStyle(chunk.documentType == .cv ? Color.blue : Color.purple)
+                                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                                                    Text("Rank #\(chunk.rank)")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                    
+                                                    if let section = chunk.sectionTitle {
+                                                        Text(section)
+                                                            .font(.caption2)
+                                                            .foregroundStyle(.purple)
+                                                            .lineLimit(1)
+                                                    }
+                                                    
+                                                    Spacer()
+                                                    
+                                                    Text("Score: \(String(format: "%.1f", chunk.score))")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                Text(chunk.contentPreview + (chunk.fullContent.count > chunk.contentPreview.count ? "..." : ""))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.primary)
+                                                    .multilineTextAlignment(.leading)
+                                            }
+                                            .padding(8)
+                                            .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                                        }
+                                    }
+                                    .padding(.top, 8)
+                                } label: {
+                                    Label("Sources (\(included.count))", systemImage: "doc.text.magnifyingglass")
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                }
+                            }
+                        }
+
                         section("Key Points", icon: "list.bullet", items: card.keyPoints)
                         section("Follow-up Ready", icon: "arrowshape.turn.up.right", items: card.followUpReady)
 
@@ -59,6 +113,9 @@ struct SuggestionCardView: View {
                 EmptyStateView(title: "No suggestion yet", message: "Start Listening. Automatic detection will generate a concise card when a complete question is heard.", systemImage: "sparkles")
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
+        }
+        .onAppear {
+            isSourcesExpanded = isSourcesExpandedInitially
         }
     }
 

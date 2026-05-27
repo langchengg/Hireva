@@ -8,7 +8,7 @@ struct LiveInterviewView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let isWide = geometry.size.width >= 1100
+            let isWide = geometry.size.width >= 800
             VStack(spacing: 0) {
                 toolbar(width: geometry.size.width)
                 Divider()
@@ -160,7 +160,7 @@ struct LiveInterviewView: View {
 
     private func toolbar(width: CGFloat) -> some View {
         Group {
-            if width >= 1100 {
+            if width >= 800 {
                 // Wide Toolbar: Single row layout
                 HStack(spacing: 10) {
                     modeSelector
@@ -605,7 +605,7 @@ struct LiveInterviewView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
                             detectedQuestionPanel
-                            SuggestionCardView(card: appState.currentSuggestion)
+                            SuggestionCardView(card: appState.currentSuggestion, retrievedChunks: appState.currentSuggestionRetrievedChunks)
                         }
                         .padding(18)
                     }
@@ -627,7 +627,7 @@ struct LiveInterviewView: View {
                             .font(.title2.weight(.bold))
                             
                         detectedQuestionPanel
-                        SuggestionCardView(card: appState.currentSuggestion)
+                        SuggestionCardView(card: appState.currentSuggestion, retrievedChunks: appState.currentSuggestionRetrievedChunks)
                         
                         Divider()
                         
@@ -661,7 +661,7 @@ struct LiveInterviewView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
                             detectedQuestionPanel
-                            SuggestionCardView(card: appState.currentSuggestion)
+                            SuggestionCardView(card: appState.currentSuggestion, retrievedChunks: appState.currentSuggestionRetrievedChunks)
                         }
                         .padding(18)
                     }
@@ -682,7 +682,7 @@ struct LiveInterviewView: View {
                             .font(.title2.weight(.bold))
                             
                         detectedQuestionPanel
-                        SuggestionCardView(card: appState.currentSuggestion)
+                        SuggestionCardView(card: appState.currentSuggestion, retrievedChunks: appState.currentSuggestionRetrievedChunks)
                         
                         Divider()
                         
@@ -751,7 +751,7 @@ struct LiveInterviewView: View {
                                 .foregroundStyle(.purple)
                             
                             if let card = appState.manualCaptureSuggestion {
-                                SuggestionCardView(card: card)
+                                SuggestionCardView(card: card, retrievedChunks: appState.currentSuggestionRetrievedChunks)
                             } else {
                                 VStack(spacing: 20) {
                                     Image(systemName: "hand.tap")
@@ -786,7 +786,7 @@ struct LiveInterviewView: View {
                             .foregroundStyle(.purple)
                         
                         if let card = appState.manualCaptureSuggestion {
-                            SuggestionCardView(card: card)
+                            SuggestionCardView(card: card, retrievedChunks: appState.currentSuggestionRetrievedChunks)
                         } else {
                             VStack(spacing: 20) {
                                 Image(systemName: "hand.tap")

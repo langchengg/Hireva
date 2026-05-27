@@ -11,6 +11,9 @@ struct DeveloperDiagnostics: Hashable {
     var lastProviderModel: String?
     var rawTranscript: String?
     var cleanedQuestion: String?
+    var lastRetrievalTrace: RetrievalTrace?
+    var storedCVChunkCount: Int
+    var storedJDChunkCount: Int
 
     static let empty = DeveloperDiagnostics(
         liveState: .idle,
@@ -22,6 +25,9 @@ struct DeveloperDiagnostics: Hashable {
         lastProviderName: nil,
         lastProviderModel: nil,
         rawTranscript: nil,
-        cleanedQuestion: nil
+        cleanedQuestion: nil,
+        lastRetrievalTrace: nil,
+        storedCVChunkCount: 0,
+        storedJDChunkCount: 0
     )
 }

@@ -6,9 +6,13 @@ struct FloatingAssistantView: View {
     @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
     @State private var eventMonitor: Any? = nil
     @State private var mockQuestionText: String = ""
+    @State private var isSourcesExpanded = false
 
     private var compact: Bool {
-        appState.settings.compactMode
+        if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" {
+            return false
+        }
+        return appState.settings.compactMode
     }
 
     private var effectiveOpacity: Double {
@@ -25,10 +29,23 @@ struct FloatingAssistantView: View {
         next.floatingWindowOpacity = min(max(next.floatingWindowOpacity + delta, minOpacity), 1.0)
         appState.saveSettings(next)
     }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            
+            if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text("DEVELOPER WARNING: Verification Mocks Active")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.orange.opacity(0.15))
+                .foregroundStyle(.orange)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+            
             deviceBanner
             
             // Mirror segmented mode selector at the top!
@@ -268,6 +285,58 @@ struct FloatingAssistantView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 bulletSection("Key Points", items: card.keyPoints)
+
+                let included = appState.currentSuggestionRetrievedChunks.filter { $0.isIncludedInPrompt }
+                if !included.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        DisclosureGroup(isExpanded: $isSourcesExpanded) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(included) { chunk in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack {
+                                            Text(chunk.documentType == .cv ? "CV" : "JD")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(chunk.documentType == .cv ? Color.blue.opacity(0.15) : Color.purple.opacity(0.15))
+                                                .foregroundStyle(chunk.documentType == .cv ? Color.blue : Color.purple)
+                                                .clipShape(RoundedRectangle(cornerRadius: 3))
+
+                                            Text("Rank #\(chunk.rank)")
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(.secondary)
+                                            
+                                            if let section = chunk.sectionTitle {
+                                                Text(section)
+                                                    .font(.system(size: 9))
+                                                    .foregroundStyle(.purple)
+                                                    .lineLimit(1)
+                                            }
+                                            
+                                            Spacer()
+                                            
+                                            Text("Score: \(String(format: "%.1f", chunk.score))")
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Text(chunk.contentPreview + (chunk.fullContent.count > chunk.contentPreview.count ? "..." : ""))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.primary)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    .padding(6)
+                                    .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                            .padding(.top, 4)
+                        } label: {
+                            Label("Sources (\(included.count))", systemImage: "doc.text.magnifyingglass")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+
                 bulletSection("Follow-up Ready", items: card.followUpReady)
 
                 HStack(spacing: 8) {

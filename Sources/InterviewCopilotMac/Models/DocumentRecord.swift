@@ -32,5 +32,8 @@ struct DocumentChunk: Identifiable, Hashable, Codable {
     var chunkIndex: Int
     var content: String
     var keywords: [String]
+    var sectionTitle: String?
+    var wordCount: Int?
+    var metadataJSON: String?
     var createdAt: Date
 }

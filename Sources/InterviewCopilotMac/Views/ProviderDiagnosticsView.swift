@@ -9,6 +9,11 @@ struct ProviderDiagnosticsView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Provider Diagnostics")
                     .font(.largeTitle.weight(.bold))
+                
+                RAGDiagnosticsView(appState: appState)
+                
+                Divider()
+                
                 Text("Inspect active AI routing, local/cloud mode, connection state, and installed Ollama models.")
                     .foregroundStyle(.secondary)
 
@@ -43,6 +48,8 @@ struct ProviderDiagnosticsView: View {
                 }
                 .padding(18)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+
+
             }
             .padding(28)
             .frame(maxWidth: 860, alignment: .leading)
