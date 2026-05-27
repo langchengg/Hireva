@@ -1,4 +1,26 @@
 import Foundation
+import Combine
+
+@MainActor
+public final class OllamaDiagnostics: ObservableObject {
+    public static let shared = OllamaDiagnostics()
+
+    @Published public var reachable: Bool = false
+    @Published public var modelInstalled: Bool = false
+    @Published public var lastHTTPStatus: Int? = nil
+    @Published public var lastRawError: String? = nil
+    @Published public var lastRawResponsePreview: String? = nil
+
+    private init() {}
+
+    public func reset() {
+        reachable = false
+        modelInstalled = false
+        lastHTTPStatus = nil
+        lastRawError = nil
+        lastRawResponsePreview = nil
+    }
+}
 
 final class OllamaLLMClient: LLMClientProtocol {
     let providerKind: LLMProviderKind = .ollamaLocal
@@ -14,6 +36,10 @@ final class OllamaLLMClient: LLMClientProtocol {
         let started = ContinuousClock.now
         let models = try await listModels(configuration: configuration)
         guard models.contains(where: { $0.name == configuration.model }) else {
+            await MainActor.run {
+                OllamaDiagnostics.shared.modelInstalled = false
+                OllamaDiagnostics.shared.lastRawError = "Model not found on connection test."
+            }
             throw LLMProviderError.modelNotFound(configuration.model)
         }
 
@@ -24,6 +50,11 @@ final class OllamaLLMClient: LLMClientProtocol {
             options: LLMRequestOptions(temperature: 0)
         )
         _ = try JSONParsing.decodeObject(ConnectionOKPayload.self, from: result.content)
+        
+        await MainActor.run {
+            OllamaDiagnostics.shared.modelInstalled = true
+        }
+
         return LLMConnectionTestResult(
             success: true,
             message: "Connected to local Ollama in \(latencyMS(since: started)) ms.",
@@ -38,41 +69,118 @@ final class OllamaLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
+        let started = ContinuousClock.now
+
+        // Safe logs violating no privacy rules
+        print("[Ollama] baseURL = \(configuration.baseURL)")
+        print("[Ollama] model = \(configuration.model)")
+        print("[Ollama] endpoint = /api/chat")
+
         let models = try await listModels(configuration: configuration)
-        guard models.contains(where: { $0.name == configuration.model }) else {
+        let isInstalled = models.contains(where: { $0.name == configuration.model })
+        await MainActor.run {
+            OllamaDiagnostics.shared.modelInstalled = isInstalled
+        }
+        guard isInstalled else {
+            await MainActor.run {
+                OllamaDiagnostics.shared.lastRawError = "Model '\(configuration.model)' is not installed locally."
+            }
             throw LLMProviderError.modelNotFound(configuration.model)
         }
 
-        let request = try makeChatRequest(
+        var request = try makeChatRequest(
             configuration: configuration,
             messages: messages,
             responseFormat: responseFormat,
             options: options
         )
-        let started = ContinuousClock.now
+        request.timeoutInterval = options.timeoutInterval ?? 120.0
+
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            if let urlError = error as? URLError,
-               [.cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet].contains(urlError.code) {
+            let errorMsg = error.localizedDescription
+            let isNotRunning: Bool
+            var timedOut = false
+            if let urlError = error as? URLError {
+                if urlError.code == .timedOut {
+                    timedOut = true
+                    isNotRunning = false
+                    await MainActor.run {
+                        OllamaDiagnostics.shared.lastRawError = "Request timed out."
+                    }
+                } else if [.cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet].contains(urlError.code) {
+                    isNotRunning = true
+                    await MainActor.run {
+                        OllamaDiagnostics.shared.reachable = false
+                        OllamaDiagnostics.shared.lastRawError = "Ollama connection lost or not running."
+                    }
+                } else {
+                    isNotRunning = false
+                    await MainActor.run {
+                        OllamaDiagnostics.shared.lastRawError = errorMsg
+                    }
+                }
+            } else {
+                isNotRunning = false
+                await MainActor.run {
+                    OllamaDiagnostics.shared.lastRawError = errorMsg
+                }
+            }
+
+            if timedOut {
+                throw LLMProviderError.networkFailure(providerName: configuration.name, message: "Ollama timed out. Try a smaller model or increase timeout.")
+            }
+            if isNotRunning {
                 throw LLMProviderError.ollamaNotRunning
             }
-            throw LLMProviderError.networkFailure(providerName: configuration.name, message: error.localizedDescription)
+            throw LLMProviderError.networkFailure(providerName: configuration.name, message: errorMsg)
         }
 
         let body = String(data: data, encoding: .utf8) ?? ""
-        try validateHTTPResponse(response, body: body, providerName: configuration.name)
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+        await MainActor.run {
+            OllamaDiagnostics.shared.lastHTTPStatus = statusCode
+        }
+        
+        print("[Ollama] HTTP status = \(statusCode)")
+
+        do {
+            try validateHTTPResponse(response, body: body, providerName: configuration.name)
+        } catch {
+            await MainActor.run {
+                OllamaDiagnostics.shared.lastRawError = "HTTP server error \(statusCode)"
+                OllamaDiagnostics.shared.lastRawResponsePreview = String(body.prefix(300))
+            }
+            throw error
+        }
 
         let decoded: OllamaChatResponse
         do {
             decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
         } catch {
+            await MainActor.run {
+                OllamaDiagnostics.shared.lastRawError = "Failed to parse Ollama chat JSON: \(error.localizedDescription)"
+                OllamaDiagnostics.shared.lastRawResponsePreview = String(body.prefix(300))
+            }
             throw LLMProviderError.invalidResponse("Could not decode Ollama /api/chat response.")
         }
 
         let content = decoded.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let latency = latencyMS(since: started)
+        
+        print("[Ollama] latency = \(latency) ms")
+        print("[Ollama] response content length = \(content.count)")
+        print("[Ollama] JSON parse success = \(!content.isEmpty)")
+
+        await MainActor.run {
+            OllamaDiagnostics.shared.lastRawResponsePreview = String(body.prefix(300))
+            OllamaDiagnostics.shared.lastRawError = nil
+        }
+
         guard !content.isEmpty else {
             throw LLMProviderError.emptyResponse(providerName: configuration.name)
         }
@@ -83,7 +191,7 @@ final class OllamaLLMClient: LLMClientProtocol {
             providerKind: .ollamaLocal,
             providerName: configuration.name,
             baseURL: configuration.baseURL,
-            latencyMS: latencyMS(since: started),
+            latencyMS: latency,
             isLocal: true,
             rawResponse: options.includeRawResponse ? body : nil
         )
@@ -91,29 +199,90 @@ final class OllamaLLMClient: LLMClientProtocol {
 
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
         guard let baseURL = URL(string: configuration.baseURL) else {
+            await MainActor.run {
+                OllamaDiagnostics.shared.reachable = false
+                OllamaDiagnostics.shared.lastRawError = "Invalid base URL: \(configuration.baseURL)"
+            }
             throw LLMProviderError.invalidBaseURL(configuration.baseURL)
         }
-        let request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
+        request.timeoutInterval = 10.0 // Fast timeout for listing models
+
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            if let urlError = error as? URLError,
-               [.cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet].contains(urlError.code) {
+            let errorMsg = error.localizedDescription
+            let isNotRunning: Bool
+            var timedOut = false
+            if let urlError = error as? URLError {
+                if urlError.code == .timedOut {
+                    timedOut = true
+                    isNotRunning = false
+                    await MainActor.run {
+                        OllamaDiagnostics.shared.reachable = false
+                        OllamaDiagnostics.shared.lastRawError = "Ollama listing models timed out."
+                    }
+                } else if [.cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet].contains(urlError.code) {
+                    isNotRunning = true
+                    await MainActor.run {
+                        OllamaDiagnostics.shared.reachable = false
+                        OllamaDiagnostics.shared.lastRawError = "Cannot connect to local Ollama. Is it running?"
+                    }
+                } else {
+                    isNotRunning = false
+                    await MainActor.run {
+                        OllamaDiagnostics.shared.reachable = false
+                        OllamaDiagnostics.shared.lastRawError = errorMsg
+                    }
+                }
+            } else {
+                isNotRunning = false
+                await MainActor.run {
+                    OllamaDiagnostics.shared.reachable = false
+                    OllamaDiagnostics.shared.lastRawError = errorMsg
+                }
+            }
+
+            if timedOut {
+                throw LLMProviderError.networkFailure(providerName: configuration.name, message: "Ollama timed out. Try a smaller model or increase timeout.")
+            }
+            if isNotRunning {
                 throw LLMProviderError.ollamaNotRunning
             }
-            throw LLMProviderError.networkFailure(providerName: configuration.name, message: error.localizedDescription)
+            throw LLMProviderError.networkFailure(providerName: configuration.name, message: errorMsg)
         }
 
         let body = String(data: data, encoding: .utf8) ?? ""
-        try validateHTTPResponse(response, body: body, providerName: configuration.name)
+        do {
+            try validateHTTPResponse(response, body: body, providerName: configuration.name)
+        } catch {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            await MainActor.run {
+                OllamaDiagnostics.shared.reachable = false
+                OllamaDiagnostics.shared.lastHTTPStatus = statusCode
+                OllamaDiagnostics.shared.lastRawError = "Tags server error: status \(statusCode ?? 0)"
+            }
+            throw error
+        }
+
         let decoded: OllamaTagsResponse
         do {
             decoded = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
         } catch {
+            await MainActor.run {
+                OllamaDiagnostics.shared.reachable = true
+                OllamaDiagnostics.shared.lastRawError = "Failed to parse tags JSON: \(error.localizedDescription)"
+            }
             throw LLMProviderError.invalidResponse("Could not decode Ollama /api/tags response.")
         }
+
+        await MainActor.run {
+            OllamaDiagnostics.shared.reachable = true
+            OllamaDiagnostics.shared.lastHTTPStatus = 200
+        }
+
         return decoded.models.map {
             LLMModelInfo(name: $0.name, modifiedAt: $0.modifiedAt.flatMap(DateCoding.date), size: $0.size)
         }

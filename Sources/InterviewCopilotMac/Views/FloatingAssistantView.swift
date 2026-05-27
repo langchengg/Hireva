@@ -152,6 +152,8 @@ struct FloatingAssistantView: View {
 
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 10) {
+            ollamaFallbackPanel
+            
             if let question = appState.possibleQuestion ?? appState.lastDetectedQuestion {
                 Text(question.questionText)
                     .font(.headline)
@@ -177,6 +179,7 @@ struct FloatingAssistantView: View {
     private var fullBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                ollamaFallbackPanel
                 transcriptSnippet
                 detectedQuestion
                 suggestion
@@ -299,8 +302,14 @@ struct FloatingAssistantView: View {
         case .permissionDenied:
             return "Permission is blocked. Open the main window for recovery controls."
         case .detectingQuestion:
+            if appState.activeRealtimeProvider?.kind == .ollamaLocal {
+                return "Ollama is thinking (detecting question)..."
+            }
             return "Checking whether the interviewer asked a complete question."
         case .generatingSuggestion:
+            if appState.activeRealtimeProvider?.kind == .ollamaLocal {
+                return "Ollama is thinking (generating suggestion)..."
+            }
             return "Generating a concise suggestion card."
         case .listening, .transcribing:
             return "Automatic question detection is running."
@@ -472,6 +481,58 @@ struct FloatingAssistantView: View {
             .padding(6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    @ViewBuilder
+    private var ollamaFallbackPanel: some View {
+        if appState.activeRealtimeProvider?.kind == .ollamaLocal, let lastFailed = appState.lastFailedTaskType {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Ollama Failure", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline)
+                    .foregroundStyle(.red)
+                
+                if let errorMsg = appState.errorMessage {
+                    Text(errorMsg)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                
+                HStack(spacing: 8) {
+                    Button {
+                        appState.retryLastFailedAITask()
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    
+                    if appState.providerConfigurations.contains(where: { $0.kind == .deepSeek }) {
+                        Button {
+                            appState.switchToDeepSeekFallback()
+                        } label: {
+                            Label("Use DeepSeek", systemImage: "cloud.fill")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
+                    Button {
+                        appState.selectedSection = .settings
+                        appState.openMainWindow()
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Open Settings")
+                }
+            }
+            .padding(12)
+            .background(Color.red.opacity(0.08))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.red.opacity(0.2), lineWidth: 1)
+            )
         }
     }
 }

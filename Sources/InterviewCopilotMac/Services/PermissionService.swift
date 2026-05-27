@@ -65,6 +65,26 @@ enum PermissionState: String, Codable {
     }
 }
 
+enum ScreenSystemAudioPermissionState: Equatable, Hashable {
+    case granted
+    case permissionMissing
+    case restartLikely
+    case identityMismatch
+    case shareableContentProbeFailed(String)
+    case streamAudioProbeFailed(String)
+    
+    var displayName: String {
+        switch self {
+        case .granted: return "Granted"
+        case .permissionMissing: return "Permission Missing"
+        case .restartLikely: return "Restart Required"
+        case .identityMismatch: return "Identity Mismatch"
+        case .shareableContentProbeFailed(let error): return "Shareable Content Probe Failed: \(error)"
+        case .streamAudioProbeFailed(let error): return "Stream Audio Probe Failed: \(error)"
+        }
+    }
+}
+
 struct PermissionSnapshot: Hashable {
     var microphone: PermissionState
     var speechRecognition: PermissionState
@@ -215,23 +235,42 @@ final class PermissionService {
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-                process.arguments = ["-dvv", bundlePath]
+                process.arguments = ["-dvvvv", bundlePath]
                 let pipe = Pipe()
                 process.standardOutput = pipe
                 process.standardError = pipe
+                
+                let reqProcess = Process()
+                reqProcess.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+                reqProcess.arguments = ["-d", "-r-", bundlePath]
+                let reqPipe = Pipe()
+                reqProcess.standardOutput = reqPipe
+                reqProcess.standardError = Pipe()
+                
                 do {
                     try process.run()
                     process.waitUntilExit()
                     let data = pipe.fileHandleForReading.readDataToEndOfFile()
                     let output = String(data: data, encoding: .utf8) ?? ""
+                    
+                    try? reqProcess.run()
+                    reqProcess.waitUntilExit()
+                    let reqData = reqPipe.fileHandleForReading.readDataToEndOfFile()
+                    let reqOutput = String(data: reqData, encoding: .utf8) ?? ""
+                    
                     let lines = output.components(separatedBy: "\n")
-                    let relevant = lines.filter {
+                    var relevant = lines.filter {
                         $0.hasPrefix("Identifier=") ||
                         $0.hasPrefix("Authority=") ||
                         $0.hasPrefix("TeamIdentifier=") ||
                         $0.hasPrefix("Signature=") ||
                         $0.contains("code signature")
                     }
+                    
+                    if !reqOutput.isEmpty {
+                        relevant.append("Designated Requirement: \(reqOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+                    }
+                    
                     if relevant.isEmpty {
                         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
                         continuation.resume(returning: trimmed.isEmpty ? "Not signed" : String(trimmed.prefix(200)))

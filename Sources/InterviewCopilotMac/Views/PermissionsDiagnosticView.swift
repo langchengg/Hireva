@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct PermissionsDiagnosticView: View {
     @ObservedObject var appState: AppState
     @ObservedObject private var micDiagnostics: MicrophoneDiagnosticsService
@@ -16,6 +17,7 @@ struct PermissionsDiagnosticView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 permissionGrid
+                pipelineDiagnosticsCard
                 screenRecordingRestartBanner
                 microphoneTestCard
                 systemAudioTestCard
@@ -53,7 +55,7 @@ struct PermissionsDiagnosticView: View {
                     icon: "mic",
                     tint: appState.microphonePermissionState == .authorized ? .green : .orange,
                     actionTitle: "Request",
-                    action: appState.requestMicrophonePermission
+                    action: { appState.requestMicrophonePermission() }
                 )
                 permissionCard(
                     title: "Speech Recognition",
@@ -61,7 +63,7 @@ struct PermissionsDiagnosticView: View {
                     icon: "text.bubble",
                     tint: appState.permissionSnapshot.speechRecognition == .granted ? .green : .orange,
                     actionTitle: "Request",
-                    action: appState.requestSpeechPermission
+                    action: { appState.requestSpeechPermission() }
                 )
             }
             GridRow {
@@ -71,7 +73,7 @@ struct PermissionsDiagnosticView: View {
                     icon: "rectangle.on.rectangle",
                     tint: appState.permissionSnapshot.screenRecording == .granted ? .green : .orange,
                     actionTitle: "Request",
-                    action: appState.requestScreenRecordingPermission
+                    action: { appState.requestScreenRecordingPermission() }
                 )
                 permissionCard(
                     title: "System Audio Capture Status",
@@ -79,7 +81,7 @@ struct PermissionsDiagnosticView: View {
                     icon: "speaker.wave.2",
                     tint: appState.permissionSnapshot.systemAudioCapture == .granted ? .green : .orange,
                     actionTitle: "Open Settings",
-                    action: appState.openSystemPrivacySettings
+                    action: { appState.openSystemPrivacySettings() }
                 )
             }
         }
@@ -121,6 +123,23 @@ struct PermissionsDiagnosticView: View {
                 Text(error)
                     .font(.callout)
                     .foregroundStyle(.red)
+            }
+
+            if appState.microphonePermissionState == .denied || appState.microphonePermissionState == .restricted {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Open System Settings → Privacy & Security → Microphone")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    Text("Microphone permission has been denied or restricted. macOS will not show the permission prompt again. You must enable it manually in macOS System Settings and then relaunch/restart the app.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
             }
 
             HStack {
@@ -285,6 +304,117 @@ struct PermissionsDiagnosticView: View {
                 checklistStep(9, "Confirm app does not crash.")
                 checklistStep(10, "Confirm no duplicate input taps are installed.")
             }
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var pipelineDiagnosticsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Pipeline Status & Gating Diagnostics", systemImage: "bolt.horizontal.fill")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.purple)
+            
+            Divider()
+            
+            let captureMode = appState.settings.audioCaptureMode
+            let micRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
+            let sysRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
+            
+            // Mic Level status: Active/Silent/Off
+            let micLevelStatus: String = {
+                guard appState.isMicPipelineActive || micDiagnostics.isRunning else {
+                    return "Off"
+                }
+                return micDiagnostics.rmsLevel > 0.0001 ? "Active" : "Silent"
+            }()
+            
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                GridRow {
+                    Text("Capture Mode")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(captureMode.displayName)
+                        .font(.caption)
+                }
+                GridRow {
+                    Text("Mic Required")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(micRequired ? "true" : "false")
+                        .font(.caption)
+                        .foregroundStyle(micRequired ? .green : .secondary)
+                }
+                GridRow {
+                    Text("Mic Permission")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appState.microphonePermissionState.displayName)
+                        .font(.caption)
+                }
+                GridRow {
+                    Text("Mic Pipeline Running")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appState.isMicPipelineActive ? "true" : "false")
+                        .font(.caption)
+                        .foregroundStyle(appState.isMicPipelineActive ? .green : .secondary)
+                }
+                GridRow {
+                    Text("Mic ASR Task Active")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appState.isMicASRTaskActive ? "true" : "false")
+                        .font(.caption)
+                        .foregroundStyle(appState.isMicASRTaskActive ? .green : .secondary)
+                }
+                GridRow {
+                    Text("Mic Level Active/Silent/Off")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(micLevelStatus)
+                        .font(.caption)
+                        .foregroundStyle(micLevelStatus == "Active" ? .green : (micLevelStatus == "Silent" ? .blue : .secondary))
+                }
+                
+                GridRow {
+                    Text("Speech Recognition status")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appState.permissionSnapshot.speechRecognition.displayName)
+                        .font(.caption)
+                }
+                GridRow {
+                    Text("Screen/System Audio status")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appState.permissionSnapshot.screenRecording.displayName)
+                        .font(.caption)
+                }
+                GridRow {
+                    Text("Is system audio required")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(sysRequired ? "true" : "false")
+                        .font(.caption)
+                }
+                GridRow {
+                    Text("Is AVAudioEngine running")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appState.isAudioEngineRunning ? "true" : "false")
+                        .font(.caption)
+                }
+                GridRow {
+                    Text("Is system audio capture running")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(systemAudio.isCapturing ? "true" : "false")
+                        .font(.caption)
+                }
+            }
+            .padding(10)
+            .background(Color.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

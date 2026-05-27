@@ -150,13 +150,20 @@ struct LLMRequestOptions: Codable, Hashable {
     var temperature: Double?
     var stream: Bool
     var includeRawResponse: Bool
+    var timeoutInterval: TimeInterval?
 
     static let `default` = LLMRequestOptions()
 
-    init(temperature: Double? = nil, stream: Bool = false, includeRawResponse: Bool = false) {
+    init(
+        temperature: Double? = nil,
+        stream: Bool = false,
+        includeRawResponse: Bool = false,
+        timeoutInterval: TimeInterval? = nil
+    ) {
         self.temperature = temperature
         self.stream = stream
         self.includeRawResponse = includeRawResponse
+        self.timeoutInterval = timeoutInterval
     }
 }
 

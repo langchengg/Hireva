@@ -36,4 +36,22 @@ struct JSONParsingTests {
         )
         #expect(payload == Payload(shouldTrigger: true, confidence: 0.75))
     }
+
+    @Test
+    func invalidJSONRecovery() throws {
+        let payload = try JSONParsing.decodeObject(
+            Payload.self,
+            from: """
+            Some thinking or conversational prefix.
+            ```json
+            {
+                "should_trigger": true,
+                "confidence": 0.85,
+            }
+            ```
+            Trailing explanation.
+            """
+        )
+        #expect(payload == Payload(shouldTrigger: true, confidence: 0.85))
+    }
 }

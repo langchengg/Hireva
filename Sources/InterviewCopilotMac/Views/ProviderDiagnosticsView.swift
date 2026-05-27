@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProviderDiagnosticsView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var ollamaDiag = OllamaDiagnostics.shared
 
     var body: some View {
         ScrollView {
@@ -15,6 +16,7 @@ struct ProviderDiagnosticsView: View {
                 providerSummary("Active Recap Provider", provider: appState.activeRecapProvider)
 
                 if appState.activeRealtimeProvider?.kind == .ollamaLocal || appState.activeRecapProvider?.kind == .ollamaLocal {
+                    ollamaDiagnosticsCard
                     ollamaModelsSection
                 }
 
@@ -91,6 +93,31 @@ struct ProviderDiagnosticsView: View {
                     }
                     .padding(8)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var ollamaDiagnosticsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Local Ollama Diagnostics", systemImage: "server.rack")
+                .font(.headline)
+            row("Reachable", ollamaDiag.reachable ? "Yes" : "No")
+            row("Model Installed", ollamaDiag.modelInstalled ? "Yes" : "No")
+            row("Last HTTP Status", ollamaDiag.lastHTTPStatus.map { String($0) } ?? "None")
+            row("Last Raw Error", ollamaDiag.lastRawError ?? "None")
+            if let preview = ollamaDiag.lastRawResponsePreview {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Last Raw Response Preview")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(preview)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(8)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                        .textSelection(.enabled)
                 }
             }
         }

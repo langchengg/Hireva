@@ -156,6 +156,115 @@ struct LLMProviderTests {
         configuration.protocolClasses = [MockURLProtocol.self]
         return URLSession(configuration: configuration)
     }
+
+    @Test
+    func ollamaTimedOutMapsToFriendlyError() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            throw URLError(.timedOut)
+        }
+
+        let client = OllamaLLMClient(session: makeMockSession())
+
+        do {
+            _ = try await client.listModels(configuration: .localOllamaDefault())
+            #expect(false, "Expected to throw timeout network failure")
+        } catch let LLMProviderError.networkFailure(_, message) {
+            #expect(message.contains("Ollama timed out. Try a smaller model or increase timeout."))
+        } catch {
+            #expect(false, "Expected networkFailure error, got \(error)")
+        }
+    }
+
+    @Test
+    func questionDetectionServiceUtilizesOllamaSuccessfully() async throws {
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/tags" {
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
+            }
+            
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let payload = """
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "{\\"should_trigger\\": true, \\"confidence\\": 0.95, \\"intent\\": \\"project_deep_dive\\", \\"question_complete\\": true, \\"answer_strategy\\": \\"project_walkthrough\\", \\"question_text\\": \\"Can you explain your system?\\", \\"reason\\": \\"test\\"}"
+                }
+            }
+            """
+            return (response, Data(payload.utf8))
+        }
+
+        let database = try makeTemporaryDatabase()
+        let repository = SettingsRepository(database: database)
+        let client = OllamaLLMClient(session: makeMockSession())
+        let router = LLMRouter(settingsRepository: repository, clients: [.ollamaLocal: client])
+        let service = QuestionDetectionService(llmRouter: router)
+
+        let result = try await service.detect(
+            transcriptContext: "Interviewer: Can you explain your system?",
+            sessionID: UUID().uuidString,
+            transcriptSegmentID: nil,
+            model: "gemma4:26b"
+        )
+
+        #expect(result.question.shouldTrigger)
+        #expect(result.question.questionText == "Can you explain your system?")
+        #expect(result.question.confidence == 0.95)
+    }
+
+    @Test
+    func suggestionGenerationServiceUtilizesOllamaSuccessfully() async throws {
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/tags" {
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
+            }
+
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let payload = """
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "{\\"strategy\\": \\"Technical Deep Dive\\", \\"say_first\\": \\"I would describe our architecture...\\", \\"key_points\\": [\\"Decoupled components\\", \\"Event driven\\"], \\"follow_up_ready\\": [\\"How does it scale?\\"], \\"confidence\\": 0.9}"
+                }
+            }
+            """
+            return (response, Data(payload.utf8))
+        }
+
+        let database = try makeTemporaryDatabase()
+        let repository = SettingsRepository(database: database)
+        let client = OllamaLLMClient(session: makeMockSession())
+        let router = LLMRouter(settingsRepository: repository, clients: [.ollamaLocal: client])
+        let service = SuggestionGenerationService(llmRouter: router)
+
+        let result = try await service.generate(
+            question: DetectedQuestion(
+                id: UUID().uuidString,
+                sessionID: UUID().uuidString,
+                transcriptSegmentID: nil,
+                questionText: "How does your architecture work?",
+                intent: .projectDeepDive,
+                answerStrategy: .projectWalkthrough,
+                confidence: 0.9,
+                reason: nil,
+                shouldTrigger: true,
+                questionComplete: true,
+                modelName: "gemma4:26b",
+                promptVersion: "1.0",
+                createdAt: Date()
+            ),
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            transcriptContext: "How does your architecture work?",
+            sessionID: UUID().uuidString,
+            model: "gemma4:26b"
+        )
+
+        #expect(result.card.strategy == "Technical Deep Dive")
+        #expect(result.card.sayFirst == "I would describe our architecture...")
+        #expect(result.card.keyPoints == ["Decoupled components", "Event driven"])
+    }
 }
 
 final class InMemoryAPIKeyStore: APIKeyStore {
