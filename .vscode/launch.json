@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ai_interview}",
+            "name": "Debug InterviewCopilotMac",
+            "target": "InterviewCopilotMac",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug InterviewCopilotMac"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ai_interview}",
+            "name": "Release InterviewCopilotMac",
+            "target": "InterviewCopilotMac",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release InterviewCopilotMac"
+        }
+    ]
+}

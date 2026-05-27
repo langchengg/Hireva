@@ -13,10 +13,14 @@ struct ScreenSystemAudioPermissionProbeResult: Hashable {
 
 final class ScreenSystemAudioPermissionProbe {
     static let shared = ScreenSystemAudioPermissionProbe()
+    static var mockProbe: (() async -> ScreenSystemAudioPermissionProbeResult)?
 
     private init() {}
 
     func probe() async -> ScreenSystemAudioPermissionProbeResult {
+        if let mock = ScreenSystemAudioPermissionProbe.mockProbe {
+            return await mock()
+        }
         let preflight = CGPreflightScreenCaptureAccess()
         
         var shareableSucceeded = false

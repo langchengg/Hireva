@@ -25,6 +25,10 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         super.init()
     }
     
+    public static var mockStartCapture: ((ManualCaptureSource, Int, @escaping () -> Void) async throws -> Void)?
+    public static var mockStopCapture: (() -> [AVAudioPCMBuffer])?
+    public static var mockCancelCapture: (() -> Void)?
+    
     public var normalizedLevel: Double {
         min(max((decibels + 60) / 60, 0), 1)
     }
@@ -35,6 +39,11 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         maxDuration: Int = 60,
         onTimeout: @escaping () -> Void
     ) async throws {
+        if let mock = ManualQuestionCaptureService.mockStartCapture {
+            try await mock(source, maxDuration, onTimeout)
+            return
+        }
+        
         self.isRecording = true
         self.recordingDuration = 0.0
         self.rmsLevel = 0.0
@@ -72,6 +81,10 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     
     @MainActor
     public func stopCaptureAndReturnBuffers() -> [AVAudioPCMBuffer] {
+        if let mock = ManualQuestionCaptureService.mockStopCapture {
+            return mock()
+        }
+        
         timer?.invalidate()
         timer = nil
         isRecording = false
@@ -92,6 +105,11 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     
     @MainActor
     public func cancelCapture() {
+        if let mock = ManualQuestionCaptureService.mockCancelCapture {
+            mock()
+            return
+        }
+        
         timer?.invalidate()
         timer = nil
         isRecording = false
@@ -136,7 +154,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     }
     
     // MARK: - SystemAudioBufferDelegate conformance
-    public func systemAudioCaptureService(
+    func systemAudioCaptureService(
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didReceive buffer: AVAudioPCMBuffer,
         at time: AVAudioTime
@@ -144,7 +162,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         processBuffer(buffer)
     }
     
-    public func systemAudioCaptureService(
+    func systemAudioCaptureService(
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didFailWithError error: Error
     ) {

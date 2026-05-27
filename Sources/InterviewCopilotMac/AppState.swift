@@ -239,7 +239,8 @@ final class AppState: ObservableObject {
 
     init(
         database: AppDatabase,
-        llmRouter: LLMRouter? = nil
+        llmRouter: LLMRouter? = nil,
+        permissionService: PermissionService? = nil
     ) {
         let documents = DocumentRepository(database: database)
         let sessions = SessionRepository(database: database)
@@ -258,7 +259,7 @@ final class AppState: ObservableObject {
         self.recapRepository = recaps
         self.settingsRepository = settings
         self.keychainService = keychain
-        self.permissionService = PermissionService()
+        self.permissionService = permissionService ?? PermissionService()
         self.microphoneDiagnostics = MicrophoneDiagnosticsService()
         self.mockTranscriptionService = MockTranscriptionService()
         self.localDataService = LocalDataService(
@@ -1896,7 +1897,7 @@ final class AppState: ObservableObject {
                     promptVersion: "v1",
                     providerKind: activeRealtimeProvider?.kind,
                     providerName: activeRealtimeProvider?.name,
-                    providerBaseURL: activeRealtimeProvider?.base_url,
+                    providerBaseURL: activeRealtimeProvider?.baseURL,
                     latencyMS: nil,
                     isLocal: activeRealtimeProvider?.kind == .ollamaLocal,
                     rawJSON: nil,
@@ -1904,7 +1905,12 @@ final class AppState: ObservableObject {
                 )
                 
                 // Retrieve matching CV/JD context dynamically using SimpleContextRetrievalService
-                let context = try await contextRetrievalService.retrieveContext(for: text)
+                let context = try contextRetrievalService.retrieveContext(
+                    question: text,
+                    intent: .technical,
+                    maxCVWords: 1500,
+                    maxJDWords: 1000
+                )
                 
                 // Retrieve recent transcript context if available
                 let transcriptContext = self.transcriptSegments.map { "\($0.speaker.displayName): \($0.text)" }.joined(separator: "\n")

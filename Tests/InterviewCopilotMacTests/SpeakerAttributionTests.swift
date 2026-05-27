@@ -5,7 +5,7 @@ import AVFoundation
 import Speech
 @testable import InterviewCopilotMac
 
-@Suite @MainActor
+@Suite(.serialized) @MainActor
 struct SpeakerAttributionTests {
     
     @Test

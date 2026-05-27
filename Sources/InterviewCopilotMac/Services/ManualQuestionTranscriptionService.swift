@@ -21,11 +21,20 @@ public final class ManualQuestionTranscriptionService: NSObject {
         super.init()
     }
     
+    public static var mockStartTranscription: ((@escaping (String) -> Void, @escaping (String) -> Void, @escaping (String) -> Void) async throws -> Void)?
+    public static var mockEndAudioAndFinalize: ((Double) async throws -> String)?
+    public static var mockCancel: (() -> Void)?
+    
     public func startTranscription(
         onPartialResult: @escaping (String) -> Void,
         onFinalResult: @escaping (String) -> Void,
         onError: @escaping (String) -> Void
     ) async throws {
+        if let mock = ManualQuestionTranscriptionService.mockStartTranscription {
+            try await mock(onPartialResult, onFinalResult, onError)
+            return
+        }
+        
         guard let recognizer = recognizer, recognizer.isAvailable else {
             throw NSError(
                 domain: "ManualQuestionTranscriptionService",
@@ -81,13 +90,17 @@ public final class ManualQuestionTranscriptionService: NSObject {
     }
     
     public func endAudioAndFinalize(timeoutSeconds: Double = 10.0) async throws -> String {
+        if let mock = ManualQuestionTranscriptionService.mockEndAudioAndFinalize {
+            return try await mock(timeoutSeconds)
+        }
+        
         request?.endAudio()
         
         if isFinalized {
             return latestPartialResult
         }
         
-        print("[ManualTranscriptionService] Audio ended. Waiting up to \(timeoutSeconds)s for final transcription...")
+        print("[ManualQuestionTranscriptionService] Audio ended. Waiting up to \(timeoutSeconds)s for final transcription...")
         
         return try await withCheckedThrowingContinuation { continuation in
             self.completionContinuation = continuation
@@ -98,7 +111,7 @@ public final class ManualQuestionTranscriptionService: NSObject {
                 guard let activeContinuation = self.completionContinuation else { return }
                 self.completionContinuation = nil
                 
-                print("[ManualTranscriptionService] Timeout watchdog triggered. Using best available partial result: \"\(self.latestPartialResult)\"")
+                print("[ManualQuestionTranscriptionService] Timeout watchdog triggered. Using best available partial result: \"\(self.latestPartialResult)\"")
                 
                 // Cancel existing task to stop listening
                 self.recognitionTask?.cancel()
@@ -111,6 +124,11 @@ public final class ManualQuestionTranscriptionService: NSObject {
     }
     
     public func cancel() {
+        if let mock = ManualQuestionTranscriptionService.mockCancel {
+            mock()
+            return
+        }
+        
         recognitionTask?.cancel()
         recognitionTask = nil
         request?.endAudio()
