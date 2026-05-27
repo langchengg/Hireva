@@ -14,6 +14,7 @@ struct SettingsView: View {
 
                 aiProvidersSection
                 modelSection
+                manualCaptureSection
                 floatingWindowSection
                 privacySection
                 advancedSection
@@ -84,6 +85,61 @@ struct SettingsView: View {
                 appState.saveSettings(settings)
             }
             .buttonStyle(.borderedProminent)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var manualCaptureSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Manual Capture Options (Push-to-Ask)", systemImage: "hand.tap.fill")
+                .font(.headline)
+                .foregroundStyle(.purple)
+            
+            Picker("Manual Capture Source", selection: $settings.manualCaptureSource) {
+                ForEach(ManualCaptureSource.allCases) { source in
+                    Text(source.displayName).tag(source)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.vertical, 4)
+            
+            if settings.manualCaptureSource == .microphone {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Microphone capture may include your own voice, room echo, or mixed audio. System Audio is recommended for interviewer questions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            }
+            
+            Toggle("Auto-send after transcription", isOn: $settings.autoSendAfterTranscription)
+            Toggle("Always show transcript review before sending", isOn: $settings.showTranscriptBeforeSending)
+            Toggle("Save audio clips locally", isOn: $settings.saveManualClips)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Max Capture Duration")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(settings.maxManualCaptureSeconds) seconds")
+                        .font(.callout.monospacedDigit().weight(.semibold))
+                }
+                Slider(value: Binding(
+                    get: { Double(settings.maxManualCaptureSeconds) },
+                    set: { settings.maxManualCaptureSeconds = Int($0) }
+                ), in: 5...120, step: 5)
+            }
+            
+            Button("Save Manual Capture Settings") {
+                appState.saveSettings(settings)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.purple)
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

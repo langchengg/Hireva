@@ -51,10 +51,26 @@ fi
 cd "$ROOT_DIR"
 
 # --- Quit existing app instance (both old and new executable names) ---
-pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
-pkill -x "$SPM_PRODUCT_NAME" >/dev/null 2>&1 || true
-# Brief wait for the process to fully exit
-sleep 0.5
+echo "[quit] Attempting graceful quit of $BUNDLE_ID ..."
+osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+
+# Wait up to 3 seconds for the processes to exit
+for i in {1..12}; do
+    if ! pgrep -x "$EXECUTABLE_NAME" >/dev/null && ! pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
+        echo "[quit] Application exited gracefully."
+        break
+    fi
+    sleep 0.25
+done
+
+# Path-specific fallback kill if still running after 3 seconds
+if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
+    echo "[quit] WARNING: Application did not quit gracefully within 3 seconds. Using pkill fallback..."
+    pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
+    pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
+    pkill -x "$SPM_PRODUCT_NAME" >/dev/null 2>&1 || true
+    sleep 0.5
+fi
 
 # --- Build ---
 echo "[build] Building $SPM_PRODUCT_NAME ..."
@@ -134,6 +150,12 @@ echo ""
 
 # --- Launch ---
 open_app() {
+    echo "[Launch] Launching $APP_NAME..."
+    echo "[Launch]   Bundle Path: $APP_BUNDLE"
+    echo "[Launch]   Bundle ID:   $BUNDLE_ID"
+    echo "[Launch]   Binary Path: $APP_BINARY"
+    echo "[Launch]   Signature Info:"
+    codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature" | sed 's/^/  /' || true
     /usr/bin/open "$APP_BUNDLE"
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import Foundation
 import SwiftUI
@@ -89,7 +90,24 @@ final class AppState: ObservableObject {
         systemAudioCapture: .notDetermined
     )
     @Published var microphonePermissionState: MicrophonePermissionState = .unknown
+    @Published public var systemAudioPermissionState: ScreenSystemAudioPermissionState = .permissionMissing
+    @Published public var systemAudioProbeResult: ScreenSystemAudioPermissionProbeResult? = nil
     @Published var diagnostics = DeveloperDiagnostics.empty
+
+    // MARK: - Manual Capture Push-to-Ask state
+    @Published public var interviewCopilotMode: InterviewCopilotMode = .autoDetect {
+        didSet {
+            if interviewCopilotMode == .manualCapture {
+                stopAllContinuousPipelines()
+            }
+        }
+    }
+    @Published public var manualCaptureState: ManualCaptureState = .idle
+    @Published public var manualCaptureTranscript: String = ""
+    @Published public var manualCaptureSuggestion: SuggestionCard? = nil
+    @Published public var manualCaptureDuration: Double = 0.0
+    @Published public var manualCaptureLevel: Double = 0.0
+    @Published public var manualCaptureError: String? = nil
 
     @Published var currentInputDeviceName: String = "Default Input"
     @Published var selectedMockSpeaker: SpeakerRole = .interviewer {
@@ -287,6 +305,20 @@ final class AppState: ObservableObject {
                         self.noAudioWarningVisible = true
                     }
                 }
+            }
+            .store(in: &cancellables)
+
+        ManualQuestionCaptureService.shared.$recordingDuration
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] duration in
+                self?.manualCaptureDuration = duration
+            }
+            .store(in: &cancellables)
+
+        ManualQuestionCaptureService.shared.$decibels
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] db in
+                self?.manualCaptureLevel = min(max((db + 60) / 60, 0), 1)
             }
             .store(in: &cancellables)
 
@@ -669,14 +701,60 @@ final class AppState: ObservableObject {
                 }
                 
                 if systemAudioRequired {
-                    let hasScreen = CGPreflightScreenCaptureAccess()
-                    if !hasScreen {
-                        _ = CGRequestScreenCaptureAccess()
-                        refreshPermissions()
-                        
-                        guard CGPreflightScreenCaptureAccess() else {
+                    let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                    let state = determineProbeState(result: probeResult)
+                    
+                    self.systemAudioProbeResult = probeResult
+                    self.systemAudioPermissionState = state
+                    
+                    if state == .granted {
+                        // Success! Continue
+                    } else {
+                        if !probeResult.preflightGranted {
+                            permissionService.requestScreenRecording()
+                            try? await Task.sleep(for: .milliseconds(1000))
+                            
+                            let finalProbe = await ScreenSystemAudioPermissionProbe.shared.probe()
+                            let finalState = determineProbeState(result: finalProbe)
+                            self.systemAudioProbeResult = finalProbe
+                            self.systemAudioPermissionState = finalState
+                            
+                            if finalState == .granted {
+                                // Succeeded after prompt
+                            } else {
+                                liveState = .permissionDenied
+                                switch finalState {
+                                case .permissionMissing:
+                                    showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                                case .restartLikely:
+                                    showError("macOS requires restarting the application for Screen & System Audio Recording to take effect.")
+                                case .identityMismatch:
+                                    showError("Application identity mismatch suspected. macOS permissions may not match System Settings.")
+                                case .shareableContentProbeFailed(let err):
+                                    showError("ScreenCaptureKit shareable content probe failed: \(err)")
+                                case .streamAudioProbeFailed(let err):
+                                    showError("System audio capture stream failed: \(err)")
+                                case .granted:
+                                    break
+                                }
+                                return
+                            }
+                        } else {
                             liveState = .permissionDenied
-                            showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                            switch state {
+                            case .restartLikely:
+                                showError("macOS requires restarting the application for Screen & System Audio Recording to take effect.")
+                            case .identityMismatch:
+                                showError("Application identity mismatch suspected. macOS permissions may not match System Settings.")
+                            case .shareableContentProbeFailed(let err):
+                                showError("ScreenCaptureKit shareable content probe failed: \(err)")
+                            case .streamAudioProbeFailed(let err):
+                                showError("System audio capture stream failed: \(err)")
+                            case .permissionMissing:
+                                showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                            case .granted:
+                                break
+                            }
                             return
                         }
                     }
@@ -1028,6 +1106,16 @@ final class AppState: ObservableObject {
     }
 
     func requestMicrophonePermission() {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        if status == .authorized {
+            refreshPermissions()
+            return
+        }
+        if status == .denied || status == .restricted {
+            openMicrophonePrivacySettings()
+            refreshPermissions()
+            return
+        }
         Task {
             _ = await permissionService.requestMicrophonePermission()
             refreshPermissions()
@@ -1058,6 +1146,52 @@ final class AppState: ObservableObject {
         microphonePermissionState = permissionService.checkMicrophonePermission()
         permissionSnapshot = permissionService.refreshPermissions()
         microphoneDiagnostics.refreshSelectedInputDevice()
+        
+        Task {
+            await refreshScreenSystemAudioProbe()
+        }
+    }
+    
+    func refreshScreenSystemAudioProbe() async {
+        let result = await ScreenSystemAudioPermissionProbe.shared.probe()
+        let state = determineProbeState(result: result)
+        
+        await MainActor.run {
+            self.systemAudioProbeResult = result
+            self.systemAudioPermissionState = state
+            
+            if state == .granted {
+                self.permissionSnapshot.screenRecording = .granted
+                self.permissionSnapshot.systemAudioCapture = .granted
+            } else {
+                self.permissionSnapshot.screenRecording = .denied
+                self.permissionSnapshot.systemAudioCapture = .denied
+            }
+        }
+    }
+    
+    func determineProbeState(result: ScreenSystemAudioPermissionProbeResult) -> ScreenSystemAudioPermissionState {
+        if result.shareableContentProbeSucceeded {
+            if result.likelyIdentityMismatch {
+                return .identityMismatch
+            }
+            if !result.streamAudioProbeSucceeded {
+                return .streamAudioProbeFailed(result.errorDescription ?? "Stream audio timeout")
+            }
+            return .granted
+        } else {
+            if result.preflightGranted {
+                if result.likelyIdentityMismatch {
+                    return .identityMismatch
+                }
+                return .restartLikely
+            } else {
+                if result.likelyIdentityMismatch {
+                    return .identityMismatch
+                }
+                return .permissionMissing
+            }
+        }
     }
 
     func showFloatingAssistant() {
@@ -1555,5 +1689,299 @@ final class AppState: ObservableObject {
         }
         
         self.currentInputDeviceName = AudioDeviceRouteMonitor.shared.currentInputDeviceName
+    }
+    
+    // MARK: - Manual Capture Push-to-Ask Controls
+    
+    private func stopAllContinuousPipelines() {
+        activeAITask?.cancel()
+        detectionDebounceTask?.cancel()
+        transcriptionTask?.cancel()
+        micTranscriptionTask?.cancel()
+        systemTranscriptionTask?.cancel()
+        
+        activeTranscriptionProvider?.stop()
+        activeTranscriptionProvider = nil
+        
+        microphonePipeline?.stop()
+        microphonePipeline = nil
+        systemAudioPipeline?.stop()
+        systemAudioPipeline = nil
+        
+        // Stop diagnostics level metering
+        AudioEngineManager.shared.unregister(microphoneDiagnostics)
+        microphoneDiagnostics.stopMicTest()
+        
+        stopAudioSignalMonitoring()
+        recentQuestionsFingerprints.removeAll()
+        
+        liveState = .idle
+    }
+    
+    @MainActor
+    func startManualCapture() {
+        guard onboardingComplete else {
+            showError(liveBlockedReason ?? "Complete onboarding first.")
+            return
+        }
+        
+        // Prevent pipeline conflicts
+        stopAllContinuousPipelines()
+        
+        // Discard any previous state
+        self.manualCaptureTranscript = ""
+        self.manualCaptureSuggestion = nil
+        self.manualCaptureError = nil
+        
+        let source = settings.manualCaptureSource
+        
+        Task {
+            do {
+                self.manualCaptureState = .waitingForPermission
+                
+                if source == .systemAudio {
+                    // Check Screen Capture Preflight & Probe access
+                    let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                    let state = determineProbeState(result: probeResult)
+                    self.systemAudioProbeResult = probeResult
+                    self.systemAudioPermissionState = state
+                    
+                    guard state == .granted else {
+                        self.manualCaptureState = .error("System audio permission is required to capture interviewer audio.")
+                        return
+                    }
+                } else {
+                    // Microphone permission required
+                    let micStatus = await permissionService.requestMicrophonePermission()
+                    refreshPermissions()
+                    guard micStatus == .authorized else {
+                        self.manualCaptureState = .error("Microphone permission is required to record speech.")
+                        return
+                    }
+                    
+                    let speechStatus = await permissionService.requestSpeechRecognition()
+                    refreshPermissions()
+                    guard speechStatus == .granted else {
+                        self.manualCaptureState = .error("Speech Recognition permission is required for transcription.")
+                        return
+                    }
+                }
+                
+                self.manualCaptureState = .recording
+                
+                // Initialize transcription task in parallel with capture for real-time partial feedback
+                try await ManualQuestionTranscriptionService.shared.startTranscription(
+                    onPartialResult: { [weak self] partialText in
+                        guard let self = self else { return }
+                        Task { @MainActor in
+                            self.manualCaptureTranscript = partialText
+                        }
+                    },
+                    onFinalResult: { [weak self] finalText in
+                        guard let self = self else { return }
+                        Task { @MainActor in
+                            self.manualCaptureTranscript = finalText
+                        }
+                    },
+                    onError: { [weak self] err in
+                        guard let self = self else { return }
+                        Task { @MainActor in
+                            self.manualCaptureState = .error(err)
+                        }
+                    }
+                )
+                
+                try await ManualQuestionCaptureService.shared.startCapture(
+                    source: source,
+                    maxDuration: settings.maxManualCaptureSeconds
+                ) { [weak self] in
+                    guard let self = self else { return }
+                    // Max duration reached handler
+                    Task { @MainActor in
+                        self.stopAndTranscribeManualCapture(maxDurationReached: true)
+                    }
+                }
+            } catch {
+                self.manualCaptureState = .error(error.localizedDescription)
+            }
+        }
+    }
+    
+    @MainActor
+    func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
+        guard self.manualCaptureState == .recording else { return }
+        
+        self.manualCaptureState = .stopping
+        
+        // Stop capturing audio
+        let buffers = ManualQuestionCaptureService.shared.stopCaptureAndReturnBuffers()
+        
+        self.manualCaptureState = .transcribing
+        
+        Task {
+            do {
+                if maxDurationReached {
+                    self.manualCaptureError = "Max recording duration reached"
+                }
+                
+                // Feed the remaining buffers to transcription just in case
+                for buffer in buffers {
+                    ManualQuestionTranscriptionService.shared.appendBuffer(buffer)
+                }
+                
+                // End Speech audio and await final transcript or timeout (10s watchdog)
+                let finalTranscript = try await ManualQuestionTranscriptionService.shared.endAudioAndFinalize(timeoutSeconds: 10.0)
+                let trimmed = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                self.manualCaptureTranscript = trimmed
+                
+                if trimmed.isEmpty {
+                    self.manualCaptureState = .error("No speech detected or transcription failed. Try recording again.")
+                    return
+                }
+                
+                self.manualCaptureState = .transcriptReady
+                
+                if !settings.showTranscriptBeforeSending && settings.autoSendAfterTranscription {
+                    sendManualCaptureToAI()
+                }
+            } catch {
+                self.manualCaptureState = .error(error.localizedDescription)
+            }
+        }
+    }
+    
+    @MainActor
+    func cancelManualCapture() {
+        ManualQuestionCaptureService.shared.cancelCapture()
+        ManualQuestionTranscriptionService.shared.cancel()
+        self.manualCaptureState = .idle
+        self.manualCaptureTranscript = ""
+        self.manualCaptureSuggestion = nil
+        self.manualCaptureError = nil
+    }
+    
+    @MainActor
+    func sendManualCaptureToAI() {
+        guard self.manualCaptureState == .transcriptReady || self.manualCaptureState == .suggestionReady else { return }
+        let text = self.manualCaptureTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            self.manualCaptureState = .error("Transcript is empty.")
+            return
+        }
+        
+        self.manualCaptureState = .generatingSuggestion
+        
+        Task {
+            do {
+                // Initialize a mock or manual DetectedQuestion
+                let questionID = UUID().uuidString
+                let currentSessionID = self.currentSession?.id ?? UUID().uuidString
+                
+                let source: AudioSourceType = (settings.manualCaptureSource == .systemAudio) ? .systemAudio : .microphone
+                let speaker: SpeakerRole = (settings.manualCaptureSource == .systemAudio) ? .interviewer : .unknown
+                
+                let detected = DetectedQuestion(
+                    id: questionID,
+                    sessionID: currentSessionID,
+                    transcriptSegmentID: nil,
+                    questionText: text,
+                    intent: .technical,
+                    answerStrategy: .directAnswer,
+                    confidence: 0.95,
+                    reason: "Manual Capture Triggered",
+                    shouldTrigger: true,
+                    questionComplete: true,
+                    modelName: activeRealtimeProvider?.model ?? "Ollama",
+                    promptVersion: "v1",
+                    providerKind: activeRealtimeProvider?.kind,
+                    providerName: activeRealtimeProvider?.name,
+                    providerBaseURL: activeRealtimeProvider?.base_url,
+                    latencyMS: nil,
+                    isLocal: activeRealtimeProvider?.kind == .ollamaLocal,
+                    rawJSON: nil,
+                    createdAt: Date()
+                )
+                
+                // Retrieve matching CV/JD context dynamically using SimpleContextRetrievalService
+                let context = try await contextRetrievalService.retrieveContext(for: text)
+                
+                // Retrieve recent transcript context if available
+                let transcriptContext = self.transcriptSegments.map { "\($0.speaker.displayName): \($0.text)" }.joined(separator: "\n")
+                
+                // Generate suggestion card
+                let result = try await suggestionGenerationService.generate(
+                    question: detected,
+                    context: context,
+                    transcriptContext: transcriptContext,
+                    sessionID: currentSessionID
+                )
+                
+                self.manualCaptureSuggestion = result.card
+                self.manualCaptureState = .suggestionReady
+                
+                // If a live session is running, persist to database and update lists
+                if let session = self.currentSession {
+                    // Create and save a new TranscriptSegment representing the interviewer question
+                    let segment = TranscriptSegment(
+                        id: UUID().uuidString,
+                        sessionID: session.id,
+                        source: source,
+                        speaker: speaker,
+                        text: text,
+                        startTime: nil,
+                        endTime: nil,
+                        createdAt: Date(),
+                        inputDeviceName: AudioDeviceManager.shared.currentInputDeviceName,
+                        outputDeviceName: AudioDeviceManager.shared.currentOutputDeviceName,
+                        deviceID: nil,
+                        confidence: 0.95
+                    )
+                    
+                    try? self.transcriptRepository.saveSegment(segment)
+                    
+                    // Update current list of segments
+                    self.transcriptSegments.append(segment)
+                    
+                    // Save detected question and suggestion card
+                    var savedQuestion = detected
+                    savedQuestion.transcriptSegmentID = segment.id
+                    savedQuestion.latencyMS = result.response.latencyMS
+                    try? self.suggestionRepository.saveDetectedQuestion(savedQuestion)
+                    
+                    var savedCard = result.card
+                    savedCard.questionID = savedQuestion.id
+                    try? self.suggestionRepository.saveSuggestionCard(savedCard)
+                    
+                    // Update AppState current suggestions
+                    self.currentSuggestion = savedCard
+                    self.lastDetectedQuestion = savedQuestion
+                    
+                    // Update diagnostics
+                    self.updateDiagnostics { diag in
+                        diag.apiCallCount += 1
+                        diag.lastAPILatencyMS = result.response.latencyMS
+                        diag.lastProviderName = result.response.providerName
+                        diag.lastProviderModel = result.response.modelName
+                    }
+                }
+            } catch {
+                self.manualCaptureState = .error(error.localizedDescription)
+            }
+        }
+    }
+    
+    @MainActor
+    func retryManualCapture() {
+        self.manualCaptureTranscript = ""
+        self.manualCaptureSuggestion = nil
+        self.manualCaptureError = nil
+        startManualCapture()
+    }
+    
+    @MainActor
+    func regenerateManualSuggestion() {
+        guard self.manualCaptureState == .transcriptReady || self.manualCaptureState == .suggestionReady else { return }
+        sendManualCaptureToAI()
     }
 }

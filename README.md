@@ -101,3 +101,37 @@ Then rebuild, launch the same .app bundle path, and grant permissions again.
 5. Grant Screen & System Audio Recording in System Settings
 6. Quit and reopen → `CGPreflightScreenCaptureAccess()` should return true
 7. Rebuild (`./script/build_and_run.sh`) → permissions should persist
+
+### Developer Terminal Diagnostics
+
+Run these commands in terminal to inspect application packaging, signing authority, and running processes:
+
+1. **Verify Info.plist Bundle Identifier**:
+   Ensure the bundle ID is exactly `com.langcheng.InterviewCopilotMac`:
+   ```bash
+   defaults read "$(pwd)/dist/InterviewCopilotMac.app/Contents/Info.plist" CFBundleIdentifier
+   ```
+
+2. **Verify Code Signature & Entitlements**:
+   Check if the app bundle is signed properly:
+   ```bash
+   codesign -dvvvv dist/InterviewCopilotMac.app
+   ```
+
+3. **Verify Designated Requirement**:
+   ```bash
+   codesign -d -r- dist/InterviewCopilotMac.app
+   ```
+
+4. **Check Running Instances and Process Paths**:
+   Ensure only the signed bundle is running, and no raw binaries are active:
+   ```bash
+   ps aux | grep -E "InterviewCopilotMac|Contents/MacOS" | grep -v grep
+   ```
+
+5. **Reset TCC Permissions**:
+   ```bash
+   tccutil reset Microphone com.langcheng.InterviewCopilotMac && \
+   tccutil reset ScreenCapture com.langcheng.InterviewCopilotMac && \
+   tccutil reset SpeechRecognition com.langcheng.InterviewCopilotMac
+   ```

@@ -5,6 +5,7 @@ struct FloatingAssistantView: View {
     @ObservedObject var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
     @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
     @State private var eventMonitor: Any? = nil
+    @State private var mockQuestionText: String = ""
 
     private var compact: Bool {
         appState.settings.compactMode
@@ -29,12 +30,29 @@ struct FloatingAssistantView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             deviceBanner
+            
+            // Mirror segmented mode selector at the top!
+            Picker("Mode", selection: $appState.interviewCopilotMode) {
+                ForEach(InterviewCopilotMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 2)
+            
             Divider()
 
-            if compact {
-                compactBody
-            } else {
-                fullBody
+            switch appState.interviewCopilotMode {
+            case .autoDetect:
+                if compact {
+                    compactBody
+                } else {
+                    fullBody
+                }
+            case .manualCapture:
+                manualCaptureBody
+            case .practiceMock:
+                practiceMockBody
             }
         }
         .padding(14)
@@ -534,5 +552,211 @@ struct FloatingAssistantView: View {
                     .stroke(Color.red.opacity(0.2), lineWidth: 1)
             )
         }
+    }
+    
+    // MARK: - Conditional Views
+    
+    private var manualCaptureBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                // Recording status indicator
+                HStack {
+                    Label(appState.manualCaptureState.displayName, 
+                          systemImage: appState.manualCaptureState == .recording ? "record.circle.fill" : "hand.tap.fill")
+                        .font(.headline)
+                        .foregroundStyle(appState.manualCaptureState == .recording ? .red : .purple)
+                    
+                    Spacer()
+                    
+                    Text(formatDuration(appState.manualCaptureDuration))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                
+                // Volume Meter (recording only)
+                if appState.manualCaptureState == .recording {
+                    ProgressView(value: appState.manualCaptureLevel)
+                        .progressViewStyle(.linear)
+                }
+                
+                // Big Recording Buttons
+                HStack(spacing: 8) {
+                    if appState.manualCaptureState == .idle || 
+                       appState.manualCaptureState == .transcriptReady || 
+                       appState.manualCaptureState == .suggestionReady ||
+                       caseError(appState.manualCaptureState) {
+                        Button {
+                            appState.startManualCapture()
+                        } label: {
+                            Label("Record", systemImage: "record.circle")
+                                .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                    }
+                    
+                    if appState.manualCaptureState == .recording {
+                        Button {
+                            appState.stopAndTranscribeManualCapture()
+                        } label: {
+                            Label("Stop", systemImage: "stop.circle.fill")
+                                .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.blue)
+                    }
+                    
+                    if appState.manualCaptureState == .recording || 
+                       appState.manualCaptureState == .transcribing || 
+                       appState.manualCaptureState == .generatingSuggestion {
+                        Button {
+                            appState.cancelManualCapture()
+                        } label: {
+                            Label("Cancel", systemImage: "xmark")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
+                    if appState.manualCaptureState == .transcriptReady {
+                        Button {
+                            appState.sendManualCaptureToAI()
+                        } label: {
+                            Label("Ask AI", systemImage: "paperplane.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                    }
+                    
+                    if appState.manualCaptureState == .suggestionReady {
+                        Button {
+                            appState.retryManualCapture()
+                        } label: {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                
+                // Live/Partial or final transcript collapsible section
+                if !appState.manualCaptureTranscript.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Transcript Preview")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        
+                        TextEditor(text: $appState.manualCaptureTranscript)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 60, maxHeight: 100)
+                            .cornerRadius(4)
+                            .disabled(appState.manualCaptureState == .generatingSuggestion)
+                        
+                        if appState.manualCaptureState == .transcriptReady || appState.manualCaptureState == .suggestionReady {
+                            HStack {
+                                Button("Regenerate") {
+                                    appState.regenerateManualSuggestion()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                }
+                
+                // Result card
+                if let card = appState.manualCaptureSuggestion {
+                    suggestionCardPanel(card)
+                } else if appState.manualCaptureState == .generatingSuggestion {
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.small)
+                        Text(appState.activeRealtimeProvider?.kind == .ollamaLocal ? "Ollama is thinking..." : "Generating answer...")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(20)
+                }
+            }
+        }
+    }
+    
+    private var practiceMockBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Practice Questions")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                
+                TextField("Type test question and hit enter", text: $mockQuestionText, onCommit: {
+                    guard !mockQuestionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    appState.submitMockQuestion(mockQuestionText)
+                    mockQuestionText = ""
+                })
+                .textFieldStyle(.roundedBorder)
+                
+                if let card = appState.currentSuggestion {
+                    suggestionCardPanel(card)
+                } else {
+                    Text("Type a question and press enter above to test the full pipeline in practice mode.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+    
+    private func suggestionCardPanel(_ card: SuggestionCard) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(card.strategy)
+                    .font(.title3.weight(.bold))
+                Spacer()
+                if let confidence = card.confidence {
+                    StatusPill(title: "\(Int(confidence * 100))%", systemImage: "gauge.medium", tint: confidence >= 0.75 ? .green : .orange)
+                }
+            }
+
+            Text(card.sayFirst)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+
+            bulletSection("Key Points", items: card.keyPoints)
+            bulletSection("Follow-up Ready", items: card.followUpReady)
+
+            HStack(spacing: 8) {
+                if let latency = card.latencyMS {
+                    StatusPill(title: "\(latency) ms", systemImage: "timer", tint: .secondary)
+                }
+                StatusPill(
+                    title: card.isLocal ? "Local" : "Cloud",
+                    systemImage: card.isLocal ? "desktopcomputer" : "cloud",
+                    tint: card.isLocal ? .green : .blue
+                )
+            }
+
+            if let caution = card.caution, !caution.isEmpty {
+                Text(caution)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+    
+    private func formatDuration(_ duration: Double) -> String {
+        let mins = Int(duration) / 60
+        let secs = Int(duration) % 60
+        return String(format: "%02d:%02d", mins, secs)
+    }
+    
+    private func caseError(_ state: ManualCaptureState) -> Bool {
+        if case .error = state { return true }
+        return false
     }
 }

@@ -72,20 +72,23 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         stopSystemAudioCapture()
 
         // 1. Verify screen capture permissions
-        guard CGPreflightScreenCaptureAccess() else {
-            let errorMsg = "Enable Screen & System Audio Recording in System Settings."
-            lastError = errorMsg
-            throw NSError(domain: "ScreenCaptureKitSystemAudioCaptureService", code: -1, userInfo: [NSLocalizedDescriptionKey: errorMsg])
-        }
-
-        // 2. Fetch shareable content
+        let preflight = CGPreflightScreenCaptureAccess()
+        var hasAccess = preflight
         let shareableContent: SCShareableContent
+        
         do {
             shareableContent = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            hasAccess = true
         } catch {
-            let errorMsg = "No shareable display/window content: \(error.localizedDescription)"
-            lastError = errorMsg
-            throw NSError(domain: "ScreenCaptureKitSystemAudioCaptureService", code: -2, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+            if !hasAccess {
+                let errorMsg = "Enable Screen & System Audio Recording in System Settings. (\(error.localizedDescription))"
+                lastError = errorMsg
+                throw NSError(domain: "ScreenCaptureKitSystemAudioCaptureService", code: -1, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+            } else {
+                let errorMsg = "No shareable display/window content: \(error.localizedDescription)"
+                lastError = errorMsg
+                throw NSError(domain: "ScreenCaptureKitSystemAudioCaptureService", code: -2, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+            }
         }
 
         guard let display = shareableContent.displays.first else {

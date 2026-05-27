@@ -25,6 +25,7 @@ struct PermissionsDiagnosticView: View {
                 audioDeviceConfigPanel
                 appIdentityDiagnosticsCard
                 troubleshooting
+                shellDiagnosticsCard
                 tccResetInstructionsCard
                 deviceSwitchingChecklist
             }
@@ -848,17 +849,35 @@ struct PermissionsDiagnosticView: View {
 
     @ViewBuilder
     private var screenRecordingRestartBanner: some View {
-        let screenGranted = appState.permissionSnapshot.screenRecording == .granted
-        if !screenGranted {
+        switch appState.systemAudioPermissionState {
+        case .granted:
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Screen & System Audio Recording")
+                        .font(.headline)
+                    Text("Permission granted. System audio capture and SCK probes are completely operational.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(18)
+            .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.3), lineWidth: 1))
+            
+        case .restartLikely:
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.title2)
                         .foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Screen & System Audio Recording Permission Required")
+                        Text("App Restart Required")
                             .font(.headline)
-                        Text("macOS requires the app to quit and reopen after granting Screen & System Audio Recording permission in System Settings.")
+                        Text("macOS requires quitting and reopening the app before Screen & System Audio Recording takes effect.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -891,35 +910,172 @@ struct PermissionsDiagnosticView: View {
                     Spacer()
                 }
 
-                Text("After granting permission, click \"Quit App Now\" and reopen the app from the same bundle path.")
+                Text("After toggling the permission ON in Settings, click \"Quit App Now\" and reopen the app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(18)
             .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.3), lineWidth: 1))
-        } else {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.green)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Screen & System Audio Recording")
-                        .font(.headline)
-                    Text("Permission granted. System audio capture is available.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            
+        case .identityMismatch:
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .font(.title2)
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Application Identity Mismatch Suspected")
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                        Text("You may be running a different build, raw executable, or an unsigned copy than the registered app in System Settings. macOS will block screen capturing.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                Spacer()
-                Button {
-                    appState.refreshPermissions()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                
+                HStack(spacing: 12) {
+                    Button {
+                        appState.permissionService.openScreenRecordingSettings()
+                    } label: {
+                        Label("Open System Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        appState.refreshPermissions()
+                    } label: {
+                        Label("Refresh Permissions", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Spacer()
                 }
-                .buttonStyle(.bordered)
+                
+                Text("Verify you are running from a signed bundle inside 'dist/InterviewCopilotMac.app'.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(18)
-            .background(Color.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.3), lineWidth: 1))
+            
+        case .permissionMissing:
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "rectangle.and.paperclip")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Screen Recording Permission Required")
+                            .font(.headline)
+                        Text("System preflight and ScreenCaptureKit probes both failed. Enable Screen & System Audio Recording in macOS System Settings.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        appState.permissionService.openScreenRecordingSettings()
+                    } label: {
+                        Label("Open System Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        appState.refreshPermissions()
+                    } label: {
+                        Label("Refresh Permissions", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+            }
+            .padding(18)
+            .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.3), lineWidth: 1))
+            
+        case .shareableContentProbeFailed(let err):
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "xmark.shield.fill")
+                        .font(.title2)
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Shareable Content Probe Failed")
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                        Text("ScreenCaptureKit failed to fetch displays: \(err)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        appState.permissionService.openScreenRecordingSettings()
+                    } label: {
+                        Label("Open System Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        appState.refreshPermissions()
+                    } label: {
+                        Label("Refresh Permissions", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+            }
+            .padding(18)
+            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.3), lineWidth: 1))
+            
+        case .streamAudioProbeFailed(let err):
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "waveform.badge.exclamationmark")
+                        .font(.title2)
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Stream Audio Probe Failed")
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                        Text("Lightweight audio stream failed to tap samples: \(err)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        appState.permissionService.openScreenRecordingSettings()
+                    } label: {
+                        Label("Open System Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        appState.refreshPermissions()
+                    } label: {
+                        Label("Refresh Permissions", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+            }
+            .padding(18)
+            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.3), lineWidth: 1))
         }
     }
 
@@ -927,6 +1083,10 @@ struct PermissionsDiagnosticView: View {
 
     private var appIdentityDiagnosticsCard: some View {
         let ps = appState.permissionService
+        let expectedBundleID = "com.langcheng.InterviewCopilotMac"
+        let processPath = CommandLine.arguments.first ?? "Unknown"
+        let runningFromCorrectPath = !processPath.isEmpty && processPath.hasPrefix(Bundle.main.bundlePath)
+        
         return VStack(alignment: .leading, spacing: 10) {
             Label("App Identity & Signing Diagnostics", systemImage: "person.badge.shield.checkmark")
                 .font(.headline)
@@ -935,75 +1095,90 @@ struct PermissionsDiagnosticView: View {
                 GridRow {
                     Text("Bundle Identifier")
                         .font(.caption.weight(.semibold))
-                    Text(ps.bundleIdentifier)
-                        .font(.caption.monospacedDigit())
+                    Text(Bundle.main.bundleIdentifier ?? "None")
+                        .font(.caption.monospaced())
                         .textSelection(.enabled)
+                }
+                GridRow {
+                    Text("Expected Bundle ID")
+                        .font(.caption.weight(.semibold))
+                    Text(expectedBundleID)
+                        .font(.caption.monospaced())
+                }
+                GridRow {
+                    Text("Bundle ID Matches")
+                        .font(.caption.weight(.semibold))
+                    Text((Bundle.main.bundleIdentifier == expectedBundleID) ? "Yes ✅" : "No ⚠️")
+                        .font(.caption)
+                        .foregroundStyle(Bundle.main.bundleIdentifier == expectedBundleID ? .green : .red)
                 }
                 GridRow {
                     Text("Bundle Path")
                         .font(.caption.weight(.semibold))
-                    Text(ps.bundlePath)
+                    Text(Bundle.main.bundlePath)
                         .font(.caption)
                         .lineLimit(2)
                         .textSelection(.enabled)
                 }
                 GridRow {
-                    Text("Process Path")
+                    Text("Executable URL")
                         .font(.caption.weight(.semibold))
-                    Text(ps.processPath)
+                    Text(Bundle.main.executableURL?.absoluteString ?? "None")
                         .font(.caption)
                         .lineLimit(2)
                         .textSelection(.enabled)
                 }
                 GridRow {
-                    Text("Running From")
+                    Text("Process Name")
                         .font(.caption.weight(.semibold))
-                    Text(ps.isRunningFromAppBundle ? ".app Bundle ✅" : "Raw Executable ⚠️")
+                    Text(ProcessInfo.processInfo.processName)
                         .font(.caption)
-                        .foregroundStyle(ps.isRunningFromAppBundle ? .green : .orange)
                 }
                 GridRow {
-                    Text("Screen/System Audio")
+                    Text("CommandLine.arguments[0]")
                         .font(.caption.weight(.semibold))
-                    Text(appState.permissionSnapshot.screenRecording.displayName)
+                    Text(processPath)
                         .font(.caption)
-                        .foregroundStyle(appState.permissionSnapshot.screenRecording == .granted ? .green : .orange)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
                 }
                 GridRow {
-                    Text("Microphone")
+                    Text("Running From Bundle")
                         .font(.caption.weight(.semibold))
-                    Text(appState.microphonePermissionState.displayName)
+                    Text(ps.isRunningFromAppBundle ? "Yes ✅" : "No (Raw Binary) ⚠️")
                         .font(.caption)
-                        .foregroundStyle(appState.microphonePermissionState == .authorized ? .green : .orange)
+                        .foregroundStyle(ps.isRunningFromAppBundle ? .green : .red)
                 }
                 GridRow {
-                    Text("Speech Recognition")
+                    Text("In Launched Bundle Path")
                         .font(.caption.weight(.semibold))
-                    Text(appState.permissionSnapshot.speechRecognition.displayName)
+                    Text(runningFromCorrectPath ? "Yes ✅" : "No ⚠️")
                         .font(.caption)
-                        .foregroundStyle(appState.permissionSnapshot.speechRecognition == .granted ? .green : .orange)
+                        .foregroundStyle(runningFromCorrectPath ? .green : .red)
                 }
                 GridRow {
-                    Text("Code Signing")
+                    Text("Code Signing Info")
                         .font(.caption.weight(.semibold))
                     Text(codeSigningStatusText)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 9, design: .monospaced))
                         .textSelection(.enabled)
-                        .lineLimit(5)
+                        .lineLimit(10)
                 }
             }
             .padding(10)
             .background(Color.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
 
-            if !ps.isRunningFromAppBundle {
+            if !runningFromCorrectPath {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("You are running the raw executable, not the .app bundle. macOS will not persist permissions. Use `./script/build_and_run.sh` to launch from the .app bundle.")
+                        .foregroundStyle(.red)
+                    Text("The app is not running from the signed .app bundle. macOS permissions may not match System Settings.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(10)
+                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
             }
         }
         .padding(18)
@@ -1043,6 +1218,57 @@ struct PermissionsDiagnosticView: View {
             Text("Then rebuild, launch the same .app path, and grant permissions again.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var shellDiagnosticsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Developer: Terminal Verification Commands", systemImage: "terminal.fill")
+                .font(.headline)
+
+            Text("Run these commands in terminal to inspect application packaging, signing authority, and running processes:")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Group {
+                    Text("# 1. Verify Info.plist Bundle Identifier")
+                        .foregroundStyle(.secondary)
+                    Text("defaults read \"$(pwd)/dist/InterviewCopilotMac.app/Contents/Info.plist\" CFBundleIdentifier")
+                }
+                
+                Group {
+                    Text("# 2. Verify Code Signature and Entitlements")
+                        .foregroundStyle(.secondary)
+                    Text("codesign -dvvvv dist/InterviewCopilotMac.app")
+                }
+                
+                Group {
+                    Text("# 3. Verify Designated Requirement")
+                        .foregroundStyle(.secondary)
+                    Text("codesign -d -r- dist/InterviewCopilotMac.app")
+                }
+                
+                Group {
+                    Text("# 4. Check Running Instances and Process Paths")
+                        .foregroundStyle(.secondary)
+                    Text("ps aux | grep -E \"InterviewCopilotMac|Contents/MacOS\" | grep -v grep")
+                }
+                
+                Group {
+                    Text("# 5. Reset All Audio & Screen TCC Permissions")
+                        .foregroundStyle(.secondary)
+                    Text("tccutil reset Microphone com.langcheng.InterviewCopilotMac && tccutil reset ScreenCapture com.langcheng.InterviewCopilotMac && tccutil reset SpeechRecognition com.langcheng.InterviewCopilotMac")
+                }
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.black.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+            .textSelection(.enabled)
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

@@ -35,6 +35,36 @@ public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+public enum ManualCaptureSource: String, CaseIterable, Identifiable, Codable {
+    case systemAudio = "systemAudio"
+    case microphone = "microphone"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .systemAudio: return "System Audio"
+        case .microphone: return "Microphone"
+        }
+    }
+}
+
+public enum InterviewCopilotMode: String, CaseIterable, Identifiable, Codable {
+    case autoDetect = "autoDetect"
+    case manualCapture = "manualCapture"
+    case practiceMock = "practiceMock"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .autoDetect: return "Auto Detect"
+        case .manualCapture: return "Manual Capture"
+        case .practiceMock: return "Practice / Mock"
+        }
+    }
+}
+
 public struct AppSettings: Hashable, Codable {
     public var realtimeModel: DeepSeekModel
     public var recapModel: DeepSeekModel
@@ -46,6 +76,13 @@ public struct AppSettings: Hashable, Codable {
     public var floatingWindowOpacity: Double
     public var compactMode: Bool
     public var highContrastFloatingPanel: Bool
+    
+    // Manual Capture options
+    public var manualCaptureSource: ManualCaptureSource
+    public var autoSendAfterTranscription: Bool
+    public var maxManualCaptureSeconds: Int
+    public var showTranscriptBeforeSending: Bool
+    public var saveManualClips: Bool
 
     public static let `default` = AppSettings(
         realtimeModel: .realtime,
@@ -57,7 +94,12 @@ public struct AppSettings: Hashable, Codable {
         audioCaptureMode: .microphoneAndSystem,
         floatingWindowOpacity: 0.82,
         compactMode: false,
-        highContrastFloatingPanel: false
+        highContrastFloatingPanel: false,
+        manualCaptureSource: .systemAudio,
+        autoSendAfterTranscription: true,
+        maxManualCaptureSeconds: 60,
+        showTranscriptBeforeSending: false,
+        saveManualClips: false
     )
 
     enum CodingKeys: String, CodingKey {
@@ -71,6 +113,11 @@ public struct AppSettings: Hashable, Codable {
         case floatingWindowOpacity
         case compactMode
         case highContrastFloatingPanel
+        case manualCaptureSource
+        case autoSendAfterTranscription
+        case maxManualCaptureSeconds
+        case showTranscriptBeforeSending
+        case saveManualClips
     }
 
     public init(
@@ -83,7 +130,12 @@ public struct AppSettings: Hashable, Codable {
         audioCaptureMode: AudioCaptureMode,
         floatingWindowOpacity: Double,
         compactMode: Bool,
-        highContrastFloatingPanel: Bool
+        highContrastFloatingPanel: Bool,
+        manualCaptureSource: ManualCaptureSource,
+        autoSendAfterTranscription: Bool,
+        maxManualCaptureSeconds: Int,
+        showTranscriptBeforeSending: Bool,
+        saveManualClips: Bool
     ) {
         self.realtimeModel = realtimeModel
         self.recapModel = recapModel
@@ -95,6 +147,11 @@ public struct AppSettings: Hashable, Codable {
         self.floatingWindowOpacity = floatingWindowOpacity
         self.compactMode = compactMode
         self.highContrastFloatingPanel = highContrastFloatingPanel
+        self.manualCaptureSource = manualCaptureSource
+        self.autoSendAfterTranscription = autoSendAfterTranscription
+        self.maxManualCaptureSeconds = maxManualCaptureSeconds
+        self.showTranscriptBeforeSending = showTranscriptBeforeSending
+        self.saveManualClips = saveManualClips
     }
 
     public init(from decoder: Decoder) throws {
@@ -109,5 +166,11 @@ public struct AppSettings: Hashable, Codable {
         self.floatingWindowOpacity = try container.decodeIfPresent(Double.self, forKey: .floatingWindowOpacity) ?? 0.82
         self.compactMode = try container.decodeIfPresent(Bool.self, forKey: .compactMode) ?? false
         self.highContrastFloatingPanel = try container.decodeIfPresent(Bool.self, forKey: .highContrastFloatingPanel) ?? false
+        
+        self.manualCaptureSource = try container.decodeIfPresent(ManualCaptureSource.self, forKey: .manualCaptureSource) ?? .systemAudio
+        self.autoSendAfterTranscription = try container.decodeIfPresent(Bool.self, forKey: .autoSendAfterTranscription) ?? true
+        self.maxManualCaptureSeconds = try container.decodeIfPresent(Int.self, forKey: .maxManualCaptureSeconds) ?? 60
+        self.showTranscriptBeforeSending = try container.decodeIfPresent(Bool.self, forKey: .showTranscriptBeforeSending) ?? false
+        self.saveManualClips = try container.decodeIfPresent(Bool.self, forKey: .saveManualClips) ?? false
     }
 }
