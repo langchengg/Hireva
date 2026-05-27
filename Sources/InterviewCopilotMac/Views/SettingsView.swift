@@ -135,6 +135,20 @@ struct SettingsView: View {
                 ), in: 5...120, step: 5)
             }
             
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Ollama Request Timeout")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(settings.ollamaRequestTimeoutSeconds) seconds")
+                        .font(.callout.monospacedDigit().weight(.semibold))
+                }
+                Slider(value: Binding(
+                    get: { Double(settings.ollamaRequestTimeoutSeconds) },
+                    set: { settings.ollamaRequestTimeoutSeconds = Int($0) }
+                ), in: 30...300, step: 10)
+            }
+            
             Button("Save Manual Capture Settings") {
                 appState.saveSettings(settings)
             }

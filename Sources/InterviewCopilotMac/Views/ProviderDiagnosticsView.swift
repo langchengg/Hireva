@@ -21,6 +21,19 @@ struct ProviderDiagnosticsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
+                    Label("AI Router Diagnostics", systemImage: "point.3.connected.trianglepath.dotted")
+                        .font(.headline)
+                    row("Last Switched At", appState.lastProviderSwitchTimestamp.map { DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .medium) } ?? "Never")
+                    row("Last Switch Error", appState.lastProviderSwitchError ?? "None")
+                    row("Q Detect Provider", appState.lastQuestionDetectionProvider ?? "None")
+                    row("Q Detect Model", appState.lastQuestionDetectionModel ?? "None")
+                    row("Suggestion Gen Provider", appState.lastSuggestionGenerationProvider ?? "None")
+                    row("Suggestion Gen Model", appState.lastSuggestionGenerationModel ?? "None")
+                }
+                .padding(18)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 10) {
                     Label("Last AI Call", systemImage: "timer")
                         .font(.headline)
                     row("Provider", appState.diagnostics.lastProviderName ?? "None")
@@ -42,7 +55,9 @@ struct ProviderDiagnosticsView: View {
                 Label(title, systemImage: "brain")
                     .font(.headline)
                 Spacer()
-                if let provider {
+                if title == "Active Realtime Provider" {
+                    LLMProviderQuickSwitcherView(appState: appState, isCompact: false)
+                } else if let provider {
                     StatusPill(title: provider.kind.isLocal ? "Local" : "Cloud", systemImage: provider.kind.isLocal ? "desktopcomputer" : "cloud", tint: provider.kind.isLocal ? .green : .blue)
                 }
             }
@@ -106,8 +121,19 @@ struct ProviderDiagnosticsView: View {
                 .font(.headline)
             row("Reachable", ollamaDiag.reachable ? "Yes" : "No")
             row("Model Installed", ollamaDiag.modelInstalled ? "Yes" : "No")
+            row("Active Provider", ollamaDiag.activeProviderName ?? "None")
+            row("Model", ollamaDiag.activeModel ?? "None")
+            row("Endpoint", ollamaDiag.lastEndpoint ?? "None")
+            row("Timeout", ollamaDiag.lastTimeout.map { String(format: "%.0f s", $0) } ?? "None")
+            row("Latency", ollamaDiag.lastLatencyMS.map { "\($0) ms" } ?? "None")
             row("Last HTTP Status", ollamaDiag.lastHTTPStatus.map { String($0) } ?? "None")
+            row("JSON Parse Success", ollamaDiag.jsonParseSuccess ? "Yes" : "No")
+            if let failReason = ollamaDiag.jsonParseFailureReason {
+                row("JSON Parse Error", failReason)
+            }
+            row("Fallback Card Used", ollamaDiag.fallbackCardUsed ? "Yes" : "No")
             row("Last Raw Error", ollamaDiag.lastRawError ?? "None")
+            
             if let preview = ollamaDiag.lastRawResponsePreview {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Last Raw Response Preview")

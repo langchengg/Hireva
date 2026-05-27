@@ -9,6 +9,8 @@ struct DeveloperDiagnostics: Hashable {
     var apiCallCount: Int
     var lastProviderName: String?
     var lastProviderModel: String?
+    var rawTranscript: String?
+    var cleanedQuestion: String?
 
     static let empty = DeveloperDiagnostics(
         liveState: .idle,
@@ -18,6 +20,8 @@ struct DeveloperDiagnostics: Hashable {
         lastError: nil,
         apiCallCount: 0,
         lastProviderName: nil,
-        lastProviderModel: nil
+        lastProviderModel: nil,
+        rawTranscript: nil,
+        cleanedQuestion: nil
     )
 }

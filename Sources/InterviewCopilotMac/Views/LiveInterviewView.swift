@@ -4,6 +4,7 @@ struct LiveInterviewView: View {
     @ObservedObject var appState: AppState
     @State private var mockQuestion = ""
     @State private var practiceExpanded = false
+    @State private var showDeepSeekConfirmation = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -29,6 +30,14 @@ struct LiveInterviewView: View {
         .navigationTitle("Live Interview")
         .onAppear {
             appState.refreshPermissions()
+        }
+        .alert("Confirm Cloud Fallback", isPresented: $showDeepSeekConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Confirm") {
+                appState.sendManualCaptureToAI(forceDeepSeek: true)
+            }
+        } message: {
+            Text("This will send the captured question and selected CV/JD snippets to DeepSeek.")
         }
     }
 
@@ -224,13 +233,7 @@ struct LiveInterviewView: View {
                 tint: appState.permissionSnapshot.systemAudioCapture == .granted ? .green : .orange,
                 isCompact: isCompact
             )
-            StatusPill(
-                title: appState.activeRealtimeProviderBadge,
-                compactTitle: appState.activeRealtimeProviderBadge,
-                systemImage: "brain",
-                tint: appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue,
-                isCompact: isCompact
-            )
+            LLMProviderQuickSwitcherView(appState: appState, isCompact: isCompact)
             StatusPill(
                 title: appState.onboardingComplete ? "CV/JD loaded" : "CV/JD missing",
                 compactTitle: appState.onboardingComplete ? "CV/JD ✓" : "CV/JD ✗",
@@ -808,6 +811,32 @@ struct LiveInterviewView: View {
         }
     }
     
+    private func computeLevelText() -> String {
+        let bufferCount = appState.manualCaptureState == .recording ? ManualQuestionCaptureService.shared.capturedBufferCount : appState.manualCaptureBufferCount
+        if appState.manualCaptureState == .recording {
+            return String(format: "Timer: %@  •  Buffers: %d", 
+                          formatDuration(appState.manualCaptureDuration), 
+                          bufferCount)
+        } else if appState.manualCaptureBufferCount > 0 {
+            let sourceName = appState.manualCaptureSource == "systemAudio" ? "System Audio" : "Microphone"
+            let lastTimeStr: String
+            if let lastTime = appState.manualCaptureLastBufferTimestamp {
+                let formatter = DateFormatter()
+                formatter.timeStyle = .medium
+                lastTimeStr = formatter.string(from: lastTime)
+            } else {
+                lastTimeStr = "N/A"
+            }
+            return String(format: "Captured: %d buffers  •  %.1fs  •  Source: %@  •  Last: %@", 
+                          appState.manualCaptureBufferCount,
+                          appState.manualCaptureDuration,
+                          sourceName,
+                          lastTimeStr)
+        } else {
+            return "Timer: 00:00  •  Buffers: 0"
+        }
+    }
+    
     private func manualCaptureControlsCard(isCompact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -818,10 +847,7 @@ struct LiveInterviewView: View {
                 Spacer()
                 
                 // Diagnostic Level
-                let levelText = String(format: "Timer: %@  •  Buffers: %d", 
-                                       formatDuration(appState.manualCaptureDuration), 
-                                       ManualQuestionCaptureService.shared.capturedBufferCount)
-                Text(levelText)
+                Text(computeLevelText())
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -910,6 +936,49 @@ struct LiveInterviewView: View {
                     .controlSize(.large)
                 }
                 
+                if case .suggestionError = appState.manualCaptureState {
+                    Button {
+                        appState.sendManualCaptureToAI()
+                    } label: {
+                        Label("Retry LLM", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+                    .controlSize(.large)
+                    
+                    Button {
+                        self.showDeepSeekConfirmation = true
+                    } label: {
+                        Label("Regenerate with DeepSeek", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    
+                    Button {
+                        appState.selectSection(.settings)
+                    } label: {
+                        Label("Open Provider Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    
+                    Button {
+                        appState.retryManualCapture()
+                    } label: {
+                        Label("Retry Recording", systemImage: "record.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    
+                    Button {
+                        appState.clearManualCapture()
+                    } label: {
+                        Label("Clear", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+                
                 Spacer()
                 
                 // Show Warning if source is microphone
@@ -974,11 +1043,19 @@ struct LiveInterviewView: View {
                 Text(msg)
                     .foregroundStyle(.red)
             }
+        case .suggestionError(let msg):
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Text("Suggestion Failed: \(msg)")
+                    .foregroundStyle(.red)
+            }
         }
     }
     
     private func caseError(_ state: ManualCaptureState) -> Bool {
         if case .error = state { return true }
+        if case .suggestionError = state { return true }
         return false
     }
     
@@ -1001,7 +1078,9 @@ struct LiveInterviewView: View {
                 .disabled(appState.manualCaptureState == .generatingSuggestion)
             
             HStack {
-                if appState.manualCaptureState == .transcriptReady || appState.manualCaptureState == .suggestionReady {
+                if appState.manualCaptureState == .transcriptReady || 
+                   appState.manualCaptureState == .suggestionReady || 
+                   appState.caseSuggestionError(appState.manualCaptureState) {
                     Button {
                         appState.sendManualCaptureToAI()
                     } label: {
@@ -1011,9 +1090,9 @@ struct LiveInterviewView: View {
                     .disabled(appState.manualCaptureTranscript.isEmpty)
                     
                     Button {
-                        appState.regenerateManualSuggestion()
+                        self.showDeepSeekConfirmation = true
                     } label: {
-                        Label("Regenerate", systemImage: "sparkles")
+                        Label("Regenerate with DeepSeek", systemImage: "sparkles")
                     }
                     .buttonStyle(.bordered)
                     .disabled(appState.manualCaptureTranscript.isEmpty)

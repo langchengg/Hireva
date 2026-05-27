@@ -95,6 +95,12 @@ public struct AppSettings: Hashable, Codable {
     public var showTranscriptBeforeSending: Bool
     public var saveManualClips: Bool
 
+    // Privacy options
+    public var dontShowCloudWarningAgain: Bool
+    
+    // Timeout options
+    public var ollamaRequestTimeoutSeconds: Int
+
     public static let `default` = AppSettings(
         realtimeModel: .realtime,
         recapModel: .analysis,
@@ -110,7 +116,9 @@ public struct AppSettings: Hashable, Codable {
         autoSendAfterTranscription: true,
         maxManualCaptureSeconds: 60,
         showTranscriptBeforeSending: false,
-        saveManualClips: false
+        saveManualClips: false,
+        dontShowCloudWarningAgain: false,
+        ollamaRequestTimeoutSeconds: 180
     )
 
     enum CodingKeys: String, CodingKey {
@@ -129,6 +137,8 @@ public struct AppSettings: Hashable, Codable {
         case maxManualCaptureSeconds
         case showTranscriptBeforeSending
         case saveManualClips
+        case dontShowCloudWarningAgain
+        case ollamaRequestTimeoutSeconds
     }
 
     public init(
@@ -146,7 +156,9 @@ public struct AppSettings: Hashable, Codable {
         autoSendAfterTranscription: Bool,
         maxManualCaptureSeconds: Int,
         showTranscriptBeforeSending: Bool,
-        saveManualClips: Bool
+        saveManualClips: Bool,
+        dontShowCloudWarningAgain: Bool,
+        ollamaRequestTimeoutSeconds: Int
     ) {
         self.realtimeModel = realtimeModel
         self.recapModel = recapModel
@@ -163,6 +175,8 @@ public struct AppSettings: Hashable, Codable {
         self.maxManualCaptureSeconds = maxManualCaptureSeconds
         self.showTranscriptBeforeSending = showTranscriptBeforeSending
         self.saveManualClips = saveManualClips
+        self.dontShowCloudWarningAgain = dontShowCloudWarningAgain
+        self.ollamaRequestTimeoutSeconds = ollamaRequestTimeoutSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -183,5 +197,7 @@ public struct AppSettings: Hashable, Codable {
         self.maxManualCaptureSeconds = try container.decodeIfPresent(Int.self, forKey: .maxManualCaptureSeconds) ?? 60
         self.showTranscriptBeforeSending = try container.decodeIfPresent(Bool.self, forKey: .showTranscriptBeforeSending) ?? false
         self.saveManualClips = try container.decodeIfPresent(Bool.self, forKey: .saveManualClips) ?? false
+        self.dontShowCloudWarningAgain = try container.decodeIfPresent(Bool.self, forKey: .dontShowCloudWarningAgain) ?? false
+        self.ollamaRequestTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .ollamaRequestTimeoutSeconds) ?? 180
     }
 }

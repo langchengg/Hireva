@@ -70,6 +70,14 @@ final class AppState: ObservableObject {
     @Published var isFloatingAssistantVisible = false
     @Published var errorMessage: String?
     
+    @Published var lastQuestionDetectionProvider: String? = nil
+    @Published var lastQuestionDetectionModel: String? = nil
+    @Published var lastSuggestionGenerationProvider: String? = nil
+    @Published var lastSuggestionGenerationModel: String? = nil
+    @Published var lastProviderSwitchTimestamp: Date? = nil
+    @Published var lastProviderSwitchError: String? = nil
+    @Published var cloudWarningAcceptedThisSession: Bool = false
+    
     public enum FailedAITaskType: String, Codable {
         case questionDetection
         case suggestionGeneration
@@ -108,6 +116,9 @@ final class AppState: ObservableObject {
     @Published public var manualCaptureDuration: Double = 0.0
     @Published public var manualCaptureLevel: Double = 0.0
     @Published public var manualCaptureError: String? = nil
+    @Published public var manualCaptureBufferCount: Int = 0
+    @Published public var manualCaptureLastBufferTimestamp: Date? = nil
+    @Published public var manualCaptureSource: String = ""
 
     @Published var currentInputDeviceName: String = "Default Input"
     @Published var selectedMockSpeaker: SpeakerRole = .interviewer {
@@ -323,6 +334,24 @@ final class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        ManualQuestionCaptureService.shared.$capturedBufferCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in
+                if self?.manualCaptureState == .recording {
+                    self?.manualCaptureBufferCount = count
+                }
+            }
+            .store(in: &cancellables)
+
+        ManualQuestionCaptureService.shared.$lastBufferTimestamp
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] timestamp in
+                if self?.manualCaptureState == .recording {
+                    self?.manualCaptureLastBufferTimestamp = timestamp
+                }
+            }
+            .store(in: &cancellables)
+
         self.activeObserverToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -492,6 +521,65 @@ final class AppState: ObservableObject {
             refreshAll()
         } catch {
             showError("Could not set realtime provider: \(error.localizedDescription)")
+        }
+    }
+
+    func updateActiveRealtimeProvider(provider: LLMProviderConfiguration, model: String?) {
+        activeAITask?.cancel()
+        errorMessage = nil
+        lastProviderSwitchError = nil
+        lastProviderSwitchTimestamp = Date()
+        
+        var updated = provider
+        if let model = model {
+            updated.model = model
+        }
+        
+        do {
+            if updated.kind == .ollamaLocal {
+                Task {
+                    do {
+                        let models = try await llmRouter.listModels(configuration: updated)
+                        if !models.contains(where: { $0.name == updated.model }) {
+                            throw LLMProviderError.modelNotFound(updated.model)
+                        }
+                        
+                        try settingsRepository.saveProviderConfiguration(updated)
+                        try settingsRepository.setActiveRealtimeProvider(id: updated.id)
+                        
+                        await MainActor.run {
+                            self.refreshAll()
+                            self.refreshOllamaModels(for: updated)
+                        }
+                    } catch {
+                        await MainActor.run {
+                            let msg = self.userFacing(error)
+                            self.lastProviderSwitchError = msg
+                            self.errorMessage = "Could not switch provider: \(msg)"
+                        }
+                    }
+                }
+            } else if updated.kind == .deepSeek || updated.kind == .openAICompatible {
+                guard let account = updated.apiKeyAccount,
+                      keychainService.hasAPIKey(account: account) else {
+                    let msg = "Missing API Key for \(updated.name)."
+                    self.lastProviderSwitchError = msg
+                    self.errorMessage = "Could not switch provider: \(msg)"
+                    return
+                }
+                
+                try settingsRepository.saveProviderConfiguration(updated)
+                try settingsRepository.setActiveRealtimeProvider(id: updated.id)
+                refreshAll()
+            } else {
+                try settingsRepository.saveProviderConfiguration(updated)
+                try settingsRepository.setActiveRealtimeProvider(id: updated.id)
+                refreshAll()
+            }
+        } catch {
+            let msg = error.localizedDescription
+            self.lastProviderSwitchError = msg
+            self.errorMessage = "Could not switch provider: \(msg)"
         }
     }
 
@@ -1382,6 +1470,8 @@ final class AppState: ObservableObject {
                 model: activeRealtimeProvider?.model
             )
             guard !Task.isCancelled else { return }
+            self.lastQuestionDetectionProvider = detection.response.providerName
+            self.lastQuestionDetectionModel = detection.response.modelName
             try suggestionRepository.saveDetectedQuestion(detection.question)
             updateDiagnostics {
                 $0.lastDetectedQuestionJSON = detection.question.rawJSON
@@ -1462,6 +1552,8 @@ final class AppState: ObservableObject {
                 model: activeRealtimeProvider?.model
             )
             guard !Task.isCancelled else { return }
+            self.lastQuestionDetectionProvider = detection.response.providerName
+            self.lastQuestionDetectionModel = detection.response.modelName
             try suggestionRepository.saveDetectedQuestion(detection.question)
             updateDiagnostics {
                 $0.lastDetectedQuestionJSON = detection.question.rawJSON
@@ -1524,6 +1616,8 @@ final class AppState: ObservableObject {
                 self.suggestionGenerationStarted = false
                 return
             }
+            self.lastSuggestionGenerationProvider = result.response.providerName
+            self.lastSuggestionGenerationModel = result.response.modelName
             try suggestionRepository.saveSuggestionCard(result.card)
             currentSuggestion = result.card
             possibleQuestion = nil
@@ -1733,6 +1827,9 @@ final class AppState: ObservableObject {
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
         self.manualCaptureError = nil
+        self.manualCaptureBufferCount = 0
+        self.manualCaptureLastBufferTimestamp = nil
+        self.manualCaptureSource = settings.manualCaptureSource.rawValue
         
         let source = settings.manualCaptureSource
         
@@ -1814,6 +1911,11 @@ final class AppState: ObservableObject {
         
         self.manualCaptureState = .stopping
         
+        // Cache buffer metrics before stopping stream clears capturedBuffers array
+        self.manualCaptureBufferCount = ManualQuestionCaptureService.shared.capturedBufferCount
+        self.manualCaptureLastBufferTimestamp = ManualQuestionCaptureService.shared.lastBufferTimestamp
+        self.manualCaptureSource = settings.manualCaptureSource.rawValue
+        
         // Stop capturing audio
         let buffers = ManualQuestionCaptureService.shared.stopCaptureAndReturnBuffers()
         
@@ -1860,16 +1962,24 @@ final class AppState: ObservableObject {
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
         self.manualCaptureError = nil
+        self.manualCaptureBufferCount = 0
+        self.manualCaptureLastBufferTimestamp = nil
     }
     
     @MainActor
-    func sendManualCaptureToAI() {
-        guard self.manualCaptureState == .transcriptReady || self.manualCaptureState == .suggestionReady else { return }
-        let text = self.manualCaptureTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            self.manualCaptureState = .error("Transcript is empty.")
+    func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
+        guard self.manualCaptureState == .transcriptReady || 
+              self.manualCaptureState == .suggestionReady || 
+              caseSuggestionError(self.manualCaptureState) else { return }
+        
+        let rawText = self.manualCaptureTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawText.isEmpty else {
+            self.manualCaptureState = .suggestionError("Transcript is empty.")
             return
         }
+        
+        // Clean transcript conservatively
+        let text = cleanTranscript(rawText)
         
         self.manualCaptureState = .generatingSuggestion
         
@@ -1882,6 +1992,18 @@ final class AppState: ObservableObject {
                 let source: AudioSourceType = (settings.manualCaptureSource == .systemAudio) ? .systemAudio : .microphone
                 let speaker: SpeakerRole = (settings.manualCaptureSource == .systemAudio) ? .interviewer : .unknown
                 
+                let customConfig: LLMProviderConfiguration?
+                if forceDeepSeek {
+                    guard let deepSeekConfig = providerConfigurations.first(where: { $0.kind == .deepSeek }) else {
+                        throw LLMProviderError.notConfigured("DeepSeek provider not found. Please add DeepSeek in settings.")
+                    }
+                    customConfig = deepSeekConfig
+                } else {
+                    customConfig = nil
+                }
+                
+                let activeProvider = customConfig ?? activeRealtimeProvider
+                
                 let detected = DetectedQuestion(
                     id: questionID,
                     sessionID: currentSessionID,
@@ -1893,36 +2015,42 @@ final class AppState: ObservableObject {
                     reason: "Manual Capture Triggered",
                     shouldTrigger: true,
                     questionComplete: true,
-                    modelName: activeRealtimeProvider?.model ?? "Ollama",
+                    modelName: activeProvider?.model ?? "Ollama",
                     promptVersion: "v1",
-                    providerKind: activeRealtimeProvider?.kind,
-                    providerName: activeRealtimeProvider?.name,
-                    providerBaseURL: activeRealtimeProvider?.baseURL,
+                    providerKind: activeProvider?.kind,
+                    providerName: activeProvider?.name,
+                    providerBaseURL: activeProvider?.baseURL,
                     latencyMS: nil,
-                    isLocal: activeRealtimeProvider?.kind == .ollamaLocal,
+                    isLocal: activeProvider?.kind == .ollamaLocal,
                     rawJSON: nil,
                     createdAt: Date()
                 )
                 
-                // Retrieve matching CV/JD context dynamically using SimpleContextRetrievalService
+                // gate context to 800 CV / 600 JD words
                 let context = try contextRetrievalService.retrieveContext(
                     question: text,
                     intent: .technical,
-                    maxCVWords: 1500,
-                    maxJDWords: 1000
+                    maxCVWords: 800,
+                    maxJDWords: 600
                 )
                 
-                // Retrieve recent transcript context if available
-                let transcriptContext = self.transcriptSegments.map { "\($0.speaker.displayName): \($0.text)" }.joined(separator: "\n")
+                // empty transcript context
+                let transcriptContext = ""
                 
-                // Generate suggestion card
+                // suggestion timeout interval is settings.ollamaRequestTimeoutSeconds
+                let timeout = TimeInterval(settings.ollamaRequestTimeoutSeconds)
+                
                 let result = try await suggestionGenerationService.generate(
                     question: detected,
                     context: context,
                     transcriptContext: transcriptContext,
-                    sessionID: currentSessionID
+                    sessionID: currentSessionID,
+                    timeoutInterval: timeout,
+                    customProviderConfig: customConfig
                 )
                 
+                self.lastSuggestionGenerationProvider = result.response.providerName
+                self.lastSuggestionGenerationModel = result.response.modelName
                 self.manualCaptureSuggestion = result.card
                 self.manualCaptureState = .suggestionReady
                 
@@ -1934,7 +2062,7 @@ final class AppState: ObservableObject {
                         sessionID: session.id,
                         source: source,
                         speaker: speaker,
-                        text: text,
+                        text: rawText, // Keep raw in transcript segment
                         startTime: nil,
                         endTime: nil,
                         createdAt: Date(),
@@ -1969,12 +2097,64 @@ final class AppState: ObservableObject {
                         diag.lastAPILatencyMS = result.response.latencyMS
                         diag.lastProviderName = result.response.providerName
                         diag.lastProviderModel = result.response.modelName
+                        diag.rawTranscript = rawText
+                        diag.cleanedQuestion = text
+                    }
+                } else {
+                    // Update diagnostics even if session doesn't run
+                    self.updateDiagnostics { diag in
+                        diag.apiCallCount += 1
+                        diag.lastAPILatencyMS = result.response.latencyMS
+                        diag.lastProviderName = result.response.providerName
+                        diag.lastProviderModel = result.response.modelName
+                        diag.rawTranscript = rawText
+                        diag.cleanedQuestion = text
                     }
                 }
             } catch {
-                self.manualCaptureState = .error(error.localizedDescription)
+                self.manualCaptureState = .suggestionError(error.localizedDescription)
+                self.updateDiagnostics { diag in
+                    diag.lastError = error.localizedDescription
+                    diag.rawTranscript = rawText
+                    diag.cleanedQuestion = text
+                }
             }
         }
+    }
+    
+    func caseSuggestionError(_ state: ManualCaptureState) -> Bool {
+        if case .suggestionError = state { return true }
+        return false
+    }
+
+    func cleanTranscript(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "" }
+        
+        let lowercased = text.lowercased()
+        
+        // Conservative cleanup
+        if lowercased.hasSuffix("what you offer") {
+            if let range = text.range(of: "what you offer", options: [.caseInsensitive, .backwards]) {
+                text.replaceSubrange(range, with: "what do you offer?")
+            }
+        } else if lowercased == "what you offer" {
+            text = "What do you offer?"
+        }
+        
+        if let first = text.first, first.isLowercase {
+            text = text.prefix(1).uppercased() + text.dropFirst()
+        }
+        
+        let questionWords = ["what", "why", "how", "who", "when", "where", "which", "are", "is", "do", "does", "did", "can", "could", "would", "should", "will"]
+        let firstWord = text.split(separator: " ").first?.lowercased() ?? ""
+        if questionWords.contains(firstWord) {
+            if !text.hasSuffix("?") && !text.hasSuffix(".") && !text.hasSuffix("!") {
+                text += "?"
+            }
+        }
+        
+        return text
     }
     
     @MainActor
@@ -1982,12 +2162,26 @@ final class AppState: ObservableObject {
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
         self.manualCaptureError = nil
-        startManualCapture()
+        self.manualCaptureBufferCount = 0
+        self.manualCaptureLastBufferTimestamp = nil
+        self.manualCaptureState = .idle
+    }
+    
+    @MainActor
+    func clearManualCapture() {
+        self.manualCaptureTranscript = ""
+        self.manualCaptureSuggestion = nil
+        self.manualCaptureError = nil
+        self.manualCaptureBufferCount = 0
+        self.manualCaptureLastBufferTimestamp = nil
+        self.manualCaptureState = .idle
     }
     
     @MainActor
     func regenerateManualSuggestion() {
-        guard self.manualCaptureState == .transcriptReady || self.manualCaptureState == .suggestionReady else { return }
+        guard self.manualCaptureState == .transcriptReady || 
+              self.manualCaptureState == .suggestionReady || 
+              caseSuggestionError(self.manualCaptureState) else { return }
         sendManualCaptureToAI()
     }
 }

@@ -11,6 +11,7 @@ public enum ManualCaptureState: Equatable, Hashable {
     case suggestionReady
     case cancelled
     case error(String)
+    case suggestionError(String)
     
     public var displayName: String {
         switch self {
@@ -24,6 +25,7 @@ public enum ManualCaptureState: Equatable, Hashable {
         case .suggestionReady: return "Suggestion Ready"
         case .cancelled: return "Cancelled"
         case .error(let msg): return "Error: \(msg)"
+        case .suggestionError(let msg): return "Suggestion Error: \(msg)"
         }
     }
 }

@@ -10,6 +10,16 @@ public final class OllamaDiagnostics: ObservableObject {
     @Published public var lastHTTPStatus: Int? = nil
     @Published public var lastRawError: String? = nil
     @Published public var lastRawResponsePreview: String? = nil
+    
+    // Detailed diagnostics
+    @Published public var activeProviderName: String? = nil
+    @Published public var activeModel: String? = nil
+    @Published public var lastEndpoint: String? = nil
+    @Published public var lastTimeout: Double? = nil
+    @Published public var lastLatencyMS: Int? = nil
+    @Published public var jsonParseSuccess: Bool = false
+    @Published public var jsonParseFailureReason: String? = nil
+    @Published public var fallbackCardUsed: Bool = false
 
     private init() {}
 
@@ -19,6 +29,14 @@ public final class OllamaDiagnostics: ObservableObject {
         lastHTTPStatus = nil
         lastRawError = nil
         lastRawResponsePreview = nil
+        activeProviderName = nil
+        activeModel = nil
+        lastEndpoint = nil
+        lastTimeout = nil
+        lastLatencyMS = nil
+        jsonParseSuccess = false
+        jsonParseFailureReason = nil
+        fallbackCardUsed = false
     }
 }
 
@@ -70,11 +88,20 @@ final class OllamaLLMClient: LLMClientProtocol {
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
         let started = ContinuousClock.now
+        let actualTimeout = options.timeoutInterval ?? 180.0
 
         // Safe logs violating no privacy rules
         print("[Ollama] baseURL = \(configuration.baseURL)")
         print("[Ollama] model = \(configuration.model)")
         print("[Ollama] endpoint = /api/chat")
+        print("[Ollama] timeout = \(actualTimeout)s")
+
+        await MainActor.run {
+            OllamaDiagnostics.shared.activeProviderName = configuration.name
+            OllamaDiagnostics.shared.activeModel = configuration.model
+            OllamaDiagnostics.shared.lastEndpoint = "/api/chat"
+            OllamaDiagnostics.shared.lastTimeout = actualTimeout
+        }
 
         let models = try await listModels(configuration: configuration)
         let isInstalled = models.contains(where: { $0.name == configuration.model })
@@ -94,7 +121,7 @@ final class OllamaLLMClient: LLMClientProtocol {
             responseFormat: responseFormat,
             options: options
         )
-        request.timeoutInterval = options.timeoutInterval ?? 120.0
+        request.timeoutInterval = actualTimeout
 
         let data: Data
         let response: URLResponse
@@ -115,7 +142,7 @@ final class OllamaLLMClient: LLMClientProtocol {
                     isNotRunning = true
                     await MainActor.run {
                         OllamaDiagnostics.shared.reachable = false
-                        OllamaDiagnostics.shared.lastRawError = "Ollama connection lost or not running."
+                        OllamaDiagnostics.shared.lastRawError = "Cannot connect to local Ollama. Is it running?"
                     }
                 } else {
                     isNotRunning = false
@@ -131,7 +158,7 @@ final class OllamaLLMClient: LLMClientProtocol {
             }
 
             if timedOut {
-                throw LLMProviderError.networkFailure(providerName: configuration.name, message: "Ollama timed out. Try a smaller model or increase timeout.")
+                throw LLMProviderError.networkFailure(providerName: configuration.name, message: "Ollama timed out. This can happen if the model is too large, not fully loaded, or the context is too long. Try a smaller model, increase timeout, or switch to DeepSeek.")
             }
             if isNotRunning {
                 throw LLMProviderError.ollamaNotRunning
@@ -142,8 +169,11 @@ final class OllamaLLMClient: LLMClientProtocol {
         let body = String(data: data, encoding: .utf8) ?? ""
         let httpResponse = response as? HTTPURLResponse
         let statusCode = httpResponse?.statusCode ?? 0
+        
+        let latency = latencyMS(since: started)
         await MainActor.run {
             OllamaDiagnostics.shared.lastHTTPStatus = statusCode
+            OllamaDiagnostics.shared.lastLatencyMS = latency
         }
         
         print("[Ollama] HTTP status = \(statusCode)")
@@ -170,7 +200,6 @@ final class OllamaLLMClient: LLMClientProtocol {
         }
 
         let content = decoded.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        let latency = latencyMS(since: started)
         
         print("[Ollama] latency = \(latency) ms")
         print("[Ollama] response content length = \(content.count)")

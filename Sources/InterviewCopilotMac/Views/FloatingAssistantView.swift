@@ -108,11 +108,7 @@ struct FloatingAssistantView: View {
             
             MicLevelIndicatorView(appState: appState, isMini: true)
             
-            StatusPill(
-                title: appState.activeRealtimeProviderBadge,
-                systemImage: appState.activeRealtimeProvider?.kind == .ollamaLocal ? "desktopcomputer" : "cloud",
-                tint: appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue
-            )
+            LLMProviderQuickSwitcherView(appState: appState, isCompact: true)
             Spacer()
             
             // Transparency controls

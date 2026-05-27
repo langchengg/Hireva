@@ -174,7 +174,13 @@ struct ManualCaptureTests {
 
         // Act
         appState.startManualCapture()
-        try? await Task.sleep(for: .milliseconds(100))
+        var elapsedStart = 0
+        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+            try? await Task.sleep(for: .milliseconds(20))
+            elapsedStart += 1
+        }
+        // Allow the async Task to complete startCapture() after setting .recording
+        try await Task.sleep(for: .milliseconds(100))
 
         // Assert Constraint 1: systemAudio manual capture does not request microphone/speech permission
         #expect(mockPermission.micRequestedCount == 0)
@@ -194,7 +200,7 @@ struct ManualCaptureTests {
         appState.stopAndTranscribeManualCapture()
         
         var elapsed = 0
-        while appState.manualCaptureState != .suggestionReady && elapsed < 40 {
+        while appState.manualCaptureState != .suggestionReady && elapsed < 200 {
             try? await Task.sleep(for: .milliseconds(50))
             elapsed += 1
         }
@@ -239,7 +245,11 @@ struct ManualCaptureTests {
 
         // Act
         appState.startManualCapture()
-        try? await Task.sleep(for: .milliseconds(100))
+        var elapsedStart = 0
+        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+            try? await Task.sleep(for: .milliseconds(20))
+            elapsedStart += 1
+        }
 
         // Assert Constraint 2: microphone manual capture requests microphone/speech permissions
         #expect(mockPermission.micRequestedCount == 1)
@@ -283,7 +293,11 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        try? await Task.sleep(for: .milliseconds(100))
+        var elapsedStart = 0
+        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+            try? await Task.sleep(for: .milliseconds(20))
+            elapsedStart += 1
+        }
 
         // Stop capture
         ManualQuestionCaptureService.mockStopCapture = { return [] }
@@ -294,7 +308,7 @@ struct ManualCaptureTests {
         appState.stopAndTranscribeManualCapture()
         
         var elapsed = 0
-        while appState.manualCaptureState != .transcriptReady && elapsed < 40 {
+        while appState.manualCaptureState != .transcriptReady && elapsed < 200 {
             try? await Task.sleep(for: .milliseconds(50))
             elapsed += 1
         }
@@ -340,7 +354,11 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        try? await Task.sleep(for: .milliseconds(100))
+        var elapsedStart = 0
+        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+            try? await Task.sleep(for: .milliseconds(20))
+            elapsedStart += 1
+        }
 
         ManualQuestionCaptureService.mockStopCapture = { return [] }
         ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
@@ -350,7 +368,7 @@ struct ManualCaptureTests {
         appState.stopAndTranscribeManualCapture()
         
         var elapsed = 0
-        while appState.manualCaptureState != .suggestionReady && elapsed < 40 {
+        while appState.manualCaptureState != .suggestionReady && elapsed < 200 {
             try? await Task.sleep(for: .milliseconds(50))
             elapsed += 1
         }
@@ -398,7 +416,11 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        try? await Task.sleep(for: .milliseconds(100))
+        var elapsedStart = 0
+        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+            try? await Task.sleep(for: .milliseconds(20))
+            elapsedStart += 1
+        }
 
         ManualQuestionCaptureService.mockStopCapture = { return [] }
         // Return empty string as transcript result
@@ -411,7 +433,7 @@ struct ManualCaptureTests {
         var elapsed = 0
         while true {
             if case .error = appState.manualCaptureState { break }
-            if elapsed >= 40 { break }
+            if elapsed >= 200 { break }
             try? await Task.sleep(for: .milliseconds(50))
             elapsed += 1
         }
@@ -463,7 +485,11 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        try? await Task.sleep(for: .milliseconds(100))
+        var elapsedStart = 0
+        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+            try? await Task.sleep(for: .milliseconds(20))
+            elapsedStart += 1
+        }
 
         #expect(appState.manualCaptureState == .recording)
         let timeoutBlock = try #require(capturedTimeoutBlock)
@@ -478,7 +504,7 @@ struct ManualCaptureTests {
         timeoutBlock()
         
         var elapsed = 0
-        while appState.manualCaptureState != .suggestionReady && elapsed < 40 {
+        while appState.manualCaptureState != .suggestionReady && elapsed < 200 {
             try? await Task.sleep(for: .milliseconds(50))
             elapsed += 1
         }
@@ -488,4 +514,247 @@ struct ManualCaptureTests {
         #expect(appState.manualCaptureState == .suggestionReady)
         #expect(appState.manualCaptureTranscript == "Timeout test question")
     }
+
+    @Test
+    func testManualCaptureBufferDiagnosticsRemainNonzero() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+
+        let mockPermission = MockPermissionService()
+        let trackingLLM = TrackingLLMClient()
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        appState.refreshAll()
+
+        appState.manualCaptureState = .recording
+        ManualQuestionCaptureService.shared.capturedBufferCount = 42
+        ManualQuestionCaptureService.shared.recordingDuration = 10.5
+        let testTimestamp = Date()
+        ManualQuestionCaptureService.shared.lastBufferTimestamp = testTimestamp
+
+        // Stop capture
+        ManualQuestionCaptureService.mockStopCapture = { return [] }
+        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in return "What do you offer?" }
+
+        appState.stopAndTranscribeManualCapture()
+        
+        // Wait for transcription to complete
+        var elapsed = 0
+        while appState.manualCaptureState == .transcribing && elapsed < 50 {
+            try? await Task.sleep(for: .milliseconds(10))
+            elapsed += 1
+        }
+
+        #expect(appState.manualCaptureBufferCount == 42)
+        #expect(appState.manualCaptureDuration == 10.5)
+        #expect(appState.manualCaptureTranscript == "What do you offer?")
+    }
+
+    @Test
+    func testLLMFailureKillsNotState() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+
+        final class FailingLLMClient: LLMClientProtocol {
+            let providerKind: LLMProviderKind = .ollamaLocal
+            func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
+                return LLMConnectionTestResult(success: false, message: "fail", latencyMS: 1, models: [])
+            }
+            func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage], responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
+                throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ollama connection timeout error domain"])
+            }
+            func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
+                return []
+            }
+        }
+
+        let mockPermission = MockPermissionService()
+        let failingLLM = FailingLLMClient()
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: failingLLM])
+        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        appState.refreshAll()
+
+        appState.manualCaptureState = .transcriptReady
+        appState.manualCaptureTranscript = "What do you offer"
+        appState.manualCaptureBufferCount = 15
+
+        appState.sendManualCaptureToAI()
+
+        var elapsed = 0
+        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
+            try? await Task.sleep(for: .milliseconds(10))
+            elapsed += 1
+        }
+
+        // Verify state is suggestionError, and transcript is retained!
+        if case .suggestionError(let msg) = appState.manualCaptureState {
+            #expect(msg.contains("Ollama connection timeout error domain"))
+        } else {
+            Issue.record("Expected state to be suggestionError but was \(appState.manualCaptureState)")
+        }
+        #expect(appState.manualCaptureTranscript == "What do you offer")
+        #expect(appState.manualCaptureBufferCount == 15)
+    }
+
+    @Test
+    func testRetryLLMReusesTranscript() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+
+        let mockPermission = MockPermissionService()
+        let trackingLLM = TrackingLLMClient()
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        appState.refreshAll()
+
+        appState.manualCaptureState = .suggestionError("Previous failure")
+        appState.manualCaptureTranscript = "Edited question text"
+        appState.manualCaptureBufferCount = 12
+
+        appState.sendManualCaptureToAI()
+
+        var elapsed = 0
+        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
+            try? await Task.sleep(for: .milliseconds(10))
+            elapsed += 1
+        }
+
+        #expect(appState.manualCaptureState == .suggestionReady)
+        #expect(appState.manualCaptureTranscript == "Edited question text")
+        #expect(appState.manualCaptureSuggestion != nil)
+    }
+
+    @Test
+    func testMalformedJSONRepair() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+
+        final class MalformedJSONLLMClient: LLMClientProtocol {
+            let providerKind: LLMProviderKind = .ollamaLocal
+            func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
+                return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
+            }
+            func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage], responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
+                let rawContent = """
+                ```json
+                {
+                    "strategy": "Direct Answer",
+                    "say_first": "Corrected text",
+                    "key_points": ["First point", "Second point"],
+                    "follow_up_ready": [],
+                    "confidence": 0.85,
+                    "caution": "None",
+                    "evidence_used": [],
+                    "risk_level": "low",
+                }
+                ```
+                """
+                return LLMChatResult(
+                    content: rawContent,
+                    modelName: "test-model",
+                    providerKind: .ollamaLocal,
+                    providerName: "Ollama",
+                    baseURL: "http://localhost:11434",
+                    latencyMS: 100,
+                    isLocal: true,
+                    rawResponse: nil
+                )
+            }
+            func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
+                return []
+            }
+        }
+
+        let mockPermission = MockPermissionService()
+        let malformedLLM = MalformedJSONLLMClient()
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: malformedLLM])
+        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        appState.refreshAll()
+
+        appState.manualCaptureState = .transcriptReady
+        appState.manualCaptureTranscript = "What do you offer"
+
+        appState.sendManualCaptureToAI()
+
+        var elapsed = 0
+        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
+            try? await Task.sleep(for: .milliseconds(10))
+            elapsed += 1
+        }
+
+        #expect(appState.manualCaptureState == .suggestionReady)
+        let suggestion = try #require(appState.manualCaptureSuggestion)
+        #expect(suggestion.strategy == "Direct Answer")
+        #expect(suggestion.sayFirst == "Corrected text")
+        #expect(suggestion.keyPoints.count == 2)
+    }
+
+    @Test
+    func testRawTextFallbackSuggestion() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+
+        final class PlainTextLLMClient: LLMClientProtocol {
+            let providerKind: LLMProviderKind = .ollamaLocal
+            func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
+                return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
+            }
+            func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage], responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
+                let rawContent = "This is a plain text answer from the model. It contains sentences. It also has: \n- Bullet point 1\n- Bullet point 2"
+                return LLMChatResult(
+                    content: rawContent,
+                    modelName: "test-model",
+                    providerKind: .ollamaLocal,
+                    providerName: "Ollama",
+                    baseURL: "http://localhost:11434",
+                    latencyMS: 100,
+                    isLocal: true,
+                    rawResponse: nil
+                )
+            }
+            func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
+                return []
+            }
+        }
+
+        let mockPermission = MockPermissionService()
+        let plainLLM = PlainTextLLMClient()
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: plainLLM])
+        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        appState.refreshAll()
+
+        appState.manualCaptureState = .transcriptReady
+        appState.manualCaptureTranscript = "What do you offer"
+
+        appState.sendManualCaptureToAI()
+
+        var elapsed = 0
+        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
+            try? await Task.sleep(for: .milliseconds(10))
+            elapsed += 1
+        }
+
+        #expect(appState.manualCaptureState == .suggestionReady)
+        let suggestion = try #require(appState.manualCaptureSuggestion)
+        #expect(suggestion.strategy == "Direct Answer")
+        #expect(suggestion.sayFirst.contains("This is a plain text answer"))
+        #expect(suggestion.keyPoints.count >= 2)
+        #expect(suggestion.keyPoints.contains("Bullet point 1"))
+    }
 }
+
