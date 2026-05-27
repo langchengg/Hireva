@@ -9,6 +9,8 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(minWidth: 110)
         }
         .buttonStyle(.borderedProminent)

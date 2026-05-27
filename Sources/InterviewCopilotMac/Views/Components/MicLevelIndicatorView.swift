@@ -26,10 +26,19 @@ struct MicLevelIndicatorView: View {
                             Text("Candidate Mic")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(1)
+                                .fixedSize(horizontal: true, vertical: false)
                             Text(appState.microphonePermissionState == .authorized && micDiagnostics.lastError == nil ? String(format: "%.1f dB", micDiagnostics.decibels) : "Mic Off")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(micStatusColor)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
+                        .frame(minWidth: 95, alignment: .leading)
                         
                         if appState.microphonePermissionState == .authorized, micDiagnostics.lastError == nil {
                             levelBar(level: micDiagnostics.normalizedLevel, color: micLevelColor)
@@ -52,10 +61,19 @@ struct MicLevelIndicatorView: View {
                             Text("Interviewer Audio")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(1)
+                                .fixedSize(horizontal: true, vertical: false)
                             Text(systemAudio.isCapturing && systemAudio.lastError == nil ? String(format: "%.1f dB", systemAudio.decibels) : "Sys Off")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(systemAudioStatusColor)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
+                        .frame(minWidth: 95, alignment: .leading)
                         
                         if systemAudio.isCapturing, systemAudio.lastError == nil {
                             levelBar(level: systemAudio.normalizedLevel, color: systemAudioLevelColor)

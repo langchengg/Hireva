@@ -6,20 +6,23 @@ struct LiveInterviewView: View {
     @State private var practiceExpanded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
+        GeometryReader { geometry in
+            let isWide = geometry.size.width >= 1100
+            VStack(spacing: 0) {
+                toolbar(width: geometry.size.width)
+                Divider()
 
-            if let reason = appState.liveBlockedReason {
-                EmptyStateView(title: "Live Interview Locked", message: reason, systemImage: "lock")
-            } else {
-                switch appState.interviewCopilotMode {
-                case .autoDetect:
-                    autoDetectWorkspace
-                case .manualCapture:
-                    manualCaptureWorkspace
-                case .practiceMock:
-                    practiceMockWorkspace
+                if let reason = appState.liveBlockedReason {
+                    EmptyStateView(title: "Live Interview Locked", message: reason, systemImage: "lock")
+                } else {
+                    switch appState.interviewCopilotMode {
+                    case .autoDetect:
+                        autoDetectWorkspace(isWide: isWide)
+                    case .manualCapture:
+                        manualCaptureWorkspace(isWide: isWide)
+                    case .practiceMock:
+                        practiceMockWorkspace(isWide: isWide)
+                    }
                 }
             }
         }
@@ -29,100 +32,105 @@ struct LiveInterviewView: View {
         }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 10) {
-            Picker("Mode", selection: $appState.interviewCopilotMode) {
-                ForEach(InterviewCopilotMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
+    private var modeSelector: some View {
+        Picker("Mode", selection: $appState.interviewCopilotMode) {
+            ForEach(InterviewCopilotMode.allCases) { mode in
+                Text(mode.displayName).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 320)
+    }
+
+    @ViewBuilder
+    private func primaryActions(isCompact: Bool) -> some View {
+        if appState.interviewCopilotMode == .autoDetect {
+            PrimaryButton(
+                title: isCompact ? "Start" : "Start Listening",
+                systemImage: "mic.fill",
+                isDisabled: !appState.liveState.canStartListening || appState.liveBlockedReason != nil
+            ) {
+                appState.startListening(mode: .microphone)
+            }
+
+            Picker("", selection: audioCaptureModeBinding) {
+                ForEach(AudioCaptureMode.allCases) { mode in
+                    Text(mode.shortDisplayName).tag(mode)
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 320)
-            
-            Spacer().frame(width: 10)
-
-            if appState.interviewCopilotMode == .autoDetect {
-                PrimaryButton(
-                    title: "Start Listening",
-                    systemImage: "mic.fill",
-                    isDisabled: !appState.liveState.canStartListening || appState.liveBlockedReason != nil
-                ) {
-                    appState.startListening(mode: .microphone)
-                }
-
-                Picker("", selection: audioCaptureModeBinding) {
-                    ForEach(AudioCaptureMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 200)
-                .disabled(!appState.liveState.canStartListening)
-                .help("Choose what audio streams to capture for candidate and interviewer speech.")
-
-                Button {
-                    appState.stopListening()
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(!appState.liveState.canStop)
-            }
+            .pickerStyle(.menu)
+            .frame(width: 140)
+            .disabled(!appState.liveState.canStartListening)
+            .help("Choose what audio streams to capture: \n• Mic: Microphone Only\n• System: System Audio Only\n• Mic + System: Microphone + System Audio")
 
             Button {
-                appState.showFloatingAssistant()
+                appState.stopListening()
             } label: {
-                Label("Floating Assistant", systemImage: "macwindow.badge.plus")
+                Label(isCompact ? "Stop" : "Stop", systemImage: "stop.fill")
+                    .lineLimit(1)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .disabled(!appState.liveState.canStop)
+        }
+    }
 
-            if appState.interviewCopilotMode == .autoDetect {
-                Toggle(isOn: automaticDetectionBinding) {
-                    Label("Auto Detect", systemImage: "scope")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .help("Automatically detect complete interviewer questions and generate suggestions.")
+    @ViewBuilder
+    private func secondaryControls(isCompact: Bool) -> some View {
+        Button {
+            appState.showFloatingAssistant()
+        } label: {
+            Label(isCompact ? "Overlay" : "Floating Assistant", systemImage: "macwindow.badge.plus")
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
 
-                Button {
-                    appState.manualAnswerNow()
-                } label: {
-                    Label("Answer Fallback", systemImage: "keyboard")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(!appState.liveState.canAnswerNow || appState.liveBlockedReason != nil)
-                .help("Fallback: manually trigger generation from the recent transcript.")
+        if appState.interviewCopilotMode == .autoDetect {
+            Toggle(isOn: automaticDetectionBinding) {
+                Label(isCompact ? "Auto" : "Auto Detect", systemImage: "scope")
+                    .lineLimit(1)
             }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .help("Automatically detect complete interviewer questions and generate suggestions.")
 
             Button {
-                appState.clearLiveSession()
+                appState.manualAnswerNow()
             } label: {
-                Label("Clear", systemImage: "trash")
+                Label(isCompact ? "Fallback" : "Answer Fallback", systemImage: "keyboard")
+                    .lineLimit(1)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .disabled(!appState.liveState.canAnswerNow || appState.liveBlockedReason != nil)
+            .help("Fallback: manually trigger generation from the recent transcript.")
+        }
 
-            if appState.interviewCopilotMode == .autoDetect {
-                Button {
-                    appState.restartAudioInput()
-                } label: {
-                    Label("Restart", systemImage: "arrow.clockwise.circle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .help("Manual audio capture reset if device changes.")
+        Button {
+            appState.clearLiveSession()
+        } label: {
+            Label(isCompact ? "Clear" : "Clear", systemImage: "trash")
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+
+        if appState.interviewCopilotMode == .autoDetect {
+            Button {
+                appState.restartAudioInput()
+            } label: {
+                Label(isCompact ? "Restart" : "Restart", systemImage: "arrow.clockwise.circle")
+                    .lineLimit(1)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .help("Manual audio capture reset if device changes.")
+        }
+    }
 
-            Spacer()
-            
-            // Integrated visual mic level indicators
-            if appState.interviewCopilotMode == .autoDetect {
-                MicLevelIndicatorView(appState: appState)
-            }
-
+    private var utilityButtons: some View {
+        HStack(spacing: 8) {
             Button {
                 appState.selectSection(.permissions)
             } label: {
@@ -139,26 +147,97 @@ struct LiveInterviewView: View {
             .buttonStyle(.borderless)
             .help("Settings")
         }
-        .padding(14)
     }
 
-    private var statusStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                StatusPill(title: appState.liveState.displayName, systemImage: "dot.radiowaves.left.and.right", tint: stateTint)
-                StatusPill(
-                    title: "Mic \(appState.microphonePermissionState.displayName)",
-                    systemImage: "mic",
-                    tint: appState.microphonePermissionState == .authorized ? .green : .orange
-                )
-                StatusPill(
-                    title: "System Audio \(appState.permissionSnapshot.systemAudioCapture == .granted ? "Granted" : "Required")",
-                    systemImage: "speaker.wave.2",
-                    tint: appState.permissionSnapshot.systemAudioCapture == .granted ? .green : .orange
-                )
-                StatusPill(title: appState.activeRealtimeProviderBadge, systemImage: "brain", tint: appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue)
-                StatusPill(title: appState.onboardingComplete ? "CV/JD loaded" : "CV/JD missing", systemImage: "doc.on.doc", tint: appState.onboardingComplete ? .green : .red)
+    private func toolbar(width: CGFloat) -> some View {
+        Group {
+            if width >= 1100 {
+                // Wide Toolbar: Single row layout
+                HStack(spacing: 10) {
+                    modeSelector
+                    
+                    Spacer().frame(width: 10)
+                    
+                    primaryActions(isCompact: false)
+                    
+                    secondaryControls(isCompact: false)
+                    
+                    Spacer()
+                    
+                    if appState.interviewCopilotMode == .autoDetect {
+                        MicLevelIndicatorView(appState: appState, isMini: false)
+                    }
+                    
+                    utilityButtons
+                }
+                .padding(14)
+            } else {
+                // Medium/Compact Toolbar: Two rows
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        modeSelector
+                        
+                        Spacer()
+                        
+                        primaryActions(isCompact: true)
+                        
+                        if appState.interviewCopilotMode == .autoDetect {
+                            MicLevelIndicatorView(appState: appState, isMini: true)
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    HStack(spacing: 10) {
+                        secondaryControls(isCompact: true)
+                        
+                        Spacer()
+                        
+                        utilityButtons
+                    }
+                }
+                .padding(14)
             }
+        }
+    }
+
+    private func statusStrip(isCompact: Bool) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 8)], alignment: .leading, spacing: 8) {
+            StatusPill(
+                title: appState.liveState.displayName,
+                compactTitle: appState.liveState.displayName,
+                systemImage: "dot.radiowaves.left.and.right",
+                tint: stateTint,
+                isCompact: isCompact
+            )
+            StatusPill(
+                title: "Mic \(appState.microphonePermissionState.displayName)",
+                compactTitle: "Mic: \(appState.microphonePermissionState == .authorized ? "✓" : "✗")",
+                systemImage: "mic",
+                tint: appState.microphonePermissionState == .authorized ? .green : .orange,
+                isCompact: isCompact
+            )
+            StatusPill(
+                title: "System Audio \(appState.permissionSnapshot.systemAudioCapture == .granted ? "Granted" : "Required")",
+                compactTitle: "System: \(appState.permissionSnapshot.systemAudioCapture == .granted ? "✓" : "Required")",
+                systemImage: "speaker.wave.2",
+                tint: appState.permissionSnapshot.systemAudioCapture == .granted ? .green : .orange,
+                isCompact: isCompact
+            )
+            StatusPill(
+                title: appState.activeRealtimeProviderBadge,
+                compactTitle: appState.activeRealtimeProviderBadge,
+                systemImage: "brain",
+                tint: appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue,
+                isCompact: isCompact
+            )
+            StatusPill(
+                title: appState.onboardingComplete ? "CV/JD loaded" : "CV/JD missing",
+                compactTitle: appState.onboardingComplete ? "CV/JD ✓" : "CV/JD ✗",
+                systemImage: "doc.on.doc",
+                tint: appState.onboardingComplete ? .green : .red,
+                isCompact: isCompact
+            )
         }
     }
 
@@ -501,58 +580,114 @@ struct LiveInterviewView: View {
     
     // MARK: - Conditional Workspaces
     
-    private var autoDetectWorkspace: some View {
-        HSplitView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    statusStrip
-                    audioDeviceConfigPanel
-                    audioRouteWarning
-                    permissionRecovery
-                    floatingAssistantStatus
-                    autoDetectionStatus
-                    TranscriptView(segments: appState.transcriptSegments)
-                    practiceTestingSection
-                }
-                .padding(18)
-            }
-            .frame(minWidth: 560)
+    private func autoDetectWorkspace(isWide: Bool) -> some View {
+        Group {
+            if isWide {
+                HSplitView {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            statusStrip(isCompact: false)
+                            audioDeviceConfigPanel
+                            audioRouteWarning
+                            permissionRecovery
+                            floatingAssistantStatus
+                            autoDetectionStatus
+                            TranscriptView(segments: appState.transcriptSegments)
+                            practiceTestingSection
+                        }
+                        .padding(18)
+                    }
+                    .frame(minWidth: 520)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    detectedQuestionPanel
-                    SuggestionCardView(card: appState.currentSuggestion)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            detectedQuestionPanel
+                            SuggestionCardView(card: appState.currentSuggestion)
+                        }
+                        .padding(18)
+                    }
+                    .frame(minWidth: 360)
                 }
-                .padding(18)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        statusStrip(isCompact: true)
+                        audioDeviceConfigPanel
+                        audioRouteWarning
+                        permissionRecovery
+                        floatingAssistantStatus
+                        autoDetectionStatus
+                        
+                        Divider()
+                        
+                        Text("Question & Suggestions")
+                            .font(.title2.weight(.bold))
+                            
+                        detectedQuestionPanel
+                        SuggestionCardView(card: appState.currentSuggestion)
+                        
+                        Divider()
+                        
+                        TranscriptView(segments: appState.transcriptSegments)
+                        practiceTestingSection
+                    }
+                    .padding(18)
+                }
             }
-            .frame(minWidth: 390, maxWidth: 520)
         }
     }
     
-    private var practiceMockWorkspace: some View {
-        HSplitView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Practice / Mock Interview Mode")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    
-                    practiceTestingSectionExpanded
-                    
-                    TranscriptView(segments: appState.transcriptSegments)
-                }
-                .padding(18)
-            }
-            .frame(minWidth: 560)
+    private func practiceMockWorkspace(isWide: Bool) -> some View {
+        Group {
+            if isWide {
+                HSplitView {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Practice / Mock Interview Mode")
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                            
+                            practiceTestingSectionExpanded
+                            
+                            TranscriptView(segments: appState.transcriptSegments)
+                        }
+                        .padding(18)
+                    }
+                    .frame(minWidth: 520)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    detectedQuestionPanel
-                    SuggestionCardView(card: appState.currentSuggestion)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            detectedQuestionPanel
+                            SuggestionCardView(card: appState.currentSuggestion)
+                        }
+                        .padding(18)
+                    }
+                    .frame(minWidth: 360)
                 }
-                .padding(18)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Practice / Mock Interview Mode")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                        
+                        practiceTestingSectionExpanded
+                        
+                        Divider()
+                        
+                        Text("Question & Suggestions")
+                            .font(.title2.weight(.bold))
+                            
+                        detectedQuestionPanel
+                        SuggestionCardView(card: appState.currentSuggestion)
+                        
+                        Divider()
+                        
+                        TranscriptView(segments: appState.transcriptSegments)
+                    }
+                    .padding(18)
+                }
             }
-            .frame(minWidth: 390, maxWidth: 520)
         }
     }
     
@@ -588,51 +723,92 @@ struct LiveInterviewView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
     
-    private var manualCaptureWorkspace: some View {
-        HSplitView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    manualCaptureControlsCard
-                    
-                    if !appState.manualCaptureTranscript.isEmpty {
-                        manualCaptureTranscriptReviewCard
-                    }
-                    
-                    TranscriptView(segments: appState.transcriptSegments)
-                }
-                .padding(18)
-            }
-            .frame(minWidth: 560)
-            
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Label("Suggestion Card", systemImage: "lightbulb.fill")
-                        .font(.headline)
-                        .foregroundStyle(.purple)
-                    
-                    if let card = appState.manualCaptureSuggestion {
-                        SuggestionCardView(card: card)
-                    } else {
-                        VStack(spacing: 20) {
-                            Image(systemName: "hand.tap")
-                               .font(.system(size: 40))
-                               .foregroundStyle(.secondary)
-                            Text("Generate suggestions dynamically by capturing loopback audio or speaking into the mic.")
-                               .multilineTextAlignment(.center)
-                               .foregroundStyle(.secondary)
+    private func manualCaptureWorkspace(isWide: Bool) -> some View {
+        Group {
+            if isWide {
+                HSplitView {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            manualCaptureControlsCard(isCompact: false)
+                            
+                            if !appState.manualCaptureTranscript.isEmpty {
+                                manualCaptureTranscriptReviewCard
+                            }
+                            
+                            TranscriptView(segments: appState.transcriptSegments)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 250)
                         .padding(18)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                     }
+                    .frame(minWidth: 520)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Label("Suggestion Card", systemImage: "lightbulb.fill")
+                                .font(.headline)
+                                .foregroundStyle(.purple)
+                            
+                            if let card = appState.manualCaptureSuggestion {
+                                SuggestionCardView(card: card)
+                            } else {
+                                VStack(spacing: 20) {
+                                    Image(systemName: "hand.tap")
+                                       .font(.system(size: 40))
+                                       .foregroundStyle(.secondary)
+                                    Text("Generate suggestions dynamically by capturing loopback audio or speaking into the mic.")
+                                       .multilineTextAlignment(.center)
+                                       .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 250)
+                                .padding(18)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                        .padding(18)
+                    }
+                    .frame(minWidth: 360)
                 }
-                .padding(18)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        manualCaptureControlsCard(isCompact: true)
+                        
+                        if !appState.manualCaptureTranscript.isEmpty {
+                            manualCaptureTranscriptReviewCard
+                        }
+                        
+                        Divider()
+                        
+                        Label("Suggestion Card", systemImage: "lightbulb.fill")
+                            .font(.headline)
+                            .foregroundStyle(.purple)
+                        
+                        if let card = appState.manualCaptureSuggestion {
+                            SuggestionCardView(card: card)
+                        } else {
+                            VStack(spacing: 20) {
+                                Image(systemName: "hand.tap")
+                                   .font(.system(size: 40))
+                                   .foregroundStyle(.secondary)
+                                Text("Generate suggestions dynamically by capturing loopback audio or speaking into the mic.")
+                                   .multilineTextAlignment(.center)
+                                   .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                            .padding(18)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        
+                        Divider()
+                        
+                        TranscriptView(segments: appState.transcriptSegments)
+                    }
+                    .padding(18)
+                }
             }
-            .frame(minWidth: 390, maxWidth: 520)
         }
     }
     
-    private var manualCaptureControlsCard: some View {
+    private func manualCaptureControlsCard(isCompact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("Manual Capture (Push-to-Ask)", systemImage: "hand.tap.fill")
@@ -678,7 +854,7 @@ struct LiveInterviewView: View {
                     Button {
                         appState.startManualCapture()
                     } label: {
-                        Label("Record Question", systemImage: "record.circle")
+                        Label(isCompact ? "Record" : "Record Question", systemImage: "record.circle")
                             .font(.headline)
                             .padding(.horizontal, 6)
                     }
@@ -691,7 +867,7 @@ struct LiveInterviewView: View {
                     Button {
                         appState.stopAndTranscribeManualCapture()
                     } label: {
-                        Label("Stop & Transcribe", systemImage: "stop.circle.fill")
+                        Label(isCompact ? "Stop" : "Stop & Transcribe", systemImage: "stop.circle.fill")
                             .font(.headline)
                             .padding(.horizontal, 6)
                     }
@@ -716,7 +892,7 @@ struct LiveInterviewView: View {
                     Button {
                         appState.sendManualCaptureToAI()
                     } label: {
-                        Label("Send to AI", systemImage: "paperplane.fill")
+                        Label(isCompact ? "Ask" : "Send to AI", systemImage: "paperplane.fill")
                             .font(.headline)
                     }
                     .buttonStyle(.borderedProminent)
@@ -728,7 +904,7 @@ struct LiveInterviewView: View {
                     Button {
                         appState.retryManualCapture()
                     } label: {
-                        Label("Retry Recording", systemImage: "arrow.clockwise.circle")
+                        Label(isCompact ? "Retry" : "Retry Recording", systemImage: "arrow.clockwise.circle")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -854,5 +1030,24 @@ struct LiveInterviewView: View {
         }
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct LiveInterviewView_Previews: PreviewProvider {
+    static var previews: some View {
+        Group {
+            LiveInterviewView(appState: AppState.bootstrap())
+                .frame(width: 1600, height: 900)
+                .previewDisplayName("1600x900 - Light")
+            
+            LiveInterviewView(appState: AppState.bootstrap())
+                .frame(width: 1280, height: 800)
+                .preferredColorScheme(.dark)
+                .previewDisplayName("1280x800 - Dark")
+            
+            LiveInterviewView(appState: AppState.bootstrap())
+                .frame(width: 1120, height: 720)
+                .previewDisplayName("1120x720 - Compact")
+        }
     }
 }

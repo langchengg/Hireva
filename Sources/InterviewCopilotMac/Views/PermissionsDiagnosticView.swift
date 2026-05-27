@@ -977,6 +977,17 @@ struct PermissionsDiagnosticView: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("💡 If permission is already enabled in System Settings, macOS likely does not recognize this build due to an unstable ad-hoc signature.")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("To resolve: rebuild with a stable Apple Development signing identity, then remove (using the '-' button) and re-add the app permission in System Settings once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+
                 HStack(spacing: 12) {
                     Button {
                         appState.permissionService.openScreenRecordingSettings()
@@ -1016,6 +1027,17 @@ struct PermissionsDiagnosticView: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("💡 If permission is already enabled in System Settings, macOS likely does not recognize this build due to an unstable ad-hoc signature.")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("To resolve: rebuild with a stable Apple Development signing identity, then remove (using the '-' button) and re-add the app permission in System Settings once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+
                 HStack(spacing: 12) {
                     Button {
                         appState.permissionService.openScreenRecordingSettings()
@@ -1054,6 +1076,17 @@ struct PermissionsDiagnosticView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("💡 If permission is already enabled in System Settings, macOS likely does not recognize this build due to an unstable ad-hoc signature.")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("To resolve: rebuild with a stable Apple Development signing identity, then remove (using the '-' button) and re-add the app permission in System Settings once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
 
                 HStack(spacing: 12) {
                     Button {
@@ -1168,7 +1201,34 @@ struct PermissionsDiagnosticView: View {
             .padding(10)
             .background(Color.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
 
-            if !runningFromCorrectPath {
+            if codeSigningStatusText.contains("Signature=adhoc") || codeSigningStatusText.contains("adhoc") {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Warning: App is signed with an Ad-Hoc signature. macOS will reset TCC permissions on every rebuild/code change. To prevent this, build with a stable Apple Development signing identity.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+            }
+            
+            let processInAppBundle = processPath.contains(".app/Contents/MacOS/")
+            if !processInAppBundle {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .foregroundStyle(.red)
+                    Text("Warning: Process is running outside a valid .app bundle (e.g. raw executable from .build). macOS microphone and screen permissions will NOT work.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            if !runningFromCorrectPath && processInAppBundle {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)

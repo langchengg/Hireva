@@ -11,6 +11,7 @@ public struct InterviewCopilotMacApp: App {
         WindowGroup {
             RootView(appState: appState)
                 .frame(minWidth: 1_120, minHeight: 720)
+                .background(WindowMinSizeEnforcer(minWidth: 1120, minHeight: 720))
         }
         .windowStyle(.titleBar)
         .commands {
@@ -33,6 +34,27 @@ public struct InterviewCopilotMacApp: App {
         Settings {
             SettingsView(appState: appState)
                 .frame(width: 720, height: 640)
+        }
+    }
+}
+
+struct WindowMinSizeEnforcer: NSViewRepresentable {
+    var minWidth: CGFloat
+    var minHeight: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window, !(window is NSPanel) {
+                window.minSize = NSSize(width: minWidth, height: minHeight)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let window = nsView.window, !(window is NSPanel) {
+            window.minSize = NSSize(width: minWidth, height: minHeight)
         }
     }
 }

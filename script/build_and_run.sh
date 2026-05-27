@@ -134,18 +134,28 @@ if [[ -n "$SIGNING_IDENTITY" ]]; then
         --sign "$SIGNING_IDENTITY" \
         "$APP_BUNDLE"
 else
-    echo "[sign] No Apple Development certificate found. Using ad-hoc signing."
-    echo "[sign] ⚠️  WARNING: Ad-hoc signing produces a new signature hash on every rebuild."
-    echo "[sign] ⚠️  macOS may re-prompt for permissions after each rebuild."
-    echo "[sign] ⚠️  To avoid this, install an Apple Development certificate from Xcode → Settings → Accounts."
+    echo "================================================================================"
+    echo "⚠️  WARNING: No Apple Development signing identity found. Falling back to ad-hoc signing."
+    echo "⚠️  macOS Screen/System Audio permissions may reset after rebuilds."
+    echo "================================================================================"
     codesign --force --deep \
         --sign - \
         "$APP_BUNDLE"
 fi
 
 echo ""
-echo "[sign] Signature info:"
-codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Signature" || true
+echo "[sign] Running signing diagnostics..."
+codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 || true
+codesign -d -r- "$APP_BUNDLE" 2>&1 || true
+spctl --assess --type execute --verbose "$APP_BUNDLE" || true
+echo ""
+
+echo "[sign] Log Identity Information:"
+echo "  - Signing Identity: ${SIGNING_IDENTITY:-Ad-Hoc FALLBACK}"
+echo "  - TeamIdentifier: $(codesign -dv "$APP_BUNDLE" 2>&1 | grep "TeamIdentifier" | cut -d= -f2 || echo "None")"
+echo "  - CFBundleIdentifier: $BUNDLE_ID"
+echo "  - Executable Path: $APP_BINARY"
+echo "  - App Bundle Path: $APP_BUNDLE"
 echo ""
 
 # --- Launch ---
@@ -191,19 +201,45 @@ case "$MODE" in
             exit 1
         fi
         ;;
+    --identity-check|identity-check)
+        echo "=== [Identity Check] ==="
+        echo "Bundle Path: $APP_BUNDLE"
+        if [[ ! -d "$APP_BUNDLE" ]]; then
+            echo "Bundle not built yet. Run build first."
+            exit 1
+        fi
+        if [[ -f "$INFO_PLIST" ]]; then
+            echo "CFBundleIdentifier: $(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "Unknown")"
+        else
+            echo "CFBundleIdentifier: Info.plist missing"
+        fi
+        echo ""
+        echo "Codesign Info:"
+        codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature|TeamIdentifier" || true
+        echo ""
+        echo "Designated Requirement:"
+        codesign -d -r- "$APP_BUNDLE" 2>&1 | grep -v "designated =>" || true
+        echo ""
+        echo "cdhash:"
+        codesign -dvvvv "$APP_BUNDLE" 2>&1 | grep "CDHash" || true
+        echo ""
+        echo "Executable Path: $APP_BINARY"
+        echo "========================"
+        ;;
     --reset-tcc|reset-tcc)
         # handled above
         ;;
     *)
         cat <<EOF >&2
-usage: $0 [run|--debug|--logs|--telemetry|--verify|--reset-tcc]
+usage: $0 [run|--debug|--logs|--telemetry|--verify|--identity-check|--reset-tcc]
 
-  run           Build, sign, and launch (default)
-  --debug       Build and launch under lldb
-  --logs        Build, launch, and stream process logs
-  --telemetry   Build, launch, and stream subsystem logs
-  --verify      Build, launch, and verify the app is running
-  --reset-tcc   Reset all TCC permissions for the app's bundle ID
+  run               Build, sign, and launch (default)
+  --debug           Build and launch under lldb
+  --logs            Build, launch, and stream process logs
+  --telemetry       Build, launch, and stream subsystem logs
+  --verify          Build, launch, and verify the app is running
+  --identity-check  Verify CFBundleIdentifier, codesign authority, designated requirement, and cdhash
+  --reset-tcc       Reset all TCC permissions for the app's bundle ID
 EOF
         exit 2
         ;;

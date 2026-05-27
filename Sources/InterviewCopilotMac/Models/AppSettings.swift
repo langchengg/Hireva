@@ -33,6 +33,17 @@ public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
             return "Microphone + System Audio (Recommended)"
         }
     }
+
+    public var shortDisplayName: String {
+        switch self {
+        case .microphoneOnly:
+            return "Mic"
+        case .systemAudioOnly:
+            return "System"
+        case .microphoneAndSystem:
+            return "Mic + System"
+        }
+    }
 }
 
 public enum ManualCaptureSource: String, CaseIterable, Identifiable, Codable {
