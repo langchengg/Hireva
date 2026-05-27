@@ -101,6 +101,50 @@ final class AppState: ObservableObject {
     @Published public var lastDetectionRawJSON: String = ""
     @Published public var lastDetectionSkipReason: String = ""
 
+    // --- System Audio ASR Diagnostics ---
+    @Published public var systemASRTaskRunning: Bool = false
+    @Published public var totalSystemAudioASRBuffersAppended: Int = 0
+    @Published public var lastSystemAudioASRPartialTranscript: String = ""
+    @Published public var lastSystemAudioASRFinalTranscript: String = ""
+    @Published public var recognitionRequestActive: Bool = false
+    @Published public var recognitionTaskActive: Bool = false
+
+    // --- Pipeline Helper Diagnostics ---
+    var isAudioEngineRunning: Bool { AudioEngineManager.shared.isEngineRunning }
+    var isMicPipelineActive: Bool { microphonePipeline != nil }
+    var isMicASRTaskActive: Bool { microphonePipeline?.isRecognitionTaskActive == true }
+    var isSystemAudioASRActive: Bool { systemAudioPipeline?.isRecognitionTaskActive == true }
+
+
+    // --- Segment Attribution Diagnostics ---
+    public struct SegmentAttributionDiagnostic: Identifiable, Equatable {
+        public let id: String
+        public let textPreview: String
+        public let source: AudioSourceType
+        public let speaker: SpeakerRole
+        public let createdAt: Date
+        public let inputDeviceName: String?
+        public let outputDeviceName: String?
+        public let eligibleForAutoDetection: Bool
+        public let skipReason: String
+    }
+    @Published public var last10SegmentsDiagnostics: [SegmentAttributionDiagnostic] = []
+
+    // --- Question Detection Diagnostics ---
+    @Published public var lastDetectionSubmittedSegmentText: String = ""
+    @Published public var lastDetectionPromptSource: String = ""
+    @Published public var lastDetectionPromptSpeaker: String = ""
+    @Published public var lastDetectionQuestionComplete: Bool = false
+    @Published public var lastDetectionAnswerStrategy: String = ""
+
+    // --- Suggestion Diagnostics ---
+    @Published public var suggestionGenerationStarted: Bool = false
+    @Published public var suggestionProviderModel: String = ""
+    @Published public var suggestionLatencyMS: Int = 0
+    @Published public var lastSuggestionCardJSON: String = ""
+    @Published public var floatingPanelUpdated: Bool = false
+
+
     let documentRepository: DocumentRepository
     let sessionRepository: SessionRepository
     let transcriptRepository: TranscriptRepository
@@ -164,7 +208,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    init(database: AppDatabase) {
+    init(
+        database: AppDatabase,
+        llmRouter: LLMRouter? = nil
+    ) {
         let documents = DocumentRepository(database: database)
         let sessions = SessionRepository(database: database)
         let transcripts = TranscriptRepository(database: database)
@@ -172,7 +219,8 @@ final class AppState: ObservableObject {
         let recaps = RecapRepository(database: database)
         let settings = SettingsRepository(database: database)
         let keychain = KeychainService()
-        let router = LLMRouter(settingsRepository: settings, apiKeyStore: keychain)
+        let router = llmRouter ?? LLMRouter(settingsRepository: settings, apiKeyStore: keychain)
+
 
         self.documentRepository = documents
         self.sessionRepository = sessions
@@ -512,40 +560,64 @@ final class AppState: ObservableObject {
             refreshPermissions()
             if mode == .microphone {
                 let captureMode = settings.audioCaptureMode
+                let microphoneRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
+                let speechRecognitionRequired = microphoneRequired
+                let systemAudioRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
                 
-                // Verify Microphone and Speech permissions if mic is needed
-                if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
-                    var microphone = permissionService.checkMicrophonePermission()
+                print("[StartListening] captureMode = \(captureMode.rawValue)")
+                print("[StartListening] microphoneRequired = \(microphoneRequired)")
+                print("[StartListening] speechRecognitionRequired = \(speechRecognitionRequired)")
+                print("[StartListening] systemAudioRequired = \(systemAudioRequired)")
+                
+                let micStatusBefore = permissionService.checkMicrophonePermission()
+                print("[Permission] microphone status before request = \(micStatusBefore.rawValue)")
+                
+                if microphoneRequired {
+                    var microphone = micStatusBefore
                     if microphone == .notDetermined {
                         microphone = await permissionService.requestMicrophonePermission()
                         refreshPermissions()
+                    } else if microphone == .authorized {
+                        // Success immediately, do not prompt/error
+                    } else {
+                        print("[Permission] Microphone request bypassed (already \(microphone.rawValue))")
                     }
-
-                    guard microphone == .authorized else {
+                    
+                    let micStatusAfter = permissionService.checkMicrophonePermission()
+                    print("[Permission] microphone request result = \(micStatusAfter.rawValue)")
+                    
+                    guard micStatusAfter == .authorized else {
                         liveState = .permissionDenied
                         showError("Grant microphone permission to start live transcription. You can change this in macOS Privacy & Security settings.")
                         return
                     }
-
+                    
                     var speech = permissionService.speechStatus()
                     if speech == .notDetermined {
                         speech = await permissionService.requestSpeechRecognition()
                         refreshPermissions()
                     }
-
+                    
                     guard speech == .granted else {
                         liveState = .permissionDenied
                         showError("Speech Recognition permission is required for Apple Speech transcription. Grant access in macOS Privacy & Security settings, or use Practice Testing.")
                         return
                     }
+                } else {
+                    print("[Permission] microphone request result = notRequired")
                 }
                 
-                // Verify Screen & System Audio recording permission if system capture is needed
-                if captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem {
-                    guard CGPreflightScreenCaptureAccess() else {
-                        liveState = .permissionDenied
-                        showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
-                        return
+                if systemAudioRequired {
+                    let hasScreen = CGPreflightScreenCaptureAccess()
+                    if !hasScreen {
+                        _ = CGRequestScreenCaptureAccess()
+                        refreshPermissions()
+                        
+                        guard CGPreflightScreenCaptureAccess() else {
+                            liveState = .permissionDenied
+                            showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                            return
+                        }
                     }
                 }
                 refreshPermissions()
@@ -574,6 +646,7 @@ final class AppState: ObservableObject {
                 
                 // Start Microphone Pipeline
                 if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
+                    print("[Pipeline] starting microphone pipeline = true")
                     let micPipeline = MicrophoneTranscriptionPipeline()
                     self.microphonePipeline = micPipeline
                     try await micPipeline.start(sessionID: session.id)
@@ -588,16 +661,36 @@ final class AppState: ObservableObject {
                     // Keep diagnostics active during transcription for real-time visual levels
                     microphoneDiagnostics.refreshSelectedInputDevice()
                     AudioEngineManager.shared.register(microphoneDiagnostics)
+                } else {
+                    print("[Pipeline] starting microphone pipeline = false")
                 }
                 
                 // Start System Audio Pipeline
                 if captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem {
+                    print("[Pipeline] starting system audio pipeline = true")
                     let sysPipeline = SystemAudioTranscriptionPipeline()
                     self.systemAudioPipeline = sysPipeline
                     self.lastSystemAudioASRError = nil
-                    try await sysPipeline.start(sessionID: session.id) { [weak self] errMsg in
-                        self?.lastSystemAudioASRError = errMsg
-                    }
+                    self.lastSystemAudioASRPartialTranscript = ""
+                    self.lastSystemAudioASRFinalTranscript = ""
+                    try await sysPipeline.start(
+                        sessionID: session.id,
+                        onPartialResult: { [weak self] partial in
+                            Task { @MainActor in
+                                self?.lastSystemAudioASRPartialTranscript = partial
+                            }
+                        },
+                        onFinalResult: { [weak self] final in
+                            Task { @MainActor in
+                                self?.lastSystemAudioASRFinalTranscript = final
+                            }
+                        },
+                        onError: { [weak self] errMsg in
+                            Task { @MainActor in
+                                self?.lastSystemAudioASRError = errMsg
+                            }
+                        }
+                    )
                     
                     systemTranscriptionTask = Task { [weak self] in
                         for await segment in sysPipeline.segments {
@@ -605,7 +698,10 @@ final class AppState: ObservableObject {
                             await self?.handleTranscriptSegment(segment)
                         }
                     }
+                } else {
+                    print("[Pipeline] starting system audio pipeline = false")
                 }
+            }
                 
                 liveState = .listening
                 showFloatingAssistant()
@@ -652,6 +748,26 @@ final class AppState: ObservableObject {
         lastDetectionReason = ""
         lastDetectionRawJSON = ""
         lastDetectionSkipReason = ""
+        
+        // Reset ASR, Segment, Detection, and Suggestion Diagnostics
+        systemASRTaskRunning = false
+        totalSystemAudioASRBuffersAppended = 0
+        lastSystemAudioASRPartialTranscript = ""
+        lastSystemAudioASRFinalTranscript = ""
+        recognitionRequestActive = false
+        recognitionTaskActive = false
+        last10SegmentsDiagnostics = []
+        lastDetectionSubmittedSegmentText = ""
+        lastDetectionPromptSource = ""
+        lastDetectionPromptSpeaker = ""
+        lastDetectionQuestionComplete = false
+        lastDetectionAnswerStrategy = ""
+        suggestionGenerationStarted = false
+        suggestionProviderModel = ""
+        suggestionLatencyMS = 0
+        lastSuggestionCardJSON = ""
+        floatingPanelUpdated = false
+
         
         if let sessionID = currentSession?.id {
             try? sessionRepository.endSession(id: sessionID)
@@ -914,6 +1030,7 @@ final class AppState: ObservableObject {
     }
 
     func handleTranscriptSegment(_ segment: TranscriptSegment) async {
+        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
         liveState = .transcribing
         transcriptSegments.append(segment)
         lastTranscriptSnippet = segment.text
@@ -990,6 +1107,23 @@ final class AppState: ObservableObject {
         // Output verbose gating logs
         print("[GatingLog] segmentSource: \(segment.source.rawValue) | segmentSpeaker: \(segment.speaker.rawValue) | eligibleForAutoDetection: \(shouldTriggerDetection)\(shouldTriggerDetection ? "" : " | skipReason: \(skipReason)")")
 
+        // Capture attribution diagnostics
+        let diag = SegmentAttributionDiagnostic(
+            id: segment.id,
+            textPreview: segment.text,
+            source: segment.source,
+            speaker: segment.speaker,
+            createdAt: segment.createdAt,
+            inputDeviceName: segment.inputDeviceName,
+            outputDeviceName: segment.outputDeviceName,
+            eligibleForAutoDetection: shouldTriggerDetection,
+            skipReason: skipReason
+        )
+        last10SegmentsDiagnostics.append(diag)
+        if last10SegmentsDiagnostics.count > 10 {
+            last10SegmentsDiagnostics.removeFirst()
+        }
+
         if shouldTriggerDetection {
             self.lastDetectionSkipReason = ""
             maybeRunAutomaticDetection(triggeringSegment: segment)
@@ -997,6 +1131,7 @@ final class AppState: ObservableObject {
             self.lastDetectionSkipReason = skipReason
             liveState = .listening
         }
+
     }
 
     private func maybeRunAutomaticDetection(triggeringSegment: TranscriptSegment) {
@@ -1036,7 +1171,15 @@ final class AppState: ObservableObject {
 
     private func runAutomaticDetection(session: InterviewSession, transcript: String, triggeringSegmentID: String?) async {
         do {
+            print("[AppState] Automatic question detection running on transcript context: \"\(transcript)\" | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
             liveState = .detectingQuestion
+            
+            // Set input segment submitted to question detection
+            let triggeringSegment = transcriptSegments.first(where: { $0.id == triggeringSegmentID })
+            self.lastDetectionSubmittedSegmentText = triggeringSegment?.text ?? "Unknown segment text"
+            self.lastDetectionPromptSource = triggeringSegment?.source.rawValue ?? "Unknown source"
+            self.lastDetectionPromptSpeaker = triggeringSegment?.speaker.rawValue ?? "Unknown speaker"
+            
             let detection = try await questionDetectionService.detect(
                 transcriptContext: transcript,
                 sessionID: session.id,
@@ -1063,7 +1206,10 @@ final class AppState: ObservableObject {
             self.lastDetectionReason = question.intent.displayName
             self.lastDetectionRawJSON = question.rawJSON ?? ""
             self.lastDetectionSkipReason = ""
+            self.lastDetectionQuestionComplete = question.questionComplete
+            self.lastDetectionAnswerStrategy = question.answerStrategy.displayName
             self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Confidence: \(Int(question.confidence * 100))%"
+
 
             if question.shouldTrigger,
                question.questionComplete,
@@ -1142,43 +1288,65 @@ final class AppState: ObservableObject {
         autoGenerated: Bool
     ) async throws {
         liveState = .generatingSuggestion
-        let context = try contextRetrievalService.retrieveContext(
-            question: question.questionText,
-            intent: question.intent,
-            maxCVWords: 1_500,
-            maxJDWords: 1_000
-        )
-        let result = try await suggestionGenerationService.generate(
-            question: question,
-            context: context,
-            transcriptContext: transcript,
-            sessionID: session.id,
-            model: activeRealtimeProvider?.model
-        )
-        guard !Task.isCancelled else { return }
-        try suggestionRepository.saveSuggestionCard(result.card)
-        currentSuggestion = result.card
-        possibleQuestion = nil
-        if autoGenerated {
-            lastAutoSuggestionAt = Date()
-            let fingerprint = normalizedQuestion(question.questionText)
-            lastAutoQuestionText = fingerprint
-            if !recentQuestionsFingerprints.contains(fingerprint) {
-                recentQuestionsFingerprints.append(fingerprint)
+        self.suggestionGenerationStarted = true
+        self.floatingPanelUpdated = false
+        
+        do {
+            let context = try contextRetrievalService.retrieveContext(
+                question: question.questionText,
+                intent: question.intent,
+                maxCVWords: 1_500,
+                maxJDWords: 1_000
+            )
+            let result = try await suggestionGenerationService.generate(
+                question: question,
+                context: context,
+                transcriptContext: transcript,
+                sessionID: session.id,
+                model: activeRealtimeProvider?.model
+            )
+            guard !Task.isCancelled else {
+                self.suggestionGenerationStarted = false
+                return
             }
-            if recentQuestionsFingerprints.count > 30 {
-                recentQuestionsFingerprints.removeFirst()
+            try suggestionRepository.saveSuggestionCard(result.card)
+            currentSuggestion = result.card
+            possibleQuestion = nil
+            if autoGenerated {
+                lastAutoSuggestionAt = Date()
+                let fingerprint = normalizedQuestion(question.questionText)
+                lastAutoQuestionText = fingerprint
+                if !recentQuestionsFingerprints.contains(fingerprint) {
+                    recentQuestionsFingerprints.append(fingerprint)
+                }
+                if recentQuestionsFingerprints.count > 30 {
+                    recentQuestionsFingerprints.removeFirst()
+                }
             }
+            updateDiagnostics {
+                $0.lastSuggestionJSON = result.card.rawJSON
+                $0.lastAPILatencyMS = result.response.latencyMS
+                $0.lastProviderName = result.response.providerName
+                $0.lastProviderModel = result.response.modelName
+                $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
+            }
+            
+            // Set Suggestion Diagnostics
+            self.suggestionProviderModel = "\(result.response.providerName) / \(result.response.modelName)"
+            self.suggestionLatencyMS = result.response.latencyMS ?? 0
+            self.lastSuggestionCardJSON = result.card.rawJSON ?? ""
+            self.floatingPanelUpdated = true
+            self.suggestionGenerationStarted = false
+            
+            print("[AppState] Suggestion card generated and saved: \(result.card.id). Displaying in FloatingAssistantView. Say First: \"\(result.card.sayFirst)\" | Key Points count: \(result.card.keyPoints.count)")
+            
+            liveState = .listening
+        } catch {
+            self.suggestionGenerationStarted = false
+            throw error
         }
-        updateDiagnostics {
-            $0.lastSuggestionJSON = result.card.rawJSON
-            $0.lastAPILatencyMS = result.response.latencyMS
-            $0.lastProviderName = result.response.providerName
-            $0.lastProviderModel = result.response.modelName
-            $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
-        }
-        liveState = .listening
     }
+
 
     private func recentTranscriptText() -> String {
         let text = transcriptSegments
@@ -1257,6 +1425,19 @@ final class AppState: ObservableObject {
     }
 
     private func monitorAudioSignal() {
+        // Keep ASR diagnostic properties updated
+        if let sysPipeline = systemAudioPipeline {
+            self.systemASRTaskRunning = true
+            self.totalSystemAudioASRBuffersAppended = sysPipeline.totalBuffersAppended
+            self.recognitionRequestActive = sysPipeline.isRecognitionRequestActive
+            self.recognitionTaskActive = sysPipeline.isRecognitionTaskActive
+        } else {
+            self.systemASRTaskRunning = false
+            self.totalSystemAudioASRBuffersAppended = 0
+            self.recognitionRequestActive = false
+            self.recognitionTaskActive = false
+        }
+
         guard liveState == .listening || liveState == .transcribing else {
             noAudioWarningVisible = false
             return

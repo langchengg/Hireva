@@ -12,8 +12,15 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
     private var sessionID: String?
     private var lastEmittedText = ""
     private var onError: ((String) -> Void)?
+    private var onPartialResult: ((String) -> Void)?
+    private var onFinalResult: ((String) -> Void)?
+    
+    public private(set) var totalBuffersAppended: Int = 0
 
     private(set) var serviceState: TranscriptionServiceState = .idle
+    var isRecognitionRequestActive: Bool { request != nil }
+    var isRecognitionTaskActive: Bool { recognitionTask != nil }
+
 
     lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { continuation in
         self.continuation = continuation
@@ -24,10 +31,16 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
     }
 
     func start(sessionID: String) async throws {
-        try await start(sessionID: sessionID, onError: nil)
+        try await start(sessionID: sessionID, onPartialResult: nil, onFinalResult: nil, onError: nil)
     }
 
-    func start(sessionID: String, onError: ((String) -> Void)? = nil) async throws {
+    func start(
+        sessionID: String,
+        startCapture: Bool = true,
+        onPartialResult: ((String) -> Void)? = nil,
+        onFinalResult: ((String) -> Void)? = nil,
+        onError: ((String) -> Void)? = nil
+    ) async throws {
         guard let recognizer, recognizer.isAvailable else {
             self.serviceState = .failed
             throw TranscriptionError.unavailable("Apple Speech recognition is not available for the locale.")
@@ -36,24 +49,30 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
         stop()
         self.sessionID = sessionID
         self.lastEmittedText = ""
+        self.onPartialResult = onPartialResult
+        self.onFinalResult = onFinalResult
         self.onError = onError
+        self.totalBuffersAppended = 0
         self.serviceState = .starting
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         self.request = request
 
-        // Register to ScreenCaptureKitSystemAudioCaptureService
-        ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
-        
-        do {
-            try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
-        } catch {
-            self.serviceState = .failed
-            throw error
+        if startCapture {
+            // Register to ScreenCaptureKitSystemAudioCaptureService
+            ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
+            
+            do {
+                try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
+            } catch {
+                self.serviceState = .failed
+                throw error
+            }
         }
         
         self.serviceState = .running
+
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -61,6 +80,13 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
                 let text = result.bestTranscription.formattedString
                 Task { @MainActor in
                     self.emit(text: text)
+                    if result.isFinal {
+                        print("[SystemAudioTranscriptionPipeline] ASR FINAL transcript: \"\(text)\"")
+                        self.onFinalResult?(text)
+                    } else {
+                        print("[SystemAudioTranscriptionPipeline] ASR PARTIAL transcript: \"\(text)\"")
+                        self.onPartialResult?(text)
+                    }
                 }
             } else if let error = error {
                 let errMsg = error.localizedDescription
@@ -71,6 +97,10 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
                 }
             }
         }
+    }
+
+    func endAudio() {
+        request?.endAudio()
     }
 
     func stop() {
@@ -84,6 +114,7 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
         ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
         
         sessionID = nil
+        self.totalBuffersAppended = 0
         self.serviceState = .stopped
     }
 
@@ -95,6 +126,10 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
         at time: AVAudioTime
     ) {
         request?.append(buffer)
+        totalBuffersAppended += 1
+        if totalBuffersAppended % 100 == 0 || totalBuffersAppended == 1 {
+            print("[SystemAudioTranscriptionPipeline] Real buffer appended to ASR request. Total buffers appended: \(totalBuffersAppended)")
+        }
     }
 
     func systemAudioCaptureService(

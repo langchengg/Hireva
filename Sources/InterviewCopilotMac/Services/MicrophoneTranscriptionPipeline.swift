@@ -13,6 +13,9 @@ final class MicrophoneTranscriptionPipeline: NSObject, TranscriptionProvider, Au
     private var lastEmittedText = ""
 
     private(set) var serviceState: TranscriptionServiceState = .idle
+    var isRecognitionRequestActive: Bool { request != nil }
+    var isRecognitionTaskActive: Bool { recognitionTask != nil }
+
 
     lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { continuation in
         self.continuation = continuation

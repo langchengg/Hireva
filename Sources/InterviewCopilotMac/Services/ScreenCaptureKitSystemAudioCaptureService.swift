@@ -25,6 +25,10 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     @Published var decibels: Double = -90
     @Published var lastError: String?
     @Published var lastBufferReceivedAt: Date? = nil
+    @Published var totalBuffersReceived: Int = 0
+    @Published var sampleRate: Double = 0
+    @Published var channelCount: Int = 0
+    @Published var lastBufferFrameCapacity: Int = 0
 
     private var stream: SCStream?
     private let queue = DispatchQueue(label: "com.interviewcopilot.systemaudiocapture")
@@ -33,6 +37,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     
     private let converter = SampleBufferAudioConverter()
     private var lastUpdateTimestamp = Date.distantPast
+    private var lastLogTimestamp = Date.distantPast
     
     private var sampleWatchdogTask: Task<Void, Never>?
     private var hasReceivedSamplesSinceStart = false
@@ -186,13 +191,22 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         
         Task { @MainActor in
             self.lastBufferReceivedAt = Date()
+            self.totalBuffersReceived += 1
         }
 
         do {
             // Convert CMSampleBuffer audio into AVAudioPCMBuffer using our dedicated converter
             let pcmBuffer = try converter.convert(sampleBuffer: sampleBuffer)
             
-            calculateMetrics(from: pcmBuffer)
+            Task { @MainActor in
+                self.sampleRate = pcmBuffer.format.sampleRate
+                self.channelCount = Int(pcmBuffer.format.channelCount)
+                self.lastBufferFrameCapacity = Int(pcmBuffer.frameLength)
+            }
+            
+            let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            let seconds = CMTimeGetSeconds(presentationTime)
+            calculateMetrics(from: pcmBuffer, timestamp: seconds)
             
             let time = AVAudioTime(hostTime: mach_absolute_time())
             
@@ -213,7 +227,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         }
     }
 
-    private func calculateMetrics(from buffer: AVAudioPCMBuffer) {
+    private func calculateMetrics(from buffer: AVAudioPCMBuffer, timestamp: Double) {
         guard let channelData = buffer.floatChannelData else { return }
         let channelCount = Int(buffer.format.channelCount)
         let frameLength = Int(buffer.frameLength)
@@ -231,8 +245,21 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         let rms = sqrt(sum / Float(channelCount * frameLength))
         let db = 20 * log10(max(Double(rms), 0.000_001))
 
+        let now = Date()
+        if now.timeIntervalSince(self.lastLogTimestamp) >= 1.0 {
+            self.lastLogTimestamp = now
+            print(String(format: "[ScreenCaptureKitSystemAudioCaptureService] Real CMSampleBuffer received: timestamp = %.3f s | Converted format = %@ | sampleRate = %.1f Hz | channelCount = %d | frameLength = %d | system audio dBFS = %.1f dB | totalBuffers = %d",
+                timestamp,
+                buffer.format.description,
+                buffer.format.sampleRate,
+                channelCount,
+                frameLength,
+                db,
+                self.totalBuffersReceived
+            ))
+        }
+
         Task { @MainActor in
-            let now = Date()
             // Throttle level meter updates to 25 FPS (0.04s)
             guard now.timeIntervalSince(self.lastUpdateTimestamp) >= 0.04 else { return }
             self.lastUpdateTimestamp = now

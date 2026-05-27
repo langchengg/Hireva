@@ -127,16 +127,25 @@ final class PermissionService {
 
     func requestMicrophonePermission() async -> MicrophonePermissionState {
         let current = checkMicrophonePermission()
-        guard current == .notDetermined else { return current }
-
-        return await withCheckedContinuation { continuation in
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                if granted {
-                    continuation.resume(returning: .authorized)
-                } else {
-                    continuation.resume(returning: self.checkMicrophonePermission())
+        switch current {
+        case .authorized:
+            return .authorized
+        case .denied, .restricted:
+            print("[Permission] Microphone request bypassed (already \(current.rawValue))")
+            return current
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    print("[Permission] Microphone request returned granted = \(granted)")
+                    if granted {
+                        continuation.resume(returning: .authorized)
+                    } else {
+                        continuation.resume(returning: self.checkMicrophonePermission())
+                    }
                 }
             }
+        case .unknown:
+            return .unknown
         }
     }
 
@@ -170,8 +179,77 @@ final class PermissionService {
         NSWorkspace.shared.open(url)
     }
 
+    func openScreenRecordingSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+        NSWorkspace.shared.open(url)
+    }
+
     func openPrivacySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
         NSWorkspace.shared.open(url)
+    }
+
+    // MARK: - App Identity Diagnostics
+
+    var bundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? "Unknown (no Info.plist)"
+    }
+
+    var bundlePath: String {
+        Bundle.main.bundlePath
+    }
+
+    var processPath: String {
+        ProcessInfo.processInfo.arguments.first ?? "Unknown"
+    }
+
+    var isRunningFromAppBundle: Bool {
+        Bundle.main.bundlePath.hasSuffix(".app")
+    }
+
+    /// Fetch code signing status asynchronously. Call from a Task or .task modifier.
+    /// Do NOT call from the main thread synchronously — it shells out to /usr/bin/codesign.
+    func fetchCodeSigningStatus() async -> String {
+        let bundlePath = Bundle.main.bundlePath
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+                process.arguments = ["-dvv", bundlePath]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = pipe
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    let lines = output.components(separatedBy: "\n")
+                    let relevant = lines.filter {
+                        $0.hasPrefix("Identifier=") ||
+                        $0.hasPrefix("Authority=") ||
+                        $0.hasPrefix("TeamIdentifier=") ||
+                        $0.hasPrefix("Signature=") ||
+                        $0.contains("code signature")
+                    }
+                    if relevant.isEmpty {
+                        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        continuation.resume(returning: trimmed.isEmpty ? "Not signed" : String(trimmed.prefix(200)))
+                    } else {
+                        continuation.resume(returning: relevant.joined(separator: "\n"))
+                    }
+                } catch {
+                    continuation.resume(returning: "Could not check: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Whether Screen Recording permission requires an app restart.
+    /// macOS caches the screen capture access check at launch. If the user
+    /// grants it in System Settings while the app is running, CGPreflight
+    /// still returns false until the app is relaunched.
+    var screenRecordingMayNeedRestart: Bool {
+        !CGPreflightScreenCaptureAccess()
     }
 }
