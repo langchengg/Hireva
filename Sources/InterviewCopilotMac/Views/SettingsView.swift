@@ -14,6 +14,7 @@ struct SettingsView: View {
 
                 aiProvidersSection
                 modelSection
+                floatingWindowSection
                 privacySection
                 advancedSection
             }
@@ -79,6 +80,39 @@ struct SettingsView: View {
             Toggle("Enable manual-only mode", isOn: $settings.manualOnlyMode)
             Toggle("Save transcripts locally", isOn: $settings.saveTranscriptsLocally)
             Toggle("Allow question detection from microphone-only audio", isOn: $settings.allowQuestionDetectionFromMicrophoneOnly)
+            Button("Save Settings") {
+                appState.saveSettings(settings)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var floatingWindowSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Floating Window Options", systemImage: "macwindow")
+                .font(.headline)
+            
+            Toggle("High Contrast Floating Panel", isOn: $settings.highContrastFloatingPanel)
+                .onChange(of: settings.highContrastFloatingPanel) { _, newValue in
+                    if newValue {
+                        settings.floatingWindowOpacity = max(settings.floatingWindowOpacity, 0.65)
+                    }
+                }
+            
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Floating Window Opacity")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(String(format: "%.0f%%", settings.floatingWindowOpacity * 100))
+                        .font(.callout.monospacedDigit().weight(.semibold))
+                }
+                
+                Slider(value: $settings.floatingWindowOpacity, in: (settings.highContrastFloatingPanel ? 0.65 : 0.35)...1.0)
+            }
+            
             Button("Save Settings") {
                 appState.saveSettings(settings)
             }

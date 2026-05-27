@@ -2,8 +2,28 @@ import SwiftUI
 
 struct FloatingAssistantView: View {
     @ObservedObject var appState: AppState
-    @State private var compact = false
     @ObservedObject var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
+    @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
+    @State private var eventMonitor: Any? = nil
+
+    private var compact: Bool {
+        appState.settings.compactMode
+    }
+
+    private var effectiveOpacity: Double {
+        if appState.settings.highContrastFloatingPanel {
+            return max(appState.settings.floatingWindowOpacity, 0.65)
+        } else {
+            return appState.settings.floatingWindowOpacity
+        }
+    }
+
+    private func adjustOpacity(by delta: Double) {
+        var next = appState.settings
+        let minOpacity = next.highContrastFloatingPanel ? 0.65 : 0.35
+        next.floatingWindowOpacity = min(max(next.floatingWindowOpacity + delta, minOpacity), 1.0)
+        appState.saveSettings(next)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -19,7 +39,49 @@ struct FloatingAssistantView: View {
         }
         .padding(14)
         .frame(minWidth: 340, minHeight: 280, alignment: .topLeading)
-        .background(.regularMaterial)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(appState.settings.highContrastFloatingPanel ? .regularMaterial : .ultraThinMaterial)
+                .opacity(effectiveOpacity)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(appState.settings.highContrastFloatingPanel ? 0.3 : 0.15), lineWidth: 1.5)
+        )
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+        .onAppear {
+            setupEventMonitor()
+        }
+        .onDisappear {
+            removeEventMonitor()
+        }
+    }
+
+    private func setupEventMonitor() {
+        removeEventMonitor() // Prevent duplicate monitor
+        
+        self.eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let isCmdOpt = modifierFlags == [.command, .option]
+            
+            if isCmdOpt {
+                if event.keyCode == 126 { // Up arrow
+                    adjustOpacity(by: 0.05)
+                    return nil // consume event
+                } else if event.keyCode == 125 { // Down arrow
+                    adjustOpacity(by: -0.05)
+                    return nil // consume event
+                }
+            }
+            return event
+        }
+    }
+
+    private func removeEventMonitor() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            self.eventMonitor = nil
+        }
     }
 
     private var header: some View {
@@ -34,8 +96,35 @@ struct FloatingAssistantView: View {
                 tint: appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue
             )
             Spacer()
+            
+            // Transparency controls
+            HStack(spacing: 2) {
+                Button {
+                    adjustOpacity(by: -0.05)
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("More Transparent (Cmd+Opt+Down)")
+                
+                Text(String(format: "%.0f%%", effectiveOpacity * 100))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                
+                Button {
+                    adjustOpacity(by: 0.05)
+                } label: {
+                    Image(systemName: "plus.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Less Transparent (Cmd+Opt+Up)")
+            }
+            .padding(.trailing, 4)
+
             Button {
-                compact.toggle()
+                var next = appState.settings
+                next.compactMode.toggle()
+                appState.saveSettings(next)
             } label: {
                 Image(systemName: compact ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
             }
@@ -107,6 +196,7 @@ struct FloatingAssistantView: View {
                 .foregroundStyle(appState.lastTranscriptSnippet.isEmpty ? .secondary : .primary)
         }
         .padding(12)
+        .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
@@ -124,6 +214,7 @@ struct FloatingAssistantView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(12)
+            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
         } else if let question = appState.lastDetectedQuestion {
             VStack(alignment: .leading, spacing: 6) {
@@ -137,6 +228,7 @@ struct FloatingAssistantView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(12)
+            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
     }
@@ -180,6 +272,7 @@ struct FloatingAssistantView: View {
                 }
             }
             .padding(14)
+            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -190,6 +283,7 @@ struct FloatingAssistantView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(14)
+            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
     }
@@ -307,46 +401,77 @@ struct FloatingAssistantView: View {
     }
 
     private var deviceBanner: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: AudioDeviceManager.shared.isUsingHeadphonesOrBluetooth ? "headphones" : "speaker.wave.2")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(AudioDeviceManager.shared.routeDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-            
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            // Selected Mode and Status Dots
+            HStack {
                 Text("Mode: \(appState.settings.audioCaptureMode.displayName)")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.primary)
                 
                 Spacer()
                 
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(AudioEngineManager.shared.isEngineRunning ? Color.green : Color.red)
-                        .frame(width: 5, height: 5)
-                    Text("Mic")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(appState.settings.audioCaptureMode == .systemAudioOnly ? Color.secondary : (AudioEngineManager.shared.isEngineRunning ? Color.green : Color.red))
+                            .frame(width: 5, height: 5)
+                        Text(appState.settings.audioCaptureMode == .systemAudioOnly ? "Mic: Off" : "Mic: Active")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(systemAudio.isCapturing ? Color.green : Color.red)
+                            .frame(width: 5, height: 5)
+                        Text("System: \(systemAudio.isCapturing ? "Active" : "Off")")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            
+            // Render level meters directly in deviceBanner
+            MicLevelIndicatorView(appState: appState, isMini: false)
+                .padding(.vertical, 2)
+            
+            // Separate Input and Output Devices Display
+            VStack(alignment: .leading, spacing: 4) {
+                if appState.settings.audioCaptureMode != .systemAudioOnly {
+                    HStack(spacing: 4) {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                        Text("Input: \(audioDeviceManager.currentInputDeviceName)")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Image(systemName: "mic.slash.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.red)
+                        Text("Input Mic: Off")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 
                 HStack(spacing: 4) {
-                    Circle()
-                        .fill(systemAudio.isCapturing ? Color.green : Color.red)
-                        .frame(width: 5, height: 5)
-                    Text("System")
-                        .font(.system(size: 8))
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 9))
                         .foregroundStyle(.secondary)
+                    Text("Output: \(audioDeviceManager.currentOutputDeviceName)")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
         }
     }
 }

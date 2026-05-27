@@ -17,6 +17,7 @@ struct PermissionsDiagnosticView: View {
                 permissionGrid
                 microphoneTestCard
                 systemAudioTestCard
+                systemAudioPipelineDiagnosticsCard
                 audioDeviceConfigPanel
                 troubleshooting
                 deviceSwitchingChecklist
@@ -355,5 +356,126 @@ struct PermissionsDiagnosticView: View {
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var systemAudioPipelineDiagnosticsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("System Audio Pipeline & ASR Diagnostics", systemImage: "cpu.fill")
+                .font(.headline)
+                .foregroundStyle(.blue)
+            
+            Divider()
+            
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                GridRow {
+                    Text("Capture Status")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(systemAudio.isCapturing ? "Running" : "Idle")
+                        .font(.caption)
+                        .foregroundStyle(systemAudio.isCapturing ? .green : .secondary)
+                }
+                
+                GridRow {
+                    Text("Last Buffer Received")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let lastBuffer = systemAudio.lastBufferReceivedAt {
+                        Text(formatTime(lastBuffer))
+                            .font(.caption.monospacedDigit())
+                    } else {
+                        Text("No buffers received yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                GridRow {
+                    Text("Capture Level")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "RMS %.4f  •  %.1f dB", systemAudio.rmsLevel, systemAudio.decibels))
+                        .font(.caption.monospacedDigit())
+                }
+                
+                GridRow {
+                    Text("Last System Transcript")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if appState.lastSystemAudioTranscript.isEmpty {
+                        Text("Waiting for transcription...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\"\(appState.lastSystemAudioTranscript)\"")
+                                .font(.caption.weight(.medium))
+                            Text("source: systemAudio  •  speaker: interviewer")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+                
+                GridRow {
+                    Text("Last ASR Error")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let err = appState.lastSystemAudioASRError {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("None")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            
+            Divider()
+            
+            Text("Automatic Question Detection")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                diagnosticRow("Detection Result", appState.lastQuestionDetectionResult)
+                
+                if !appState.lastDetectedQuestionText.isEmpty {
+                    diagnosticRow("Detected Text", "\"\(appState.lastDetectedQuestionText)\"")
+                    diagnosticRow("Confidence", String(format: "%.1f%%", appState.lastDetectionConfidence * 100))
+                    diagnosticRow("Should Trigger", appState.lastDetectionShouldTrigger ? "Yes" : "No")
+                    diagnosticRow("Intent / Reason", appState.lastDetectionReason)
+                }
+                
+                diagnosticRow("Skip / Gating Reason", appState.lastDetectionSkipReason.isEmpty ? "None" : appState.lastDetectionSkipReason)
+                
+                if !appState.lastDetectionRawJSON.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Raw JSON Response")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ScrollView {
+                            Text(appState.lastDetectionRawJSON)
+                                .font(.system(size: 9, design: .monospaced))
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.black.opacity(0.15))
+                        }
+                        .frame(height: 80)
+                        .cornerRadius(4)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+    
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
     }
 }

@@ -43,6 +43,9 @@ public struct AppSettings: Hashable, Codable {
     public var saveTranscriptsLocally: Bool
     public var allowQuestionDetectionFromMicrophoneOnly: Bool
     public var audioCaptureMode: AudioCaptureMode
+    public var floatingWindowOpacity: Double
+    public var compactMode: Bool
+    public var highContrastFloatingPanel: Bool
 
     public static let `default` = AppSettings(
         realtimeModel: .realtime,
@@ -51,7 +54,10 @@ public struct AppSettings: Hashable, Codable {
         manualOnlyMode: false,
         saveTranscriptsLocally: true,
         allowQuestionDetectionFromMicrophoneOnly: false,
-        audioCaptureMode: .microphoneAndSystem
+        audioCaptureMode: .microphoneAndSystem,
+        floatingWindowOpacity: 0.82,
+        compactMode: false,
+        highContrastFloatingPanel: false
     )
 
     enum CodingKeys: String, CodingKey {
@@ -62,6 +68,9 @@ public struct AppSettings: Hashable, Codable {
         case saveTranscriptsLocally
         case allowQuestionDetectionFromMicrophoneOnly
         case audioCaptureMode
+        case floatingWindowOpacity
+        case compactMode
+        case highContrastFloatingPanel
     }
 
     public init(
@@ -71,7 +80,10 @@ public struct AppSettings: Hashable, Codable {
         manualOnlyMode: Bool,
         saveTranscriptsLocally: Bool,
         allowQuestionDetectionFromMicrophoneOnly: Bool,
-        audioCaptureMode: AudioCaptureMode
+        audioCaptureMode: AudioCaptureMode,
+        floatingWindowOpacity: Double,
+        compactMode: Bool,
+        highContrastFloatingPanel: Bool
     ) {
         self.realtimeModel = realtimeModel
         self.recapModel = recapModel
@@ -80,6 +92,9 @@ public struct AppSettings: Hashable, Codable {
         self.saveTranscriptsLocally = saveTranscriptsLocally
         self.allowQuestionDetectionFromMicrophoneOnly = allowQuestionDetectionFromMicrophoneOnly
         self.audioCaptureMode = audioCaptureMode
+        self.floatingWindowOpacity = floatingWindowOpacity
+        self.compactMode = compactMode
+        self.highContrastFloatingPanel = highContrastFloatingPanel
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,5 +106,8 @@ public struct AppSettings: Hashable, Codable {
         self.saveTranscriptsLocally = try container.decodeIfPresent(Bool.self, forKey: .saveTranscriptsLocally) ?? true
         self.allowQuestionDetectionFromMicrophoneOnly = try container.decodeIfPresent(Bool.self, forKey: .allowQuestionDetectionFromMicrophoneOnly) ?? false
         self.audioCaptureMode = try container.decodeIfPresent(AudioCaptureMode.self, forKey: .audioCaptureMode) ?? .microphoneAndSystem
+        self.floatingWindowOpacity = try container.decodeIfPresent(Double.self, forKey: .floatingWindowOpacity) ?? 0.82
+        self.compactMode = try container.decodeIfPresent(Bool.self, forKey: .compactMode) ?? false
+        self.highContrastFloatingPanel = try container.decodeIfPresent(Bool.self, forKey: .highContrastFloatingPanel) ?? false
     }
 }

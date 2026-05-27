@@ -91,6 +91,16 @@ final class AppState: ObservableObject {
     @Published var lastAudioBufferAt: Date?
     @Published var noAudioWarningVisible: Bool = false
 
+    @Published public var lastSystemAudioTranscript: String = ""
+    @Published public var lastSystemAudioASRError: String? = nil
+    @Published public var lastQuestionDetectionResult: String = "No question detected yet."
+    @Published public var lastDetectedQuestionText: String = ""
+    @Published var lastDetectionConfidence: Double = 0.0
+    @Published public var lastDetectionShouldTrigger: Bool = false
+    @Published public var lastDetectionReason: String = ""
+    @Published public var lastDetectionRawJSON: String = ""
+    @Published public var lastDetectionSkipReason: String = ""
+
     let documentRepository: DocumentRepository
     let sessionRepository: SessionRepository
     let transcriptRepository: TranscriptRepository
@@ -319,9 +329,13 @@ final class AppState: ObservableObject {
     }
 
     func saveSettings(_ newSettings: AppSettings) {
+        var next = newSettings
+        if next.highContrastFloatingPanel {
+            next.floatingWindowOpacity = max(next.floatingWindowOpacity, 0.65)
+        }
         do {
-            settings = newSettings
-            try settingsRepository.saveSettings(newSettings)
+            settings = next
+            try settingsRepository.saveSettings(next)
             refreshAll()
         } catch {
             showError("Could not save settings: \(error.localizedDescription)")
@@ -580,7 +594,10 @@ final class AppState: ObservableObject {
                 if captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem {
                     let sysPipeline = SystemAudioTranscriptionPipeline()
                     self.systemAudioPipeline = sysPipeline
-                    try await sysPipeline.start(sessionID: session.id)
+                    self.lastSystemAudioASRError = nil
+                    try await sysPipeline.start(sessionID: session.id) { [weak self] errMsg in
+                        self?.lastSystemAudioASRError = errMsg
+                    }
                     
                     systemTranscriptionTask = Task { [weak self] in
                         for await segment in sysPipeline.segments {
@@ -625,6 +642,16 @@ final class AppState: ObservableObject {
         
         stopAudioSignalMonitoring()
         recentQuestionsFingerprints.removeAll()
+        
+        lastSystemAudioTranscript = ""
+        lastSystemAudioASRError = nil
+        lastQuestionDetectionResult = "No question detected yet."
+        lastDetectedQuestionText = ""
+        lastDetectionConfidence = 0.0
+        lastDetectionShouldTrigger = false
+        lastDetectionReason = ""
+        lastDetectionRawJSON = ""
+        lastDetectionSkipReason = ""
         
         if let sessionID = currentSession?.id {
             try? sessionRepository.endSession(id: sessionID)
@@ -886,7 +913,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func handleTranscriptSegment(_ segment: TranscriptSegment) async {
+    func handleTranscriptSegment(_ segment: TranscriptSegment) async {
         liveState = .transcribing
         transcriptSegments.append(segment)
         lastTranscriptSnippet = segment.text
@@ -899,6 +926,9 @@ final class AppState: ObservableObject {
         if segment.source == .systemAudio {
             recentSystemAudioRecords.append(RecentSystemAudioRecord(text: segment.text, timestamp: Date()))
             recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
+            
+            // Set last system audio transcript
+            self.lastSystemAudioTranscript = segment.text
         }
 
         var isEchoLeakage = false
@@ -924,30 +954,47 @@ final class AppState: ObservableObject {
         }
 
         var shouldTriggerDetection = false
-        if settings.automaticQuestionDetectionEnabled && !settings.manualOnlyMode && !isEchoLeakage {
+        var skipReason = ""
+        
+        if !settings.automaticQuestionDetectionEnabled {
+            skipReason = "automatic question detection disabled in settings"
+        } else if settings.manualOnlyMode {
+            skipReason = "manual only mode enabled"
+        } else if isEchoLeakage {
+            skipReason = "echo/leakage detected in mic stream"
+        } else {
             switch segment.source {
             case .systemAudio, .processAudio:
                 if segment.speaker == .interviewer {
                     shouldTriggerDetection = true
+                } else {
+                    skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
                 }
             case .mock:
                 if segment.speaker == .interviewer {
                     shouldTriggerDetection = true
+                } else {
+                    skipReason = "mock speaker is not interviewer"
                 }
-            case .microphone:
-                if settings.allowQuestionDetectionFromMicrophoneOnly {
-                    shouldTriggerDetection = true
-                }
-            case .mixed:
-                if settings.allowQuestionDetectionFromMicrophoneOnly {
+            case .microphone, .mixed:
+                if !settings.allowQuestionDetectionFromMicrophoneOnly {
+                    skipReason = "question detection from microphone is disabled (allowQuestionDetectionFromMicrophoneOnly = false)"
+                } else if segment.speaker != .interviewer && segment.speaker != .unknown {
+                    skipReason = "speaker is candidate (speaker: \(segment.speaker.rawValue))"
+                } else {
                     shouldTriggerDetection = true
                 }
             }
         }
 
+        // Output verbose gating logs
+        print("[GatingLog] segmentSource: \(segment.source.rawValue) | segmentSpeaker: \(segment.speaker.rawValue) | eligibleForAutoDetection: \(shouldTriggerDetection)\(shouldTriggerDetection ? "" : " | skipReason: \(skipReason)")")
+
         if shouldTriggerDetection {
+            self.lastDetectionSkipReason = ""
             maybeRunAutomaticDetection(triggeringSegment: segment)
         } else {
+            self.lastDetectionSkipReason = skipReason
             liveState = .listening
         }
     }
@@ -1008,20 +1055,48 @@ final class AppState: ObservableObject {
 
             let question = detection.question
             lastDetectedQuestion = question
+            
+            // Set structured question detection diagnostics
+            self.lastDetectedQuestionText = question.questionText
+            self.lastDetectionConfidence = question.confidence
+            self.lastDetectionShouldTrigger = question.shouldTrigger
+            self.lastDetectionReason = question.intent.displayName
+            self.lastDetectionRawJSON = question.rawJSON ?? ""
+            self.lastDetectionSkipReason = ""
+            self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Confidence: \(Int(question.confidence * 100))%"
+
             if question.shouldTrigger,
                question.questionComplete,
                question.confidence >= autoSuggestionConfidenceThreshold,
                isOutsideAutoSuggestionCooldown(),
                !isDuplicateAutoQuestion(question.questionText) {
                 try await generateSuggestion(for: question, session: session, transcript: transcript, autoGenerated: true)
-            } else if possibleQuestionConfidenceRange.contains(question.confidence) {
-                possibleQuestion = question
-                liveState = .listening
             } else {
+                var skipMsg = ""
+                if !question.shouldTrigger {
+                    skipMsg = "Question shouldTrigger is false"
+                } else if !question.questionComplete {
+                    skipMsg = "Question is not complete"
+                } else if question.confidence < autoSuggestionConfidenceThreshold {
+                    skipMsg = "Confidence (\(Int(question.confidence * 100))%) below threshold (\(Int(autoSuggestionConfidenceThreshold * 100))%)"
+                } else if !isOutsideAutoSuggestionCooldown() {
+                    skipMsg = "Within auto-suggestion cooldown"
+                } else if isDuplicateAutoQuestion(question.questionText) {
+                    skipMsg = "Duplicate of recently answered question"
+                } else {
+                    skipMsg = "Not qualified for suggestion generation"
+                }
+                self.lastDetectionSkipReason = skipMsg
+                
+                if possibleQuestionConfidenceRange.contains(question.confidence) {
+                    possibleQuestion = question
+                }
                 liveState = .listening
             }
         } catch {
             guard !Task.isCancelled else { return }
+            self.lastQuestionDetectionResult = "Detection failed: \(error.localizedDescription)"
+            self.lastDetectionSkipReason = "LLM/Detection API call error: \(error.localizedDescription)"
             liveState = .listening
             showError(userFacing(error))
         }

@@ -24,6 +24,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     @Published var rmsLevel: Double = 0
     @Published var decibels: Double = -90
     @Published var lastError: String?
+    @Published var lastBufferReceivedAt: Date? = nil
 
     private var stream: SCStream?
     private let queue = DispatchQueue(label: "com.interviewcopilot.systemaudiocapture")
@@ -181,6 +182,10 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         
         if !hasReceivedSamplesSinceStart {
             hasReceivedSamplesSinceStart = true
+        }
+        
+        Task { @MainActor in
+            self.lastBufferReceivedAt = Date()
         }
 
         do {

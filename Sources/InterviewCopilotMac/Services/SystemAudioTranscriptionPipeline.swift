@@ -11,6 +11,7 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
     private var continuation: AsyncStream<TranscriptSegment>.Continuation?
     private var sessionID: String?
     private var lastEmittedText = ""
+    private var onError: ((String) -> Void)?
 
     private(set) var serviceState: TranscriptionServiceState = .idle
 
@@ -23,6 +24,10 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
     }
 
     func start(sessionID: String) async throws {
+        try await start(sessionID: sessionID, onError: nil)
+    }
+
+    func start(sessionID: String, onError: ((String) -> Void)? = nil) async throws {
         guard let recognizer, recognizer.isAvailable else {
             self.serviceState = .failed
             throw TranscriptionError.unavailable("Apple Speech recognition is not available for the locale.")
@@ -31,6 +36,7 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
         stop()
         self.sessionID = sessionID
         self.lastEmittedText = ""
+        self.onError = onError
         self.serviceState = .starting
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -56,10 +62,12 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
                 Task { @MainActor in
                     self.emit(text: text)
                 }
-            } else if error != nil {
-                print("[SystemAudioTranscriptionPipeline] Speech recognition task error: \(error?.localizedDescription ?? "")")
+            } else if let error = error {
+                let errMsg = error.localizedDescription
+                print("[SystemAudioTranscriptionPipeline] Speech recognition task error: \(errMsg)")
                 Task { @MainActor in
                     self.serviceState = .failed
+                    self.onError?(errMsg)
                 }
             }
         }
@@ -95,6 +103,7 @@ final class SystemAudioTranscriptionPipeline: NSObject, TranscriptionProvider, S
     ) {
         print("[SystemAudioTranscriptionPipeline] Failed with error: \(error.localizedDescription)")
         self.serviceState = .failed
+        self.onError?(error.localizedDescription)
     }
 
     @MainActor

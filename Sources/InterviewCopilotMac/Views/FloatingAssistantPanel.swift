@@ -49,6 +49,12 @@ final class FloatingAssistantPanelController: NSObject, NSWindowDelegate {
         panel.titlebarAppearsTransparent = true
         panel.delegate = self
         panel.setFrameAutosaveName("InterviewCopilotFloatingAssistant")
+        
+        // Translucency window modifications
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        
         return panel
     }
 }
