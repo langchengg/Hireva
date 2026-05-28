@@ -30,7 +30,7 @@ struct DeepSeekRequestTests {
 
     @Test
     func deepSeekClientDecodesCompletionWithMockNetwork() async throws {
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["https://example.test"] = { request in
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -72,6 +72,7 @@ struct DeepSeekRequestTests {
 
 final class MockURLProtocol: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var handlers: [String: (URLRequest) throws -> (HTTPURLResponse, Data)] = [:]
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -82,7 +83,17 @@ final class MockURLProtocol: URLProtocol {
     }
 
     override func startLoading() {
-        guard let handler = Self.requestHandler else {
+        let urlString = request.url?.absoluteString ?? ""
+        var matchedHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))? = nil
+        
+        for (prefix, handler) in Self.handlers {
+            if urlString.hasPrefix(prefix) {
+                matchedHandler = handler
+                break
+            }
+        }
+        
+        guard let handler = matchedHandler ?? Self.requestHandler else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import CommonCrypto
 
 final class DocumentRepository {
     private let database: AppDatabase
@@ -146,6 +147,15 @@ final class DocumentRepository {
     private static func makeChunk(row: Row) -> DocumentChunk {
         let typeString: String = row["resolved_document_type"] ?? row["document_type"]
         let keywordsString: String? = row["keywords"]
+        
+        let embeddingData: Data? = row["embedding"]
+        let embeddingModel: String? = row["embedding_model"]
+        let embeddingProvider: String? = row["embedding_provider"]
+        let embeddingDimension: Int? = row["embedding_dimension"]
+        let embeddingContentHash: String? = row["embedding_content_hash"]
+        let embeddingCreatedAtStr: String? = row["embedding_created_at"]
+        let embeddingCreatedAt = embeddingCreatedAtStr.flatMap { DateCoding.date(from: $0) }
+
         return DocumentChunk(
             id: row["id"],
             documentID: row["document_id"],
@@ -156,7 +166,138 @@ final class DocumentRepository {
             sectionTitle: row["section_title"],
             wordCount: row["word_count"],
             metadataJSON: row["metadata_json"],
-            createdAt: DateCoding.date(from: row["created_at"])
+            createdAt: DateCoding.date(from: row["created_at"]),
+            embedding: embeddingData,
+            embeddingModel: embeddingModel,
+            embeddingProvider: embeddingProvider,
+            embeddingDimension: embeddingDimension,
+            embeddingContentHash: embeddingContentHash,
+            embeddingCreatedAt: embeddingCreatedAt
         )
     }
+
+    // MARK: - Embedding Repository Extensions
+
+    func chunksWithEmbeddings(type: DocumentType) throws -> [DocumentChunk] {
+        try database.dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT document_chunks.*, documents.type AS resolved_document_type
+                FROM document_chunks
+                JOIN documents ON documents.id = document_chunks.document_id
+                WHERE documents.type = ? AND document_chunks.embedding IS NOT NULL
+                ORDER BY chunk_index ASC
+                """,
+                arguments: [type.rawValue]
+            ).map(Self.makeChunk)
+        }
+    }
+
+    func updateChunkEmbedding(
+        chunkID: String,
+        embedding: [Float],
+        model: String,
+        provider: String,
+        dimension: Int,
+        contentHash: String
+    ) throws {
+        let data = VectorStore.encodeEmbedding(embedding)
+        let now = DateCoding.string(from: Date())
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE document_chunks
+                SET embedding = ?,
+                    embedding_model = ?,
+                    embedding_provider = ?,
+                    embedding_dimension = ?,
+                    embedding_content_hash = ?,
+                    embedding_created_at = ?
+                WHERE id = ?
+                """,
+                arguments: [data, model, provider, dimension, contentHash, now, chunkID]
+            )
+        }
+    }
+
+    func allChunks() throws -> [DocumentChunk] {
+        try database.dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT document_chunks.*, documents.type AS resolved_document_type
+                FROM document_chunks
+                JOIN documents ON documents.id = document_chunks.document_id
+                ORDER BY chunk_index ASC
+                """
+            ).map(Self.makeChunk)
+        }
+    }
+
+    func calculateContentHash(
+        content: String,
+        sectionTitle: String?,
+        chunkerVersion: String = "v1",
+        provider: String,
+        modelName: String,
+        dimension: Int
+    ) -> String {
+        let secTitle = sectionTitle ?? ""
+        let raw = content + "|" + secTitle + "|" + chunkerVersion + "|" + provider + "|" + modelName + "|" + String(dimension)
+        guard let data = raw.data(using: .utf8) else { return "" }
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        data.withUnsafeBytes {
+            _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash)
+        }
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func embeddingCoverage(currentProvider: String, currentModel: String) throws -> EmbeddingCoverage {
+        let chunks = try allChunks()
+        let total = chunks.count
+        
+        let validChunks = chunks.filter { chunk in
+            guard let hash = chunk.embeddingContentHash,
+                  let provider = chunk.embeddingProvider,
+                  let model = chunk.embeddingModel,
+                  let dim = chunk.embeddingDimension,
+                  chunk.embedding != nil else {
+                return false
+            }
+            let expectedHash = calculateContentHash(
+                content: chunk.content,
+                sectionTitle: chunk.sectionTitle,
+                provider: currentProvider,
+                modelName: currentModel,
+                dimension: dim
+            )
+            return hash == expectedHash && provider == currentProvider && model == currentModel
+        }
+        
+        let chunksWithEmbeddings = validChunks.count
+        let coveragePercent = total > 0 ? (Double(chunksWithEmbeddings) / Double(total) * 100.0) : 100.0
+        let staleChunksCount = total - chunksWithEmbeddings
+        let dimension = validChunks.first?.embeddingDimension
+        
+        return EmbeddingCoverage(
+            totalChunks: total,
+            chunksWithEmbeddings: chunksWithEmbeddings,
+            coveragePercent: coveragePercent,
+            modelName: currentModel,
+            provider: currentProvider,
+            dimension: dimension,
+            staleChunksCount: staleChunksCount
+        )
+    }
+}
+
+public struct EmbeddingCoverage: Codable, Equatable {
+    public let totalChunks: Int
+    public let chunksWithEmbeddings: Int
+    public let coveragePercent: Double
+    public let modelName: String?
+    public let provider: String?
+    public let dimension: Int?
+    public let staleChunksCount: Int
 }

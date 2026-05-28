@@ -6,7 +6,7 @@ import GRDB
 @Suite
 struct RAGRuntimeVerificationTests {
     @Test
-    func performRealRuntimeAndDatabaseVerification() throws {
+    func performRealRuntimeAndDatabaseVerification() async throws {
         // 1. Setup database
         let database = try makeTemporaryDatabase()
         let documentsRepo = DocumentRepository(database: database)
@@ -26,7 +26,7 @@ struct RAGRuntimeVerificationTests {
         # EDUCATION
         - Master of Science in Robotics and Intelligent Systems.
         """
-        let cvRecord = try documentsRepo.saveDocument(type: .cv, title: "Resume", content: cvContent)
+        _ = try documentsRepo.saveDocument(type: .cv, title: "Resume", content: cvContent)
         
         // 3. Save JD with multiple sections and requirements
         let jdContent = """
@@ -37,12 +37,12 @@ struct RAGRuntimeVerificationTests {
         # COMPANY INFO
         - We are an advanced robotics laboratory working on autonomous systems.
         """
-        let jdRecord = try documentsRepo.saveDocument(type: .jobDescription, title: "Robotics JD", content: jdContent)
+        _ = try documentsRepo.saveDocument(type: .jobDescription, title: "Robotics JD", content: jdContent)
 
         // 4. Retrieve context using the exact query from the verification list
         let retrievalService = SimpleContextRetrievalService(documentRepository: documentsRepo)
         let query = "Can you tell me about your robotics project?"
-        let (context, trace) = try retrievalService.retrieveContextWithTrace(
+        let (_, trace) = try await retrievalService.retrieveContextWithTrace(
             question: query,
             intent: .technical,
             maxCVWords: 40,
@@ -54,7 +54,7 @@ struct RAGRuntimeVerificationTests {
         let questionID = UUID().uuidString
         let cardID = UUID().uuidString
 
-        try database.dbQueue.write { db in
+        try await database.dbQueue.write { db in
             try db.execute(sql: """
             INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at)
             VALUES (?, 'Test Session', 'Company', 'Role', '2026-05-27', NULL, 'practice', '2026-05-27')
@@ -97,14 +97,12 @@ struct RAGRuntimeVerificationTests {
 
         // 7. Verify chunk metadata in document_chunks
         print("\n--- 1. Chunk Metadata Verification (document_chunks) ---")
-        var chunksCount = 0
-        try database.dbQueue.read { db in
+        let chunksCount = try await database.dbQueue.read { db -> Int in
             let chunkRows = try Row.fetchAll(db, sql: """
             SELECT chunk_index, section_title, word_count, substr(content,1,80) as preview
             FROM document_chunks
             ORDER BY document_type, chunk_index
             """)
-            chunksCount = chunkRows.count
             print(String(format: "%-5@ | %-15@ | %-10@ | %@", "Index", "Section Title", "Words", "Content Preview"))
             print("--------------------------------------------------------------------------------")
             for row in chunkRows {
@@ -118,18 +116,17 @@ struct RAGRuntimeVerificationTests {
                 #expect(title != nil)
                 #expect(words ?? 0 > 0)
             }
+            return chunkRows.count
         }
 
         // 8. Verify suggestion_card_retrieved_chunks persistence
         print("\n--- 2. Retrieved Chunks Persistence Verification (suggestion_card_retrieved_chunks) ---")
-        var retrievedCount = 0
-        try database.dbQueue.read { db in
+        let retrievedCount = try await database.dbQueue.read { db -> Int in
             let attributionRows = try Row.fetchAll(db, sql: """
             SELECT chunk_id, document_type, chunk_index, rank, score, is_included, content_preview
             FROM suggestion_card_retrieved_chunks
             ORDER BY rank ASC
             """)
-            retrievedCount = attributionRows.count
             print(String(format: "%-10@ | %-10@ | %-5@ | %-5@ | %-8@ | %-8@ | %@", "Chunk ID", "Doc Type", "Idx", "Rank", "Score", "Included", "Content Preview"))
             print("--------------------------------------------------------------------------------")
             for row in attributionRows {
@@ -147,6 +144,7 @@ struct RAGRuntimeVerificationTests {
                 #expect(score >= 0.0)
                 #expect(rank > 0)
             }
+            return attributionRows.count
         }
 
         // 9. Verify historical suggestion cards load their saved sources

@@ -79,7 +79,49 @@ struct RAGDiagnosticsView: View {
             Group {
                 row("Captured Query", trace.query.isEmpty ? "[Empty]" : trace.query)
                 row("Detected Intent", trace.intent ?? "technical")
-                row("Latency", String(format: "%.2f ms", trace.retrievalLatencyMS))
+                row("Latency (Total)", String(format: "%.2f ms", trace.retrievalLatencyMS))
+                row("RAG Retrieval Mode", trace.retrievalMode ?? "keywordOnly")
+                if let provider = trace.embeddingProvider {
+                    row("Embedding Provider", provider)
+                }
+                if let model = trace.embeddingModel {
+                    row("Embedding Model", model)
+                }
+                if let coverage = trace.embeddingCoveragePercent {
+                    row("Embedding Coverage", String(format: "%.1f%%", coverage))
+                }
+                if let stale = appState.embeddingCoverage?.staleChunksCount {
+                    row("Stale Chunks", "\(stale) chunks")
+                }
+                if let qLatency = trace.queryEmbeddingLatencyMS {
+                    row("Query Embedding Latency", String(format: "%.2f ms", qLatency))
+                }
+                if let vLatency = trace.vectorSearchLatencyMS {
+                    row("Vector Search Latency", String(format: "%.2f ms", vLatency))
+                }
+                row("Hybrid Weights", String(format: "Semantic: %.1f, Keyword: %.1f", trace.hybridSemanticWeight, trace.hybridKeywordWeight))
+                if let fallback = trace.fallbackReason {
+                    row("Fallback Reason", fallback)
+                }
+            }
+
+            if !trace.embeddingWarnings.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Embedding Warnings")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    ForEach(trace.embeddingWarnings, id: \.self) { warning in
+                        Text("• \(warning)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
             }
 
             HStack(spacing: 12) {
@@ -276,6 +318,33 @@ struct RAGDiagnosticsView: View {
                         }
                     }
                     .padding(.top, 4)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Semantic Score: \(chunk.semanticScore.map { String(format: "%.4f", $0) } ?? "nil")")
+                            .font(.caption)
+                            .foregroundStyle(chunk.semanticScore == nil ? .orange : .blue)
+                        
+                        Text("Keyword Score Normalized: \(chunk.keywordScoreNormalized.map { String(format: "%.4f", $0) } ?? "nil")")
+                            .font(.caption)
+                            .foregroundStyle(chunk.keywordScoreNormalized == nil ? .orange : .purple)
+                        
+                        Text("Final Hybrid Score: \(chunk.finalHybridScore.map { String(format: "%.4f", $0) } ?? "nil")")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(chunk.finalHybridScore == nil ? .orange : .green)
+                        
+                        if chunk.semanticScore == nil && chunk.retrievalMode == "hybrid" {
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.caption2)
+                                Text("Warning: Missing embedding or semantic score. Falling back.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    .padding(6)
+                    .background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                 }
                 .transition(.opacity)
             }

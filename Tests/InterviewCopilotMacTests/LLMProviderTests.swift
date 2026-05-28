@@ -21,7 +21,7 @@ struct LLMProviderTests {
 
     @Test
     func ollamaListsInstalledModelsFromTagsEndpoint() async throws {
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://localhost:11434"] = { request in
             #expect(request.url?.absoluteString == "http://localhost:11434/api/tags")
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let data = Data(#"{"models":[{"name":"llama3.2:latest"},{"name":"gemma4:26b"}]}"#.utf8)
@@ -48,7 +48,7 @@ struct LLMProviderTests {
         #expect(body.contains(#""format":"json""#))
         #expect(body.contains("Return valid JSON only. No markdown. No explanation."))
 
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://localhost:11434"] = { request in
             if request.url?.path == "/api/tags" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
@@ -74,7 +74,7 @@ struct LLMProviderTests {
 
     @Test
     func ollamaNotRunningReturnsFriendlyError() async throws {
-        MockURLProtocol.requestHandler = { _ in
+        MockURLProtocol.handlers["http://localhost:11434"] = { _ in
             throw URLError(.cannotConnectToHost)
         }
 
@@ -87,7 +87,7 @@ struct LLMProviderTests {
 
     @Test
     func ollamaMissingModelReturnsPullInstruction() async throws {
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://localhost:11434"] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, Data(#"{"models":[{"name":"llama3.2:latest"}]}"#.utf8))
         }
@@ -159,7 +159,7 @@ struct LLMProviderTests {
 
     @Test
     func ollamaTimedOutMapsToFriendlyError() async throws {
-        MockURLProtocol.requestHandler = { _ in
+        MockURLProtocol.handlers["http://localhost:11434"] = { _ in
             throw URLError(.timedOut)
         }
 
@@ -177,7 +177,7 @@ struct LLMProviderTests {
 
     @Test
     func questionDetectionServiceUtilizesOllamaSuccessfully() async throws {
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://localhost:11434"] = { request in
             if request.url?.path == "/api/tags" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
@@ -215,7 +215,7 @@ struct LLMProviderTests {
 
     @Test
     func suggestionGenerationServiceUtilizesOllamaSuccessfully() async throws {
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://localhost:11434"] = { request in
             if request.url?.path == "/api/tags" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
@@ -324,7 +324,7 @@ struct LLMProviderTests {
         let keychain = InMemoryAPIKeyStore()
         
         // Mock listModels response
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://localhost:11434"] = { request in
             #expect(request.url?.absoluteString == "http://localhost:11434/api/tags")
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let data = Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8)

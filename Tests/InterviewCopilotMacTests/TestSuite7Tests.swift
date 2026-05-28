@@ -31,7 +31,8 @@ struct TestSuite7Tests {
         let _ = try settingsRepo.ensureDefaultProviderConfigurations()
         appState.refreshAll()
         
-        let ollama = appState.providerConfigurations.first(where: { $0.kind == .ollamaLocal })!
+        var ollama = appState.providerConfigurations.first(where: { $0.kind == .ollamaLocal })!
+        ollama.baseURL = "http://suite7.localhost:11434"
         let deepseek = appState.providerConfigurations.first(where: { $0.kind == .deepSeek })!
         
         print("[7.1] DeepSeek provider verification...")
@@ -51,7 +52,7 @@ struct TestSuite7Tests {
         
         print("[7.2] Ollama provider verification...")
         // Switch to Ollama
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.handlers["http://suite7.localhost:11434"] = { request in
             if request.url?.path == "/api/tags" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
@@ -61,19 +62,36 @@ struct TestSuite7Tests {
         }
         
         appState.updateActiveRealtimeProvider(provider: ollama, model: "gemma4:26b")
-        try await Task.sleep(nanoseconds: 200_000_000) // 0.2s
+        var switchSucceeded = false
+        for _ in 0..<40 {
+            if appState.activeRealtimeProvider?.kind == .ollamaLocal {
+                switchSucceeded = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        }
+        #expect(switchSucceeded)
         #expect(appState.activeRealtimeProvider?.kind == .ollamaLocal)
         #expect(appState.activeRealtimeProvider?.model == "gemma4:26b")
         print("  Switches to Ollama and selects model successfully.")
         
         print("[7.3] Ollama failure handling...")
         // Stop Ollama by returning error or network failure
-        MockURLProtocol.requestHandler = { _ in
+        MockURLProtocol.handlers["http://suite7.localhost:11434"] = { _ in
             throw URLError(.cannotConnectToHost)
         }
         // Try to switch to a different model (triggering listModels check)
         appState.updateActiveRealtimeProvider(provider: ollama, model: "llama3:latest")
-        try await Task.sleep(nanoseconds: 200_000_000) // 0.2s
+        
+        var errorOccurred = false
+        for _ in 0..<40 {
+            if appState.lastProviderSwitchError != nil {
+                errorOccurred = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        }
+        #expect(errorOccurred)
         
         // Switch should abort, displaying error, and previous provider/model remains active
         #expect(appState.activeRealtimeProvider?.model == "gemma4:26b", "Model should remain gemma4 since listModels failed.")

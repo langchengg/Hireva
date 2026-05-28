@@ -76,6 +76,22 @@ public enum InterviewCopilotMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+public enum EmbeddingProviderKind: String, CaseIterable, Identifiable, Codable {
+    case localOllama = "localOllama"
+    case mock = "mock"
+    case futureCloud = "futureCloud"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .localOllama: return "Local Ollama"
+        case .mock: return "Mock Embedding Provider"
+        case .futureCloud: return "Future Cloud Embeddings"
+        }
+    }
+}
+
 public struct AppSettings: Hashable, Codable {
     public var realtimeModel: DeepSeekModel
     public var recapModel: DeepSeekModel
@@ -101,6 +117,16 @@ public struct AppSettings: Hashable, Codable {
     // Timeout options
     public var ollamaRequestTimeoutSeconds: Int
 
+    // RAG Phase 3 Embedding settings
+    public var enableVectorRAG: Bool
+    public var forceHybridRAG: Bool
+    public var embeddingProviderKind: EmbeddingProviderKind
+    public var embeddingModelName: String
+    public var hybridSemanticWeight: Double
+    public var hybridKeywordWeight: Double
+    public var autoGenerateEmbeddingsOnDocumentSave: Bool
+    public var embeddingTimeoutSeconds: Int
+
     public static let `default` = AppSettings(
         realtimeModel: .realtime,
         recapModel: .analysis,
@@ -118,7 +144,15 @@ public struct AppSettings: Hashable, Codable {
         showTranscriptBeforeSending: false,
         saveManualClips: false,
         dontShowCloudWarningAgain: false,
-        ollamaRequestTimeoutSeconds: 180
+        ollamaRequestTimeoutSeconds: 180,
+        enableVectorRAG: false,
+        forceHybridRAG: false,
+        embeddingProviderKind: .localOllama,
+        embeddingModelName: "nomic-embed-text",
+        hybridSemanticWeight: 0.7,
+        hybridKeywordWeight: 0.3,
+        autoGenerateEmbeddingsOnDocumentSave: true,
+        embeddingTimeoutSeconds: 60
     )
 
     enum CodingKeys: String, CodingKey {
@@ -139,6 +173,16 @@ public struct AppSettings: Hashable, Codable {
         case saveManualClips
         case dontShowCloudWarningAgain
         case ollamaRequestTimeoutSeconds
+        
+        // RAG keys
+        case enableVectorRAG
+        case forceHybridRAG
+        case embeddingProviderKind
+        case embeddingModelName
+        case hybridSemanticWeight
+        case hybridKeywordWeight
+        case autoGenerateEmbeddingsOnDocumentSave
+        case embeddingTimeoutSeconds
     }
 
     public init(
@@ -158,7 +202,15 @@ public struct AppSettings: Hashable, Codable {
         showTranscriptBeforeSending: Bool,
         saveManualClips: Bool,
         dontShowCloudWarningAgain: Bool,
-        ollamaRequestTimeoutSeconds: Int
+        ollamaRequestTimeoutSeconds: Int,
+        enableVectorRAG: Bool,
+        forceHybridRAG: Bool,
+        embeddingProviderKind: EmbeddingProviderKind,
+        embeddingModelName: String,
+        hybridSemanticWeight: Double,
+        hybridKeywordWeight: Double,
+        autoGenerateEmbeddingsOnDocumentSave: Bool,
+        embeddingTimeoutSeconds: Int
     ) {
         self.realtimeModel = realtimeModel
         self.recapModel = recapModel
@@ -177,6 +229,16 @@ public struct AppSettings: Hashable, Codable {
         self.saveManualClips = saveManualClips
         self.dontShowCloudWarningAgain = dontShowCloudWarningAgain
         self.ollamaRequestTimeoutSeconds = ollamaRequestTimeoutSeconds
+        
+        // RAG Phase 3
+        self.enableVectorRAG = enableVectorRAG
+        self.forceHybridRAG = forceHybridRAG
+        self.embeddingProviderKind = embeddingProviderKind
+        self.embeddingModelName = embeddingModelName
+        self.hybridSemanticWeight = hybridSemanticWeight
+        self.hybridKeywordWeight = hybridKeywordWeight
+        self.autoGenerateEmbeddingsOnDocumentSave = autoGenerateEmbeddingsOnDocumentSave
+        self.embeddingTimeoutSeconds = embeddingTimeoutSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,5 +261,15 @@ public struct AppSettings: Hashable, Codable {
         self.saveManualClips = try container.decodeIfPresent(Bool.self, forKey: .saveManualClips) ?? false
         self.dontShowCloudWarningAgain = try container.decodeIfPresent(Bool.self, forKey: .dontShowCloudWarningAgain) ?? false
         self.ollamaRequestTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .ollamaRequestTimeoutSeconds) ?? 180
+        
+        // RAG Phase 3
+        self.enableVectorRAG = try container.decodeIfPresent(Bool.self, forKey: .enableVectorRAG) ?? false
+        self.forceHybridRAG = try container.decodeIfPresent(Bool.self, forKey: .forceHybridRAG) ?? false
+        self.embeddingProviderKind = try container.decodeIfPresent(EmbeddingProviderKind.self, forKey: .embeddingProviderKind) ?? .localOllama
+        self.embeddingModelName = try container.decodeIfPresent(String.self, forKey: .embeddingModelName) ?? "nomic-embed-text"
+        self.hybridSemanticWeight = try container.decodeIfPresent(Double.self, forKey: .hybridSemanticWeight) ?? 0.7
+        self.hybridKeywordWeight = try container.decodeIfPresent(Double.self, forKey: .hybridKeywordWeight) ?? 0.3
+        self.autoGenerateEmbeddingsOnDocumentSave = try container.decodeIfPresent(Bool.self, forKey: .autoGenerateEmbeddingsOnDocumentSave) ?? true
+        self.embeddingTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .embeddingTimeoutSeconds) ?? 60
     }
 }

@@ -5,7 +5,7 @@ import Testing
 @Suite
 struct ContextRetrievalTests {
     @Test
-    func retrievalRanksMatchingCVAndJDChunksWithinBudgets() throws {
+    func retrievalRanksMatchingCVAndJDChunksWithinBudgets() async throws {
         let database = try makeTemporaryDatabase()
         let documents = DocumentRepository(database: database)
         _ = try documents.saveDocument(
@@ -26,7 +26,7 @@ struct ContextRetrievalTests {
         )
 
         let service = SimpleContextRetrievalService(documentRepository: documents)
-        let context = try service.retrieveContext(
+        let context = try await service.retrieveContext(
             question: "Walk me through your language-conditioned robotic grasping work",
             intent: .projectDeepDive,
             maxCVWords: 20,
@@ -39,7 +39,7 @@ struct ContextRetrievalTests {
     }
 
     @Test
-    func retrievalTraceTelemetryAndBudgetExclusion() throws {
+    func retrievalTraceTelemetryAndBudgetExclusion() async throws {
         let database = try makeTemporaryDatabase()
         let documents = DocumentRepository(database: database)
 
@@ -58,7 +58,7 @@ struct ContextRetrievalTests {
         let service = SimpleContextRetrievalService(documentRepository: documents)
 
         // 1. Test query with match and budget exclusion
-        let (context, trace) = try service.retrieveContextWithTrace(
+        let (_, trace) = try await service.retrieveContextWithTrace(
             question: "robotics ROS2 VLM",
             intent: .technical,
             maxCVWords: 12, // tight budget!
@@ -80,7 +80,7 @@ struct ContextRetrievalTests {
         #expect(trace.excludedCVChunks.allSatisfy { $0.isIncludedInPrompt == false })
 
         // 2. Test empty query fallback
-        let (_, emptyTrace) = try service.retrieveContextWithTrace(
+        let (_, emptyTrace) = try await service.retrieveContextWithTrace(
             question: "",
             intent: .unclear,
             maxCVWords: 100,
@@ -92,7 +92,7 @@ struct ContextRetrievalTests {
         #expect(emptyTrace.rankedCVChunks.first?.chunkIndex == 0)
 
         // 3. Test zero score fallback
-        let (_, zeroTrace) = try service.retrieveContextWithTrace(
+        let (_, zeroTrace) = try await service.retrieveContextWithTrace(
             question: "unrelatedTermThatMatchesNothingAtAll",
             intent: .technical,
             maxCVWords: 100,

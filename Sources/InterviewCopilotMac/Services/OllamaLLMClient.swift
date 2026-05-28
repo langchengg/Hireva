@@ -20,6 +20,7 @@ public final class OllamaDiagnostics: ObservableObject {
     @Published public var jsonParseSuccess: Bool = false
     @Published public var jsonParseFailureReason: String? = nil
     @Published public var fallbackCardUsed: Bool = false
+    @Published public var probedEmbeddingEndpoint: String? = nil
 
     private init() {}
 
@@ -37,6 +38,7 @@ public final class OllamaDiagnostics: ObservableObject {
         jsonParseSuccess = false
         jsonParseFailureReason = nil
         fallbackCardUsed = false
+        probedEmbeddingEndpoint = nil
     }
 }
 

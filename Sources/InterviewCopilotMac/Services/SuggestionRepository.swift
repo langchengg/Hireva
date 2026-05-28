@@ -90,9 +90,10 @@ final class SuggestionRepository {
                     INSERT INTO suggestion_card_retrieved_chunks (
                         id, suggestion_card_id, chunk_id, document_id, document_type, chunk_index,
                         content_preview, full_content, keywords_json, score, keyword_overlap_count,
-                        content_overlap_count, rank, is_included, section_title, word_count, created_at
+                        content_overlap_count, rank, is_included, section_title, word_count,
+                        semantic_score, keyword_score_normalized, final_hybrid_score, retrieval_mode, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         UUID().uuidString,
@@ -111,6 +112,10 @@ final class SuggestionRepository {
                         chunk.isIncludedInPrompt ? 1 : 0,
                         chunk.sectionTitle,
                         chunk.wordCount,
+                        chunk.semanticScore,
+                        chunk.keywordScoreNormalized,
+                        chunk.finalHybridScore,
+                        chunk.retrievalMode,
                         DateCoding.string(from: card.createdAt)
                     ]
                 )
@@ -128,6 +133,12 @@ final class SuggestionRepository {
                 let typeString: String = row["document_type"]
                 let keywordsString: String = row["keywords_json"]
                 let keywords = JSONParsing.decodeArray(String.self, from: keywordsString)
+                
+                let semanticScore: Double? = row["semantic_score"]
+                let keywordScoreNormalized: Double? = row["keyword_score_normalized"]
+                let finalHybridScore: Double? = row["final_hybrid_score"]
+                let retrievalMode: String? = row["retrieval_mode"]
+
                 return RetrievedChunk(
                     id: row["chunk_id"],
                     documentID: row["document_id"],
@@ -142,7 +153,11 @@ final class SuggestionRepository {
                     rank: row["rank"],
                     isIncludedInPrompt: (row["is_included"] as Int) != 0,
                     sectionTitle: row["section_title"],
-                    wordCount: row["word_count"]
+                    wordCount: row["word_count"],
+                    semanticScore: semanticScore,
+                    keywordScoreNormalized: keywordScoreNormalized,
+                    finalHybridScore: finalHybridScore,
+                    retrievalMode: retrievalMode
                 )
             }
         }

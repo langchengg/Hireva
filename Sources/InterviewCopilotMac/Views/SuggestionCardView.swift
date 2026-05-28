@@ -69,6 +69,40 @@ struct SuggestionCardView: View {
                                                         .font(.caption2)
                                                         .foregroundStyle(.secondary)
                                                 }
+                                                
+                                                if chunk.semanticScore != nil || chunk.keywordScoreNormalized != nil {
+                                                    HStack(spacing: 6) {
+                                                        if let sem = chunk.semanticScore {
+                                                            Text("Semantic: \(String(format: "%.3f", sem))")
+                                                                .font(.system(size: 9, weight: .bold))
+                                                                .padding(.horizontal, 5)
+                                                                .padding(.vertical, 1.5)
+                                                                .background(Color.blue.opacity(0.15))
+                                                                .foregroundStyle(Color.blue)
+                                                                .clipShape(Capsule())
+                                                        }
+                                                        if let kw = chunk.keywordScoreNormalized {
+                                                            Text("Keyword: \(String(format: "%.3f", kw))")
+                                                                .font(.system(size: 9, weight: .bold))
+                                                                .padding(.horizontal, 5)
+                                                                .padding(.vertical, 1.5)
+                                                                .background(Color.purple.opacity(0.15))
+                                                                .foregroundStyle(Color.purple)
+                                                                .clipShape(Capsule())
+                                                        }
+                                                        if let hybrid = chunk.finalHybridScore {
+                                                            Text("Hybrid: \(String(format: "%.3f", hybrid))")
+                                                                .font(.system(size: 9, weight: .bold))
+                                                                .padding(.horizontal, 5)
+                                                                .padding(.vertical, 1.5)
+                                                                .background(Color.green.opacity(0.15))
+                                                                .foregroundStyle(Color.green)
+                                                                .clipShape(Capsule())
+                                                        }
+                                                    }
+                                                    .padding(.top, 2)
+                                                }
+
                                                 Text(chunk.contentPreview + (chunk.fullContent.count > chunk.contentPreview.count ? "..." : ""))
                                                     .font(.caption)
                                                     .foregroundStyle(.primary)

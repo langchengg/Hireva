@@ -14,6 +14,7 @@ struct SettingsView: View {
 
                 aiProvidersSection
                 modelSection
+                ragSettingsSection
                 manualCaptureSection
                 floatingWindowSection
                 privacySection
@@ -85,6 +86,125 @@ struct SettingsView: View {
                 appState.saveSettings(settings)
             }
             .buttonStyle(.borderedProminent)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var ragSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("RAG & Vector Embeddings Settings", systemImage: "doc.text.magnifyingglass")
+                .font(.headline)
+            
+            Toggle("Enable Hybrid Vector RAG", isOn: $settings.enableVectorRAG)
+            
+            if settings.enableVectorRAG {
+                Toggle("Force Hybrid RAG (Bypass 80% coverage check)", isOn: $settings.forceHybridRAG)
+                
+                Picker("Embedding Provider", selection: $settings.embeddingProviderKind) {
+                    ForEach(EmbeddingProviderKind.allCases) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+                
+                HStack {
+                    Text("Model Name:")
+                        .foregroundStyle(.secondary)
+                    TextField("Model Name (e.g. nomic-embed-text)", text: $settings.embeddingModelName)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Semantic Similarity Weight")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(String(format: "%.1f", settings.hybridSemanticWeight))
+                            .font(.callout.monospacedDigit().weight(.semibold))
+                    }
+                    Slider(value: $settings.hybridSemanticWeight, in: 0.0...1.0, step: 0.1)
+                        .onChange(of: settings.hybridSemanticWeight) { _, newValue in
+                            settings.hybridKeywordWeight = max(0.0, 1.0 - newValue)
+                        }
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Keyword Overlap Weight")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(String(format: "%.1f", settings.hybridKeywordWeight))
+                            .font(.callout.monospacedDigit().weight(.semibold))
+                    }
+                    Slider(value: $settings.hybridKeywordWeight, in: 0.0...1.0, step: 0.1)
+                        .onChange(of: settings.hybridKeywordWeight) { _, newValue in
+                            settings.hybridSemanticWeight = max(0.0, 1.0 - newValue)
+                        }
+                }
+            }
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 8) {
+                if let coverage = appState.embeddingCoverage {
+                    HStack {
+                        Text("Coverage:")
+                            .foregroundStyle(.secondary)
+                        Text("\(coverage.chunksWithEmbeddings) / \(coverage.totalChunks) chunks ready (\(Int(coverage.coveragePercent))%)")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    
+                    if let dim = coverage.dimension {
+                        Text("Dimension: \(dim) elements")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    if coverage.staleChunksCount > 0 {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("\(coverage.staleChunksCount) chunks are missing or have stale embeddings.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                } else {
+                    Text("No embedding coverage info. Rebuild below to initialize.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                
+                if appState.isRebuildingEmbeddings {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ProgressView(value: appState.rebuildProgress, total: 1.0)
+                        HStack {
+                            Text("Rebuilding: \(Int(appState.rebuildProgress * 100))% complete")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Cancel") {
+                                appState.cancelEmbeddingRebuild()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    HStack(spacing: 12) {
+                        Button("Rebuild Embeddings") {
+                            appState.rebuildAllEmbeddings()
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button("Save RAG Settings") {
+                            appState.saveSettings(settings)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            }
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

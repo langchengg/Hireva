@@ -103,6 +103,12 @@ final class AppState: ObservableObject {
     @Published var diagnostics = DeveloperDiagnostics.empty
     @Published var lastRetrievalTrace: RetrievalTrace?
     @Published var currentSuggestionRetrievedChunks: [RetrievedChunk] = []
+    
+    // RAG Phase 3 Embedding properties
+    @Published var embeddingCoverage: EmbeddingCoverage? = nil
+    @Published var rebuildProgress: Double = 0.0
+    @Published var isRebuildingEmbeddings: Bool = false
+    private var activeEmbeddingRebuildTask: Task<Void, Never>? = nil
     @Published var historicalSuggestionChunks: [String: [RetrievedChunk]] = [:]
 
     // MARK: - Manual Capture Push-to-Ask state
@@ -201,7 +207,7 @@ final class AppState: ObservableObject {
     let mockTranscriptionService: MockTranscriptionService
 
         private let localDataService: LocalDataService
-    private let contextRetrievalService: ContextRetrievalService
+    private var contextRetrievalService: ContextRetrievalService!
     private let llmRouter: LLMRouter
     private let questionDetectionService: QuestionDetectionService
     private let suggestionGenerationService: SuggestionGenerationService
@@ -287,11 +293,16 @@ final class AppState: ObservableObject {
             settings: settings,
             keychainService: keychain
         )
-        self.contextRetrievalService = SimpleContextRetrievalService(documentRepository: documents)
         self.llmRouter = router
         self.questionDetectionService = QuestionDetectionService(llmRouter: router)
         self.suggestionGenerationService = SuggestionGenerationService(llmRouter: router)
         self.recapGenerationService = RecapGenerationService(llmRouter: router)
+        
+        self.contextRetrievalService = HybridContextRetrievalService(
+            documentRepository: documents,
+            settingsProvider: { [weak self] in self?.settings ?? AppSettings.default },
+            embeddingProviderResolver: { [weak self] in self?.resolveEmbeddingProvider() }
+        )
         
         // Initialize notifications and refresh permissions on startup and when application didBecomeActive
         refreshAll()
@@ -423,6 +434,12 @@ final class AppState: ObservableObject {
                 $0.storedJDChunkCount = jdCount
                 $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? 0
             }
+            
+            let currentProvStr = settings.embeddingProviderKind.rawValue
+            let currentModelStr = settings.embeddingModelName
+            if let cov = try? documentRepository.embeddingCoverage(currentProvider: currentProvStr, currentModel: currentModelStr) {
+                self.embeddingCoverage = cov
+            }
             injectVerificationMockData()
             if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1",
                let sectionStr = ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"],
@@ -452,6 +469,7 @@ final class AppState: ObservableObject {
             }
             _ = try documentRepository.saveDocument(type: type, title: title, content: content)
             refreshAll()
+            triggerEmbeddingGeneration(for: type)
         } catch {
             showError("Could not save \(type.title): \(error.localizedDescription)")
         }
@@ -1130,7 +1148,7 @@ final class AppState: ObservableObject {
             guard let self else { return }
             do {
                 let transcript = try transcriptRepository.segments(sessionID: session.id)
-                let (context, trace) = try contextRetrievalService.retrieveContextWithTrace(
+                let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
                     question: transcript.map(\.text).joined(separator: "\n"),
                     intent: .unclear,
                     maxCVWords: 1_500,
@@ -1623,7 +1641,7 @@ final class AppState: ObservableObject {
         var retrievedContext: RetrievedContext? = nil
         var retrievalTrace: RetrievalTrace? = nil
         do {
-            let (context, trace) = try contextRetrievalService.retrieveContextWithTrace(
+            let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
                 question: question.questionText,
                 intent: question.intent,
                 maxCVWords: 1_500,
@@ -2056,7 +2074,7 @@ final class AppState: ObservableObject {
                 )
                 
                 // gate context to 800 CV / 600 JD words
-                let (context, trace) = try contextRetrievalService.retrieveContextWithTrace(
+                let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
                     question: text,
                     intent: .technical,
                     maxCVWords: 800,
@@ -2436,5 +2454,150 @@ final class AppState: ObservableObject {
         } catch {
             print("Failed to save mock database elements: \(error)")
         }
+    }
+
+    // MARK: - RAG Phase 3 Embedding Tasks
+
+    func resolveEmbeddingProvider() -> EmbeddingProvider? {
+        let kind = settings.embeddingProviderKind
+        let model = settings.embeddingModelName
+        let timeout = TimeInterval(settings.embeddingTimeoutSeconds)
+        switch kind {
+        case .localOllama:
+            let config = providerConfigurations.first { $0.kind == .ollamaLocal }
+            let url = config?.baseURL ?? "http://localhost:11434"
+            return OllamaEmbeddingProvider(modelName: model, baseURL: url, timeoutInterval: timeout)
+        case .mock:
+            return ControlledMockEmbeddingProvider()
+        case .futureCloud:
+            return nil
+        }
+    }
+
+    func triggerEmbeddingGeneration(for type: DocumentType) {
+        guard settings.autoGenerateEmbeddingsOnDocumentSave else { return }
+        guard let provider = resolveEmbeddingProvider() else { return }
+        
+        let providerID = provider.providerID
+        let modelName = provider.modelName
+        
+        Task {
+            do {
+                let dim = try await provider.dimension
+                let chunks = try documentRepository.chunks(type: type)
+                
+                for chunk in chunks {
+                    let expectedHash = documentRepository.calculateContentHash(
+                        content: chunk.content,
+                        sectionTitle: chunk.sectionTitle,
+                        provider: providerID,
+                        modelName: modelName,
+                        dimension: dim
+                    )
+                    
+                    if chunk.embeddingContentHash == expectedHash && chunk.embedding != nil {
+                        continue
+                    }
+                    
+                    let vector = try await provider.embed(text: chunk.content)
+                    try documentRepository.updateChunkEmbedding(
+                        chunkID: chunk.id,
+                        embedding: vector,
+                        model: modelName,
+                        provider: providerID,
+                        dimension: dim,
+                        contentHash: expectedHash
+                    )
+                }
+                
+                refreshAll()
+            } catch {
+                print("[AppState] Background embedding generation failed: \(error.localizedDescription)")
+                showError("Background embedding generation failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func rebuildAllEmbeddings() {
+        guard let provider = resolveEmbeddingProvider() else {
+            showError("No embedding provider resolved.")
+            return
+        }
+        
+        cancelEmbeddingRebuild()
+        isRebuildingEmbeddings = true
+        rebuildProgress = 0.0
+        
+        let providerID = provider.providerID
+        let modelName = provider.modelName
+        
+        activeEmbeddingRebuildTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let dim = try await provider.dimension
+                let all = try self.documentRepository.allChunks()
+                
+                if all.isEmpty {
+                    await MainActor.run {
+                        self.isRebuildingEmbeddings = false
+                        self.rebuildProgress = 1.0
+                    }
+                    return
+                }
+                
+                for (index, chunk) in all.enumerated() {
+                    if Task.isCancelled { break }
+                    
+                    let expectedHash = self.documentRepository.calculateContentHash(
+                        content: chunk.content,
+                        sectionTitle: chunk.sectionTitle,
+                        provider: providerID,
+                        modelName: modelName,
+                        dimension: dim
+                    )
+                    
+                    if chunk.embeddingContentHash == expectedHash && chunk.embedding != nil {
+                        await MainActor.run {
+                            self.rebuildProgress = Double(index + 1) / Double(all.count)
+                        }
+                        continue
+                    }
+                    
+                    do {
+                        let vector = try await provider.embed(text: chunk.content)
+                        try self.documentRepository.updateChunkEmbedding(
+                            chunkID: chunk.id,
+                            embedding: vector,
+                            model: modelName,
+                            provider: providerID,
+                            dimension: dim,
+                            contentHash: expectedHash
+                        )
+                    } catch {
+                        print("[AppState] Failed to embed chunk \(chunk.id): \(error.localizedDescription)")
+                    }
+                    
+                    await MainActor.run {
+                        self.rebuildProgress = Double(index + 1) / Double(all.count)
+                    }
+                }
+                
+                await MainActor.run {
+                    self.isRebuildingEmbeddings = false
+                    self.refreshAll()
+                }
+            } catch {
+                await MainActor.run {
+                    self.isRebuildingEmbeddings = false
+                    self.showError("Failed to rebuild embeddings: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func cancelEmbeddingRebuild() {
+        activeEmbeddingRebuildTask?.cancel()
+        activeEmbeddingRebuildTask = nil
+        isRebuildingEmbeddings = false
     }
 }

@@ -201,6 +201,46 @@ final class AppDatabase {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_suggestion_card_retrieved_chunks_card_id ON suggestion_card_retrieved_chunks(suggestion_card_id)")
         }
 
+        migrator.registerMigration("v5_rag_embeddings") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(document_chunks)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+            
+            if !columnNames.contains("embedding") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN embedding BLOB")
+            }
+            if !columnNames.contains("embedding_model") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN embedding_model TEXT")
+            }
+            if !columnNames.contains("embedding_provider") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN embedding_provider TEXT")
+            }
+            if !columnNames.contains("embedding_dimension") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN embedding_dimension INTEGER")
+            }
+            if !columnNames.contains("embedding_content_hash") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN embedding_content_hash TEXT")
+            }
+            if !columnNames.contains("embedding_created_at") {
+                try db.execute(sql: "ALTER TABLE document_chunks ADD COLUMN embedding_created_at TEXT")
+            }
+            
+            let scRows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_card_retrieved_chunks)")
+            let scColumnNames = scRows.compactMap { $0["name"] as? String }
+            
+            if !scColumnNames.contains("semantic_score") {
+                try db.execute(sql: "ALTER TABLE suggestion_card_retrieved_chunks ADD COLUMN semantic_score REAL")
+            }
+            if !scColumnNames.contains("keyword_score_normalized") {
+                try db.execute(sql: "ALTER TABLE suggestion_card_retrieved_chunks ADD COLUMN keyword_score_normalized REAL")
+            }
+            if !scColumnNames.contains("final_hybrid_score") {
+                try db.execute(sql: "ALTER TABLE suggestion_card_retrieved_chunks ADD COLUMN final_hybrid_score REAL")
+            }
+            if !scColumnNames.contains("retrieval_mode") {
+                try db.execute(sql: "ALTER TABLE suggestion_card_retrieved_chunks ADD COLUMN retrieval_mode TEXT")
+            }
+        }
+
         return migrator
     }
 }

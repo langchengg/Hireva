@@ -35,7 +35,7 @@ struct TestSuite1Tests {
         // 1.3 Document retrieval
         let documentsRepo = DocumentRepository(database: database)
         let contextService = SimpleContextRetrievalService(documentRepository: documentsRepo)
-        let context = try contextService.retrieveContext(
+        let context = try await contextService.retrieveContext(
             question: "ROS control robotics",
             intent: QuestionIntent.technical,
             maxCVWords: 1500,

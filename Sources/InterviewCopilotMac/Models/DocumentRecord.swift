@@ -36,4 +36,12 @@ struct DocumentChunk: Identifiable, Hashable, Codable {
     var wordCount: Int?
     var metadataJSON: String?
     var createdAt: Date
+    
+    // RAG Embedding fields
+    var embedding: Data?
+    var embeddingModel: String?
+    var embeddingProvider: String?
+    var embeddingDimension: Int?
+    var embeddingContentHash: String?
+    var embeddingCreatedAt: Date?
 }
