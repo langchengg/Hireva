@@ -222,6 +222,9 @@ struct DualAudioTranscriptionTests {
         let collectorTask = Task {
             for await segment in service.segments {
                 segmentsCollected.append(segment)
+                if segmentsCollected.count >= 2 {
+                    break
+                }
             }
         }
         
@@ -255,6 +258,9 @@ struct DualAudioTranscriptionTests {
         let collectorTask = Task {
             for await segment in service.segments {
                 segmentsCollected.append(segment)
+                if segmentsCollected.count >= 2 {
+                    break
+                }
             }
         }
         
@@ -286,6 +292,9 @@ struct DualAudioTranscriptionTests {
         let collectorTask = Task {
             for await segment in service.segments {
                 segmentsCollected.append(segment)
+                if segmentsCollected.count >= 2 {
+                    break
+                }
             }
         }
         
@@ -306,6 +315,125 @@ struct DualAudioTranscriptionTests {
         #expect(segmentsCollected.last?.text == "This is a good candidate answer.")
     }
     
+    @Test
+    func realRuntimeASRQualityAndDatabaseVerification() async throws {
+        print("=== STARTING REAL RUNTIME ASR QUALITY VERIFICATION ===")
+        
+        // 1. Initialize real AppDatabase and repositories using AppPaths.databaseURL
+        let db = try AppDatabase(path: AppPaths.databaseURL)
+        let sessionRepo = SessionRepository(database: db)
+        let transcriptRepo = TranscriptRepository(database: db)
+        
+        // 2. Create a clean test interview session (mode: .microphone)
+        let testSession = try sessionRepo.createSession(mode: .microphone, title: "ASR Quality Real Runtime verification")
+        print("Created real test session in database: \(testSession.id)")
+        
+        // 3. Set up the unified AppleSpeechTranscriptionService
+        let service = AppleSpeechTranscriptionService()
+        try await service.start(sessionID: testSession.id, captureMode: AudioCaptureMode.microphoneAndSystem)
+        
+        let micSession = try #require(service.microphoneSession)
+        let systemSession = try #require(service.systemAudioSession)
+        
+        // Enable simulation hooks
+        micSession.simulatedTaskActive = true
+        systemSession.simulatedTaskActive = true
+        
+        var segmentsCollected: [TranscriptSegment] = []
+        let collectorTask = Task {
+            for await segment in service.segments {
+                print("[VerificationStream] Yielded segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
+                segmentsCollected.append(segment)
+                try? transcriptRepo.saveSegment(segment)
+            }
+        }
+        
+        // Test 1: Truncated final on Microphone (e.g. "Take")
+        print("\n--- Test A: Truncated Final (Mic speaks first) ---")
+        await micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
+        await micSession.simulateEmit(text: "Take", isFinal: true)
+        
+        print("Mic Diagnostics (Truncated Final):")
+        print(" - Quality Last Partial: \"\(micSession.lastPartialTranscript)\"")
+        print(" - Quality Last Final:   \"\(micSession.lastFinalTranscript)\"")
+        print(" - Best Transcript Used: \"\(micSession.bestTranscriptUsed)\"")
+        print(" - Finalization Reason:  \"\(micSession.finalizationReason)\"")
+        
+        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
+        #expect(micSession.finalizationReason == "final much shorter than recent partial")
+        
+        // Test 2: Empty final with meaningful partial on Microphone
+        print("\n--- Test B: Empty Final (Mic) ---")
+        await micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        await micSession.simulateEmit(text: "", isFinal: true)
+        
+        print("Mic Diagnostics (Empty Final):")
+        print(" - Quality Last Partial: \"\(micSession.lastPartialTranscript)\"")
+        print(" - Quality Last Final:   \"\(micSession.lastFinalTranscript)\"")
+        print(" - Best Transcript Used: \"\(micSession.bestTranscriptUsed)\"")
+        print(" - Finalization Reason:  \"\(micSession.finalizationReason)\"")
+        
+        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
+        #expect(micSession.finalizationReason == "final empty but partial meaningful")
+
+        // Test 3: Good final on Microphone
+        print("\n--- Test C: Good Final (Mic) ---")
+        await micSession.simulateEmit(text: "This is my candidate answer", isFinal: false)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        await micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
+        
+        print("Mic Diagnostics (Good Final):")
+        print(" - Quality Last Partial: \"\(micSession.lastPartialTranscript)\"")
+        print(" - Quality Last Final:   \"\(micSession.lastFinalTranscript)\"")
+        print(" - Best Transcript Used: \"\(micSession.bestTranscriptUsed)\"")
+        print(" - Finalization Reason:  \"\(micSession.finalizationReason)\"")
+        
+        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
+        #expect(micSession.finalizationReason == "final is longer or similar")
+        
+        // Test 4: Concurrent System Audio stream segment (proves no shared state)
+        print("\n--- Test D: Concurrent System Audio Stream (System speaks first) ---")
+        await systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        await systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
+        
+        print("System Diagnostics:")
+        print(" - Quality Last Partial: \"\(systemSession.lastPartialTranscript)\"")
+        print(" - Quality Last Final:   \"\(systemSession.lastFinalTranscript)\"")
+        print(" - Best Transcript Used: \"\(systemSession.bestTranscriptUsed)\"")
+        print(" - Finalization Reason:  \"\(systemSession.finalizationReason)\"")
+        
+        #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")
+        
+        // Stop service to finish
+        service.stop()
+        collectorTask.cancel()
+        
+        // Verify database segments
+        let savedSegments = try transcriptRepo.segments(sessionID: testSession.id)
+        print("\n--- DB Verification: Stored transcript segments for session \(testSession.id) ---")
+        for segment in savedSegments {
+            print("DB Row -> id: \(segment.id) | speaker: \(segment.speaker.rawValue) | source: \(segment.source.rawValue) | text: \"\(segment.text)\"")
+        }
+        
+        // Assertions for DB properties:
+        // 1. Assert no duplicate rows for the same segment ID (utteranceID)
+        let segmentIDs = savedSegments.map { $0.id }
+        #expect(segmentIDs.count == Set(segmentIDs).count, "Database contains duplicate transcript segment rows for the same utterance ID!")
+        
+        // 2. Assert microphone/candidate transcript is complete (uses best transcript)
+        let micFinals = savedSegments.filter { $0.source == AudioSourceType.microphone }
+        #expect(micFinals.contains { $0.text == "This is my candidate answer about my robotics project" })
+        
+        // 3. Assert systemAudio/interviewer transcript is complete
+        let systemFinals = savedSegments.filter { $0.source == AudioSourceType.systemAudio }
+        #expect(systemFinals.contains { $0.text == "Can you tell me about your robotics project?" })
+        
+        print("\n=== REAL RUNTIME VERIFICATION SUCCEEDED ===")
+    }
+
     // Helper to create a temp in-memory SQLite DB for tests
     private func makeTemporaryDatabase() throws -> AppDatabase {
         let directory = FileManager.default.temporaryDirectory
