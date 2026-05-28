@@ -160,9 +160,72 @@ final class AppState: ObservableObject {
 
     // --- Pipeline Helper Diagnostics ---
     var isAudioEngineRunning: Bool { AudioEngineManager.shared.isEngineRunning }
-    var isMicPipelineActive: Bool { microphonePipeline != nil }
-    var isMicASRTaskActive: Bool { microphonePipeline?.isRecognitionTaskActive == true }
-    var isSystemAudioASRActive: Bool { systemAudioPipeline?.isRecognitionTaskActive == true }
+    var isMicPipelineActive: Bool { appleSpeechService?.microphoneSession != nil }
+    var isMicASRTaskActive: Bool { appleSpeechService?.microphoneSession?.recognitionTask != nil }
+    var isSystemAudioASRActive: Bool { appleSpeechService?.systemAudioSession?.recognitionTask != nil }
+
+    // --- Dual Stream Diagnostics ---
+    var micCaptureRunning: Bool { AudioEngineManager.shared.isEngineRunning }
+    var micBufferCount: Int { appleSpeechService?.microphoneSession?.totalBuffersAppended ?? 0 }
+    var micLastBufferTimestamp: Date? { appleSpeechService?.microphoneSession?.lastBufferReceivedAt }
+    var micLevelDBFS: Double { microphoneDiagnostics.decibels }
+    var micASRRequestActive: Bool { appleSpeechService?.microphoneSession?.request != nil }
+    var micASRTaskActive: Bool { appleSpeechService?.microphoneSession?.recognitionTask != nil }
+    var micLastPartialTranscript: String { appleSpeechService?.microphoneSession?.partialTranscriptBuffer ?? "" }
+    var micLastFinalTranscript: Date? { appleSpeechService?.microphoneSession?.lastFinalTranscriptTimestamp }
+    var micLastError: String? { appleSpeechService?.microphoneSession?.lastError?.localizedDescription }
+    var micSessionID: String { appleSpeechService?.microphoneSession?.sessionID.source.rawValue ?? "None" }
+    
+    // ASR quality diagnostics for Microphone
+    var micLastPartialTranscriptQuality: String { appleSpeechService?.microphoneSession?.lastPartialTranscript ?? "" }
+    var micLastFinalTranscriptQuality: String { appleSpeechService?.microphoneSession?.lastFinalTranscript ?? "" }
+    var micBestTranscriptUsed: String { appleSpeechService?.microphoneSession?.bestTranscriptUsed ?? "" }
+    var micFinalizationReason: String { appleSpeechService?.microphoneSession?.finalizationReason ?? "" }
+
+    var systemCaptureRunning: Bool { ScreenCaptureKitSystemAudioCaptureService.shared.isCapturing }
+    var systemBufferCount: Int { appleSpeechService?.systemAudioSession?.totalBuffersAppended ?? 0 }
+    var systemLastBufferTimestamp: Date? { appleSpeechService?.systemAudioSession?.lastBufferReceivedAt }
+    var systemLevelDBFS: Double { ScreenCaptureKitSystemAudioCaptureService.shared.decibels }
+    var systemASRRequestActive: Bool { appleSpeechService?.systemAudioSession?.request != nil }
+    var systemASRTaskActive: Bool { appleSpeechService?.systemAudioSession?.recognitionTask != nil }
+    var systemLastPartialTranscript: String { appleSpeechService?.systemAudioSession?.partialTranscriptBuffer ?? "" }
+    var systemLastFinalTranscript: Date? { appleSpeechService?.systemAudioSession?.lastFinalTranscriptTimestamp }
+    var systemLastError: String? { appleSpeechService?.systemAudioSession?.lastError?.localizedDescription }
+    var systemSessionID: String { appleSpeechService?.systemAudioSession?.sessionID.source.rawValue ?? "None" }
+    
+    // ASR quality diagnostics for System Audio
+    var systemLastPartialTranscriptQuality: String { appleSpeechService?.systemAudioSession?.lastPartialTranscript ?? "" }
+    var systemLastFinalTranscriptQuality: String { appleSpeechService?.systemAudioSession?.lastFinalTranscript ?? "" }
+    var systemBestTranscriptUsed: String { appleSpeechService?.systemAudioSession?.bestTranscriptUsed ?? "" }
+    var systemFinalizationReason: String { appleSpeechService?.systemAudioSession?.finalizationReason ?? "" }
+
+    var microphoneRequired: Bool {
+        let captureMode = settings.audioCaptureMode
+        return captureMode == .microphoneOnly || captureMode == .microphoneAndSystem
+    }
+    var systemAudioRequired: Bool {
+        let captureMode = settings.audioCaptureMode
+        return captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
+    }
+    var twoSessionsActive: Bool {
+        micASRTaskActive && isSystemAudioASRActive
+    }
+    var streamNotRunningReason: String? {
+        let captureMode = settings.audioCaptureMode
+        if captureMode == .microphoneOnly && systemAudioRequired {
+            return "System audio not running: Capture Mode is Microphone Only"
+        }
+        if captureMode == .systemAudioOnly && microphoneRequired {
+            return "Microphone not running: Capture Mode is System Audio Only"
+        }
+        if microphoneRequired && microphonePermissionState != .authorized {
+            return "Microphone not running: Permission denied"
+        }
+        if systemAudioRequired && systemAudioPermissionState != .granted {
+            return "System audio not running: Permission denied"
+        }
+        return nil
+    }
 
 
     // --- Segment Attribution Diagnostics ---
@@ -215,10 +278,6 @@ final class AppState: ObservableObject {
     private var appleSpeechService: AppleSpeechTranscriptionService?
     private var activeTranscriptionProvider: TranscriptionProvider?
     private var transcriptionTask: Task<Void, Never>?
-    private var microphonePipeline: MicrophoneTranscriptionPipeline?
-    private var systemAudioPipeline: SystemAudioTranscriptionPipeline?
-    private var micTranscriptionTask: Task<Void, Never>?
-    private var systemTranscriptionTask: Task<Void, Never>?
     
     private struct RecentSystemAudioRecord {
         let text: String
@@ -906,63 +965,35 @@ final class AppState: ObservableObject {
                 consumeSegments(from: provider)
             } else {
                 let captureMode = settings.audioCaptureMode
+                print("[DualAudio] mode = \(captureMode.rawValue)")
                 
-                // Start Microphone Pipeline
-                if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
-                    print("[Pipeline] starting microphone pipeline = true")
-                    let micPipeline = MicrophoneTranscriptionPipeline()
-                    self.microphonePipeline = micPipeline
-                    try await micPipeline.start(sessionID: session.id)
-                    
-                    micTranscriptionTask = Task { [weak self] in
-                        for await segment in micPipeline.segments {
-                            guard !Task.isCancelled else { return }
-                            await self?.handleTranscriptSegment(segment)
-                        }
+                let speechService = AppleSpeechTranscriptionService()
+                self.appleSpeechService = speechService
+                self.activeTranscriptionProvider = speechService
+                
+                speechService.onSessionStateChanged = { [weak self] in
+                    Task { @MainActor in
+                        self?.objectWillChange.send()
                     }
-                    
+                }
+                
+                self.lastSystemAudioASRError = nil
+                self.lastSystemAudioASRPartialTranscript = ""
+                self.lastSystemAudioASRFinalTranscript = ""
+                
+                try await speechService.start(sessionID: session.id, captureMode: captureMode)
+                
+                transcriptionTask = Task { [weak self] in
+                    for await segment in speechService.segments {
+                        guard !Task.isCancelled else { return }
+                        await self?.handleTranscriptSegment(segment)
+                    }
+                }
+                
+                if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
                     // Keep diagnostics active during transcription for real-time visual levels
                     microphoneDiagnostics.refreshSelectedInputDevice()
                     AudioEngineManager.shared.register(microphoneDiagnostics)
-                } else {
-                    print("[Pipeline] starting microphone pipeline = false")
-                }
-                
-                // Start System Audio Pipeline
-                if captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem {
-                    print("[Pipeline] starting system audio pipeline = true")
-                    let sysPipeline = SystemAudioTranscriptionPipeline()
-                    self.systemAudioPipeline = sysPipeline
-                    self.lastSystemAudioASRError = nil
-                    self.lastSystemAudioASRPartialTranscript = ""
-                    self.lastSystemAudioASRFinalTranscript = ""
-                    try await sysPipeline.start(
-                        sessionID: session.id,
-                        onPartialResult: { [weak self] partial in
-                            Task { @MainActor in
-                                self?.lastSystemAudioASRPartialTranscript = partial
-                            }
-                        },
-                        onFinalResult: { [weak self] final in
-                            Task { @MainActor in
-                                self?.lastSystemAudioASRFinalTranscript = final
-                            }
-                        },
-                        onError: { [weak self] errMsg in
-                            Task { @MainActor in
-                                self?.lastSystemAudioASRError = errMsg
-                            }
-                        }
-                    )
-                    
-                    systemTranscriptionTask = Task { [weak self] in
-                        for await segment in sysPipeline.segments {
-                            guard !Task.isCancelled else { return }
-                            await self?.handleTranscriptSegment(segment)
-                        }
-                    }
-                } else {
-                    print("[Pipeline] starting system audio pipeline = false")
                 }
                 
                 liveState = .listening
@@ -983,16 +1014,12 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
-        micTranscriptionTask?.cancel()
-        systemTranscriptionTask?.cancel()
         
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
         
-        microphonePipeline?.stop()
-        microphonePipeline = nil
-        systemAudioPipeline?.stop()
-        systemAudioPipeline = nil
+        appleSpeechService?.stop()
+        appleSpeechService = nil
         
         // Stop diagnostics level metering
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
@@ -1042,16 +1069,9 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
-        micTranscriptionTask?.cancel()
-        systemTranscriptionTask?.cancel()
         
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
-        
-        microphonePipeline?.stop()
-        microphonePipeline = nil
-        systemAudioPipeline?.stop()
-        systemAudioPipeline = nil
         
         // Ensure diagnostics are unregistered
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
@@ -1357,7 +1377,13 @@ final class AppState: ObservableObject {
     func handleTranscriptSegment(_ segment: TranscriptSegment) async {
         print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
         liveState = .transcribing
-        transcriptSegments.append(segment)
+        
+        if let index = transcriptSegments.firstIndex(where: { $0.id == segment.id }) {
+            transcriptSegments[index] = segment
+        } else {
+            transcriptSegments.append(segment)
+        }
+        
         lastTranscriptSnippet = segment.text
         currentSession = currentSession ?? (try? sessionRepository.session(id: segment.sessionID))
         if settings.saveTranscriptsLocally {
@@ -1787,11 +1813,17 @@ final class AppState: ObservableObject {
 
     private func monitorAudioSignal() {
         // Keep ASR diagnostic properties updated
-        if let sysPipeline = systemAudioPipeline {
-            self.systemASRTaskRunning = true
-            self.totalSystemAudioASRBuffersAppended = sysPipeline.totalBuffersAppended
-            self.recognitionRequestActive = sysPipeline.isRecognitionRequestActive
-            self.recognitionTaskActive = sysPipeline.isRecognitionTaskActive
+        if let speechService = appleSpeechService {
+            self.systemASRTaskRunning = speechService.systemAudioSession?.recognitionTask != nil
+            self.totalSystemAudioASRBuffersAppended = speechService.systemAudioSession?.totalBuffersAppended ?? 0
+            self.recognitionRequestActive = speechService.systemAudioSession?.request != nil
+            self.recognitionTaskActive = speechService.systemAudioSession?.recognitionTask != nil
+            if let err = speechService.systemAudioSession?.lastError {
+                self.lastSystemAudioASRError = err.localizedDescription
+            }
+            if let partial = speechService.systemAudioSession?.partialTranscriptBuffer {
+                self.lastSystemAudioASRPartialTranscript = partial
+            }
         } else {
             self.systemASRTaskRunning = false
             self.totalSystemAudioASRBuffersAppended = 0
@@ -1805,7 +1837,7 @@ final class AppState: ObservableObject {
         }
 
         // Only monitor mic levels if microphone pipeline is actually running
-        guard microphonePipeline != nil else {
+        guard appleSpeechService?.microphoneSession != nil else {
             noAudioWarningVisible = false
             return
         }
@@ -1839,16 +1871,12 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
-        micTranscriptionTask?.cancel()
-        systemTranscriptionTask?.cancel()
         
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
         
-        microphonePipeline?.stop()
-        microphonePipeline = nil
-        systemAudioPipeline?.stop()
-        systemAudioPipeline = nil
+        appleSpeechService?.stop()
+        appleSpeechService = nil
         
         // Stop diagnostics level metering
         AudioEngineManager.shared.unregister(microphoneDiagnostics)

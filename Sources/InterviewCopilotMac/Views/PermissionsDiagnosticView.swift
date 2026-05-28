@@ -6,6 +6,8 @@ struct PermissionsDiagnosticView: View {
     @ObservedObject private var micDiagnostics: MicrophoneDiagnosticsService
     @ObservedObject private var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
     @State private var codeSigningStatusText: String = "Loading…"
+    @State private var refreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    @State private var refreshTrigger = UUID()
 
     init(appState: AppState) {
         self.appState = appState
@@ -311,107 +313,364 @@ struct PermissionsDiagnosticView: View {
     }
 
     private var pipelineDiagnosticsCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("Pipeline Status & Gating Diagnostics", systemImage: "bolt.horizontal.fill")
+        let _ = refreshTrigger
+        let captureMode = appState.settings.audioCaptureMode
+        let micRequired = appState.microphoneRequired
+        let sysRequired = appState.systemAudioRequired
+        let reason = appState.streamNotRunningReason
+        
+        return VStack(alignment: .leading, spacing: 14) {
+            Label("Dual Stream ASR Diagnostics", systemImage: "bolt.horizontal.fill")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.purple)
             
             Divider()
             
-            let captureMode = appState.settings.audioCaptureMode
-            let micRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
-            let sysRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
-            
-            // Mic Level status: Active/Silent/Off
-            let micLevelStatus: String = {
-                guard appState.isMicPipelineActive || micDiagnostics.isRunning else {
-                    return "Off"
+            HStack(alignment: .top, spacing: 16) {
+                // Microphone Stream Status Card
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Microphone (Candidate)")
+                        .font(.headline)
+                        .foregroundStyle(.green)
+                    
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                        GridRow {
+                            Text("Capture Running")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micCaptureRunning ? "True" : "False")
+                                .font(.caption)
+                                .foregroundStyle(appState.micCaptureRunning ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("Buffer Count")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text("\(appState.micBufferCount)")
+                                .font(.caption.monospacedDigit())
+                        }
+                        GridRow {
+                            Text("Last Buffer")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            if let lastBuffer = appState.micLastBufferTimestamp {
+                                Text(formatTime(lastBuffer))
+                                    .font(.caption.monospacedDigit())
+                            } else {
+                                Text("Never")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        GridRow {
+                            Text("Level (dBFS)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.1f dB", appState.micLevelDBFS))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(appState.micLevelDBFS > -50 ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("ASR Request Active")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micASRRequestActive ? "True" : "False")
+                                .font(.caption)
+                                .foregroundStyle(appState.micASRRequestActive ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("ASR Task Active")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micASRTaskActive ? "True" : "False")
+                                .font(.caption)
+                                .foregroundStyle(appState.micASRTaskActive ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("Session ID")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micSessionID)
+                                .font(.caption)
+                        }
+                        GridRow {
+                            Text("Last Partial")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micLastPartialTranscript.isEmpty ? "None" : "\"\(appState.micLastPartialTranscript)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Last Final Time")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            if let lastFinal = appState.micLastFinalTranscript {
+                                Text(formatTime(lastFinal))
+                                    .font(.caption.monospacedDigit())
+                            } else {
+                                Text("None")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        GridRow {
+                            Text("Last Error")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micLastError ?? "None")
+                                .font(.caption)
+                                .foregroundStyle(appState.micLastError != nil ? .red : .secondary)
+                        }
+                        GridRow {
+                            Text("Quality Last Partial")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micLastPartialTranscriptQuality.isEmpty ? "None" : "\"\(appState.micLastPartialTranscriptQuality)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Quality Last Final")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micLastFinalTranscriptQuality.isEmpty ? "None" : "\"\(appState.micLastFinalTranscriptQuality)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Best Transcript Used")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micBestTranscriptUsed.isEmpty ? "None" : "\"\(appState.micBestTranscriptUsed)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Finalization Reason")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.micFinalizationReason.isEmpty ? "None" : appState.micFinalizationReason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.black.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
                 }
-                return micDiagnostics.rmsLevel > 0.0001 ? "Active" : "Silent"
-            }()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // System Audio Stream Status Card
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("System Audio (Interviewer)")
+                        .font(.headline)
+                        .foregroundStyle(.blue)
+                    
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                        GridRow {
+                            Text("Capture Running")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemCaptureRunning ? "True" : "False")
+                                .font(.caption)
+                                .foregroundStyle(appState.systemCaptureRunning ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("Buffer Count")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text("\(appState.systemBufferCount)")
+                                .font(.caption.monospacedDigit())
+                        }
+                        GridRow {
+                            Text("Last Buffer")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            if let lastBuffer = appState.systemLastBufferTimestamp {
+                                Text(formatTime(lastBuffer))
+                                    .font(.caption.monospacedDigit())
+                            } else {
+                                Text("Never")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        GridRow {
+                            Text("Level (dBFS)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.1f dB", appState.systemLevelDBFS))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(appState.systemLevelDBFS > -50 ? .blue : .secondary)
+                        }
+                        GridRow {
+                            Text("ASR Request Active")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemASRRequestActive ? "True" : "False")
+                                .font(.caption)
+                                .foregroundStyle(appState.systemASRRequestActive ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("ASR Task Active")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemASRTaskActive ? "True" : "False")
+                                .font(.caption)
+                                .foregroundStyle(appState.systemASRTaskActive ? .green : .secondary)
+                        }
+                        GridRow {
+                            Text("Session ID")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemSessionID)
+                                .font(.caption)
+                        }
+                        GridRow {
+                            Text("Last Partial")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemLastPartialTranscript.isEmpty ? "None" : "\"\(appState.systemLastPartialTranscript)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Last Final Time")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            if let lastFinal = appState.systemLastFinalTranscript {
+                                Text(formatTime(lastFinal))
+                                    .font(.caption.monospacedDigit())
+                            } else {
+                                Text("None")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        GridRow {
+                            Text("Last Error")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemLastError ?? "None")
+                                .font(.caption)
+                                .foregroundStyle(appState.systemLastError != nil ? .red : .secondary)
+                        }
+                        GridRow {
+                            Text("Quality Last Partial")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemLastPartialTranscriptQuality.isEmpty ? "None" : "\"\(appState.systemLastPartialTranscriptQuality)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Quality Last Final")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemLastFinalTranscriptQuality.isEmpty ? "None" : "\"\(appState.systemLastFinalTranscriptQuality)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Best Transcript Used")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemBestTranscriptUsed.isEmpty ? "None" : "\"\(appState.systemBestTranscriptUsed)\"")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                        }
+                        GridRow {
+                            Text("Finalization Reason")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(appState.systemFinalizationReason.isEmpty ? "None" : appState.systemFinalizationReason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.black.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                GridRow {
-                    Text("Capture Mode")
+            Divider()
+            
+            // Overall Status Section
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Selected Capture Mode:")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(captureMode.displayName)
-                        .font(.caption)
-                }
-                GridRow {
-                    Text("Mic Required")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(micRequired ? "true" : "false")
-                        .font(.caption)
-                        .foregroundStyle(micRequired ? .green : .secondary)
-                }
-                GridRow {
-                    Text("Mic Permission")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(appState.microphonePermissionState.displayName)
-                        .font(.caption)
-                }
-                GridRow {
-                    Text("Mic Pipeline Running")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(appState.isMicPipelineActive ? "true" : "false")
-                        .font(.caption)
-                        .foregroundStyle(appState.isMicPipelineActive ? .green : .secondary)
-                }
-                GridRow {
-                    Text("Mic ASR Task Active")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(appState.isMicASRTaskActive ? "true" : "false")
-                        .font(.caption)
-                        .foregroundStyle(appState.isMicASRTaskActive ? .green : .secondary)
-                }
-                GridRow {
-                    Text("Mic Level Active/Silent/Off")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(micLevelStatus)
-                        .font(.caption)
-                        .foregroundStyle(micLevelStatus == "Active" ? .green : (micLevelStatus == "Silent" ? .blue : .secondary))
+                        .font(.caption.weight(.bold))
                 }
                 
-                GridRow {
-                    Text("Speech Recognition status")
+                HStack {
+                    Text("Microphone Required:")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(appState.permissionSnapshot.speechRecognition.displayName)
+                    Text(micRequired ? "True" : "False")
                         .font(.caption)
+                        .foregroundStyle(micRequired ? .green : .secondary)
+                    
+                    Spacer().frame(width: 24)
+                    
+                    Text("System Audio Required:")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(sysRequired ? "True" : "False")
+                        .font(.caption)
+                        .foregroundStyle(sysRequired ? .green : .secondary)
                 }
-                GridRow {
-                    Text("Screen/System Audio status")
+                
+                HStack {
+                    Text("Two Sessions Active:")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(appState.permissionSnapshot.screenRecording.displayName)
-                        .font(.caption)
+                    Text(appState.twoSessionsActive ? "True" : "False")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(appState.twoSessionsActive ? .green : .orange)
                 }
-                GridRow {
-                    Text("Is system audio required")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(sysRequired ? "true" : "false")
-                        .font(.caption)
+                
+                if let reason = reason {
+                    HStack(alignment: .top, spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.top, 4)
                 }
-                GridRow {
-                    Text("Is AVAudioEngine running")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(appState.isAudioEngineRunning ? "true" : "false")
-                        .font(.caption)
-                }
-                GridRow {
-                    Text("Is system audio capture running")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(systemAudio.isCapturing ? "true" : "false")
-                        .font(.caption)
+                
+                // Concurrency Limit Banner if twoSessionsActive fails when mode is dual
+                if captureMode == .microphoneAndSystem && !appState.twoSessionsActive && appState.isAudioEngineRunning {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.shield.fill")
+                            .foregroundStyle(.red)
+                            .font(.body)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Apple Speech Concurrency Restriction Detected")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.red)
+                            Text("Apple Speech could not run two concurrent transcription streams. Use System Audio Only / Manual Capture or configure an alternate ASR provider.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 6)
                 }
             }
             .padding(10)
@@ -419,6 +678,9 @@ struct PermissionsDiagnosticView: View {
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .onReceive(refreshTimer) { _ in
+            refreshTrigger = UUID()
+        }
     }
 
     private func checklistStep(_ num: Int, _ text: String) -> some View {

@@ -12,7 +12,7 @@ final class TranscriptRepository {
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO transcript_segments (
+                INSERT OR REPLACE INTO transcript_segments (
                     id, session_id, speaker, text, start_time, end_time, created_at,
                     source, input_device_name, output_device_name, device_id, confidence
                 )

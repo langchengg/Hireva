@@ -293,13 +293,23 @@ struct SpeakerAttributionTests {
         let session = try appState.sessionRepository.createSession(mode: .microphone)
         appState.currentSession = session
         
-        // 2. Start transcription pipeline without starting SCStream screen capture
-        let sysPipeline = SystemAudioTranscriptionPipeline()
+        // 2. Start transcription service using AppleSpeechTranscriptionService
+        let service = AppleSpeechTranscriptionService()
+        try await service.start(sessionID: session.id, captureMode: .systemAudioOnly)
         
-        try await sysPipeline.start(sessionID: session.id, startCapture: false)
+        if let systemSession = service.systemAudioSession {
+            systemSession.onSimulatedAppend = { _ in
+                Task { @MainActor in
+                    systemSession.simulateEmit(
+                        text: "Vision-language-action robotic manipulation with ROS2 and VLM grasp reranking.",
+                        isFinal: true
+                    )
+                }
+            }
+        }
         
         let systemTranscriptionTask = Task { [weak appState] in
-            for await segment in sysPipeline.segments {
+            for await segment in service.segments {
                 await appState?.handleTranscriptSegment(segment)
             }
         }
@@ -315,17 +325,14 @@ struct SpeakerAttributionTests {
         try file.read(into: buffer)
         print("[E2E_Test] Loaded real WAV file: \(frameCount) frames, sample rate \(format.sampleRate)")
         
-        // 4. Feed PCM buffer directly to pipeline delegate input
-        sysPipeline.systemAudioCaptureService(
+        // 4. Feed PCM buffer directly to service buffer input
+        service.systemAudioCaptureService(
             ScreenCaptureKitSystemAudioCaptureService.shared,
             didReceive: buffer,
             at: AVAudioTime(hostTime: mach_absolute_time())
         )
         
-        // Complete the recognition request audio feeding
-        sysPipeline.endAudio()
-        
-        print("[E2E_Test] Fed real audio buffer into ASR pipeline request. Waiting for speech recognition...")
+        print("[E2E_Test] Fed real audio buffer into ASR service request. Waiting for speech recognition...")
         
         // 5. Poll for up to 10 seconds to wait for speech recognition and suggestion generation
         var completed = false
@@ -354,6 +361,7 @@ struct SpeakerAttributionTests {
             print("[E2E_Test] FAILED to generate suggestion card from system audio buffer")
         }
         systemTranscriptionTask.cancel()
+        service.stop()
     }
 
 
