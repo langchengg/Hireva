@@ -241,6 +241,54 @@ final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v6_suggestion_provenance") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+            
+            if !columnNames.contains("say_first_source") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN say_first_source TEXT")
+            }
+            if !columnNames.contains("stage_a_timed_out") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN stage_a_timed_out INTEGER")
+            }
+            if !columnNames.contains("stage_b_completed") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN stage_b_completed INTEGER")
+            }
+            if !columnNames.contains("stage_b_status") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN stage_b_status TEXT")
+            }
+            if !columnNames.contains("latency_first_token_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN latency_first_token_ms INTEGER")
+            }
+            if !columnNames.contains("latency_first_visible_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN latency_first_visible_ms INTEGER")
+            }
+            if !columnNames.contains("latency_full_card_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN latency_full_card_ms INTEGER")
+            }
+        }
+
+        migrator.registerMigration("v7_suggestion_soft_fallback") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+            
+            if !columnNames.contains("soft_fallback_used") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN soft_fallback_used INTEGER")
+            }
+            if !columnNames.contains("soft_fallback_latency_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN soft_fallback_latency_ms INTEGER")
+            }
+            if !columnNames.contains("deepseek_first_token_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN deepseek_first_token_ms INTEGER")
+            }
+            if !columnNames.contains("deepseek_first_visible_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN deepseek_first_visible_ms INTEGER")
+            }
+            if !columnNames.contains("final_visible_source") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN final_visible_source TEXT")
+            }
+        }
+
         return migrator
     }
 }

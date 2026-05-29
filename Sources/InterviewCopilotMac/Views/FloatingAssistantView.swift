@@ -195,10 +195,44 @@ struct FloatingAssistantView: View {
                     .lineLimit(3)
             }
 
-            if let card = appState.currentSuggestion {
-                Text(card.sayFirst)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(4)
+            if appState.isStreamingSayFirst {
+                if appState.streamFirstVisibleTextAt != nil {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Generating first answer...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(appState.streamedSayFirst)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(4)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating first answer...")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if let card = appState.currentSuggestion {
+                VStack(alignment: .leading, spacing: 4) {
+                    if appState.isExpandingSuggestionCard {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(appState.softFallbackUsed ? "Fast local answer shown; DeepSeek still generating..." : "Expanding answer...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(card.sayFirst)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(4)
+                }
             } else {
                 Text(secondaryStatusText)
                     .font(.callout)
@@ -269,13 +303,48 @@ struct FloatingAssistantView: View {
 
     @ViewBuilder
     private var suggestion: some View {
-        if let card = appState.currentSuggestion {
+        if appState.isStreamingSayFirst {
+            VStack(alignment: .leading, spacing: 12) {
+                if appState.streamFirstVisibleTextAt != nil {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating first answer...")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Text(appState.streamedSayFirst)
+                        .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating first answer...")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(14)
+            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        } else if let card = appState.currentSuggestion {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text(card.strategy)
                         .font(.title3.weight(.bold))
                     Spacer()
-                    if let confidence = card.confidence {
+                    if appState.isExpandingSuggestionCard {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(appState.softFallbackUsed ? "Fast local answer shown; DeepSeek still generating..." : "Expanding answer...")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let confidence = card.confidence {
                         StatusPill(title: "\(Int(confidence * 100))%", systemImage: "gauge.medium", tint: confidence >= 0.75 ? .green : .orange)
                     }
                 }

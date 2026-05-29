@@ -83,6 +83,51 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
         )
     }
 
+    func chatCompletionStream(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var streamingOptions = options
+                    streamingOptions.stream = true
+                    let request = try makeURLRequest(
+                        configuration: configuration,
+                        messages: messages,
+                        responseFormat: responseFormat,
+                        options: streamingOptions
+                    )
+                    
+                    let (bytes, response) = try await session.bytes(for: request)
+                    try validateHTTPResponse(response, body: "", providerName: configuration.name)
+                    
+                    var parser = SSEParser()
+                    for try await line in bytes.lines {
+                        guard !Task.isCancelled else { break }
+                        let events = parser.append(line + "\n")
+                        for event in events {
+                            switch event {
+                            case .token(let token):
+                                continuation.yield(token)
+                            case .usage(let prompt, _, _, let cached):
+                                print("[DeepSeekUsage] Stream total: \(prompt) | Cached: \(cached) | Missed: \(prompt - cached)")
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
         if configuration.kind == .deepSeek {
             return [
@@ -170,6 +215,20 @@ final class DeepSeekLLMClient: LLMClientProtocol {
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
         try await compatibleClient.chatCompletion(
+            configuration: normalized(configuration),
+            messages: messages,
+            responseFormat: responseFormat,
+            options: options
+        )
+    }
+
+    func chatCompletionStream(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        compatibleClient.chatCompletionStream(
             configuration: normalized(configuration),
             messages: messages,
             responseFormat: responseFormat,

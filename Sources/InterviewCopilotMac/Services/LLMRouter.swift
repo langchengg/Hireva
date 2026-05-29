@@ -75,6 +75,34 @@ final class LLMRouter {
         )
     }
 
+    func chatForRealtimeStream(
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) throws -> AsyncThrowingStream<String, Error> {
+        let configuration = try realtimeConfiguration()
+        return try client(for: configuration).chatCompletionStream(
+            configuration: configuration,
+            messages: messages,
+            responseFormat: responseFormat,
+            options: options
+        )
+    }
+
+    func chatStream(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) throws -> AsyncThrowingStream<String, Error> {
+        try client(for: configuration).chatCompletionStream(
+            configuration: configuration,
+            messages: messages,
+            responseFormat: responseFormat,
+            options: options
+        )
+    }
+
     func chat(
         configuration: LLMProviderConfiguration,
         messages: [LLMChatMessage],

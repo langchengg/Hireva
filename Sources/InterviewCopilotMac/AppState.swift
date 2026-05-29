@@ -257,6 +257,45 @@ final class AppState: ObservableObject {
     @Published public var floatingPanelUpdated: Bool = false
 
 
+    // --- Streaming & Provenance ---
+    @Published public var isStreamingSayFirst: Bool = false
+    @Published public var streamedSayFirst: String = ""
+    @Published public var isExpandingSuggestionCard: Bool = false
+    
+    @Published public var streamRequestStartAt: Date? = nil
+    @Published public var streamFirstTokenAt: Date? = nil
+    @Published public var streamFirstVisibleTextAt: Date? = nil
+    @Published public var streamFirstSentenceAt: Date? = nil
+    @Published public var streamFullResponseAt: Date? = nil
+    @Published public var streamJSONParsedAt: Date? = nil
+    @Published public var streamPersistedAt: Date? = nil
+    
+    // Delay Provider for mock time unit testing
+    public var delayProvider: DelayProvider = RealDelayProvider()
+
+    // Soft Fallback & Advanced Provenance
+    @Published public var softFallbackUsed: Bool = false
+    @Published public var softFallbackLatencyMS: Int? = nil
+    @Published public var softFallbackShownAt: Date? = nil
+    @Published public var deepseekFirstTokenMS: Int? = nil
+    @Published public var deepseekFirstVisibleMS: Int? = nil
+    @Published public var finalVisibleSource: String? = nil
+    @Published public var currentGenerationID: String? = nil
+    @Published public var userInteractedWithCard: Bool = false
+    
+    // Stage B lifecycle task reference for cost control / cancellation
+    private var stageBTask: Task<Void, Never>? = nil
+    private var softFallbackTask: Task<Void, Never>? = nil
+    
+    // Background RAG precompute cache and debounce
+    private struct RAGPrecomputeCacheItem {
+        let context: RetrievedContext
+        let trace: RetrievalTrace
+        let rawText: String
+    }
+    private var precomputedRAGCache: [String: RAGPrecomputeCacheItem] = [:]
+    private var precomputeDebounceTask: Task<Void, Never>? = nil
+
     let database: AppDatabase
     let documentRepository: DocumentRepository
     let sessionRepository: SessionRepository
@@ -1011,6 +1050,7 @@ final class AppState: ObservableObject {
 
     func stopListening() {
         guard liveState.canStop else { return }
+        cancelStageBTask()
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
@@ -1066,6 +1106,7 @@ final class AppState: ObservableObject {
     }
 
     func clearLiveSession() {
+        cancelStageBTask()
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
@@ -1390,6 +1431,42 @@ final class AppState: ObservableObject {
             try? transcriptRepository.saveSegment(segment)
         }
 
+        // Background debounced RAG precompute
+        if segment.source == .systemAudio && segment.speaker == .interviewer {
+            let words = segment.text.split(whereSeparator: \.isWhitespace)
+            if words.count >= 6 { // 5-7 words range
+                precomputeDebounceTask?.cancel()
+                precomputeDebounceTask = Task { [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: 400_000_000) // 300-500ms debounce
+                    } catch {
+                        return
+                    }
+                    guard let self = self, !Task.isCancelled else { return }
+                    
+                    let key = segment.id + "_" + self.normalizedTextHash(segment.text)
+                    do {
+                        let (context, trace) = try await self.contextRetrievalService.retrieveContextWithTrace(
+                            question: segment.text,
+                            intent: .unclear,
+                            maxCVWords: 1_500,
+                            maxJDWords: 1_000
+                        )
+                        await MainActor.run {
+                            self.precomputedRAGCache[key] = RAGPrecomputeCacheItem(
+                                context: context,
+                                trace: trace,
+                                rawText: segment.text
+                            )
+                            print("[PrecomputeRAG] Cached RAG context for segmentID: \(segment.id) | key: \(key)")
+                        }
+                    } catch {
+                        print("[PrecomputeRAG] Background RAG precompute failed: \(error)")
+                    }
+                }
+            }
+        }
+
         // Echo/Leakage Protection sliding window update
         if segment.source == .systemAudio {
             recentSystemAudioRecords.append(RecentSystemAudioRecord(text: segment.text, timestamp: Date()))
@@ -1483,6 +1560,11 @@ final class AppState: ObservableObject {
             liveState = .listening
         }
 
+    }
+
+    private func normalizedTextHash(_ text: String) -> String {
+        let clean = text.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        return String(clean.hashValue)
     }
 
     private func maybeRunAutomaticDetection(triggeringSegment: TranscriptSegment) {
@@ -1654,19 +1736,117 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func generateSuggestion(
+    func cancelStageBTask() {
+        softFallbackTask?.cancel()
+        softFallbackTask = nil
+        
+        if let task = stageBTask {
+            task.cancel()
+            self.stageBTask = nil
+            print("[StageB] Cancelled active background Stage B suggestion task.")
+            
+            if var current = self.currentSuggestion {
+                current.stageBCompleted = false
+                current.stageBStatus = "cancelled"
+                current.caution = "Stage B cancelled by user action."
+                self.currentSuggestion = current
+                
+                try? self.suggestionRepository.saveSuggestionCard(current, retrievedChunks: self.currentSuggestionRetrievedChunks)
+            }
+        }
+    }
+
+    private func trimContextForRealtime(_ context: RetrievedContext) -> RetrievedContext {
+        let cvChunks = Array(context.cvChunks.prefix(3)).map { chunk in
+            var trimmed = chunk
+            let words = chunk.content.split(whereSeparator: \.isWhitespace)
+            if words.count > 100 {
+                trimmed.content = words.prefix(100).joined(separator: " ") + "..."
+                trimmed.wordCount = 100
+            }
+            return trimmed
+        }
+        let jdChunks = Array(context.jobDescriptionChunks.prefix(2)).map { chunk in
+            var trimmed = chunk
+            let words = chunk.content.split(whereSeparator: \.isWhitespace)
+            if words.count > 100 {
+                trimmed.content = words.prefix(100).joined(separator: " ") + "..."
+                trimmed.wordCount = 100
+            }
+            return trimmed
+        }
+        return RetrievedContext(cvChunks: cvChunks, jobDescriptionChunks: jdChunks)
+    }
+
+    private func makeCompactSummary(_ doc: DocumentRecord?) -> String {
+        guard let doc = doc else { return "None provided." }
+        let title = doc.title
+        let cleanContent = doc.content.replacingOccurrences(of: "\n", with: " ")
+        let excerpt = cleanContent.prefix(250)
+        return "Title: \(title) | Excerpt: \(excerpt)..."
+    }
+
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw NSError(domain: "TimeoutDomain", code: 1, userInfo: [NSLocalizedDescriptionKey: "Request timed out after \(seconds)s"])
+            }
+            
+            guard let result = try await group.next() else {
+                throw NSError(domain: "TimeoutDomain", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unknown error during race"])
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    func generateSuggestion(
         for question: DetectedQuestion,
         session: InterviewSession,
         transcript: String,
         autoGenerated: Bool
     ) async throws {
+        // Cancel any existing background Stage B task first
+        cancelStageBTask()
+
         liveState = .generatingSuggestion
         self.suggestionGenerationStarted = true
         self.floatingPanelUpdated = false
         
         var retrievedContext: RetrievedContext? = nil
         var retrievalTrace: RetrievalTrace? = nil
-        do {
+        
+        // 1. Check precomputed RAG Cache
+        var hitCache = false
+        if let segmentID = question.transcriptSegmentID {
+            if let cacheKey = precomputedRAGCache.keys.first(where: { $0.hasPrefix(segmentID + "_") }),
+               let cached = precomputedRAGCache[cacheKey] {
+                let cleanCached = cached.rawText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanFinal = question.questionText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                let cachedWords = Set(cleanCached.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+                let finalWords = Set(cleanFinal.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+                let intersection = cachedWords.intersection(finalWords)
+                let union = cachedWords.union(finalWords)
+                let similarity = union.isEmpty ? 0.0 : Double(intersection.count) / Double(union.count)
+                
+                if similarity >= 0.75 { // 75% similarity threshold
+                    retrievedContext = cached.context
+                    retrievalTrace = cached.trace
+                    hitCache = true
+                    print("[PrecomputeRAG] Cache hit! (similarity \(similarity)) for key: \(cacheKey)")
+                } else {
+                    print("[PrecomputeRAG] Cache miss due to significant text difference (similarity \(similarity)) for key: \(cacheKey). Rerunning retrieval.")
+                }
+                precomputedRAGCache.removeValue(forKey: cacheKey)
+            }
+        }
+        
+        if !hitCache {
             let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
                 question: question.questionText,
                 intent: question.intent,
@@ -1675,62 +1855,354 @@ final class AppState: ObservableObject {
             )
             retrievedContext = context
             retrievalTrace = trace
-            let result = try await suggestionGenerationService.generate(
-                question: question,
-                context: context,
-                transcriptContext: transcript,
-                sessionID: session.id,
-                model: activeRealtimeProvider?.model
+        }
+        
+        guard let context = retrievedContext, let trace = retrievalTrace else {
+            throw LLMProviderError.invalidResponse("Could not retrieve RAG context.")
+        }
+        
+        // 2. Realtime Context Budget Optimization
+        let optimizedContext = trimContextForRealtime(context)
+        
+        // Load CV/JD compact summaries for prompt prefix stabilization
+        let cvRecord = try? documentRepository.document(type: .cv)
+        let jdRecord = try? documentRepository.document(type: .jobDescription)
+        let cvSummary = makeCompactSummary(cvRecord)
+        let jdSummary = makeCompactSummary(jdRecord)
+        
+        // 3. Reset streaming state and metrics
+        let requestStart = Date()
+        self.streamRequestStartAt = requestStart
+        self.streamFirstTokenAt = nil
+        self.streamFirstVisibleTextAt = nil
+        self.streamFirstSentenceAt = nil
+        self.streamFullResponseAt = nil
+        self.streamJSONParsedAt = nil
+        self.streamPersistedAt = nil
+        
+        self.isStreamingSayFirst = true
+        self.streamedSayFirst = ""
+        self.isExpandingSuggestionCard = false
+        
+        // Create references for background task capture
+        let localQuestion = question
+        let localSession = session
+        let localTrace = trace
+        let localTranscript = transcript
+        
+        let cardID = UUID().uuidString
+        let generationID = UUID().uuidString
+        self.currentGenerationID = generationID
+        
+        self.softFallbackUsed = false
+        self.softFallbackLatencyMS = nil
+        self.softFallbackShownAt = nil
+        self.deepseekFirstTokenMS = nil
+        self.deepseekFirstVisibleMS = nil
+        self.finalVisibleSource = nil
+        self.userInteractedWithCard = false
+        
+        // Helper to construct a local fallback card
+        func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
+            var sayFirst = "Focus on explaining the relevant experience: "
+            if let bestChunk = optimizedContext.cvChunks.first {
+                sayFirst += "based on my experience with \(bestChunk.sectionTitle ?? "my past projects"), I worked on \(bestChunk.content.prefix(120))..."
+            } else {
+                sayFirst += "I can speak to my background in software engineering and design principles."
+            }
+            
+            let keyPoints = optimizedContext.cvChunks.map { chunk in
+                "\(chunk.sectionTitle ?? "Experience Detail"): \(chunk.content.prefix(80))."
+            }
+            
+            return SuggestionCard(
+                id: cardID,
+                sessionID: localSession.id,
+                questionID: localQuestion.id,
+                strategy: isSoft ? "RAG Template Soft Fallback (DeepSeek Delay)" : "RAG Template Fallback (DeepSeek Timeout)",
+                sayFirst: sayFirst,
+                keyPoints: Array(keyPoints.prefix(3)),
+                followUpReady: ["How does this align with the role requirements?"],
+                confidence: 0.5,
+                caution: isSoft ? "Fast local answer shown; DeepSeek still generating..." : "Fast fallback shown; DeepSeek still expanding...",
+                evidenceUsed: optimizedContext.cvChunks.map { $0.id },
+                riskLevel: .medium,
+                modelName: "rag-fallback",
+                promptVersion: "fallback-v1",
+                providerKind: .ollamaLocal,
+                providerName: "LocalFallback",
+                providerBaseURL: "",
+                latencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
+                isLocal: true,
+                rawJSON: nil,
+                createdAt: Date(),
+                sayFirstSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback",
+                stageATimedOut: !isSoft,
+                stageBCompleted: false,
+                stageBStatus: "skipped",
+                latencyFirstTokenMS: nil,
+                latencyFirstVisibleMS: nil,
+                latencyFullCardMS: nil,
+                softFallbackUsed: isSoft,
+                softFallbackLatencyMS: isSoft ? Int(Date().timeIntervalSince(requestStart) * 1000) : nil,
+                deepseekFirstTokenMS: nil,
+                deepseekFirstVisibleMS: nil,
+                finalVisibleSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback"
             )
+        }
+        
+        let trigger = StageBTrigger()
+        
+        // Start 1.5s parallel soft fallback timer task
+        self.softFallbackTask = Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
+                guard self.currentGenerationID == generationID else { return }
+                
+                if self.streamFirstVisibleTextAt == nil {
+                    let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
+                    self.softFallbackUsed = true
+                    self.softFallbackLatencyMS = elapsed
+                    self.finalVisibleSource = "rag_template_soft_fallback"
+                    
+                    let fallbackCard = createRAGFallbackCard(isSoft: true)
+                    self.currentSuggestion = fallbackCard
+                    self.isExpandingSuggestionCard = true
+                    print("[StreamingASR] Soft fallback triggered at \(elapsed)ms because no DeepSeek text was visible yet.")
+                }
+            } catch {
+                // Cancelled or sleep error
+            }
+        }
+        
+        // Cost Control: Launch Stage B in parallel immediately, but it waits for the trigger!
+        self.stageBTask = Task { [weak self] in
+            guard let self = self else { return }
+            // Wait for Stage B trigger (timeout after 500ms if first visible text doesn't show up sooner)
+            await trigger.wait(timeoutMs: 500)
+            
+            guard self.currentGenerationID == generationID else { return }
             guard !Task.isCancelled else {
-                self.suggestionGenerationStarted = false
+                print("[StageB] Task was cancelled in-flight.")
                 return
             }
-            self.lastSuggestionGenerationProvider = result.response.providerName
-            self.lastSuggestionGenerationModel = result.response.modelName
-            try suggestionRepository.saveSuggestionCard(result.card, retrievedChunks: trace.rankedCVChunks + trace.rankedJDChunks)
-            self.lastRetrievalTrace = trace
-            self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
-            currentSuggestion = result.card
-            possibleQuestion = nil
-            if autoGenerated {
-                lastAutoSuggestionAt = Date()
-                let fingerprint = normalizedQuestion(question.questionText)
-                lastAutoQuestionText = fingerprint
-                if !recentQuestionsFingerprints.contains(fingerprint) {
-                    recentQuestionsFingerprints.append(fingerprint)
+            
+            let activeFallback = self.softFallbackUsed || self.currentSuggestion?.sayFirstSource == "rag_template_fallback" || self.currentSuggestion?.sayFirstSource == "rag_template_soft_fallback"
+            
+            do {
+                let result = try await self.withTimeout(seconds: 15.0) {
+                    try await self.suggestionGenerationService.generateFullCard(
+                        question: localQuestion,
+                        context: optimizedContext,
+                        transcriptContext: localTranscript,
+                        sessionID: localSession.id,
+                        cvSummary: cvSummary,
+                        jdSummary: jdSummary
+                    )
                 }
-                if recentQuestionsFingerprints.count > 30 {
-                    recentQuestionsFingerprints.removeFirst()
+                
+                guard self.currentGenerationID == generationID else { return }
+                guard !Task.isCancelled else {
+                    print("[StageB] Task was cancelled in-flight.")
+                    return
+                }
+                
+                self.streamJSONParsedAt = Date()
+                let elapsedFull = Int(Date().timeIntervalSince(requestStart) * 1000)
+                
+                // Merge policy:
+                var finalCard = result.card
+                finalCard.id = cardID
+                
+                // If fallback was used and replacement check was already resolved, keep currentSuggestion's sayFirst.
+                // Otherwise, use Stage B's sayFirst.
+                finalCard.sayFirst = self.currentSuggestion?.sayFirst ?? result.card.sayFirst
+                
+                // Populate provenance
+                finalCard.sayFirstSource = self.currentSuggestion?.sayFirstSource ?? "deepseek_stream"
+                finalCard.stageATimedOut = self.currentSuggestion?.stageATimedOut ?? false
+                finalCard.stageBCompleted = true
+                finalCard.stageBStatus = "completed"
+                finalCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
+                finalCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
+                finalCard.latencyFullCardMS = elapsedFull
+                finalCard.softFallbackUsed = self.softFallbackUsed
+                finalCard.softFallbackLatencyMS = self.softFallbackLatencyMS
+                finalCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
+                finalCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
+                finalCard.finalVisibleSource = self.finalVisibleSource ?? (self.softFallbackUsed ? "rag_template_soft_fallback" : "deepseek_stream")
+                
+                try self.suggestionRepository.saveSuggestionCard(finalCard, retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks)
+                self.streamPersistedAt = Date()
+                
+                self.currentSuggestion = finalCard
+                self.currentSuggestionRetrievedChunks = localTrace.rankedCVChunks + localTrace.rankedJDChunks
+                self.isExpandingSuggestionCard = false
+                self.suggestionGenerationStarted = false
+                self.liveState = .listening
+                print("[StreamingASR] Stage B Full SuggestionCard completed and merged successfully!")
+            } catch {
+                guard self.currentGenerationID == generationID else { return }
+                print("[StreamingASR] Stage B Full SuggestionCard failed or timed out: \(error.localizedDescription)")
+                self.isExpandingSuggestionCard = false
+                self.suggestionGenerationStarted = false
+                self.liveState = .listening
+                
+                if let current = self.currentSuggestion {
+                    var updated = current
+                    updated.stageBCompleted = false
+                    updated.stageBStatus = error is CancellationError ? "cancelled" : "timed_out"
+                    updated.caution = "DeepSeek full card generation failed/timed out. Showing opener only."
+                    if activeFallback {
+                        updated.caution = "Fast fallback shown; DeepSeek still expanding..."
+                    }
+                    self.currentSuggestion = updated
+                    try? self.suggestionRepository.saveSuggestionCard(updated, retrievedChunks: self.currentSuggestionRetrievedChunks)
                 }
             }
-            updateDiagnostics {
-                $0.lastSuggestionJSON = result.card.rawJSON
-                $0.lastAPILatencyMS = result.response.latencyMS
-                $0.lastProviderName = result.response.providerName
-                $0.lastProviderModel = result.response.modelName
-                $0.lastRetrievalTrace = retrievalTrace
-                $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
+        }
+        
+        // Stage A streaming task
+        let fastSayFirstTask = Task {
+            do {
+                let stream = try await self.suggestionGenerationService.generateFastSayFirstStream(
+                    question: localQuestion,
+                    context: optimizedContext,
+                    cvSummary: cvSummary,
+                    jdSummary: jdSummary
+                )
+                
+                var collected = ""
+                for try await token in stream {
+                    guard self.currentGenerationID == generationID else { throw CancellationError() }
+                    guard !Task.isCancelled else { break }
+                    if self.streamFirstTokenAt == nil {
+                        self.streamFirstTokenAt = Date()
+                        self.deepseekFirstTokenMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+                    }
+                    collected += token
+                    self.streamedSayFirst = collected
+                    
+                    // First visible text detection (at least 3 words or 10 characters)
+                    if self.streamFirstVisibleTextAt == nil {
+                        let wordCount = collected.split(whereSeparator: \.isWhitespace).count
+                        if wordCount >= 3 || collected.count >= 10 {
+                            self.streamFirstVisibleTextAt = Date()
+                            self.deepseekFirstVisibleMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+                            trigger.trigger() // Start Stage B early!
+                        }
+                    }
+                    
+                    // First sentence detection
+                    if self.streamFirstSentenceAt == nil && (token.contains(".") || token.contains("!") || token.contains("?")) {
+                        self.streamFirstSentenceAt = Date()
+                    }
+                }
+                self.streamFullResponseAt = Date()
+                trigger.trigger() // Ensure Stage B is triggered if Stage A finishes
+                return collected
+            } catch {
+                trigger.trigger() // Ensure Stage B is triggered on error too
+                throw error
             }
+        }
+        
+        // Race Stage A with 6.0s timeout
+        var fastSayFirst = ""
+        do {
+            fastSayFirst = try await withTimeout(seconds: 6.0) {
+                try await fastSayFirstTask.value
+            }
+            guard self.currentGenerationID == generationID else { return }
+            self.isStreamingSayFirst = false
             
-            // Set Suggestion Diagnostics
-            self.suggestionProviderModel = "\(result.response.providerName) / \(result.response.modelName)"
-            self.suggestionLatencyMS = result.response.latencyMS ?? 0
-            self.lastSuggestionCardJSON = result.card.rawJSON ?? ""
-            self.floatingPanelUpdated = true
-            self.suggestionGenerationStarted = false
+            // Cancel soft fallback task since Stage A completed
+            softFallbackTask?.cancel()
             
-            print("[AppState] Suggestion card generated and saved: \(result.card.id). Displaying in FloatingAssistantView. Say First: \"\(result.card.sayFirst)\" | Key Points count: \(result.card.keyPoints.count)")
+            let elapsed = Date().timeIntervalSince(requestStart)
+            let isSoft = self.softFallbackUsed
             
-            liveState = .listening
+            if isSoft {
+                // Apply conservative late DeepSeek replacement checks
+                let replace = !self.userInteractedWithCard && elapsed < 4.0 && self.isSpecificAnswer(fastSayFirst)
+                if replace {
+                    if var current = self.currentSuggestion, current.stageBCompleted == true {
+                        current.sayFirst = fastSayFirst
+                        current.sayFirstSource = "deepseek_stream"
+                        current.finalVisibleSource = "deepseek_stream"
+                        self.currentSuggestion = current
+                        try? self.suggestionRepository.saveSuggestionCard(current, retrievedChunks: self.currentSuggestionRetrievedChunks)
+                    } else {
+                        var updated = createRAGFallbackCard(isSoft: true)
+                        updated.sayFirst = fastSayFirst
+                        updated.sayFirstSource = "deepseek_stream"
+                        updated.finalVisibleSource = "deepseek_stream"
+                        updated.caution = "DeepSeek answer updated. Expanding details..."
+                        self.finalVisibleSource = "deepseek_stream"
+                        self.currentSuggestion = updated
+                    }
+                    print("[StreamingASR] Soft fallback replaced with late DeepSeek text at \(Int(elapsed * 1000))ms.")
+                } else {
+                    print("[StreamingASR] Soft fallback preserved. Late DeepSeek text rejected (elapsed: \(Int(elapsed * 1000))ms, interacted: \(self.userInteractedWithCard)).")
+                }
+            } else {
+                // Set temporary suggestion card immediately since DeepSeek was fast!
+                let tempCard = SuggestionCard(
+                    id: cardID,
+                    sessionID: localSession.id,
+                    questionID: localQuestion.id,
+                    strategy: "Quick Opener",
+                    sayFirst: fastSayFirst,
+                    keyPoints: [],
+                    followUpReady: [],
+                    confidence: 0.8,
+                    caution: "Streaming quick opener. Expanding answer...",
+                    evidenceUsed: [],
+                    riskLevel: .low,
+                    modelName: "deepseek-v4-flash",
+                    promptVersion: "quick-v1",
+                    providerKind: .deepSeek,
+                    providerName: "DeepSeek",
+                    providerBaseURL: "https://api.deepseek.com",
+                    latencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
+                    isLocal: false,
+                    rawJSON: nil,
+                    createdAt: Date(),
+                    sayFirstSource: "deepseek_stream",
+                    stageATimedOut: false,
+                    stageBCompleted: false,
+                    stageBStatus: "skipped",
+                    latencyFirstTokenMS: self.deepseekFirstTokenMS,
+                    latencyFirstVisibleMS: self.deepseekFirstVisibleMS,
+                    latencyFullCardMS: nil,
+                    softFallbackUsed: false,
+                    softFallbackLatencyMS: nil,
+                    deepseekFirstTokenMS: self.deepseekFirstTokenMS,
+                    deepseekFirstVisibleMS: self.deepseekFirstVisibleMS,
+                    finalVisibleSource: "deepseek_stream"
+                )
+                self.finalVisibleSource = "deepseek_stream"
+                self.currentSuggestion = tempCard
+                self.isExpandingSuggestionCard = true
+            }
         } catch {
-            self.suggestionGenerationStarted = false
-            self.lastFailedTaskType = .suggestionGeneration
-            self.lastFailedQuestion = question
-            self.lastFailedTranscriptContext = transcript
-            self.lastFailedCVJDContext = retrievedContext
-            self.lastFailedProviderConfig = activeRealtimeProvider
-            throw error
+            guard self.currentGenerationID == generationID else { return }
+            print("[StreamingASR] Stage A Fast Say-First timed out or failed: \(error.localizedDescription)")
+            self.isStreamingSayFirst = false
+            softFallbackTask?.cancel()
+            
+            // If soft fallback was already shown, preserve it but mark timeout/failure.
+            // If not, show hard fallback now.
+            if !self.softFallbackUsed {
+                let fallbackCard = createRAGFallbackCard(isSoft: false)
+                self.currentSuggestion = fallbackCard
+                self.isExpandingSuggestionCard = true
+            } else if var current = self.currentSuggestion {
+                current.stageATimedOut = true
+                current.caution = "Fast fallback shown; DeepSeek stream timed out."
+                self.currentSuggestion = current
+            }
         }
     }
 
@@ -1768,6 +2240,25 @@ final class AppState: ObservableObject {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+    }
+
+    public func isSpecificAnswer(_ text: String) -> Bool {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if cleaned.count < 30 {
+            return false
+        }
+        let genericPhrases = [
+            "based on my experience",
+            "i can speak to my background",
+            "focus on explaining",
+            "as a software engineer"
+        ]
+        for phrase in genericPhrases {
+            if cleaned.contains(phrase) && cleaned.count < 80 {
+                return false
+            }
+        }
+        return true
     }
 
     private func showError(_ message: String) {
@@ -2252,6 +2743,7 @@ final class AppState: ObservableObject {
     
     @MainActor
     func clearManualCapture() {
+        cancelStageBTask()
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
         self.manualCaptureError = nil
@@ -2629,3 +3121,49 @@ final class AppState: ObservableObject {
         isRebuildingEmbeddings = false
     }
 }
+
+private final class StageBTrigger {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var triggered = false
+    private let lock = NSLock()
+    
+    func wait(timeoutMs: Int) async {
+        await withCheckedContinuation { cont in
+            lock.lock()
+            if triggered {
+                lock.unlock()
+                cont.resume()
+                return
+            }
+            continuation = cont
+            lock.unlock()
+            
+            // Set up a timeout fallback
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutMs) * 1_000_000)
+                self.trigger()
+            }
+        }
+    }
+    
+    func trigger() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !triggered else { return }
+        triggered = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+public protocol DelayProvider: Sendable {
+    func sleep(nanoseconds: UInt64) async throws
+}
+
+public final class RealDelayProvider: DelayProvider {
+    public init() {}
+    public func sleep(nanoseconds: UInt64) async throws {
+        try await Task.sleep(nanoseconds: nanoseconds)
+    }
+}
+

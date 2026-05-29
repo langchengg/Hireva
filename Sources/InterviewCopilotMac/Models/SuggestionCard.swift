@@ -21,6 +21,22 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var isLocal: Bool = false
     var rawJSON: String?
     var createdAt: Date
+
+    // Streaming & Provenance
+    var sayFirstSource: String? = nil
+    var stageATimedOut: Bool? = nil
+    var stageBCompleted: Bool? = nil
+    var stageBStatus: String? = nil // skipped, cancelled, timed_out, completed
+    var latencyFirstTokenMS: Int? = nil
+    var latencyFirstVisibleMS: Int? = nil
+    var latencyFullCardMS: Int? = nil
+
+    // Soft Fallback & Advanced Telemetry
+    var softFallbackUsed: Bool? = nil
+    var softFallbackLatencyMS: Int? = nil
+    var deepseekFirstTokenMS: Int? = nil
+    var deepseekFirstVisibleMS: Int? = nil
+    var finalVisibleSource: String? = nil
 }
 
 struct SuggestionCardPayload: Decodable {

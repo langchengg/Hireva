@@ -221,4 +221,24 @@ protocol LLMClientProtocol: AnyObject {
     ) async throws -> LLMChatResult
 
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo]
+
+    func chatCompletionStream(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) -> AsyncThrowingStream<String, Error>
+}
+
+extension LLMClientProtocol {
+    func chatCompletionStream(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: LLMProviderError.notConfigured("Streaming for \(providerKind.displayName)"))
+        }
+    }
 }

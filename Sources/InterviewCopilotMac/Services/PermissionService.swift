@@ -94,6 +94,14 @@ struct PermissionSnapshot: Hashable {
 
 class PermissionService {
     func snapshot() -> PermissionSnapshot {
+        if isRunningUnderTestOrAutomation() {
+            return PermissionSnapshot(
+                microphone: .granted,
+                speechRecognition: .granted,
+                screenRecording: .granted,
+                systemAudioCapture: .granted
+            )
+        }
         let screenState: PermissionState = CGPreflightScreenCaptureAccess() ? .granted : .notDetermined
         return PermissionSnapshot(
             microphone: checkMicrophonePermission().legacyState,
@@ -108,6 +116,9 @@ class PermissionService {
     }
 
     func checkMicrophonePermission() -> MicrophonePermissionState {
+        if isRunningUnderTestOrAutomation() {
+            return .authorized
+        }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return .authorized
@@ -127,6 +138,9 @@ class PermissionService {
     }
 
     func speechStatus() -> PermissionState {
+        if isRunningUnderTestOrAutomation() {
+            return .granted
+        }
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
             return .granted
@@ -146,6 +160,9 @@ class PermissionService {
     }
 
     func requestMicrophonePermission() async -> MicrophonePermissionState {
+        if isRunningUnderTestOrAutomation() {
+            return .authorized
+        }
         let current = checkMicrophonePermission()
         switch current {
         case .authorized:
@@ -170,6 +187,9 @@ class PermissionService {
     }
 
     func requestSpeechRecognition() async -> PermissionState {
+        if isRunningUnderTestOrAutomation() {
+            return .granted
+        }
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 let state: PermissionState
@@ -191,6 +211,10 @@ class PermissionService {
     }
 
     func requestScreenRecording() {
+        if isRunningUnderTestOrAutomation() {
+            print("[Permission] requestScreenRecording skipped (running under test/automation)")
+            return
+        }
         _ = CGRequestScreenCaptureAccess()
     }
 

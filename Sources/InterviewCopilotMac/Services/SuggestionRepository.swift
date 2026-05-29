@@ -56,9 +56,13 @@ final class SuggestionRepository {
                     id, session_id, question_id, strategy, say_first, key_points_json,
                     follow_up_ready_json, confidence, caution, evidence_used_json, risk_level,
                     model_name, prompt_version, provider_kind, provider_name, provider_base_url,
-                    latency_ms, is_local, raw_json, created_at
+                    latency_ms, is_local, raw_json, created_at,
+                    say_first_source, stage_a_timed_out, stage_b_completed, stage_b_status,
+                    latency_first_token_ms, latency_first_visible_ms, latency_full_card_ms,
+                    soft_fallback_used, soft_fallback_latency_ms, deepseek_first_token_ms,
+                    deepseek_first_visible_ms, final_visible_source
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     card.id,
@@ -80,7 +84,19 @@ final class SuggestionRepository {
                     card.latencyMS,
                     card.isLocal,
                     card.rawJSON,
-                    DateCoding.string(from: card.createdAt)
+                    DateCoding.string(from: card.createdAt),
+                    card.sayFirstSource,
+                    card.stageATimedOut == true ? 1 : 0,
+                    card.stageBCompleted == true ? 1 : 0,
+                    card.stageBStatus,
+                    card.latencyFirstTokenMS,
+                    card.latencyFirstVisibleMS,
+                    card.latencyFullCardMS,
+                    card.softFallbackUsed == true ? 1 : 0,
+                    card.softFallbackLatencyMS,
+                    card.deepseekFirstTokenMS,
+                    card.deepseekFirstVisibleMS,
+                    card.finalVisibleSource
                 ]
             )
 
@@ -220,6 +236,10 @@ final class SuggestionRepository {
 
     private static func makeCard(row: Row) -> SuggestionCard {
         let riskString: String? = row["risk_level"]
+        let stageATimedOutInt: Int? = row["stage_a_timed_out"]
+        let stageBCompletedInt: Int? = row["stage_b_completed"]
+        let softFallbackUsedInt: Int? = row["soft_fallback_used"]
+        
         return SuggestionCard(
             id: row["id"],
             sessionID: row["session_id"],
@@ -240,7 +260,19 @@ final class SuggestionRepository {
             latencyMS: row["latency_ms"],
             isLocal: row["is_local"],
             rawJSON: row["raw_json"],
-            createdAt: DateCoding.date(from: row["created_at"])
+            createdAt: DateCoding.date(from: row["created_at"]),
+            sayFirstSource: row["say_first_source"],
+            stageATimedOut: stageATimedOutInt == 1,
+            stageBCompleted: stageBCompletedInt == 1,
+            stageBStatus: row["stage_b_status"],
+            latencyFirstTokenMS: row["latency_first_token_ms"],
+            latencyFirstVisibleMS: row["latency_first_visible_ms"],
+            latencyFullCardMS: row["latency_full_card_ms"],
+            softFallbackUsed: softFallbackUsedInt == 1,
+            softFallbackLatencyMS: row["soft_fallback_latency_ms"],
+            deepseekFirstTokenMS: row["deepseek_first_token_ms"],
+            deepseekFirstVisibleMS: row["deepseek_first_visible_ms"],
+            finalVisibleSource: row["final_visible_source"]
         )
     }
 }

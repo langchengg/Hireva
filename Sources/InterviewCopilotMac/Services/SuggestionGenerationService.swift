@@ -96,6 +96,135 @@ final class SuggestionGenerationService {
         return (card, response)
     }
 
+    func generateFastSayFirstStream(
+        question: DetectedQuestion,
+        context: RetrievedContext,
+        cvSummary: String,
+        jdSummary: String,
+        customProviderConfig: LLMProviderConfiguration? = nil
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        let systemPrompt = """
+        You are a real-time interview helper. Based ONLY on the provided local evidence, generate a single, highly concise 'Say First' opening sentence for the candidate to start their answer with. Do not invent any facts. Speak directly as the candidate (e.g. use 'I' instead of 'The candidate'). Output only that single opening sentence. No intro, no markdown, no JSON, no conversational filler.
+        """
+        
+        let userPrompt = """
+        [Candidate CV Summary]
+        \(cvSummary)
+
+        [Job Description Summary]
+        \(jdSummary)
+
+        [Local Evidence Chunks]
+        \(context.promptText.isEmpty ? "No CV/JD context found. Guide the candidate to answer safely without fabricating." : context.promptText)
+
+        [Question]
+        \(question.questionText)
+
+        Generate the single opening sentence now:
+        """
+        
+        let config = try customProviderConfig ?? llmRouter.realtimeConfiguration()
+        return try llmRouter.chatStream(
+            configuration: config,
+            messages: [.system(systemPrompt), .user(userPrompt)],
+            responseFormat: .text,
+            options: LLMRequestOptions(temperature: 0.1, stream: true)
+        )
+    }
+
+    func generateFullCard(
+        question: DetectedQuestion,
+        context: RetrievedContext,
+        transcriptContext: String,
+        sessionID: String,
+        cvSummary: String,
+        jdSummary: String,
+        customProviderConfig: LLMProviderConfiguration? = nil,
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> (card: SuggestionCard, response: LLMChatResult) {
+        let systemPrompt = """
+        You are an AI interview copilot. Generate concise, truthful, glanceable suggestion cards grounded only in the provided CV/JD context. Do not fabricate. Return valid JSON only.
+
+        Truthfulness constraints:
+        - Do not invent projects, employers, metrics, publications, degrees, work experience, technologies, results, or claims not supported by the provided CV/JD context.
+        - If evidence is missing, say how to answer safely instead of making up an achievement.
+        - Keep the output concise enough to glance at during a live interview.
+        - Do not produce a long essay.
+
+        Answer Policy & Formatting Guidelines:
+        Your output MUST be a valid JSON object matching this schema:
+        {
+          "strategy": string,
+          "say_first": string,
+          "key_points": [string],
+          "follow_up_ready": [string],
+          "confidence": number,
+          "caution": string,
+          "evidence_used": [string],
+          "risk_level": "low" | "medium" | "high"
+        }
+        """
+        
+        let userPrompt = """
+        [Candidate CV Summary]
+        \(cvSummary)
+
+        [Job Description Summary]
+        \(jdSummary)
+
+        [Local Evidence Chunks]
+        \(context.promptText.isEmpty ? "No CV/JD context found. Guide the candidate to answer safely without fabricating." : context.promptText)
+
+        [Question]
+        \(question.questionText)
+
+        [Recent Transcript (Last 200 words)]
+        \(ContextBudgeter.limitWords(transcriptContext, maxWords: 200))
+
+        Generate the JSON suggestion card now:
+        """
+        
+        let config = try customProviderConfig ?? llmRouter.realtimeConfiguration()
+        let response = try await llmRouter.chat(
+            configuration: config,
+            messages: [.system(systemPrompt), .user(userPrompt)],
+            responseFormat: .jsonObject,
+            options: LLMRequestOptions(temperature: 0.2, stream: false, timeoutInterval: timeoutInterval)
+        )
+        
+        var payload: SuggestionCardPayload
+        do {
+            payload = try JSONParsing.decodeObject(SuggestionCardPayload.self, from: response.content)
+        } catch {
+            payload = makeFallbackPayload(from: response.content, error: error)
+        }
+        
+        let card = SuggestionCard(
+            id: UUID().uuidString,
+            sessionID: sessionID,
+            questionID: question.id,
+            strategy: payload.strategy,
+            sayFirst: payload.sayFirst,
+            keyPoints: payload.keyPoints,
+            followUpReady: payload.followUpReady,
+            confidence: max(0, min(1, payload.confidence)),
+            caution: payload.caution,
+            evidenceUsed: payload.evidenceUsed ?? [],
+            riskLevel: payload.riskLevel,
+            modelName: response.modelName,
+            promptVersion: "optimized-v1",
+            providerKind: response.providerKind,
+            providerName: response.providerName,
+            providerBaseURL: response.baseURL,
+            latencyMS: response.latencyMS,
+            isLocal: response.isLocal,
+            rawJSON: response.content,
+            createdAt: Date()
+        )
+        
+        return (card, response)
+    }
+
     private func makeFallbackPayload(from rawText: String, error: Error) -> SuggestionCardPayload {
         let cleanedText = rawText
             .replacingOccurrences(of: "```json", with: "")

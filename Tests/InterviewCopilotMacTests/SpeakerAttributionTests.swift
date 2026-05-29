@@ -301,7 +301,7 @@ struct SpeakerAttributionTests {
             systemSession.onSimulatedAppend = { _ in
                 Task { @MainActor in
                     systemSession.simulateEmit(
-                        text: "Vision-language-action robotic manipulation with ROS2 and VLM grasp reranking.",
+                        text: "Can you tell me about your robotics project?",
                         isFinal: true
                     )
                 }

@@ -39,6 +39,24 @@ struct ProviderDiagnosticsView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 10) {
+                    Label("Suggestion Provenance", systemImage: "signature")
+                        .font(.headline)
+                    row("Say First Source", appState.finalVisibleSource ?? "None")
+                    row("Soft Fallback Used", appState.softFallbackUsed ? "Yes" : "No")
+                    if let softLat = appState.softFallbackLatencyMS {
+                        row("Soft Fallback Latency", "\(softLat) ms")
+                    }
+                    if let firstTok = appState.deepseekFirstTokenMS {
+                        row("DeepSeek First Token", "\(firstTok) ms")
+                    }
+                    if let firstVis = appState.deepseekFirstVisibleMS {
+                        row("DeepSeek First Visible", "\(firstVis) ms")
+                    }
+                }
+                .padding(18)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 10) {
                     Label("Last AI Call", systemImage: "timer")
                         .font(.headline)
                     row("Provider", appState.diagnostics.lastProviderName ?? "None")
