@@ -1071,8 +1071,14 @@ struct PermissionsDiagnosticView: View {
                     GridRow {
                         Text("API Latency")
                             .font(.caption.weight(.semibold))
-                        Text("\(appState.suggestionLatencyMS) ms")
-                            .font(.caption.monospacedDigit())
+                        if let latency = appState.currentSuggestion?.latencyFullCardMS {
+                            Text("\(latency) ms")
+                                .font(.caption.monospacedDigit())
+                        } else {
+                            Text("None")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     GridRow {
                         Text("Floating Panel Updated")

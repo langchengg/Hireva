@@ -48,6 +48,37 @@ struct RAGDiagnosticsView: View {
                 .padding(30)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
+
+            // RAG Clean Index Card
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Clean Index Management")
+                    .font(.headline)
+                Text("If your CV or Job Description documents contain LaTeX formatting or raw preambles, click below to sanitize all document content and recreate RAG chunks. Cloud embeddings are rebuilt when configured; otherwise keyword RAG remains available.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                if appState.isRebuildingEmbeddings {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ProgressView(value: appState.rebuildProgress, total: 1.0)
+                        HStack {
+                            Text("Rebuilding Index: \(Int(appState.rebuildProgress * 100))% complete")
+                                .font(.caption)
+                            Spacer()
+                            Button("Cancel") {
+                                appState.cancelEmbeddingRebuild()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                } else {
+                    Button("Rebuild Clean RAG Index") {
+                        appState.rebuildCleanRAGIndex()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(18)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 

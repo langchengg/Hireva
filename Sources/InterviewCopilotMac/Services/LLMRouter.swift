@@ -13,7 +13,6 @@ final class LLMRouter {
         self.init(
             settingsRepository: settingsRepository,
             clients: [
-                .ollamaLocal: OllamaLLMClient(),
                 .deepSeek: DeepSeekLLMClient(apiKeyStore: apiKeyStore),
                 .openAICompatible: OpenAICompatibleLLMClient(apiKeyStore: apiKeyStore),
                 .openAI: OpenAILLMClient(),

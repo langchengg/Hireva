@@ -71,6 +71,12 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         lastError = nil
         stopSystemAudioCapture()
 
+        if isRunningUnderTestOrAutomation() {
+            print("[ScreenCaptureKitSystemAudioCaptureService] Skipping real capture startup (running under test/automation)")
+            self.isCapturing = true
+            return
+        }
+
         // 1. Verify screen capture permissions
         let preflight = CGPreflightScreenCaptureAccess()
         var hasAccess = preflight

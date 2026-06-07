@@ -53,22 +53,9 @@ final class SuggestionGenerationService {
 
         do {
             payload = try JSONParsing.decodeObject(SuggestionCardPayload.self, from: response.content)
-            await MainActor.run {
-                OllamaDiagnostics.shared.jsonParseSuccess = true
-                OllamaDiagnostics.shared.jsonParseFailureReason = nil
-                OllamaDiagnostics.shared.fallbackCardUsed = false
-            }
         } catch {
-            let localFailureReason = error.localizedDescription
-            
             // Build fallback payload
             payload = makeFallbackPayload(from: response.content, error: error)
-            
-            await MainActor.run {
-                OllamaDiagnostics.shared.jsonParseSuccess = false
-                OllamaDiagnostics.shared.jsonParseFailureReason = localFailureReason
-                OllamaDiagnostics.shared.fallbackCardUsed = true
-            }
         }
 
         let card = SuggestionCard(
@@ -104,7 +91,15 @@ final class SuggestionGenerationService {
         customProviderConfig: LLMProviderConfiguration? = nil
     ) async throws -> AsyncThrowingStream<String, Error> {
         let systemPrompt = """
-        You are a real-time interview helper. Based ONLY on the provided local evidence, generate a single, highly concise 'Say First' opening sentence for the candidate to start their answer with. Do not invent any facts. Speak directly as the candidate (e.g. use 'I' instead of 'The candidate'). Output only that single opening sentence. No intro, no markdown, no JSON, no conversational filler.
+        You are a real-time interview helper. Based ONLY on the provided local evidence, generate a natural first-person spoken opening response (1 to 3 concise sentences) that the candidate can say directly out loud.
+        
+        Strict Constraints:
+        - Output ONLY the first-person spoken answer.
+        - Do not include any meta-instructions (do not use "Highlight", "Emphasize", "Use", "Mention", "Focus").
+        - Speak directly as the candidate (use "I", "my", "I'm" instead of "The candidate", "Highlight...").
+        - Absolutely no markdown, no JSON, no LaTeX commands (no braces, backslashes).
+        - No mention of "CV", "JD", "RAG", "context", or "evidence".
+        - Must be natural, directly sayable, and fluid.
         """
         
         let userPrompt = """
@@ -150,6 +145,12 @@ final class SuggestionGenerationService {
         - If evidence is missing, say how to answer safely instead of making up an achievement.
         - Keep the output concise enough to glance at during a live interview.
         - Do not produce a long essay.
+
+        Strict Content & Voice Constraints:
+        - "say_first" MUST be a natural, fluid, first-person spoken answer that the candidate can say directly out loud (use "I", "my", "I'm").
+        - Absolutely NO LaTeX commands, braces, or backslashes in any field.
+        - Absolutely NO meta-instructions or instructional verbs like "Highlight...", "Emphasize...", "Use...", "Mention...", "focus on..." in say_first, key_points, follow_up_ready, or caution.
+        - Do not mention "CV", "JD", "RAG", "evidence", or "context" in visible candidate answer fields.
 
         Answer Policy & Formatting Guidelines:
         Your output MUST be a valid JSON object matching this schema:
@@ -223,6 +224,75 @@ final class SuggestionGenerationService {
         )
         
         return (card, response)
+    }
+
+    func generateFullCardSectionStream(
+        question: DetectedQuestion,
+        context: RetrievedContext,
+        transcriptContext: String,
+        sessionID: String,
+        cvSummary: String,
+        jdSummary: String,
+        customProviderConfig: LLMProviderConfiguration? = nil
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        let systemPrompt = """
+        You are an AI interview copilot. Generate concise, truthful, glanceable suggestion card sections grounded only in the provided CV/JD context. Do not fabricate.
+
+        Return plain text sections only, using this exact format:
+        STRATEGY:
+        ...
+
+        SAY_FIRST:
+        ...
+
+        KEY_POINTS:
+        - ...
+        - ...
+        - ...
+
+        FOLLOW_UP_READY:
+        - ...
+        - ...
+
+        CAUTION:
+        ...
+
+        Rules:
+        - Stream the sections in order.
+        - Keep SAY_FIRST first-person and directly speakable.
+        - Keep each key point short.
+        - Do not use JSON, markdown fences, source IDs, scores, diagnostics, or raw CV/JD formatting.
+        - Do not mention "CV", "JD", "RAG", "context", or "evidence" in visible candidate fields.
+        - If evidence is missing, say how to answer safely.
+        - Absolutely no LaTeX commands, braces, or backslashes.
+        """
+
+        let userPrompt = """
+        [Candidate Summary]
+        \(cvSummary)
+
+        [Target Role Summary]
+        \(jdSummary)
+
+        [Relevant Local Evidence]
+        \(context.promptText.isEmpty ? "No matching local chunks were found. Keep the answer safe and non-fabricated." : context.promptText)
+
+        [Question]
+        \(question.questionText)
+
+        [Recent Transcript]
+        \(RealtimePromptBudgeter.limitTranscript(transcriptContext))
+
+        Stream the section response now.
+        """
+
+        let config = try customProviderConfig ?? llmRouter.realtimeConfiguration()
+        return try llmRouter.chatStream(
+            configuration: config,
+            messages: [.system(systemPrompt), .user(userPrompt)],
+            responseFormat: .text,
+            options: LLMRequestOptions(temperature: 0.2, stream: true, timeoutInterval: 15.0)
+        )
     }
 
     private func makeFallbackPayload(from rawText: String, error: Error) -> SuggestionCardPayload {

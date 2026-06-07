@@ -52,7 +52,20 @@ cd "$ROOT_DIR"
 
 # --- Quit existing app instance (both old and new executable names) ---
 echo "[quit] Attempting graceful quit of $BUNDLE_ID ..."
-osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 &
+QUIT_SCRIPT_PID=$!
+for i in {1..8}; do
+    if ! kill -0 "$QUIT_SCRIPT_PID" >/dev/null 2>&1; then
+        wait "$QUIT_SCRIPT_PID" >/dev/null 2>&1 || true
+        break
+    fi
+    sleep 0.25
+done
+if kill -0 "$QUIT_SCRIPT_PID" >/dev/null 2>&1; then
+    echo "[quit] WARNING: AppleScript quit request timed out. Continuing with process fallback..."
+    kill "$QUIT_SCRIPT_PID" >/dev/null 2>&1 || true
+    wait "$QUIT_SCRIPT_PID" >/dev/null 2>&1 || true
+fi
 
 # Wait up to 3 seconds for the processes to exit
 for i in {1..12}; do
@@ -118,6 +131,12 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert NSAudioCaptureUsageDescription \
     -string "Interview Copilot captures system audio for real-time interviewer question detection." \
     "$INFO_PLIST"
+
+# Google Drive/Finder can leave extended attributes or AppleDouble files inside
+# the assembled bundle; codesign rejects those as resource-fork detritus.
+echo "[sign] Clearing bundle extended attributes before signing..."
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+find "$APP_BUNDLE" -name "._*" -delete 2>/dev/null || true
 
 # --- Code Signing ---
 # Try Apple Development certificate for stable signing across rebuilds.

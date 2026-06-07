@@ -78,6 +78,12 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
     var deviceID: String?
     var confidence: Double?
 
+    // ASR Latency (utterance-level, not session-level)
+    var asrFirstPartialMS: Int?
+    var asrFinalMS: Int?
+    var asrBestSelectedMS: Int?
+    var asrFinalizationReason: String?
+
     init(
         id: String,
         sessionID: String,
@@ -90,7 +96,11 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         inputDeviceName: String? = nil,
         outputDeviceName: String? = nil,
         deviceID: String? = nil,
-        confidence: Double? = nil
+        confidence: Double? = nil,
+        asrFirstPartialMS: Int? = nil,
+        asrFinalMS: Int? = nil,
+        asrBestSelectedMS: Int? = nil,
+        asrFinalizationReason: String? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -104,6 +114,10 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         self.outputDeviceName = outputDeviceName
         self.deviceID = deviceID
         self.confidence = confidence
+        self.asrFirstPartialMS = asrFirstPartialMS
+        self.asrFinalMS = asrFinalMS
+        self.asrBestSelectedMS = asrBestSelectedMS
+        self.asrFinalizationReason = asrFinalizationReason
     }
 
     static func system(_ text: String, sessionID: String = "ephemeral") -> TranscriptSegment {

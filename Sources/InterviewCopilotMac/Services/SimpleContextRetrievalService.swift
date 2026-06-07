@@ -13,7 +13,7 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
         maxCVWords: Int = 1_500,
         maxJDWords: Int = 1_000
     ) async throws -> RetrievedContext {
-        try await retrieveContextWithTrace(question: question, intent: intent, maxCVWords: maxCVWords, maxJDWords: maxJDWords).context
+        try await retrieveContextWithTrace(question: question, intent: intent, maxCVWords: maxCVWords, maxJDWords: maxJDWords, strategy: nil).context
     }
 
     func retrieveContextWithTrace(
@@ -22,6 +22,16 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
         maxCVWords: Int = 1_500,
         maxJDWords: Int = 1_000
     ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
+        try await retrieveContextWithTrace(question: question, intent: intent, maxCVWords: maxCVWords, maxJDWords: maxJDWords, strategy: nil)
+    }
+
+    func retrieveContextWithTrace(
+        question: String,
+        intent: QuestionIntent,
+        maxCVWords: Int = 1_500,
+        maxJDWords: Int = 1_000,
+        strategy: AnswerStrategy?
+    ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
         let startTime = Date()
 
         let emptyQueryFallbackUsed = question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -29,6 +39,7 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
 
         let allCVChunks = try documentRepository.chunks(type: .cv)
         let allJDChunks = try documentRepository.chunks(type: .jobDescription)
+        let allNotesChunks = try documentRepository.chunks(type: .additionalNotes)
 
         func rankAndScore(chunks: [DocumentChunk]) -> (ranked: [RetrievedChunk], zeroScoreFallback: Bool) {
             if emptyQueryFallbackUsed {
@@ -118,13 +129,15 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
 
         let (rankedCV, cvZeroFallback) = rankAndScore(chunks: allCVChunks)
         let (rankedJD, jdZeroFallback) = rankAndScore(chunks: allJDChunks)
+        let (rankedNotes, notesZeroFallback) = rankAndScore(chunks: allNotesChunks)
 
         // Trigger zeroScoreFallback if either CV or JD has chunks but they all scored 0
         let zeroScoreFallbackUsed = !emptyQueryFallbackUsed && 
-            ((!allCVChunks.isEmpty && cvZeroFallback) || (!allJDChunks.isEmpty && jdZeroFallback))
+            ((!allCVChunks.isEmpty && cvZeroFallback) || (!allJDChunks.isEmpty && jdZeroFallback) || (!allNotesChunks.isEmpty && notesZeroFallback))
 
         let candidateCV = Array(rankedCV.prefix(8))
         let candidateJD = Array(rankedJD.prefix(6))
+        let candidateNotes = Array(rankedNotes.prefix(4))
 
         func applyBudget(candidates: [RetrievedChunk], maxWords: Int) -> (included: [RetrievedChunk], excluded: [RetrievedChunk], wordsUsed: Int, updatedCandidates: [RetrievedChunk]) {
             var remaining = maxWords
@@ -179,6 +192,7 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
 
         let (includedCV, excludedCV, cvWordsUsed, updatedCV) = applyBudget(candidates: candidateCV, maxWords: maxCVWords)
         let (includedJD, excludedJD, jdWordsUsed, updatedJD) = applyBudget(candidates: candidateJD, maxWords: maxJDWords)
+        let (includedNotes, _, _, _) = applyBudget(candidates: candidateNotes, maxWords: 500)
 
         var finalRankedCV = updatedCV
         if rankedCV.count > candidateCV.count {
@@ -254,6 +268,20 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
                 )
             },
             jobDescriptionChunks: includedJD.map { chunk in
+                DocumentChunk(
+                    id: chunk.id,
+                    documentID: chunk.documentID,
+                    documentType: chunk.documentType,
+                    chunkIndex: chunk.chunkIndex,
+                    content: chunk.fullContent,
+                    keywords: chunk.keywords,
+                    sectionTitle: chunk.sectionTitle,
+                    wordCount: chunk.wordCount,
+                    metadataJSON: nil,
+                    createdAt: Date()
+                )
+            },
+            additionalNotesChunks: includedNotes.map { chunk in
                 DocumentChunk(
                     id: chunk.id,
                     documentID: chunk.documentID,

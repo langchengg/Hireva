@@ -190,7 +190,7 @@ class PermissionService {
         if isRunningUnderTestOrAutomation() {
             return .granted
         }
-        await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 let state: PermissionState
                 switch status {

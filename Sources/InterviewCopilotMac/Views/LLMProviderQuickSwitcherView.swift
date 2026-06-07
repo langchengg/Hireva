@@ -8,18 +8,12 @@ struct LLMProviderQuickSwitcherView: View {
     @State private var isShowingPopover = false
     @State private var manualModelName: String = ""
     
-    // Cloud warning local state
-    @State private var showingCloudWarning = false
-    @State private var warningTargetProvider: LLMProviderConfiguration? = nil
-    @State private var warningTargetModel: String? = nil
-    @State private var dontShowWarningCheckbox = false
-
     var body: some View {
         Button {
             isShowingPopover = true
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: appState.activeRealtimeProvider?.kind == .ollamaLocal ? "desktopcomputer" : "cloud")
+                Image(systemName: "cloud")
                     .imageScale(.small)
                 Text(isCompact ? (appState.activeRealtimeProvider?.name ?? "Realtime") : appState.activeRealtimeProviderBadge)
                     .lineLimit(1)
@@ -56,7 +50,7 @@ struct LLMProviderQuickSwitcherView: View {
     }
 
     private var tintColor: Color {
-        appState.activeRealtimeProvider?.kind == .ollamaLocal ? .green : .blue
+        .blue
     }
 
     private var popoverContent: some View {
@@ -78,11 +72,7 @@ struct LLMProviderQuickSwitcherView: View {
             
             Divider()
 
-            if showingCloudWarning {
-                cloudWarningView
-            } else {
-                mainSwitcherView
-            }
+            mainSwitcherView
         }
     }
 
@@ -139,8 +129,8 @@ struct LLMProviderQuickSwitcherView: View {
                             selectProvider(provider)
                         } label: {
                             HStack {
-                                Image(systemName: provider.kind == .ollamaLocal ? "desktopcomputer" : "cloud")
-                                    .foregroundStyle(provider.kind == .ollamaLocal ? .green : .blue)
+                                Image(systemName: "cloud")
+                                    .foregroundStyle(.blue)
                                 Text(provider.name)
                                     .font(.subheadline)
                                 Spacer()
@@ -169,42 +159,7 @@ struct LLMProviderQuickSwitcherView: View {
                         .font(.caption).bold()
                         .foregroundStyle(.secondary)
 
-                    if active.kind == .ollamaLocal {
-                        // Ollama dynamic models
-                        HStack {
-                            Text("Local Models:")
-                                .font(.caption)
-                            Spacer()
-                            Button {
-                                appState.refreshOllamaModels(for: active)
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(appState.isTestingConnection)
-                        }
-
-                        if appState.ollamaModels.isEmpty {
-                            Text("No local models found. Make sure Ollama is running.")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(appState.ollamaModels) { info in
-                                        let isCurrent = info.name == active.model
-                                        Button(info.name) {
-                                            switchModel(info.name)
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .tint(isCurrent ? .blue : .secondary)
-                                        .controlSize(.small)
-                                    }
-                                }
-                            }
-                        }
-                    } else if active.kind == .deepSeek {
+                    if active.kind == .deepSeek {
                         // Recommended DeepSeek models
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
@@ -268,65 +223,7 @@ struct LLMProviderQuickSwitcherView: View {
         }
     }
 
-    private var cloudWarningView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.title2)
-                Text("Cloud Privacy Warning")
-                    .font(.headline)
-            }
-
-            Text("You are switching from a local LLM (Ollama) to a cloud-based provider (\(warningTargetProvider?.name ?? "Cloud")).")
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("This means your live interview question transcripts, CV, and job description context will be sent to external servers. Proceed only if you have permission to do so.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Toggle("Don't show this warning again", isOn: $dontShowWarningCheckbox)
-                .font(.caption)
-                .padding(.top, 4)
-
-            HStack {
-                Button("Cancel") {
-                    showingCloudWarning = false
-                    warningTargetProvider = nil
-                    warningTargetModel = nil
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button("I Understand, Switch") {
-                    confirmCloudSwitch()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-            }
-            .padding(.top, 8)
-        }
-    }
-
     private func selectProvider(_ provider: LLMProviderConfiguration) {
-        let isCurrentLocal = appState.activeRealtimeProvider?.kind == .ollamaLocal
-        let isTargetCloud = provider.kind != .ollamaLocal
-
-        if isCurrentLocal && isTargetCloud {
-            let skipWarning = appState.settings.dontShowCloudWarningAgain || appState.cloudWarningAcceptedThisSession
-            if !skipWarning {
-                warningTargetProvider = provider
-                warningTargetModel = provider.model
-                dontShowWarningCheckbox = appState.settings.dontShowCloudWarningAgain
-                showingCloudWarning = true
-                return
-            }
-        }
-
-        // Perform normal switch
         appState.updateActiveRealtimeProvider(provider: provider, model: nil)
     }
 
@@ -342,25 +239,4 @@ struct LLMProviderQuickSwitcherView: View {
         appState.updateActiveRealtimeProvider(provider: active, model: cleaned)
     }
 
-    private func confirmCloudSwitch() {
-        guard let provider = warningTargetProvider else { return }
-        
-        // Save preferences if checked
-        if dontShowWarningCheckbox {
-            var updatedSettings = appState.settings
-            updatedSettings.dontShowCloudWarningAgain = true
-            appState.saveSettings(updatedSettings)
-        }
-        
-        // Set session approval
-        appState.cloudWarningAcceptedThisSession = true
-        
-        // Perform the switch
-        appState.updateActiveRealtimeProvider(provider: provider, model: warningTargetModel)
-        
-        // Reset warning states
-        showingCloudWarning = false
-        warningTargetProvider = nil
-        warningTargetModel = nil
-    }
 }

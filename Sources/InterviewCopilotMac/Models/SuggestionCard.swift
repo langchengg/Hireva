@@ -37,6 +37,22 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var deepseekFirstTokenMS: Int? = nil
     var deepseekFirstVisibleMS: Int? = nil
     var finalVisibleSource: String? = nil
+
+    // Pipeline Latency Metrics (v8)
+    var ragRetrievalLatencyMS: Int? = nil
+    var questionASRFirstPartialMS: Int? = nil
+    var questionASRFinalMS: Int? = nil
+    var questionASRBestSelectedMS: Int? = nil
+
+    // Full visible-content latency metrics
+    var firstVisibleAnswerMS: Int? = nil
+    var firstKeyPointVisibleMS: Int? = nil
+    var allKeyPointsVisibleMS: Int? = nil
+    var followUpVisibleMS: Int? = nil
+    var fullCardVisibleMS: Int? = nil
+    var dbPersistedMS: Int? = nil
+    var stageBStreamStartedMS: Int? = nil
+    var stageBFirstSectionMS: Int? = nil
 }
 
 struct SuggestionCardPayload: Decodable {

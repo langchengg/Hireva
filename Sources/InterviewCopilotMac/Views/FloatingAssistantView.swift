@@ -1,166 +1,102 @@
+import AppKit
 import SwiftUI
 
 struct FloatingAssistantView: View {
     @ObservedObject var appState: AppState
-    @ObservedObject var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
-    @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
-    @State private var eventMonitor: Any? = nil
-    @State private var mockQuestionText: String = ""
-    @State private var isSourcesExpanded = false
+    @State private var answerVisible = true
+    @State private var sourcesExpanded = false
+    @State private var followUpExpanded = false
 
-    private var compact: Bool {
+    private var displayMode: FloatingAssistantDisplayMode {
         if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" {
-            return false
+            return .normal
         }
-        return appState.settings.compactMode
+        return appState.settings.floatingAssistantDisplayMode
+    }
+
+    private var activeCard: SuggestionCard? {
+        appState.manualCaptureSuggestion ?? appState.currentSuggestion
     }
 
     private var effectiveOpacity: Double {
-        if appState.settings.highContrastFloatingPanel {
-            return max(appState.settings.floatingWindowOpacity, 0.65)
-        } else {
-            return appState.settings.floatingWindowOpacity
-        }
+        max(appState.settings.highContrastFloatingPanel ? 0.72 : 0.62, appState.settings.floatingWindowOpacity)
     }
 
-    private func adjustOpacity(by delta: Double) {
-        var next = appState.settings
-        let minOpacity = next.highContrastFloatingPanel ? 0.65 : 0.35
-        next.floatingWindowOpacity = min(max(next.floatingWindowOpacity + delta, minOpacity), 1.0)
-        appState.saveSettings(next)
-    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: displayMode == .compact ? 10 : 12) {
             header
-            
-            if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text("DEVELOPER WARNING: Verification Mocks Active")
-                        .font(.system(size: 10, weight: .bold))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.15))
-                .foregroundStyle(.orange)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-            
-            deviceBanner
-            
-            // Mirror segmented mode selector at the top!
-            Picker("Mode", selection: $appState.interviewCopilotMode) {
-                ForEach(InterviewCopilotMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 2)
-            
+            statusRow
+
             Divider()
 
-            switch appState.interviewCopilotMode {
-            case .autoDetect:
-                if compact {
-                    compactBody
-                } else {
-                    fullBody
-                }
-            case .manualCapture:
-                manualCaptureBody
-            case .practiceMock:
-                practiceMockBody
+            switch displayMode {
+            case .compact:
+                compactBody
+            case .normal:
+                normalBody
+            case .diagnostic:
+                diagnosticBody
             }
         }
-        .padding(14)
-        .frame(minWidth: 340, minHeight: 280, alignment: .topLeading)
+        .padding(displayMode == .compact ? 12 : 14)
+        .frame(minWidth: displayMode == .compact ? 360 : 430, minHeight: displayMode == .compact ? 220 : 320, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(appState.settings.highContrastFloatingPanel ? .regularMaterial : .ultraThinMaterial)
-                .opacity(effectiveOpacity)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(effectiveOpacity))
+            }
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.secondary.opacity(appState.settings.highContrastFloatingPanel ? 0.3 : 0.15), lineWidth: 1.5)
+                .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
-        .onAppear {
-            setupEventMonitor()
-        }
-        .onDisappear {
-            removeEventMonitor()
-        }
-    }
-
-    private func setupEventMonitor() {
-        removeEventMonitor() // Prevent duplicate monitor
-        
-        self.eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let isCmdOpt = modifierFlags == [.command, .option]
-            
-            if isCmdOpt {
-                if event.keyCode == 126 { // Up arrow
-                    adjustOpacity(by: 0.05)
-                    return nil // consume event
-                } else if event.keyCode == 125 { // Down arrow
-                    adjustOpacity(by: -0.05)
-                    return nil // consume event
-                }
-            }
-            return event
-        }
-    }
-
-    private func removeEventMonitor() {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            self.eventMonitor = nil
-        }
+        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 5)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            StatusPill(title: activeStatusTitle, systemImage: "dot.radiowaves.left.and.right", tint: activeStatusTint)
-            
-            MicLevelIndicatorView(appState: appState, isMini: true)
-            
-            LLMProviderQuickSwitcherView(appState: appState, isCompact: true)
+            Label(appState.productInterviewStatus.title, systemImage: appState.productInterviewStatus.systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(statusTint)
+
             Spacer()
-            
-            // Transparency controls
-            HStack(spacing: 2) {
-                Button {
-                    adjustOpacity(by: -0.05)
-                } label: {
-                    Image(systemName: "minus.circle")
+
+            Picker("", selection: displayModeBinding) {
+                ForEach(FloatingAssistantDisplayMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
                 }
-                .buttonStyle(.borderless)
-                .help("More Transparent (Cmd+Opt+Down)")
-                
-                Text(String(format: "%.0f%%", effectiveOpacity * 100))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                
-                Button {
-                    adjustOpacity(by: 0.05)
-                } label: {
-                    Image(systemName: "plus.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("Less Transparent (Cmd+Opt+Up)")
             }
-            .padding(.trailing, 4)
+            .pickerStyle(.segmented)
+            .frame(width: 210)
+            .labelsHidden()
 
             Button {
-                var next = appState.settings
-                next.compactMode.toggle()
-                appState.saveSettings(next)
+                answerVisible.toggle()
             } label: {
-                Image(systemName: compact ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                Image(systemName: answerVisible ? "eye" : "eye.slash")
             }
             .buttonStyle(.borderless)
-            .help(compact ? "Expand" : "Compact Mode")
+            .help(answerVisible ? "Hide Answer" : "Show Answer")
+
+            Button {
+                regenerate()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Regenerate")
+            .disabled(!appState.liveState.canAnswerNow && appState.manualCaptureState != .suggestionReady)
+
+            Button {
+                copyAnswer()
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("Copy Answer")
+            .disabled(activeCard?.sayFirst.isEmpty != false && appState.streamedSayFirst.isEmpty)
 
             Button {
                 appState.stopListening()
@@ -169,7 +105,7 @@ struct FloatingAssistantView: View {
             }
             .buttonStyle(.borderless)
             .help("Stop Listening")
-            .disabled(!appState.liveState.canStop)
+            .disabled(!appState.canStopCapture)
 
             Button {
                 appState.openMainWindow()
@@ -181,716 +117,318 @@ struct FloatingAssistantView: View {
         }
     }
 
+    private var statusRow: some View {
+        HStack(spacing: 8) {
+            StatusPill(title: appState.systemCaptureRunning ? "System Active" : "System Off", systemImage: "speaker.wave.2.fill", tint: appState.systemCaptureRunning ? .green : .secondary, isCompact: true)
+            StatusPill(title: appState.micCaptureRunning ? "Mic Active" : "Mic Off", systemImage: "mic.fill", tint: appState.micCaptureRunning ? .green : .secondary, isCompact: true)
+            StatusPill(title: appState.deepSeekConfigured ? "DeepSeek" : "AI Missing", systemImage: appState.deepSeekConfigured ? "sparkles" : "key", tint: appState.deepSeekConfigured ? .blue : .orange, isCompact: true)
+            StatusPill(title: appState.userFacingRelevantContextStatus, systemImage: "doc.text.magnifyingglass", tint: appState.hasCleanRelevantContext ? .green : .orange, isCompact: true)
+        }
+    }
+
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ollamaFallbackPanel
-            
-            if let question = appState.possibleQuestion ?? appState.lastDetectedQuestion {
-                Text(question.questionText)
-                    .font(.headline)
-                    .lineLimit(3)
-            } else {
-                Text(appState.lastTranscriptSnippet.isEmpty ? "Listening for interviewer questions." : appState.lastTranscriptSnippet)
-                    .font(.headline)
-                    .lineLimit(3)
-            }
-
-            if appState.isStreamingSayFirst {
-                if appState.streamFirstVisibleTextAt != nil {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Generating first answer...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(appState.streamedSayFirst)
-                            .font(.callout.weight(.semibold))
-                            .lineLimit(4)
-                    }
-                } else {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Generating first answer...")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else if let card = appState.currentSuggestion {
-                VStack(alignment: .leading, spacing: 4) {
-                    if appState.isExpandingSuggestionCard {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(appState.softFallbackUsed ? "Fast local answer shown; DeepSeek still generating..." : "Expanding answer...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Text(card.sayFirst)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(4)
-                }
-            } else {
-                Text(secondaryStatusText)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            questionBlock(lineLimit: 2)
+            if answerVisible {
+                sayFirstBlock(fontSize: 16, lineLimit: 5)
+                keyPointsBlock(limit: 2)
             }
         }
     }
 
-    private var fullBody: some View {
+    private var normalBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ollamaFallbackPanel
-                transcriptSnippet
-                detectedQuestion
-                suggestion
+                questionBlock(lineLimit: 4)
+
+                if answerVisible {
+                    sayFirstBlock(fontSize: 17, lineLimit: nil)
+                    keyPointsBlock(limit: 4)
+                    followUpDisclosure
+                    sourcesDisclosure(showScores: false)
+                } else {
+                    Text("Answer hidden")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var transcriptSnippet: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Current Audio", systemImage: "waveform")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(appState.lastTranscriptSnippet.isEmpty ? "Waiting for transcription..." : appState.lastTranscriptSnippet)
-                .font(.callout)
-                .lineLimit(4)
-                .foregroundStyle(appState.lastTranscriptSnippet.isEmpty ? .secondary : .primary)
+    private var diagnosticBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                diagnosticSection("Provider") {
+                    diagnosticRow("provider", activeCard?.providerName ?? appState.diagnostics.lastProviderName ?? "None")
+                    diagnosticRow("model", activeCard?.modelName ?? appState.diagnostics.lastProviderModel ?? "None")
+                    diagnosticRow("deepSeekConfigured", appState.deepSeekConfigured ? "true" : "false")
+                    diagnosticRow("lastError", appState.diagnostics.lastError ?? "None")
+                }
+
+                diagnosticSection("Latency") {
+                    diagnosticRow("latencyMS", activeCard?.latencyMS.map { "\($0)" } ?? "nil")
+                    diagnosticRow("ragRetrievalLatencyMS", appState.ragRetrievalLatencyMS.map { "\($0)" } ?? "nil")
+                    diagnosticRow("deepseekFirstVisibleMS", appState.deepseekFirstVisibleMS.map { "\($0)" } ?? "nil")
+                    diagnosticRow("softFallbackUsed", appState.softFallbackUsed ? "true" : "false")
+                }
+
+                diagnosticSection("RAG") {
+                    diagnosticRow("retrievalMode", appState.manualVerificationRAGMode)
+                    diagnosticRow("latexPollutedChunkCount", "\(appState.latexPollutedChunkCount)")
+                    diagnosticRow("retrievedChunks", "\(appState.currentSuggestionRetrievedChunks.count)")
+                }
+
+                diagnosticSection("Capture") {
+                    diagnosticRow("captureMode", appState.captureMode.rawValue)
+                    diagnosticRow("currentCaptureRuntimeState", appState.currentCaptureRuntimeState.displayName)
+                    diagnosticRow("systemCaptureRunning", appState.systemCaptureRunning ? "true" : "false")
+                    diagnosticRow("micCaptureRunning", appState.micCaptureRunning ? "true" : "false")
+                    diagnosticRow("stopReason", appState.stopReason?.rawValue ?? "None")
+                }
+
+                diagnosticSection("ASR") {
+                    diagnosticRow("recognitionRequestActive", appState.recognitionRequestActive ? "true" : "false")
+                    diagnosticRow("recognitionTaskActive", appState.recognitionTaskActive ? "true" : "false")
+                    diagnosticRow("systemASRTaskActive", appState.systemASRTaskActive ? "true" : "false")
+                    diagnosticRow("micASRTaskActive", appState.micASRTaskActive ? "true" : "false")
+                }
+
+                sourcesDisclosure(showScores: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
+    }
+
+    private func questionBlock(lineLimit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Current question")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(currentQuestionText)
+                .font(displayMode == .compact ? .callout.weight(.semibold) : .title3.weight(.semibold))
+                .lineLimit(lineLimit)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(currentQuestionText == emptyQuestionText ? .secondary : .primary)
+        }
+    }
+
+    private func sayFirstBlock(fontSize: CGFloat, lineLimit: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Text("Say First")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                if appState.isStreamingSayFirst || appState.isExpandingSuggestionCard {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(appState.isStreamingSayFirst ? "Generating first answer" : "Expanding answer")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(answerText)
+                .font(.system(size: fontSize, weight: .semibold))
+                .lineLimit(lineLimit)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(answerText == emptyAnswerText ? .secondary : .primary)
+        }
+    }
+
+    private func keyPointsBlock(limit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Key Points")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            if keyPoints.isEmpty {
+                Text("Key points will appear after the first answer.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(keyPoints.prefix(limit), id: \.self) { point in
+                    HStack(alignment: .top, spacing: 7) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.green)
+                            .padding(.top, 3)
+                        Text(point)
+                            .font(.system(size: 14))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var followUpDisclosure: some View {
+        DisclosureGroup(isExpanded: $followUpExpanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach((activeCard?.followUpReady ?? []).prefix(4), id: \.self) { item in
+                    Text(item)
+                        .font(.system(size: 13))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if activeCard?.followUpReady.isEmpty ?? true {
+                    Text("Follow-up prompts will appear with the full answer.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Label("Follow-up Ready", systemImage: "arrowshape.turn.up.right")
+                .font(.system(size: 12, weight: .semibold))
+        }
+    }
+
+    private func sourcesDisclosure(showScores: Bool) -> some View {
+        let included = appState.currentSuggestionRetrievedChunks.filter { $0.isIncludedInPrompt }
+        return DisclosureGroup(isExpanded: $sourcesExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                if included.isEmpty {
+                    Text("No sources included yet.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(included) { chunk in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(chunk.documentType.shortTitle)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(sourceTint(for: chunk.documentType).opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                                    .foregroundStyle(sourceTint(for: chunk.documentType))
+                                if let section = chunk.sectionTitle {
+                                    Text(section)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                if showScores {
+                                    Text("rank \(chunk.rank), score \(String(format: "%.2f", chunk.score))")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Text(chunk.contentPreview + (chunk.fullContent.count > chunk.contentPreview.count ? "..." : ""))
+                                .font(.system(size: 12))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(8)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Label("Sources (\(included.count))", systemImage: "doc.text.magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+        }
+    }
+
+    private func diagnosticSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(10)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    @ViewBuilder
-    private var detectedQuestion: some View {
-        if let possible = appState.possibleQuestion {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Possible question detected", systemImage: "questionmark.bubble")
-                    .font(.headline)
-                Text(possible.questionText)
-                    .font(.callout)
-                    .lineLimit(5)
-                Text("Confidence \(Int(possible.confidence * 100))%. Use Answer Now in the main window if this should be answered.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
-            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-        } else if let question = appState.lastDetectedQuestion {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Detected Question", systemImage: "checkmark.bubble")
-                    .font(.headline)
-                Text(question.questionText)
-                    .font(.callout)
-                    .lineLimit(5)
-                Text("\(question.intent.displayName) • \(Int(question.confidence * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    @ViewBuilder
-    private var suggestion: some View {
-        if appState.isStreamingSayFirst {
-            VStack(alignment: .leading, spacing: 12) {
-                if appState.streamFirstVisibleTextAt != nil {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Generating first answer...")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    Text(appState.streamedSayFirst)
-                        .font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Generating first answer...")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(14)
-            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        } else if let card = appState.currentSuggestion {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(card.strategy)
-                        .font(.title3.weight(.bold))
-                    Spacer()
-                    if appState.isExpandingSuggestionCard {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(appState.softFallbackUsed ? "Fast local answer shown; DeepSeek still generating..." : "Expanding answer...")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if let confidence = card.confidence {
-                        StatusPill(title: "\(Int(confidence * 100))%", systemImage: "gauge.medium", tint: confidence >= 0.75 ? .green : .orange)
-                    }
-                }
-
-                Text(card.sayFirst)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                bulletSection("Key Points", items: card.keyPoints)
-
-                let included = appState.currentSuggestionRetrievedChunks.filter { $0.isIncludedInPrompt }
-                if !included.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        DisclosureGroup(isExpanded: $isSourcesExpanded) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(included) { chunk in
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack {
-                                            Text(chunk.documentType == .cv ? "CV" : "JD")
-                                                .font(.system(size: 9, weight: .bold))
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(chunk.documentType == .cv ? Color.blue.opacity(0.15) : Color.purple.opacity(0.15))
-                                                .foregroundStyle(chunk.documentType == .cv ? Color.blue : Color.purple)
-                                                .clipShape(RoundedRectangle(cornerRadius: 3))
-
-                                            Text("Rank #\(chunk.rank)")
-                                                .font(.system(size: 9))
-                                                .foregroundStyle(.secondary)
-                                            
-                                            if let section = chunk.sectionTitle {
-                                                Text(section)
-                                                    .font(.system(size: 9))
-                                                    .foregroundStyle(.purple)
-                                                    .lineLimit(1)
-                                            }
-                                            
-                                            Spacer()
-                                            
-                                            Text("Score: \(String(format: "%.1f", chunk.score))")
-                                                .font(.system(size: 9))
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Text(chunk.contentPreview + (chunk.fullContent.count > chunk.contentPreview.count ? "..." : ""))
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.primary)
-                                            .multilineTextAlignment(.leading)
-                                    }
-                                    .padding(6)
-                                    .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
-                                }
-                            }
-                            .padding(.top, 4)
-                        } label: {
-                            Label("Sources (\(included.count))", systemImage: "doc.text.magnifyingglass")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.primary)
-                        }
-                    }
-                }
-
-                bulletSection("Follow-up Ready", items: card.followUpReady)
-
-                HStack(spacing: 8) {
-                    if let latency = card.latencyMS {
-                        StatusPill(title: "\(latency) ms", systemImage: "timer", tint: .secondary)
-                    }
-                    StatusPill(
-                        title: card.isLocal ? "Local" : "Cloud",
-                        systemImage: card.isLocal ? "desktopcomputer" : "cloud",
-                        tint: card.isLocal ? .green : .blue
-                    )
-                }
-
-                if let caution = card.caution, !caution.isEmpty {
-                    Text(caution)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(14)
-            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("No suggestion yet", systemImage: "sparkles")
-                    .font(.headline)
-                Text(secondaryStatusText)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(14)
-            .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    private var secondaryStatusText: String {
-        let mode = appState.settings.audioCaptureMode
-        if mode == .microphoneOnly && AudioDeviceManager.shared.isUsingHeadphonesOrBluetooth {
-            return "Headset mode warning: microphone captures you; interviewer audio requires System Audio capture mode."
-        }
-        switch appState.liveState {
-        case .requestingPermission:
-            return "Requesting microphone and speech recognition permissions."
-        case .permissionDenied:
-            return "Permission is blocked. Open the main window for recovery controls."
-        case .detectingQuestion:
-            if appState.activeRealtimeProvider?.kind == .ollamaLocal {
-                return "Ollama is thinking (detecting question)..."
-            }
-            return "Checking whether the interviewer asked a complete question."
-        case .generatingSuggestion:
-            if appState.activeRealtimeProvider?.kind == .ollamaLocal {
-                return "Ollama is thinking (generating suggestion)..."
-            }
-            return "Generating a concise suggestion card."
-        case .listening, .transcribing:
-            return "Automatic question detection is running."
-        case .stopped:
-            return "Listening has stopped."
-        case .error(let message):
-            return message
-        default:
-            return "Click Start Listening in the main window."
-        }
-    }
-
-    private var stateTint: Color {
-        switch appState.liveState {
-        case .permissionDenied, .error:
-            return .red
-        case .generatingSuggestion, .detectingQuestion, .transcribing:
-            return .blue
-        case .listening:
-            return .green
-        default:
-            return .secondary
-        }
-    }
-
-    private var activeStatusTitle: String {
-        if appState.isRecoveringAudioRoute {
-            return "Reconnecting audio"
-        }
-        if appState.noAudioWarningVisible {
-            if appState.audioRouteError?.contains("No microphone signal") == true {
-                return "No input signal"
-            }
-            if appState.audioRouteError == "Audio input restored." {
-                return "Restored"
-            }
-            return "Audio issue"
-        }
-        switch appState.liveState {
-        case .listening, .transcribing:
-            return "Listening"
-        case .requestingPermission:
-            return "Requesting access"
-        case .permissionDenied:
-            return "Permission blocked"
-        case .detectingQuestion:
-            return "Detecting..."
-        case .generatingSuggestion:
-            return "Generating..."
-        case .stopped:
-            return "Stopped"
-        case .error:
-            return "Error"
-        default:
-            return "Idle"
-        }
-    }
-
-    private var activeStatusTint: Color {
-        if appState.isRecoveringAudioRoute {
-            return .orange
-        }
-        if appState.noAudioWarningVisible {
-            if appState.audioRouteError == "Audio input restored." {
-                return .green
-            }
-            return .red
-        }
-        switch appState.liveState {
-        case .listening, .transcribing:
-            return .green
-        case .permissionDenied, .error:
-            return .red
-        case .generatingSuggestion, .detectingQuestion:
-            return .blue
-        default:
-            return .secondary
-        }
-    }
-
-    private func bulletSection(_ title: String, items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
+    private func diagnosticRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
-            ForEach(items.prefix(4), id: \.self) { item in
-                HStack(alignment: .top, spacing: 7) {
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.green)
-                        .padding(.top, 2)
-                    Text(item)
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+                .frame(width: 180, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+            Spacer()
         }
     }
 
-    private var deviceBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Selected Mode and Status Dots
-            HStack {
-                Text("Mode: \(appState.settings.audioCaptureMode.displayName)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.primary)
-                
-                Spacer()
-                
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(appState.settings.audioCaptureMode == .systemAudioOnly ? Color.secondary : (AudioEngineManager.shared.isEngineRunning ? Color.green : Color.red))
-                            .frame(width: 5, height: 5)
-                        Text(appState.settings.audioCaptureMode == .systemAudioOnly ? "Mic: Off" : "Mic: Active")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(systemAudio.isCapturing ? Color.green : Color.red)
-                            .frame(width: 5, height: 5)
-                        Text("System: \(systemAudio.isCapturing ? "Active" : "Off")")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+    private var displayModeBinding: Binding<FloatingAssistantDisplayMode> {
+        Binding(
+            get: { displayMode },
+            set: { mode in
+                var next = appState.settings
+                next.floatingAssistantDisplayMode = mode
+                appState.saveSettings(next)
             }
-            
-            // Render level meters directly in deviceBanner
-            MicLevelIndicatorView(appState: appState, isMini: false)
-                .padding(.vertical, 2)
-            
-            // Separate Input and Output Devices Display
-            VStack(alignment: .leading, spacing: 4) {
-                if appState.settings.audioCaptureMode != .systemAudioOnly {
-                    HStack(spacing: 4) {
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                        Text("Input: \(audioDeviceManager.currentInputDeviceName)")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                } else {
-                    HStack(spacing: 4) {
-                        Image(systemName: "mic.slash.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.red)
-                        Text("Input Mic: Off")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                
-                HStack(spacing: 4) {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                    Text("Output: \(audioDeviceManager.currentOutputDeviceName)")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+        )
+    }
+
+    private var currentQuestionText: String {
+        if let possible = appState.possibleQuestion {
+            return possible.questionText
+        }
+        if let detected = appState.lastDetectedQuestion {
+            return detected.questionText
+        }
+        if !appState.lastTranscriptSnippet.isEmpty {
+            return appState.lastTranscriptSnippet
+        }
+        return emptyQuestionText
+    }
+
+    private var answerText: String {
+        if appState.isStreamingSayFirst, !appState.streamedSayFirst.isEmpty {
+            return appState.streamedSayFirst
+        }
+        if let card = activeCard, !card.sayFirst.isEmpty {
+            return card.sayFirst
+        }
+        if appState.isStreamingSayFirst {
+            return "Generating first answer..."
+        }
+        return emptyAnswerText
+    }
+
+    private var keyPoints: [String] {
+        activeCard?.keyPoints ?? []
+    }
+
+    private var emptyQuestionText: String {
+        "Start listening or capture a question."
+    }
+
+    private var emptyAnswerText: String {
+        "No answer yet. Start listening or generate an answer from the current question."
+    }
+
+    private var statusTint: Color {
+        switch appState.productInterviewStatus {
+        case .ready: return .green
+        case .listening, .questionDetected, .generatingFirstAnswer, .expandingAnswer: return .blue
+        case .needsAttention: return .orange
+        case .stopped: return .secondary
         }
     }
 
-    @ViewBuilder
-    private var ollamaFallbackPanel: some View {
-        if appState.activeRealtimeProvider?.kind == .ollamaLocal, let lastFailed = appState.lastFailedTaskType {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Ollama Failure", systemImage: "exclamationmark.triangle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.red)
-                
-                if let errorMsg = appState.errorMessage {
-                    Text(errorMsg)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                }
-                
-                HStack(spacing: 8) {
-                    Button {
-                        appState.retryLastFailedAITask()
-                    } label: {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    
-                    if appState.providerConfigurations.contains(where: { $0.kind == .deepSeek }) {
-                        Button {
-                            appState.switchToDeepSeekFallback()
-                        } label: {
-                            Label("Use DeepSeek", systemImage: "cloud.fill")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    
-                    Button {
-                        appState.selectedSection = .settings
-                        appState.openMainWindow()
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Open Settings")
-                }
-            }
-            .padding(12)
-            .background(Color.red.opacity(0.08))
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.red.opacity(0.2), lineWidth: 1)
-            )
+    private func sourceTint(for type: DocumentType) -> Color {
+        switch type {
+        case .cv: return .blue
+        case .jobDescription: return .purple
+        case .additionalNotes: return .teal
         }
     }
-    
-    // MARK: - Conditional Views
-    
-    private var manualCaptureBody: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                // Recording status indicator
-                HStack {
-                    Label(appState.manualCaptureState.displayName, 
-                          systemImage: appState.manualCaptureState == .recording ? "record.circle.fill" : "hand.tap.fill")
-                        .font(.headline)
-                        .foregroundStyle(appState.manualCaptureState == .recording ? .red : .purple)
-                    
-                    Spacer()
-                    
-                    Text(formatDuration(appState.manualCaptureDuration))
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(8)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                
-                // Volume Meter (recording only)
-                if appState.manualCaptureState == .recording {
-                    ProgressView(value: appState.manualCaptureLevel)
-                        .progressViewStyle(.linear)
-                }
-                
-                // Big Recording Buttons
-                HStack(spacing: 8) {
-                    if appState.manualCaptureState == .idle || 
-                       appState.manualCaptureState == .transcriptReady || 
-                       appState.manualCaptureState == .suggestionReady ||
-                       caseError(appState.manualCaptureState) {
-                        Button {
-                            appState.startManualCapture()
-                        } label: {
-                            Label("Record", systemImage: "record.circle")
-                                .padding(.horizontal, 4)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                    }
-                    
-                    if appState.manualCaptureState == .recording {
-                        Button {
-                            appState.stopAndTranscribeManualCapture()
-                        } label: {
-                            Label("Stop", systemImage: "stop.circle.fill")
-                                .padding(.horizontal, 4)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
-                    }
-                    
-                    if appState.manualCaptureState == .recording || 
-                       appState.manualCaptureState == .transcribing || 
-                       appState.manualCaptureState == .generatingSuggestion {
-                        Button {
-                            appState.cancelManualCapture()
-                        } label: {
-                            Label("Cancel", systemImage: "xmark")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    
-                    if appState.manualCaptureState == .transcriptReady {
-                        Button {
-                            appState.sendManualCaptureToAI()
-                        } label: {
-                            Label("Ask AI", systemImage: "paperplane.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
-                    }
-                    
-                    if appState.manualCaptureState == .suggestionReady {
-                        Button {
-                            appState.retryManualCapture()
-                        } label: {
-                            Label("Retry", systemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-                
-                // Live/Partial or final transcript collapsible section
-                if !appState.manualCaptureTranscript.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Transcript Preview")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        
-                        TextEditor(text: $appState.manualCaptureTranscript)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(minHeight: 60, maxHeight: 100)
-                            .cornerRadius(4)
-                            .disabled(appState.manualCaptureState == .generatingSuggestion)
-                        
-                        if appState.manualCaptureState == .transcriptReady || appState.manualCaptureState == .suggestionReady {
-                            HStack {
-                                Button("Regenerate") {
-                                    appState.regenerateManualSuggestion()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                        }
-                    }
-                    .padding(8)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                }
-                
-                // Result card
-                if let card = appState.manualCaptureSuggestion {
-                    suggestionCardPanel(card)
-                } else if appState.manualCaptureState == .generatingSuggestion {
-                    VStack(spacing: 12) {
-                        ProgressView().controlSize(.small)
-                        Text(appState.activeRealtimeProvider?.kind == .ollamaLocal ? "Ollama is thinking..." : "Generating answer...")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(20)
-                }
-            }
+
+    private func regenerate() {
+        if appState.manualCaptureState == .suggestionReady {
+            appState.regenerateManualSuggestion()
+        } else {
+            appState.manualAnswerNow()
         }
     }
-    
-    private var practiceMockBody: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Practice Questions")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                
-                TextField("Type test question and hit enter", text: $mockQuestionText, onCommit: {
-                    guard !mockQuestionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                    appState.submitMockQuestion(mockQuestionText)
-                    mockQuestionText = ""
-                })
-                .textFieldStyle(.roundedBorder)
-                
-                if let card = appState.currentSuggestion {
-                    suggestionCardPanel(card)
-                } else {
-                    Text("Type a question and press enter above to test the full pipeline in practice mode.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-    
-    private func suggestionCardPanel(_ card: SuggestionCard) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(card.strategy)
-                    .font(.title3.weight(.bold))
-                Spacer()
-                if let confidence = card.confidence {
-                    StatusPill(title: "\(Int(confidence * 100))%", systemImage: "gauge.medium", tint: confidence >= 0.75 ? .green : .orange)
-                }
-            }
 
-            Text(card.sayFirst)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
-
-            bulletSection("Key Points", items: card.keyPoints)
-            bulletSection("Follow-up Ready", items: card.followUpReady)
-
-            HStack(spacing: 8) {
-                if let latency = card.latencyMS {
-                    StatusPill(title: "\(latency) ms", systemImage: "timer", tint: .secondary)
-                }
-                StatusPill(
-                    title: card.isLocal ? "Local" : "Cloud",
-                    systemImage: card.isLocal ? "desktopcomputer" : "cloud",
-                    tint: card.isLocal ? .green : .blue
-                )
-            }
-
-            if let caution = card.caution, !caution.isEmpty {
-                Text(caution)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .background(appState.settings.highContrastFloatingPanel ? Color(NSColor.windowBackgroundColor) : Color.clear)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-    
-    private func formatDuration(_ duration: Double) -> String {
-        let mins = Int(duration) / 60
-        let secs = Int(duration) % 60
-        return String(format: "%02d:%02d", mins, secs)
-    }
-    
-    private func caseError(_ state: ManualCaptureState) -> Bool {
-        if case .error = state { return true }
-        return false
+    private func copyAnswer() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(answerText, forType: .string)
     }
 }

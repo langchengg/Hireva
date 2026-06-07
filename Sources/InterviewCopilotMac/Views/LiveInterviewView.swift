@@ -57,7 +57,7 @@ struct LiveInterviewView: View {
             PrimaryButton(
                 title: isCompact ? "Start" : "Start Listening",
                 systemImage: "mic.fill",
-                isDisabled: !appState.liveState.canStartListening || appState.liveBlockedReason != nil
+                isDisabled: appState.anyCaptureRunning || !appState.liveState.canStartListening || appState.liveBlockedReason != nil
             ) {
                 appState.startListening(mode: .microphone)
             }
@@ -69,7 +69,7 @@ struct LiveInterviewView: View {
             }
             .pickerStyle(.menu)
             .frame(width: 140)
-            .disabled(!appState.liveState.canStartListening)
+            .disabled(appState.anyCaptureRunning || !appState.liveState.canStartListening)
             .help("Choose what audio streams to capture: \n• Mic: Microphone Only\n• System: System Audio Only\n• Mic + System: Microphone + System Audio")
 
             Button {
@@ -80,7 +80,7 @@ struct LiveInterviewView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .disabled(!appState.liveState.canStop)
+            .disabled(!appState.canStopCapture)
         }
     }
 
@@ -141,7 +141,7 @@ struct LiveInterviewView: View {
     private var utilityButtons: some View {
         HStack(spacing: 8) {
             Button {
-                appState.selectSection(.permissions)
+                appState.selectSection(.diagnostics)
             } label: {
                 Image(systemName: "waveform.path.ecg")
             }

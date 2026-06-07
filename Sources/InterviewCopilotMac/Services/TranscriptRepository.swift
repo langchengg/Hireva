@@ -14,9 +14,10 @@ final class TranscriptRepository {
                 sql: """
                 INSERT OR REPLACE INTO transcript_segments (
                     id, session_id, speaker, text, start_time, end_time, created_at,
-                    source, input_device_name, output_device_name, device_id, confidence
+                    source, input_device_name, output_device_name, device_id, confidence,
+                    asr_first_partial_ms, asr_final_ms, asr_best_selected_ms, asr_finalization_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     segment.id,
@@ -30,7 +31,11 @@ final class TranscriptRepository {
                     segment.inputDeviceName,
                     segment.outputDeviceName,
                     segment.deviceID,
-                    segment.confidence
+                    segment.confidence,
+                    segment.asrFirstPartialMS,
+                    segment.asrFinalMS,
+                    segment.asrBestSelectedMS,
+                    segment.asrFinalizationReason
                 ]
             )
         }
@@ -54,6 +59,17 @@ final class TranscriptRepository {
                 arguments: [sessionID, limit]
             )
             return rows.map(Self.makeSegment).reversed()
+        }
+    }
+
+    func segmentByID(_ id: String) throws -> TranscriptSegment? {
+        try database.dbQueue.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM transcript_segments WHERE id = ?",
+                arguments: [id]
+            )
+            return row.map(Self.makeSegment)
         }
     }
 
@@ -83,7 +99,12 @@ final class TranscriptRepository {
             inputDeviceName: row["input_device_name"],
             outputDeviceName: row["output_device_name"],
             deviceID: row["device_id"],
-            confidence: confidence ?? 1.0
+            confidence: confidence ?? 1.0,
+            asrFirstPartialMS: row["asr_first_partial_ms"],
+            asrFinalMS: row["asr_final_ms"],
+            asrBestSelectedMS: row["asr_best_selected_ms"],
+            asrFinalizationReason: row["asr_finalization_reason"]
         )
     }
 }
+

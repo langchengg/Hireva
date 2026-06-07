@@ -1,0 +1,617 @@
+{
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Package.swift": {
+    "mtime": 1779817010.0413096,
+    "ast_hash": "a266279aa942062bca87b151dbfdf22a",
+    "semantic_hash": "a266279aa942062bca87b151dbfdf22a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RAGPhase3VerificationTests.swift": {
+    "mtime": 1779953621.7500854,
+    "ast_hash": "9957d9acf734e564d9d1dc44656190c9",
+    "semantic_hash": "9957d9acf734e564d9d1dc44656190c9"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/HybridRetrievalTests.swift": {
+    "mtime": 1779951098.0033948,
+    "ast_hash": "bb55cf7bab3aa9b7adadc5be550293c8",
+    "semantic_hash": "bb55cf7bab3aa9b7adadc5be550293c8"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/DeepSeekRequestTests.swift": {
+    "mtime": 1779951280.7908738,
+    "ast_hash": "94703682c2f644d884fc801eb5c921bc",
+    "semantic_hash": "94703682c2f644d884fc801eb5c921bc"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/LatencyMetricsTests.swift": {
+    "mtime": 1780136782.767485,
+    "ast_hash": "09b715b007f12375981c29c30e2be05f",
+    "semantic_hash": "09b715b007f12375981c29c30e2be05f"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TestSuite7Tests.swift": {
+    "mtime": 1779951268.3723419,
+    "ast_hash": "65170e2781a1df59b3c45a3b1ec22100",
+    "semantic_hash": "65170e2781a1df59b3c45a3b1ec22100"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/StreamingSuggestionTests.swift": {
+    "mtime": 1780139295.837251,
+    "ast_hash": "871d7d54f7dbf9aa58fc8bc8a988884f",
+    "semantic_hash": "871d7d54f7dbf9aa58fc8bc8a988884f"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TextChunkerTests.swift": {
+    "mtime": 1779912588.841295,
+    "ast_hash": "b3ff1347118ad865eed03f3c3d68c38a",
+    "semantic_hash": "b3ff1347118ad865eed03f3c3d68c38a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TestSuite2Tests.swift": {
+    "mtime": 1779890260.0866847,
+    "ast_hash": "2125b26177f9c8c9a432ae0e6fb80261",
+    "semantic_hash": "2125b26177f9c8c9a432ae0e6fb80261"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/LiveInterviewStateTests.swift": {
+    "mtime": 1779824752.3497696,
+    "ast_hash": "8a8f3eba932b683b0dca653bdd0b6bdf",
+    "semantic_hash": "8a8f3eba932b683b0dca653bdd0b6bdf"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RAGAttributionTests.swift": {
+    "mtime": 1779912582.885856,
+    "ast_hash": "f487eee5aa4c6500ddf7798805edd3c8",
+    "semantic_hash": "f487eee5aa4c6500ddf7798805edd3c8"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TestSuite1Tests.swift": {
+    "mtime": 1779951114.2727246,
+    "ast_hash": "6582f73a9a4d9d326074259a494ced4a",
+    "semantic_hash": "6582f73a9a4d9d326074259a494ced4a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/ManualCaptureTests.swift": {
+    "mtime": 1779891412.8450043,
+    "ast_hash": "a74e6efdd9f53c5c1c716fc95d93bf8a",
+    "semantic_hash": "a74e6efdd9f53c5c1c716fc95d93bf8a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/AppStateVerificationMocksTests.swift": {
+    "mtime": 1779916182.6625123,
+    "ast_hash": "52f28616ef5b5dfedfe78f5e4435cc41",
+    "semantic_hash": "52f28616ef5b5dfedfe78f5e4435cc41"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/LLMProviderTests.swift": {
+    "mtime": 1780139229.4820035,
+    "ast_hash": "fc3cd953e750c7b2a883a8a0964fb52f",
+    "semantic_hash": "fc3cd953e750c7b2a883a8a0964fb52f"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/DualAudioTranscriptionTests.swift": {
+    "mtime": 1779970781.9544716,
+    "ast_hash": "aa2245e27395655b1b6f1af62d57b85f",
+    "semantic_hash": "aa2245e27395655b1b6f1af62d57b85f"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/ContextRetrievalTests.swift": {
+    "mtime": 1779951057.8421857,
+    "ast_hash": "adc1d4ee52a59771a5e72d3179ecf9f0",
+    "semantic_hash": "adc1d4ee52a59771a5e72d3179ecf9f0"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/JSONParsingTests.swift": {
+    "mtime": 1779874153.1957235,
+    "ast_hash": "f171e443bca20122af7c83f0ff0021e9",
+    "semantic_hash": "f171e443bca20122af7c83f0ff0021e9"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/SpeakerAttributionTests.swift": {
+    "mtime": 1780085577.949354,
+    "ast_hash": "9279feb2a41155f6d7ea20b084029fbe",
+    "semantic_hash": "9279feb2a41155f6d7ea20b084029fbe"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TranscriptionPipelineTests.swift": {
+    "mtime": 1779830376.7057106,
+    "ast_hash": "806adcd888e9137b9a2bb7022a8414a1",
+    "semantic_hash": "806adcd888e9137b9a2bb7022a8414a1"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/PermissionProbeTests.swift": {
+    "mtime": 1779874822.2392032,
+    "ast_hash": "c82c94cad247b8f6d537b501e536da6b",
+    "semantic_hash": "c82c94cad247b8f6d537b501e536da6b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RepositoryTests.swift": {
+    "mtime": 1779829775.2893748,
+    "ast_hash": "853ba9b69cbf4935fcc9caf7c7c7c615",
+    "semantic_hash": "853ba9b69cbf4935fcc9caf7c7c7c615"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/OutputQualityTests.swift": {
+    "mtime": 1780138822.0244174,
+    "ast_hash": "5b3c90b28b24375fe2f2294b5b489dee",
+    "semantic_hash": "5b3c90b28b24375fe2f2294b5b489dee"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RAGRuntimeVerificationTests.swift": {
+    "mtime": 1779951132.7272015,
+    "ast_hash": "de8798716220623f97447a21118857e2",
+    "semantic_hash": "de8798716220623f97447a21118857e2"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/CaptureRuntimeStateTests.swift": {
+    "mtime": 1780139945.892289,
+    "ast_hash": "0aa911e6207207e2e9256b0739471a1d",
+    "semantic_hash": "0aa911e6207207e2e9256b0739471a1d"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/script/build_and_run.sh": {
+    "mtime": 1779889093.9345427,
+    "ast_hash": "f553759ea9b8fbd926fab41760804fd1",
+    "semantic_hash": "f553759ea9b8fbd926fab41760804fd1"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMacRunner/main.swift": {
+    "mtime": 1779817010.0419114,
+    "ast_hash": "3a46ace72551c2bc4c3ee643723d9dd2",
+    "semantic_hash": "3a46ace72551c2bc4c3ee643723d9dd2"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/AppState.swift": {
+    "mtime": 1780139894.9469883,
+    "ast_hash": "905b68572f26edf02ac567f321afed46",
+    "semantic_hash": "905b68572f26edf02ac567f321afed46"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/InterviewCopilotMacApp.swift": {
+    "mtime": 1779913853.1413877,
+    "ast_hash": "3146c19f75eaec45cf58ccd15cb46364",
+    "semantic_hash": "3146c19f75eaec45cf58ccd15cb46364"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/ManualCaptureState.swift": {
+    "mtime": 1779890852.3817143,
+    "ast_hash": "071841b168fbf30fd4b4f5e96fc9cdba",
+    "semantic_hash": "071841b168fbf30fd4b4f5e96fc9cdba"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/DiagnosticsState.swift": {
+    "mtime": 1779912467.8040102,
+    "ast_hash": "5d834681d7f7e5b6909fb3ef0603dd8d",
+    "semantic_hash": "5d834681d7f7e5b6909fb3ef0603dd8d"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/RetrievalTrace.swift": {
+    "mtime": 1779916556.8221953,
+    "ast_hash": "2513b1dbd0a2eed0d1afd90ccff2f3b6",
+    "semantic_hash": "2513b1dbd0a2eed0d1afd90ccff2f3b6"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/AppSettings.swift": {
+    "mtime": 1779916563.4115858,
+    "ast_hash": "12b306db7b43cf310c728f76bc9b7b13",
+    "semantic_hash": "12b306db7b43cf310c728f76bc9b7b13"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/RetrievedContext.swift": {
+    "mtime": 1779816493.9232867,
+    "ast_hash": "ebe3df1b294a524967d4f6dc263a25ca",
+    "semantic_hash": "ebe3df1b294a524967d4f6dc263a25ca"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/JobDescription.swift": {
+    "mtime": 1779816493.9210925,
+    "ast_hash": "1d2efb10154d1557306e478bd34a5e7a",
+    "semantic_hash": "1d2efb10154d1557306e478bd34a5e7a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/LatencyBudget.swift": {
+    "mtime": 1780136183.1598032,
+    "ast_hash": "18e0044d8c3895275086d61352b48674",
+    "semantic_hash": "18e0044d8c3895275086d61352b48674"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/UserProfile.swift": {
+    "mtime": 1779816493.920797,
+    "ast_hash": "ff41ca464ab1303cd09ccf63cec4d024",
+    "semantic_hash": "ff41ca464ab1303cd09ccf63cec4d024"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/DetectedQuestion.swift": {
+    "mtime": 1779819222.8993003,
+    "ast_hash": "5c37a64269af2e3106a98460d4e85d92",
+    "semantic_hash": "5c37a64269af2e3106a98460d4e85d92"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/LiveInterviewState.swift": {
+    "mtime": 1779824775.6933455,
+    "ast_hash": "5aca5081b4f75ef968516b3d3b14f613",
+    "semantic_hash": "5aca5081b4f75ef968516b3d3b14f613"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/RecapReport.swift": {
+    "mtime": 1779819222.9001048,
+    "ast_hash": "45635252d4f30e62035ad080f04f76b8",
+    "semantic_hash": "45635252d4f30e62035ad080f04f76b8"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/InterviewSession.swift": {
+    "mtime": 1779816493.922596,
+    "ast_hash": "fc6c8162d93e1a9b955ea4fd1e5ff772",
+    "semantic_hash": "fc6c8162d93e1a9b955ea4fd1e5ff772"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/SuggestionCard.swift": {
+    "mtime": 1780136193.5149746,
+    "ast_hash": "583e461c79ee52c03e17aef7803c9b28",
+    "semantic_hash": "583e461c79ee52c03e17aef7803c9b28"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/CaptureRuntimeState.swift": {
+    "mtime": 1780139406.878889,
+    "ast_hash": "748a5c709d5bb0eee88ce0a974f6ebe6",
+    "semantic_hash": "748a5c709d5bb0eee88ce0a974f6ebe6"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/DocumentRecord.swift": {
+    "mtime": 1780138448.1714694,
+    "ast_hash": "da888ab56c1e71f6ab99f63293f82a35",
+    "semantic_hash": "da888ab56c1e71f6ab99f63293f82a35"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/TranscriptSegment.swift": {
+    "mtime": 1780136183.8702734,
+    "ast_hash": "c55d2988666ed1ab78092a2b451eb12a",
+    "semantic_hash": "c55d2988666ed1ab78092a2b451eb12a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/ContextBudgeter.swift": {
+    "mtime": 1779816671.742369,
+    "ast_hash": "15655487332768af63c74961f5e20ac7",
+    "semantic_hash": "15655487332768af63c74961f5e20ac7"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/DocumentTextSanitizer.swift": {
+    "mtime": 1780138441.5251467,
+    "ast_hash": "4218620fd9ea7c0bd4f976f327607c29",
+    "semantic_hash": "4218620fd9ea7c0bd4f976f327607c29"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/AppPaths.swift": {
+    "mtime": 1779816596.341092,
+    "ast_hash": "5444c2f0d55398a9285a8c3c3985d117",
+    "semantic_hash": "5444c2f0d55398a9285a8c3c3985d117"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/DateCoding.swift": {
+    "mtime": 1779816596.3413062,
+    "ast_hash": "1a3a24dd8d5d1b904bba9cb0cf9eb510",
+    "semantic_hash": "1a3a24dd8d5d1b904bba9cb0cf9eb510"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/Logger.swift": {
+    "mtime": 1779889082.4577155,
+    "ast_hash": "43b39003698b4e53cf19473705ceb110",
+    "semantic_hash": "43b39003698b4e53cf19473705ceb110"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/TestEnvironment.swift": {
+    "mtime": 1780087512.521308,
+    "ast_hash": "7c34bbfbf6c1a85534bbacd73b9128ed",
+    "semantic_hash": "7c34bbfbf6c1a85534bbacd73b9128ed"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/JSONParsing.swift": {
+    "mtime": 1779816671.7418785,
+    "ast_hash": "28143a24cec93442d7c1eda1fe4cf743",
+    "semantic_hash": "28143a24cec93442d7c1eda1fe4cf743"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/SSEParser.swift": {
+    "mtime": 1780085107.4932685,
+    "ast_hash": "4f2d7589312a3eed4d37b27f75532527",
+    "semantic_hash": "4f2d7589312a3eed4d37b27f75532527"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/AnswerQualityValidator.swift": {
+    "mtime": 1780138840.0758812,
+    "ast_hash": "77a6f40c36a3fb34ef5a915c18ad8d89",
+    "semantic_hash": "77a6f40c36a3fb34ef5a915c18ad8d89"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/TextChunker.swift": {
+    "mtime": 1779912630.761287,
+    "ast_hash": "14f968f3b156a86ae2cd22266482bada",
+    "semantic_hash": "14f968f3b156a86ae2cd22266482bada"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/LLMProviderQuickSwitcherView.swift": {
+    "mtime": 1779889820.3315413,
+    "ast_hash": "585457edb7f4ad6311d313391dcd26bb",
+    "semantic_hash": "585457edb7f4ad6311d313391dcd26bb"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SessionsView.swift": {
+    "mtime": 1779817587.467315,
+    "ast_hash": "9aa70a8c832b509946277333985ca809",
+    "semantic_hash": "9aa70a8c832b509946277333985ca809"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SettingsView.swift": {
+    "mtime": 1780138465.291879,
+    "ast_hash": "54d606038b5c46859bb64f2c746016ef",
+    "semantic_hash": "54d606038b5c46859bb64f2c746016ef"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SessionDetailView.swift": {
+    "mtime": 1779915769.7996747,
+    "ast_hash": "b869241ff001c2af624962f021b19036",
+    "semantic_hash": "b869241ff001c2af624962f021b19036"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/FloatingAssistantPanel.swift": {
+    "mtime": 1779831925.2710445,
+    "ast_hash": "7dcbafe21a49a64500577e288d479d9b",
+    "semantic_hash": "7dcbafe21a49a64500577e288d479d9b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/HomeView.swift": {
+    "mtime": 1779915609.3272233,
+    "ast_hash": "ac70179433b9b1c21c88c493fcb0877e",
+    "semantic_hash": "ac70179433b9b1c21c88c493fcb0877e"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/RootView.swift": {
+    "mtime": 1779819468.911665,
+    "ast_hash": "b2ae37a8678ef92b071e08a330ba056b",
+    "semantic_hash": "b2ae37a8678ef92b071e08a330ba056b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/ProviderDiagnosticsView.swift": {
+    "mtime": 1780139813.7980862,
+    "ast_hash": "c9c928434d1ab09a64ffe076c5a5ddda",
+    "semantic_hash": "c9c928434d1ab09a64ffe076c5a5ddda"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/RAGDiagnosticsView.swift": {
+    "mtime": 1780138471.9444077,
+    "ast_hash": "54ba8049c2b316eecf4c7837547172b1",
+    "semantic_hash": "54ba8049c2b316eecf4c7837547172b1"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/FloatingAssistantView.swift": {
+    "mtime": 1780139783.9415843,
+    "ast_hash": "bc626363a3f43705ba31171500d30a86",
+    "semantic_hash": "bc626363a3f43705ba31171500d30a86"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/TranscriptView.swift": {
+    "mtime": 1779825183.2763333,
+    "ast_hash": "9a68fb130f54d663593733dd80f429f5",
+    "semantic_hash": "9a68fb130f54d663593733dd80f429f5"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/PermissionsDiagnosticView.swift": {
+    "mtime": 1780136716.70407,
+    "ast_hash": "e9e9fd9ece4ebe61ca9214073930445b",
+    "semantic_hash": "e9e9fd9ece4ebe61ca9214073930445b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SuggestionCardView.swift": {
+    "mtime": 1779950993.7963076,
+    "ast_hash": "a66fc7de1bf480e16b24392ce65157eb",
+    "semantic_hash": "a66fc7de1bf480e16b24392ce65157eb"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/DocumentsView.swift": {
+    "mtime": 1779818208.6366808,
+    "ast_hash": "480558fac83e025c000d954008149bb8",
+    "semantic_hash": "480558fac83e025c000d954008149bb8"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/LiveInterviewView.swift": {
+    "mtime": 1780139790.216443,
+    "ast_hash": "96fe07f6bf2e113c672184aed58c99bd",
+    "semantic_hash": "96fe07f6bf2e113c672184aed58c99bd"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/OnboardingView.swift": {
+    "mtime": 1779819628.0436773,
+    "ast_hash": "8fe6e970eca6a6d724a690ce2c2ff2d0",
+    "semantic_hash": "8fe6e970eca6a6d724a690ce2c2ff2d0"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/ProviderEditorView.swift": {
+    "mtime": 1779819570.3355641,
+    "ast_hash": "951e646afe5e08ce680f4cb2ad73b735",
+    "semantic_hash": "951e646afe5e08ce680f4cb2ad73b735"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/StatusPill.swift": {
+    "mtime": 1779889465.8913407,
+    "ast_hash": "0d75c7fc572c7831249af9c3e3e45ba6",
+    "semantic_hash": "0d75c7fc572c7831249af9c3e3e45ba6"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/LoadingOverlay.swift": {
+    "mtime": 1779817442.084004,
+    "ast_hash": "876bea6f9b9e37791197ac557348af1c",
+    "semantic_hash": "876bea6f9b9e37791197ac557348af1c"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/MicLevelIndicatorView.swift": {
+    "mtime": 1779889471.190244,
+    "ast_hash": "bc7fcd89654f2b40003823f1d6ee53d5",
+    "semantic_hash": "bc7fcd89654f2b40003823f1d6ee53d5"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/EmptyStateView.swift": {
+    "mtime": 1779817442.0837815,
+    "ast_hash": "b90e454a72c6a3d0f3098054b04f30f9",
+    "semantic_hash": "b90e454a72c6a3d0f3098054b04f30f9"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/PrimaryButton.swift": {
+    "mtime": 1779889467.4386797,
+    "ast_hash": "18fdc3de6795d205db15f62727bbf7d6",
+    "semantic_hash": "18fdc3de6795d205db15f62727bbf7d6"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/TranscriptRepository.swift": {
+    "mtime": 1780136234.438325,
+    "ast_hash": "05de02411c96426531fd21747b329f01",
+    "semantic_hash": "05de02411c96426531fd21747b329f01"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SimpleContextRetrievalService.swift": {
+    "mtime": 1780138579.6827385,
+    "ast_hash": "d9cf228e3bbb71439f988514bba9910a",
+    "semantic_hash": "d9cf228e3bbb71439f988514bba9910a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/DocumentRepository.swift": {
+    "mtime": 1780138456.9086244,
+    "ast_hash": "d3a79a0723f74dc941079e9743fe345b",
+    "semantic_hash": "d3a79a0723f74dc941079e9743fe345b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/PromptEvaluationService.swift": {
+    "mtime": 1779819285.141506,
+    "ast_hash": "8a9e090a96ad814489c09ce10f068767",
+    "semantic_hash": "8a9e090a96ad814489c09ce10f068767"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AppDatabase.swift": {
+    "mtime": 1780138446.3318017,
+    "ast_hash": "d49207097e72f2b92584c20ff788d9df",
+    "semantic_hash": "d49207097e72f2b92584c20ff788d9df"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/OpenAICompatibleLLMClient.swift": {
+    "mtime": 1780085111.6256278,
+    "ast_hash": "faca75977dc8bbb773258ea0e23dde14",
+    "semantic_hash": "faca75977dc8bbb773258ea0e23dde14"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/CoreAudioProcessTapCaptureService.swift": {
+    "mtime": 1779830287.840537,
+    "ast_hash": "4bcde19d8e04a70a3eb7d686ce6d9a43",
+    "semantic_hash": "4bcde19d8e04a70a3eb7d686ce6d9a43"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/RecapRepository.swift": {
+    "mtime": 1779819363.4717886,
+    "ast_hash": "192b10b6cb2eddc4b1ef58910f079c52",
+    "semantic_hash": "192b10b6cb2eddc4b1ef58910f079c52"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/FutureLLMClients.swift": {
+    "mtime": 1779819145.7058108,
+    "ast_hash": "31096dcffba42f4d5bc871eec988a34a",
+    "semantic_hash": "31096dcffba42f4d5bc871eec988a34a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/FutureTranscriptionServices.swift": {
+    "mtime": 1779829706.7227037,
+    "ast_hash": "ab01144841b0ef4061610d9aebda458a",
+    "semantic_hash": "ab01144841b0ef4061610d9aebda458a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ContextRetrievalService.swift": {
+    "mtime": 1780138529.4568658,
+    "ast_hash": "9165fd7c50befd3cd773674179b1f35a",
+    "semantic_hash": "9165fd7c50befd3cd773674179b1f35a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/RoleFitAnalyzer.swift": {
+    "mtime": 1779819285.1412063,
+    "ast_hash": "ca0fbcb654269e6f0651f51d449d05fa",
+    "semantic_hash": "ca0fbcb654269e6f0651f51d449d05fa"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/LLMClientProtocol.swift": {
+    "mtime": 1780084955.2371833,
+    "ast_hash": "af9df7c02ed339581a3049cab858c34d",
+    "semantic_hash": "af9df7c02ed339581a3049cab858c34d"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/LLMRouter.swift": {
+    "mtime": 1780084971.77564,
+    "ast_hash": "2c891cc5f5f8e67ddb692a21769d23be",
+    "semantic_hash": "2c891cc5f5f8e67ddb692a21769d23be"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/KeychainService.swift": {
+    "mtime": 1780139265.3651776,
+    "ast_hash": "bec9a26daf089232482e076980af4e41",
+    "semantic_hash": "bec9a26daf089232482e076980af4e41"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SuggestionGenerationService.swift": {
+    "mtime": 1780138481.067072,
+    "ast_hash": "2c457872028cf1851378c5a5f37cafd6",
+    "semantic_hash": "2c457872028cf1851378c5a5f37cafd6"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/LocalDataService.swift": {
+    "mtime": 1779816803.3867006,
+    "ast_hash": "395629f08cf3b9ce9345822b78859778",
+    "semantic_hash": "395629f08cf3b9ce9345822b78859778"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioDeviceManager.swift": {
+    "mtime": 1779829812.380797,
+    "ast_hash": "f1a9f9bfc66f4a82defa5c3e7cf1eb71",
+    "semantic_hash": "f1a9f9bfc66f4a82defa5c3e7cf1eb71"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioEngineManager.swift": {
+    "mtime": 1779828958.648918,
+    "ast_hash": "f0d8d5f9e38916d67ec7293bc2f1313b",
+    "semantic_hash": "f0d8d5f9e38916d67ec7293bc2f1313b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioDeviceRouteMonitor.swift": {
+    "mtime": 1779828960.8664856,
+    "ast_hash": "1bcbdc10af97ceacd77f688bdb30df38",
+    "semantic_hash": "1bcbdc10af97ceacd77f688bdb30df38"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/PromptLibrary.swift": {
+    "mtime": 1779816865.5748117,
+    "ast_hash": "23358cad8e31387910f684b613e6cbd4",
+    "semantic_hash": "23358cad8e31387910f684b613e6cbd4"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/RecapGenerationService.swift": {
+    "mtime": 1779819248.7726555,
+    "ast_hash": "c84f5041a477cb7953808ec61511f103",
+    "semantic_hash": "c84f5041a477cb7953808ec61511f103"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/DeepSeekClient.swift": {
+    "mtime": 1779816913.504874,
+    "ast_hash": "b5cb25c3b1c466cc695c62b5d6fea8f0",
+    "semantic_hash": "b5cb25c3b1c466cc695c62b5d6fea8f0"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/MicrophoneDiagnosticsService.swift": {
+    "mtime": 1779828858.1776614,
+    "ast_hash": "221dace255af57a62bbf6fa5efd19aba",
+    "semantic_hash": "221dace255af57a62bbf6fa5efd19aba"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SessionRepository.swift": {
+    "mtime": 1779816741.080596,
+    "ast_hash": "11b62287794332d2cd8e8b884e50d89a",
+    "semantic_hash": "11b62287794332d2cd8e8b884e50d89a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ScreenCaptureKitSystemAudioCaptureService.swift": {
+    "mtime": 1780087524.1778884,
+    "ast_hash": "5d5aaf710d53110ae869c1963bae614d",
+    "semantic_hash": "5d5aaf710d53110ae869c1963bae614d"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/TranscriptionService.swift": {
+    "mtime": 1779829708.326466,
+    "ast_hash": "1ba37afa0d1137e00c66183e4ba7ffe1",
+    "semantic_hash": "1ba37afa0d1137e00c66183e4ba7ffe1"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ManualQuestionTranscriptionService.swift": {
+    "mtime": 1779875742.3237195,
+    "ast_hash": "013b67048f5c136ca7a6c30d7f49cb3d",
+    "semantic_hash": "013b67048f5c136ca7a6c30d7f49cb3d"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/VectorStore.swift": {
+    "mtime": 1779951162.615605,
+    "ast_hash": "6c13325f6be6da421d343915e442d97c",
+    "semantic_hash": "6c13325f6be6da421d343915e442d97c"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/QuestionDetectionService.swift": {
+    "mtime": 1780084981.648536,
+    "ast_hash": "0a5872b4ee1065b8ec1a103101940609",
+    "semantic_hash": "0a5872b4ee1065b8ec1a103101940609"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/HybridContextRetrievalService.swift": {
+    "mtime": 1780138725.6955295,
+    "ast_hash": "92f9d7f4ba37200129455561769e117d",
+    "semantic_hash": "92f9d7f4ba37200129455561769e117d"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SettingsRepository.swift": {
+    "mtime": 1779819192.6441069,
+    "ast_hash": "a91fa942294877217bab1e6374936fe7",
+    "semantic_hash": "a91fa942294877217bab1e6374936fe7"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioInputService.swift": {
+    "mtime": 1779824818.9072187,
+    "ast_hash": "e222da7c410c522d4f0f4eda9f6987d7",
+    "semantic_hash": "e222da7c410c522d4f0f4eda9f6987d7"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SampleBufferAudioConverter.swift": {
+    "mtime": 1779830278.4127424,
+    "ast_hash": "a7fb5e82b2ecaae6d1cefce8e4aea269",
+    "semantic_hash": "a7fb5e82b2ecaae6d1cefce8e4aea269"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AppleSpeechTranscriptionService.swift": {
+    "mtime": 1780136698.219037,
+    "ast_hash": "376cdd12e4a87d3825e3aec34c5e6356",
+    "semantic_hash": "376cdd12e4a87d3825e3aec34c5e6356"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/PermissionService.swift": {
+    "mtime": 1780087536.3769476,
+    "ast_hash": "9921c85728077071ec3b9048670fb5d8",
+    "semantic_hash": "9921c85728077071ec3b9048670fb5d8"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ScreenSystemAudioPermissionProbe.swift": {
+    "mtime": 1780087521.1870487,
+    "ast_hash": "5cdc046206ccfbf9f0b162ec15bd5bd5",
+    "semantic_hash": "5cdc046206ccfbf9f0b162ec15bd5bd5"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/QuestionBankGenerationService.swift": {
+    "mtime": 1779819285.141823,
+    "ast_hash": "28a4110e90d4b8a8038cafac55bd861a",
+    "semantic_hash": "28a4110e90d4b8a8038cafac55bd861a"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SuggestionRepository.swift": {
+    "mtime": 1780136707.487754,
+    "ast_hash": "c4dfa61ef19768fa3e78d4607c87412b",
+    "semantic_hash": "c4dfa61ef19768fa3e78d4607c87412b"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/EmbeddingProvider.swift": {
+    "mtime": 1779951195.3153048,
+    "ast_hash": "78e1d3511dc3c7a20c28e29fce3a5a95",
+    "semantic_hash": "78e1d3511dc3c7a20c28e29fce3a5a95"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ManualQuestionCaptureService.swift": {
+    "mtime": 1779875736.4600763,
+    "ast_hash": "6d8d973cecd22eb79b1b1f91352ad8e0",
+    "semantic_hash": "6d8d973cecd22eb79b1b1f91352ad8e0"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/OllamaLLMClient.swift": {
+    "mtime": 1779916577.4225137,
+    "ast_hash": "66c08384c77b647d9cdcde9d7e22c273",
+    "semantic_hash": "66c08384c77b647d9cdcde9d7e22c273"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/.vscode/launch.json": {
+    "mtime": 1779881739.1275096,
+    "ast_hash": "87afdaf930868f1b5401a8cbf3732d92",
+    "semantic_hash": "87afdaf930868f1b5401a8cbf3732d92"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/README.md": {
+    "mtime": 1779874785.4634597,
+    "ast_hash": "ce7207a23ee80870f7e5d12019ca5382",
+    "semantic_hash": "ce7207a23ee80870f7e5d12019ca5382"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/docs/signing-notarization.md": {
+    "mtime": 1779817656.99318,
+    "ast_hash": "a60e94bae245d4f34d4bb08b9d1410b3",
+    "semantic_hash": "a60e94bae245d4f34d4bb08b9d1410b3"
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/docs/security-threat-model.md": {
+    "mtime": 1779817656.9928114,
+    "ast_hash": "9f201b4507452bce83d234a7da68eb5a",
+    "semantic_hash": "9f201b4507452bce83d234a7da68eb5a"
+  }
+}

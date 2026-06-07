@@ -13,103 +13,128 @@ struct LLMProviderTests {
         let realtime = try #require(try repository.activeRealtimeProvider())
         let recap = try #require(try repository.activeRecapProvider())
 
-        #expect(providers.contains { $0.kind == .ollamaLocal && $0.baseURL == "http://localhost:11434" })
         #expect(providers.contains { $0.kind == .deepSeek && $0.apiKeyAccount == "deepseek.default" })
-        #expect(realtime.kind == .ollamaLocal)
+        #expect(providers.contains { $0.kind == .openAICompatible })
+        #expect(!providers.contains { $0.kind == .ollamaLocal })
+        #expect(!providers.contains { $0.baseURL.contains("localhost:11434") })
+        #expect(realtime.kind == .deepSeek)
         #expect(recap.kind == .deepSeek)
     }
 
     @Test
-    func ollamaListsInstalledModelsFromTagsEndpoint() async throws {
-        MockURLProtocol.handlers["http://localhost:11434"] = { request in
-            #expect(request.url?.absoluteString == "http://localhost:11434/api/tags")
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let data = Data(#"{"models":[{"name":"llama3.2:latest"},{"name":"gemma4:26b"}]}"#.utf8)
-            return (response, data)
-        }
+    func appSettingsDefaultsDisableLocalEmbeddings() throws {
+        let settings = AppSettings.default
 
-        let client = OllamaLLMClient(session: makeMockSession())
-        let models = try await client.listModels(configuration: .localOllamaDefault())
-
-        #expect(models.map(\.name) == ["llama3.2:latest", "gemma4:26b"])
+        #expect(settings.embeddingProviderKind == .disabled)
+        #expect(settings.embeddingModelName != "nomic-embed-text")
+        #expect(settings.embeddingBaseURL != "http://localhost:11434")
+        #expect(settings.enableVectorRAG == false)
     }
 
     @Test
-    func ollamaChatUsesNativeChatEndpointAndJSONFormat() async throws {
-        let client = OllamaLLMClient(session: makeMockSession())
-        let constructed = try client.makeChatRequest(
-            configuration: .localOllamaDefault(model: "gemma4:26b"),
-            messages: [.system("System"), .user("Return {\"ok\":true}")],
-            responseFormat: .jsonObject,
-            options: LLMRequestOptions(temperature: 0.2)
-        )
-        let body = String(data: try #require(constructed.httpBody), encoding: .utf8) ?? ""
-        #expect(constructed.url?.absoluteString == "http://localhost:11434/api/chat")
-        #expect(body.contains(#""format":"json""#))
-        #expect(body.contains("Return valid JSON only. No markdown. No explanation."))
+    func legacyLocalProviderRowsAreHiddenAndActiveSelectionMigratesToDeepSeek() throws {
+        let database = try makeTemporaryDatabase()
+        let repository = SettingsRepository(database: database)
+        let legacyID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let now = DateCoding.string(from: Date())
 
-        MockURLProtocol.handlers["http://localhost:11434"] = { request in
-            if request.url?.path == "/api/tags" {
-                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
-            }
-
-            #expect(request.url?.absoluteString == "http://localhost:11434/api/chat")
-            #expect(request.httpMethod == "POST")
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, Data(#"{"message":{"role":"assistant","content":"{\"ok\":true}"},"done":true}"#.utf8))
-        }
-
-        let result = try await client.chatCompletion(
-            configuration: .localOllamaDefault(model: "gemma4:26b"),
-            messages: [.system("System"), .user("Return {\"ok\":true}")],
-            responseFormat: .jsonObject,
-            options: LLMRequestOptions(temperature: 0.2)
-        )
-
-        #expect(result.content == #"{"ok":true}"#)
-        #expect(result.providerKind == .ollamaLocal)
-        #expect(result.isLocal)
-    }
-
-    @Test
-    func ollamaNotRunningReturnsFriendlyError() async throws {
-        MockURLProtocol.handlers["http://localhost:11434"] = { _ in
-            throw URLError(.cannotConnectToHost)
-        }
-
-        let client = OllamaLLMClient(session: makeMockSession())
-
-        await #expect(throws: LLMProviderError.ollamaNotRunning) {
-            _ = try await client.listModels(configuration: .localOllamaDefault())
-        }
-    }
-
-    @Test
-    func ollamaMissingModelReturnsPullInstruction() async throws {
-        MockURLProtocol.handlers["http://localhost:11434"] = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, Data(#"{"models":[{"name":"llama3.2:latest"}]}"#.utf8))
-        }
-
-        let client = OllamaLLMClient(session: makeMockSession())
-
-        await #expect(throws: LLMProviderError.modelNotFound("gemma4:26b")) {
-            _ = try await client.chatCompletion(
-                configuration: .localOllamaDefault(model: "gemma4:26b"),
-                messages: [.user("Hi")],
-                responseFormat: .jsonObject,
-                options: .default
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO llm_provider_configurations (
+                    id, name, kind, base_url, model, api_key_account,
+                    is_default_for_realtime, is_default_for_recap, supports_json_mode,
+                    supports_streaming, supports_thinking, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    legacyID.uuidString,
+                    "Local Ollama",
+                    LLMProviderKind.ollamaLocal.rawValue,
+                    "http://localhost:11434",
+                    "gemma4:26b",
+                    nil,
+                    true,
+                    true,
+                    true,
+                    true,
+                    false,
+                    now,
+                    now
+                ]
+            )
+            try db.execute(
+                sql: """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES ('active_realtime_provider_id', ?, ?), ('active_recap_provider_id', ?, ?)
+                """,
+                arguments: [legacyID.uuidString, now, legacyID.uuidString, now]
             )
         }
+
+        let providers = try repository.ensureDefaultProviderConfigurations()
+        let realtime = try #require(try repository.activeRealtimeProvider())
+        let recap = try #require(try repository.activeRecapProvider())
+        let legacyRows = try database.dbQueue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM llm_provider_configurations WHERE kind = ?",
+                arguments: [LLMProviderKind.ollamaLocal.rawValue]
+            ) ?? 0
+        }
+
+        #expect(legacyRows == 1)
+        #expect(!providers.contains { $0.kind == .ollamaLocal })
+        #expect(!providers.contains { $0.baseURL.contains("localhost:11434") })
+        #expect(try repository.providerConfiguration(id: legacyID) == nil)
+        #expect(realtime.kind == .deepSeek)
+        #expect(recap.kind == .deepSeek)
+    }
+
+    @Test
+    func legacyEmbeddingSettingsJSONIsMigratedAwayFromLocalProviderValues() throws {
+        let database = try makeTemporaryDatabase()
+        let repository = SettingsRepository(database: database)
+        let now = DateCoding.string(from: Date())
+        let legacyJSON = """
+        {
+          "embeddingProviderKind": "localOllama",
+          "embeddingBaseURL": "http://localhost:11434",
+          "embeddingModelName": "nomic-embed-text",
+          "embeddingApiKeyAccount": "embedding.default",
+          "ollamaRequestTimeoutSeconds": 120
+        }
+        """
+
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO app_settings (key, value, updated_at) VALUES ('app_settings', ?, ?)",
+                arguments: [legacyJSON, now]
+            )
+        }
+
+        let settings = try repository.loadSettings()
+        let rewritten = try #require(try database.dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM app_settings WHERE key = 'app_settings'")
+        })
+
+        #expect(settings.embeddingProviderKind == .disabled)
+        #expect(settings.embeddingModelName == "text-embedding-3-small")
+        #expect(settings.generationRequestTimeoutSeconds == 120)
+        #expect(!rewritten.contains("localOllama"))
+        #expect(!rewritten.contains("nomic-embed-text"))
+        #expect(!rewritten.contains("localhost:11434"))
+        #expect(!rewritten.contains("ollamaRequestTimeoutSeconds"))
+        #expect(rewritten.contains("generationRequestTimeoutSeconds"))
     }
 
     @Test
     func openAICompatibleMissingAPIKeyReturnsProviderError() async {
         let keyStore = InMemoryAPIKeyStore()
         let client = OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession())
-        var configuration = LLMProviderConfiguration.deepSeekDefault()
-        configuration.kind = .openAICompatible
+        var configuration = LLMProviderConfiguration.openAICompatibleDefault()
+        configuration.name = "Custom API"
         configuration.apiKeyAccount = "custom.test"
 
         await #expect(throws: LLMProviderError.missingAPIKey(providerName: configuration.name)) {
@@ -127,11 +152,11 @@ struct LLMProviderTests {
         let database = try makeTemporaryDatabase()
         let repository = SettingsRepository(database: database)
         let providers = try repository.ensureDefaultProviderConfigurations()
-        let ollama = try #require(providers.first { $0.kind == .ollamaLocal })
-        try repository.setActiveRealtimeProvider(id: ollama.id)
+        let deepSeek = try #require(providers.first { $0.kind == .deepSeek })
+        try repository.setActiveRealtimeProvider(id: deepSeek.id)
 
-        let fake = FakeLLMClient(kind: .ollamaLocal)
-        let router = LLMRouter(settingsRepository: repository, clients: [.ollamaLocal: fake])
+        let fake = FakeLLMClient(kind: .deepSeek)
+        let router = LLMRouter(settingsRepository: repository, clients: [.deepSeek: fake])
 
         let result = try await router.chatForRealtime(
             messages: [.user("Hello")],
@@ -139,9 +164,142 @@ struct LLMProviderTests {
             options: .default
         )
 
-        #expect(result.providerKind == .ollamaLocal)
-        #expect(result.modelName == ollama.model)
-        #expect(fake.lastConfiguration?.id == ollama.id)
+        #expect(result.providerKind == .deepSeek)
+        #expect(result.modelName == deepSeek.model)
+        #expect(fake.lastConfiguration?.id == deepSeek.id)
+    }
+
+    @Test
+    @MainActor
+    func quickSwitcherRejectsMissingCloudKeyAndAllowsConfiguredProvider() async throws {
+        let database = try makeTemporaryDatabase()
+        let settingsRepo = SettingsRepository(database: database)
+        let keychain = InMemoryAPIKeyStore()
+        let router = LLMRouter(settingsRepository: settingsRepo, apiKeyStore: keychain)
+
+        let appState = AppState(database: database, llmRouter: router, keychainService: KeychainService(store: InMemoryMockKeychainStore()))
+        _ = try settingsRepo.ensureDefaultProviderConfigurations()
+        appState.refreshAll()
+
+        let initialRealtime = try #require(appState.activeRealtimeProvider)
+        #expect(initialRealtime.kind == .deepSeek)
+
+        var customProvider = LLMProviderConfiguration.openAICompatibleDefault()
+        customProvider.id = UUID()
+        customProvider.name = "Custom API"
+        customProvider.baseURL = "https://api.example.test/v1"
+        customProvider.model = "api-model"
+        customProvider.apiKeyAccount = "custom.test"
+        appState.saveProviderConfiguration(customProvider)
+
+        appState.updateActiveRealtimeProvider(provider: customProvider, model: nil)
+        #expect(appState.activeRealtimeProvider?.kind == .deepSeek)
+        #expect(appState.lastProviderSwitchError?.contains("Missing API Key") == true)
+
+        appState.saveAPIKey("sk-test-key-1234", for: customProvider)
+        appState.updateActiveRealtimeProvider(provider: customProvider, model: nil)
+        #expect(appState.activeRealtimeProvider?.kind == .openAICompatible)
+        #expect(appState.activeRealtimeProvider?.model == "api-model")
+        #expect(appState.lastProviderSwitchError == nil)
+    }
+
+    @Test
+    @MainActor
+    func keychainDiagnosticsAndKeyMasking() throws {
+        #expect(KeychainService.maskKey("sk-abcdef123456") == "sk-****3456")
+        #expect(KeychainService.maskKey("my-other-secret-key-1234") == "****1234")
+        #expect(KeychainService.maskKey("short") == "****hort")
+        #expect(KeychainService.maskKey("") == "None")
+
+        let mockStore = InMemoryMockKeychainStore()
+        let keychain = KeychainService(store: mockStore)
+
+        try keychain.saveAPIKey("sk-test-key-123", account: "deepseek.default")
+        #expect(keychain.hasAPIKey(account: "deepseek.default") == true)
+        #expect(keychain.lastWriteStatus == "Success")
+
+        let loaded = try keychain.loadAPIKey(account: "deepseek.default")
+        #expect(loaded == "sk-test-key-123")
+        #expect(keychain.lastReadStatus == "Success")
+
+        try keychain.deleteAPIKey(account: "deepseek.default")
+        #expect(keychain.hasAPIKey(account: "deepseek.default") == false)
+        #expect(keychain.lastWriteStatus == "Deleted")
+    }
+
+    @Test
+    @MainActor
+    func embeddingKeyStoredUnderProviderAccount() throws {
+        let mockStore = InMemoryMockKeychainStore()
+        let keychain = KeychainService(store: mockStore)
+        try keychain.saveAPIKey("embed-key-123456", account: KeychainConstants.defaultEmbeddingAccount)
+
+        #expect(keychain.hasAPIKey(account: KeychainConstants.defaultEmbeddingAccount))
+        let loaded = try #require(try keychain.loadAPIKey(account: KeychainConstants.defaultEmbeddingAccount))
+        #expect(KeychainService.maskKey(loaded) == "****3456")
+    }
+
+    @Test
+    @MainActor
+    func keychainNonDestructiveLegacyMigrationAndMismatchDetection() throws {
+        let mockStore = InMemoryMockKeychainStore()
+        let keychain = KeychainService(store: mockStore)
+
+        let legacyService = "InterviewCopilotMac"
+        let legacyAccount = "DeepSeekAPIKey"
+        let rawKey = "sk-legacy-12345678"
+        try mockStore.saveGenericPassword(data: Data(rawKey.utf8), service: legacyService, account: legacyAccount)
+
+        keychain.performMigrationIfNeeded()
+
+        #expect(keychain.legacyItemFound == true)
+        #expect(keychain.legacyItemCount == 1)
+        #expect(keychain.migrationPerformed == true)
+
+        let copiedKey = try mockStore.loadGenericPassword(service: KeychainConstants.service, account: KeychainConstants.deepSeekAccount)
+        #expect(copiedKey == rawKey)
+
+        let preservedKey = try mockStore.loadGenericPassword(service: legacyService, account: legacyAccount)
+        #expect(preservedKey == rawKey)
+
+        let database = try makeTemporaryDatabase()
+        let appState = AppState(database: database, keychainService: keychain)
+
+        #expect(appState.keychainDeepSeekKeyExists == true)
+        #expect(appState.keychainLegacyItemFound == true)
+        #expect(appState.keychainMigrationPerformed == false)
+        #expect(appState.keychainMaskedKey == "sk-****5678")
+        #expect(appState.keychainMismatchStatus == "✅ DeepSeek API Key loaded successfully")
+
+        let emptyMockStore = InMemoryMockKeychainStore()
+        let freshKeychain = KeychainService(store: emptyMockStore)
+        try emptyMockStore.saveGenericPassword(data: Data("sk-legacy-9999".utf8), service: "InterviewCopilotMac", account: "DeepSeekAPIKey")
+
+        let appState2 = AppState(database: database, keychainService: freshKeychain)
+        try freshKeychain.deleteAPIKey(account: KeychainConstants.deepSeekAccount)
+        appState2.refreshAll()
+
+        #expect(appState2.keychainDeepSeekKeyExists == false)
+        #expect(appState2.keychainMismatchStatus == "⚠️ Legacy key found, migration available")
+    }
+
+    @Test
+    @MainActor
+    func immediateRefreshOnSavingAPIKey() throws {
+        let database = try makeTemporaryDatabase()
+        let mockStore = InMemoryMockKeychainStore()
+        let keychain = KeychainService(store: mockStore)
+        let appState = AppState(database: database, keychainService: keychain)
+
+        let initialConfig = appState.providerConfigurations.first(where: { $0.kind == .deepSeek })!
+        #expect(appState.keychainDeepSeekKeyExists == false)
+
+        appState.saveAPIKey("sk-newly-saved-key-8888", for: initialConfig)
+
+        #expect(appState.keychainDeepSeekKeyExists == true)
+        #expect(appState.keychainMaskedKey == "sk-****8888")
+        #expect(appState.keychainMismatchStatus == "✅ DeepSeek API Key loaded successfully")
+        #expect(appState.hasAPIKey == true)
     }
 
     private func makeTemporaryDatabase() throws -> AppDatabase {
@@ -155,207 +313,6 @@ struct LLMProviderTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return URLSession(configuration: configuration)
-    }
-
-    @Test
-    func ollamaTimedOutMapsToFriendlyError() async throws {
-        MockURLProtocol.handlers["http://localhost:11434"] = { _ in
-            throw URLError(.timedOut)
-        }
-
-        let client = OllamaLLMClient(session: makeMockSession())
-
-        do {
-            _ = try await client.listModels(configuration: .localOllamaDefault())
-            #expect(Bool(false), "Expected to throw timeout network failure")
-        } catch let LLMProviderError.networkFailure(_, message) {
-            #expect(message.contains("Ollama timed out"))
-        } catch {
-            #expect(Bool(false), "Expected networkFailure error, got \(error)")
-        }
-    }
-
-    @Test
-    func questionDetectionServiceUtilizesOllamaSuccessfully() async throws {
-        MockURLProtocol.handlers["http://localhost:11434"] = { request in
-            if request.url?.path == "/api/tags" {
-                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
-            }
-            
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let payload = """
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "{\\"should_trigger\\": true, \\"confidence\\": 0.95, \\"intent\\": \\"project_deep_dive\\", \\"question_complete\\": true, \\"answer_strategy\\": \\"project_walkthrough\\", \\"question_text\\": \\"Can you explain your system?\\", \\"reason\\": \\"test\\"}"
-                }
-            }
-            """
-            return (response, Data(payload.utf8))
-        }
-
-        let database = try makeTemporaryDatabase()
-        let repository = SettingsRepository(database: database)
-        let client = OllamaLLMClient(session: makeMockSession())
-        let router = LLMRouter(settingsRepository: repository, clients: [.ollamaLocal: client])
-        let service = QuestionDetectionService(llmRouter: router)
-
-        let result = try await service.detect(
-            transcriptContext: "Interviewer: Can you explain your system?",
-            sessionID: UUID().uuidString,
-            transcriptSegmentID: nil,
-            model: "gemma4:26b"
-        )
-
-        #expect(result.question.shouldTrigger)
-        #expect(result.question.questionText == "Can you explain your system?")
-        #expect(result.question.confidence == 0.95)
-    }
-
-    @Test
-    func suggestionGenerationServiceUtilizesOllamaSuccessfully() async throws {
-        MockURLProtocol.handlers["http://localhost:11434"] = { request in
-            if request.url?.path == "/api/tags" {
-                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (response, Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8))
-            }
-
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let payload = """
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "{\\"strategy\\": \\"Technical Deep Dive\\", \\"say_first\\": \\"I would describe our architecture...\\", \\"key_points\\": [\\"Decoupled components\\", \\"Event driven\\"], \\"follow_up_ready\\": [\\"How does it scale?\\"], \\"confidence\\": 0.9}"
-                }
-            }
-            """
-            return (response, Data(payload.utf8))
-        }
-
-        let database = try makeTemporaryDatabase()
-        let repository = SettingsRepository(database: database)
-        let client = OllamaLLMClient(session: makeMockSession())
-        let router = LLMRouter(settingsRepository: repository, clients: [.ollamaLocal: client])
-        let service = SuggestionGenerationService(llmRouter: router)
-
-        let result = try await service.generate(
-            question: DetectedQuestion(
-                id: UUID().uuidString,
-                sessionID: UUID().uuidString,
-                transcriptSegmentID: nil,
-                questionText: "How does your architecture work?",
-                intent: .projectDeepDive,
-                answerStrategy: .projectWalkthrough,
-                confidence: 0.9,
-                reason: nil,
-                shouldTrigger: true,
-                questionComplete: true,
-                modelName: "gemma4:26b",
-                promptVersion: "1.0",
-                createdAt: Date()
-            ),
-            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
-            transcriptContext: "How does your architecture work?",
-            sessionID: UUID().uuidString,
-            model: "gemma4:26b"
-        )
-
-        #expect(result.card.strategy == "Technical Deep Dive")
-        #expect(result.card.sayFirst == "I would describe our architecture...")
-        #expect(result.card.keyPoints == ["Decoupled components", "Event driven"])
-    }
-
-    @Test
-    @MainActor
-    func quickSwitcherUpdatesSettingsAndExposesDiagnostics() async throws {
-        let database = try makeTemporaryDatabase()
-        let settingsRepo = SettingsRepository(database: database)
-        let keychain = InMemoryAPIKeyStore()
-        let router = LLMRouter(settingsRepository: settingsRepo, apiKeyStore: keychain)
-        
-        let appState = AppState(database: database, llmRouter: router)
-        
-        // Load default providers
-        let _ = try settingsRepo.ensureDefaultProviderConfigurations()
-        appState.refreshAll()
-        
-        let initialRealtime = try #require(appState.activeRealtimeProvider)
-        let initialRecap = try #require(appState.activeRecapProvider)
-        
-        #expect(initialRealtime.kind == .ollamaLocal)
-        #expect(initialRecap.kind == .deepSeek)
-        
-        // 1. Test DeepSeek switch fails when API key is missing
-        let deepseekProvider = appState.providerConfigurations.first(where: { $0.kind == .deepSeek })!
-        let accountName = try #require(deepseekProvider.apiKeyAccount)
-        
-        // Ensure hermetic isolation by clearing any existing keys
-        try? appState.keychainService.deleteAPIKey(account: accountName)
-        
-        appState.updateActiveRealtimeProvider(provider: deepseekProvider, model: "deepseek-v4-flash")
-        
-        // Since API key is missing, it should fail and keep ollamaLocal
-        #expect(appState.activeRealtimeProvider?.kind == .ollamaLocal)
-        #expect(appState.lastProviderSwitchError != nil)
-        #expect(appState.errorMessage?.contains("Missing API Key") == true)
-        
-        // 2. Test DeepSeek switch succeeds when API key is present
-        try appState.keychainService.saveAPIKey("fake-key", account: accountName)
-        appState.updateActiveRealtimeProvider(provider: deepseekProvider, model: "deepseek-v4-flash")
-        
-        #expect(appState.activeRealtimeProvider?.kind == .deepSeek)
-        #expect(appState.activeRealtimeProvider?.model == "deepseek-v4-flash")
-        #expect(appState.lastProviderSwitchError == nil)
-        #expect(appState.lastProviderSwitchTimestamp != nil)
-        
-        // 3. Verify Recap provider remains completely isolated
-        #expect(appState.activeRecapProvider?.id == initialRecap.id)
-        
-        // Hermetic cleanup
-        try? appState.keychainService.deleteAPIKey(account: accountName)
-    }
-
-    @Test
-    @MainActor
-    func quickSwitcherOllamaModelValidation() async throws {
-        let database = try makeTemporaryDatabase()
-        let settingsRepo = SettingsRepository(database: database)
-        let keychain = InMemoryAPIKeyStore()
-        
-        // Mock listModels response
-        MockURLProtocol.handlers["http://localhost:11434"] = { request in
-            #expect(request.url?.absoluteString == "http://localhost:11434/api/tags")
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let data = Data(#"{"models":[{"name":"gemma4:26b"}]}"#.utf8)
-            return (response, data)
-        }
-        
-        let router = LLMRouter(settingsRepository: settingsRepo, apiKeyStore: keychain)
-        let appState = AppState(database: database, llmRouter: router)
-        
-        let _ = try settingsRepo.ensureDefaultProviderConfigurations()
-        appState.refreshAll()
-        
-        let ollama = appState.providerConfigurations.first(where: { $0.kind == .ollamaLocal })!
-        
-        // 1. Switch to a non-existent model (e.g. llama3)
-        appState.updateActiveRealtimeProvider(provider: ollama, model: "llama3:latest")
-        
-        // Need to wait slightly because listModels runs in an async Task
-        try await Task.sleep(nanoseconds: 200_000_000) // 0.2s
-        
-        // It should fail and keep the default model (gemma4:26b)
-        let current = try #require(try settingsRepo.activeRealtimeProvider())
-        #expect(current.model == "gemma4:26b")
-        #expect(appState.lastProviderSwitchError != nil)
-        
-        // 2. Switch to an existing model
-        appState.updateActiveRealtimeProvider(provider: ollama, model: "gemma4:26b")
-        try await Task.sleep(nanoseconds: 200_000_000) // 0.2s
-        
-        let currentAfter = try #require(try settingsRepo.activeRealtimeProvider())
-        #expect(currentAfter.model == "gemma4:26b")
     }
 }
 
@@ -402,7 +359,7 @@ final class FakeLLMClient: LLMClientProtocol {
             providerName: configuration.name,
             baseURL: configuration.baseURL,
             latencyMS: 1,
-            isLocal: configuration.kind == .ollamaLocal,
+            isLocal: false,
             rawResponse: nil
         )
     }

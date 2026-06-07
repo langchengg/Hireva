@@ -10,7 +10,8 @@ protocol EmbeddingProvider {
 }
 
 enum EmbeddingProviderError: LocalizedError, Equatable {
-    case ollamaNotRunning
+    case missingAPIKey(providerName: String)
+    case disabled(String)
     case embeddingModelMissing(String)
     case invalidEmbeddingResponse(String)
     case dimensionMismatch(expected: Int, actual: Int)
@@ -19,10 +20,12 @@ enum EmbeddingProviderError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .ollamaNotRunning:
-            return "Ollama is not running. Start it with the Ollama app or run `ollama serve`."
+        case .missingAPIKey(let providerName):
+            return "\(providerName) requires an embedding API key. Add one in Settings."
+        case .disabled(let message):
+            return message
         case .embeddingModelMissing(let model):
-            return "Embedding model '\(model)' is missing. Run: ollama pull \(model)."
+            return "Embedding model '\(model)' is unavailable. Choose a configured cloud embedding model."
         case .invalidEmbeddingResponse(let msg):
             return "Invalid embedding response: \(msg)"
         case .dimensionMismatch(let expected, let actual):
@@ -33,6 +36,11 @@ enum EmbeddingProviderError: LocalizedError, Equatable {
             return "Embedding request timed out."
         }
     }
+}
+
+enum EmbeddingRequestFormatType: String, Codable, Hashable {
+    case openAICompatible
+    case custom
 }
 
 class ControlledMockEmbeddingProvider: EmbeddingProvider {
@@ -46,7 +54,7 @@ class ControlledMockEmbeddingProvider: EmbeddingProvider {
         
         let hasRobotics = lower.contains("embodied") || lower.contains("vla") || lower.contains("manipulation") || lower.contains("robotics") || lower.contains("robotic")
         let hasROS = lower.contains("ros2") || lower.contains("rover") || lower.contains("navigation") || lower.contains("ros") || lower.contains("c++") || lower.contains("cpp")
-        let hasEmbedding = lower.contains("local") || lower.contains("ollama") || lower.contains("embedding") || lower.contains("vector") || lower.contains("hybrid")
+        let hasEmbedding = lower.contains("embedding") || lower.contains("vector") || lower.contains("hybrid")
         
         if hasRobotics {
             // Fill 0..<128 with deterministic pattern
@@ -93,250 +101,147 @@ class ControlledMockEmbeddingProvider: EmbeddingProvider {
     }
 }
 
-class OllamaEmbeddingProvider: EmbeddingProvider {
-    let providerID: String = "localOllama"
+final class CloudEmbeddingProvider: EmbeddingProvider {
+    let providerID: String
+    let displayName: String
+    let baseURL: String
+    let apiKeyAccount: String
     let modelName: String
-    private let baseURL: String
-    private let timeoutInterval: TimeInterval
-    private let session: URLSession
+    let dimensions: Int?
+    let requestFormat: EmbeddingRequestFormatType
 
-    private var cachedDimension: Int?
-    private var probedEndpoint: String?
+    private let apiKeyStore: APIKeyStore
+    private let session: URLSession
+    private let timeoutInterval: TimeInterval
 
     init(
-        modelName: String = "nomic-embed-text",
-        baseURL: String = "http://localhost:11434",
-        timeoutInterval: TimeInterval = 60.0,
-        session: URLSession = .shared
+        providerID: String = "cloudOpenAICompatible",
+        displayName: String = "Cloud Embeddings",
+        baseURL: String,
+        apiKeyAccount: String,
+        modelName: String,
+        dimensions: Int?,
+        requestFormat: EmbeddingRequestFormatType = .openAICompatible,
+        apiKeyStore: APIKeyStore,
+        session: URLSession = .shared,
+        timeoutInterval: TimeInterval = 60
     ) {
-        self.modelName = modelName
+        self.providerID = providerID
+        self.displayName = displayName
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        self.timeoutInterval = timeoutInterval
+        self.apiKeyAccount = apiKeyAccount
+        self.modelName = modelName
+        self.dimensions = dimensions
+        self.requestFormat = requestFormat
+        self.apiKeyStore = apiKeyStore
         self.session = session
+        self.timeoutInterval = timeoutInterval
     }
 
     var dimension: Int {
         get async throws {
-            if let cached = cachedDimension {
-                return cached
+            if let dimensions, dimensions > 0 {
+                return dimensions
             }
-            let dummy = try await embed(text: "dimension_query_test")
-            let dim = dummy.count
-            cachedDimension = dim
-            return dim
+            return try await embed(text: "dimension_query_test").count
         }
     }
 
     func embed(text: String) async throws -> [Float] {
-        let endpoint = try await resolveEndpoint()
-        let url = URL(string: "\(baseURL)\(endpoint)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = timeoutInterval
-
-        let requestBody: [String: Any]
-        if endpoint == "/api/embed" {
-            requestBody = [
-                "model": modelName,
-                "input": [text]
-            ]
-        } else {
-            requestBody = [
-                "model": modelName,
-                "prompt": text
-            ]
+        let embeddings = try await embedBatch(texts: [text])
+        guard let first = embeddings.first else {
+            throw EmbeddingProviderError.invalidEmbeddingResponse("No embedding returned.")
         }
+        return first
+    }
 
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+    func embedBatch(texts: [String]) async throws -> [[Float]] {
+        if texts.isEmpty { return [] }
 
+        let request = try makeRequest(texts: texts)
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw resolveNetworkError(error)
+            throw mapNetworkError(error)
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw EmbeddingProviderError.invalidEmbeddingResponse("No HTTP response")
+        guard let http = response as? HTTPURLResponse else {
+            throw EmbeddingProviderError.invalidEmbeddingResponse("Missing HTTP response.")
         }
 
-        if httpResponse.statusCode == 404 {
+        switch http.statusCode {
+        case 200..<300:
+            break
+        case 401, 403:
+            throw EmbeddingProviderError.missingAPIKey(providerName: displayName)
+        case 404:
             throw EmbeddingProviderError.embeddingModelMissing(modelName)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw EmbeddingProviderError.invalidEmbeddingResponse("Ollama returned HTTP \(httpResponse.statusCode)")
+        default:
+            throw EmbeddingProviderError.networkError("\(displayName) returned HTTP \(http.statusCode).")
         }
 
         do {
-            if endpoint == "/api/embed" {
-                struct EmbedResponse: Codable {
-                    let embeddings: [[Float]]
-                }
-                let decoded = try JSONDecoder().decode(EmbedResponse.self, from: data)
-                guard let first = decoded.embeddings.first else {
-                    throw EmbeddingProviderError.invalidEmbeddingResponse("Empty embedding array returned from /api/embed")
-                }
-                return first
-            } else {
-                struct EmbeddingsResponse: Codable {
-                    let embedding: [Float]
-                }
-                let decoded = try JSONDecoder().decode(EmbeddingsResponse.self, from: data)
-                return decoded.embedding
+            let decoded = try JSONDecoder().decode(OpenAIEmbeddingResponse.self, from: data)
+            let sorted = decoded.data.sorted { $0.index < $1.index }
+            let embeddings = sorted.map(\.embedding)
+            guard embeddings.count == texts.count else {
+                throw EmbeddingProviderError.invalidEmbeddingResponse("Expected \(texts.count) embeddings, got \(embeddings.count).")
             }
+            if let dimensions, dimensions > 0, let first = embeddings.first, first.count != dimensions {
+                throw EmbeddingProviderError.dimensionMismatch(expected: dimensions, actual: first.count)
+            }
+            return embeddings
+        } catch let error as EmbeddingProviderError {
+            throw error
         } catch {
             throw EmbeddingProviderError.invalidEmbeddingResponse("Failed to parse JSON: \(error.localizedDescription)")
         }
     }
 
-    func embedBatch(texts: [String]) async throws -> [[Float]] {
-        if texts.isEmpty { return [] }
-        let endpoint = try await resolveEndpoint()
-
-        // Batch /api/embed takes list natively
-        if endpoint == "/api/embed" {
-            let url = URL(string: "\(baseURL)/api/embed")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = timeoutInterval
-
-            let requestBody: [String: Any] = [
-                "model": modelName,
-                "input": texts
-            ]
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-
-            let data: Data
-            let response: URLResponse
-            do {
-                (data, response) = try await session.data(for: request)
-            } catch {
-                throw resolveNetworkError(error)
-            }
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw EmbeddingProviderError.invalidEmbeddingResponse("No HTTP response")
-            }
-
-            if httpResponse.statusCode == 404 {
-                throw EmbeddingProviderError.embeddingModelMissing(modelName)
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                throw EmbeddingProviderError.invalidEmbeddingResponse("Ollama returned HTTP \(httpResponse.statusCode)")
-            }
-
-            struct EmbedResponse: Codable {
-                let embeddings: [[Float]]
-            }
-            let decoded = try JSONDecoder().decode(EmbedResponse.self, from: data)
-            return decoded.embeddings
-        } else {
-            // Fall back to sequential calls for /api/embeddings
-            var results: [[Float]] = []
-            for text in texts {
-                let emb = try await embed(text: text)
-                results.append(emb)
-            }
-            return results
+    func makeRequest(texts: [String]) throws -> URLRequest {
+        guard requestFormat == .openAICompatible else {
+            throw EmbeddingProviderError.disabled("Custom embedding request format is not implemented yet.")
         }
-    }
-
-    private func resolveEndpoint() async throws -> String {
-        if let probed = probedEndpoint {
-            return probed
+        guard let url = URL(string: baseURL)?.appendingPathComponent("embeddings") else {
+            throw EmbeddingProviderError.networkError("Invalid embedding base URL.")
+        }
+        guard let apiKey = try apiKeyStore.loadAPIKey(account: apiKeyAccount),
+              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw EmbeddingProviderError.missingAPIKey(providerName: displayName)
         }
 
-        // Probe /api/embed first
-        do {
-            let dummyVector = try await probeEndpoint(path: "/api/embed")
-            if !dummyVector.isEmpty {
-                probedEndpoint = "/api/embed"
-                await updateProbedEndpointDiagnostics(path: "/api/embed")
-                return "/api/embed"
-            }
-        } catch {
-            print("[OllamaEmbeddingProvider] Probe of /api/embed failed: \(error.localizedDescription)")
-        }
-
-        // Probe /api/embeddings next
-        do {
-            let dummyVector = try await probeEndpoint(path: "/api/embeddings")
-            if !dummyVector.isEmpty {
-                probedEndpoint = "/api/embeddings"
-                await updateProbedEndpointDiagnostics(path: "/api/embeddings")
-                return "/api/embeddings"
-            }
-        } catch {
-            print("[OllamaEmbeddingProvider] Probe of /api/embeddings failed: \(error.localizedDescription)")
-            throw error
-        }
-
-        throw EmbeddingProviderError.ollamaNotRunning
-    }
-
-    private func probeEndpoint(path: String) async throws -> [Float] {
-        let url = URL(string: "\(baseURL)\(path)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 3.0 // Short timeout for probing
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = timeoutInterval
 
-        let requestBody: [String: Any]
-        if path == "/api/embed" {
-            requestBody = ["model": modelName, "input": ["probe"]]
-        } else {
-            requestBody = ["model": modelName, "prompt": "probe"]
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw EmbeddingProviderError.ollamaNotRunning
-        }
-
-        if httpResponse.statusCode == 404 {
-            throw EmbeddingProviderError.embeddingModelMissing(modelName)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw EmbeddingProviderError.ollamaNotRunning
-        }
-
-        if path == "/api/embed" {
-            struct EmbedResponse: Codable {
-                let embeddings: [[Float]]
-            }
-            let decoded = try JSONDecoder().decode(EmbedResponse.self, from: data)
-            return decoded.embeddings.first ?? []
-        } else {
-            struct EmbeddingsResponse: Codable {
-                let embedding: [Float]
-            }
-            let decoded = try JSONDecoder().decode(EmbeddingsResponse.self, from: data)
-            return decoded.embedding
-        }
+        let body = OpenAIEmbeddingRequest(model: modelName, input: texts)
+        request.httpBody = try JSONEncoder().encode(body)
+        return request
     }
 
-    private func resolveNetworkError(_ error: Error) -> Error {
-        if let urlError = error as? URLError {
-            if urlError.code == .timedOut {
-                return EmbeddingProviderError.timeout
-            } else if [.cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet].contains(urlError.code) {
-                return EmbeddingProviderError.ollamaNotRunning
-            }
+    private func mapNetworkError(_ error: Error) -> EmbeddingProviderError {
+        if let urlError = error as? URLError, urlError.code == .timedOut {
+            return .timeout
         }
-        return EmbeddingProviderError.networkError(error.localizedDescription)
+        return .networkError(error.localizedDescription)
+    }
+}
+
+private struct OpenAIEmbeddingRequest: Encodable {
+    let model: String
+    let input: [String]
+}
+
+private struct OpenAIEmbeddingResponse: Decodable {
+    struct Item: Decodable {
+        let index: Int
+        let embedding: [Float]
     }
 
-    private func updateProbedEndpointDiagnostics(path: String) async {
-        await MainActor.run {
-            OllamaDiagnostics.shared.probedEmbeddingEndpoint = path
-        }
-    }
+    let data: [Item]
+    let model: String?
 }

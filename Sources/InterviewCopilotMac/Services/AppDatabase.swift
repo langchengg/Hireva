@@ -289,6 +289,77 @@ final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v8_latency_metrics") { db in
+            // transcript_segments: utterance-level ASR latency
+            let tsRows = try Row.fetchAll(db, sql: "PRAGMA table_info(transcript_segments)")
+            let tsColumns = tsRows.compactMap { $0["name"] as? String }
+            
+            if !tsColumns.contains("asr_first_partial_ms") {
+                try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN asr_first_partial_ms INTEGER")
+            }
+            if !tsColumns.contains("asr_final_ms") {
+                try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN asr_final_ms INTEGER")
+            }
+            if !tsColumns.contains("asr_best_selected_ms") {
+                try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN asr_best_selected_ms INTEGER")
+            }
+            if !tsColumns.contains("asr_finalization_reason") {
+                try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN asr_finalization_reason TEXT")
+            }
+
+            // suggestion_cards: pipeline latency persistence
+            let scRows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let scColumns = scRows.compactMap { $0["name"] as? String }
+            
+            if !scColumns.contains("rag_retrieval_latency_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN rag_retrieval_latency_ms INTEGER")
+            }
+            if !scColumns.contains("question_asr_first_partial_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN question_asr_first_partial_ms INTEGER")
+            }
+            if !scColumns.contains("question_asr_final_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN question_asr_final_ms INTEGER")
+            }
+            if !scColumns.contains("question_asr_best_selected_ms") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN question_asr_best_selected_ms INTEGER")
+            }
+        }
+
+        migrator.registerMigration("v9_sanitized_content") { db in
+            let docRows = try Row.fetchAll(db, sql: "PRAGMA table_info(documents)")
+            let docColumns = docRows.compactMap { $0["name"] as? String }
+            
+            if !docColumns.contains("sanitized_content") {
+                try db.execute(sql: "ALTER TABLE documents ADD COLUMN sanitized_content TEXT")
+            }
+            if !docColumns.contains("sanitized_preview") {
+                try db.execute(sql: "ALTER TABLE documents ADD COLUMN sanitized_preview TEXT")
+            }
+            if !docColumns.contains("sanitization_warnings") {
+                try db.execute(sql: "ALTER TABLE documents ADD COLUMN sanitization_warnings TEXT")
+            }
+        }
+
+        migrator.registerMigration("v10_visible_content_latency_metrics") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+
+            let columns: [(String, String)] = [
+                ("first_visible_answer_ms", "INTEGER"),
+                ("first_key_point_visible_ms", "INTEGER"),
+                ("all_key_points_visible_ms", "INTEGER"),
+                ("follow_up_visible_ms", "INTEGER"),
+                ("full_card_visible_ms", "INTEGER"),
+                ("db_persisted_ms", "INTEGER"),
+                ("stage_b_stream_started_ms", "INTEGER"),
+                ("stage_b_first_section_ms", "INTEGER")
+            ]
+
+            for (name, type) in columns where !columnNames.contains(name) {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN \(name) \(type)")
+            }
+        }
+
         return migrator
     }
 }

@@ -269,7 +269,7 @@ struct SpeakerAttributionTests {
         let mockClient = MockLLMClient()
         let llmRouter = LLMRouter(
             settingsRepository: settingsRepository,
-            clients: [.ollamaLocal: mockClient]
+            clients: [.deepSeek: mockClient]
         )
         let appState = AppState(database: database, llmRouter: llmRouter)
         
@@ -374,7 +374,7 @@ struct SpeakerAttributionTests {
 }
 
 final class MockLLMClient: LLMClientProtocol {
-    let providerKind: LLMProviderKind = .ollamaLocal
+    let providerKind: LLMProviderKind = .deepSeek
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
         return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
@@ -424,9 +424,9 @@ final class MockLLMClient: LLMClientProtocol {
         return LLMChatResult(
             content: rawJSON,
             modelName: "MockModel",
-            providerKind: .ollamaLocal,
+            providerKind: .deepSeek,
             providerName: "MockClient",
-            baseURL: "http://localhost:11434",
+            baseURL: "https://api.deepseek.com",
             latencyMS: 42,
             isLocal: true,
             rawResponse: rawJSON

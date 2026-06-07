@@ -183,15 +183,16 @@ struct StreamingSuggestionTests {
     @MainActor
     @Test
     func testRealDeepSeekStreamingSuggetionE2E() async throws {
-        // Find DeepSeek API Key (Keychain or Environment fallback to bypass TCC unsigned binary block)
-        var apiKey: String? = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]
-        let keychain = KeychainService()
-        if apiKey == nil || apiKey!.isEmpty {
-            try? apiKey = keychain.loadAPIKey(account: "deepseek.default")
+        guard TestSupport.realAppDatabaseTestsEnabled else {
+            print("Skipping testRealDeepSeekStreamingSuggetionE2E: set REAL_APP_DB_TESTS=1 to allow real app database access.")
+            return
         }
+
+        // Find DeepSeek API Key strictly from Environment (No real Keychain in unit tests)
+        let apiKey: String? = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]
         
         guard let finalKey = apiKey, !finalKey.isEmpty else {
-            print("⚠️ Skipping testRealDeepSeekStreamingSuggetionE2E: DeepSeek API Key not configured in Keychain or Environment")
+            print("⚠️ Skipping testRealDeepSeekStreamingSuggetionE2E: DeepSeek API Key not configured in Environment")
             return
         }
         
@@ -225,7 +226,7 @@ struct StreamingSuggestionTests {
             .deepSeek: customLLMClient
         ])
         
-        let appState = await AppState(database: database, llmRouter: router)
+        let appState = AppState(database: database, llmRouter: router)
         
         // Ensure DeepSeek is selected as active provider
         if let deepseekProvider = appState.providerConfigurations.first(where: { $0.kind == .deepSeek }) {
@@ -340,7 +341,10 @@ final class StreamingMockLLMClient: LLMClientProtocol {
     let providerKind: LLMProviderKind = .deepSeek
     
     var streamTokens: [String] = []
+    var streamTokenBatches: [[String]] = []
     var streamDelayNS: UInt64 = 0
+    private var streamCallCount = 0
+    var completedStreamCount = 0
     
     var chatResultContent: String = "{}"
     var chatResultDelayNS: UInt64 = 0
@@ -380,7 +384,13 @@ final class StreamingMockLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
-        let tokens = streamTokens
+        let tokens: [String]
+        if streamCallCount < streamTokenBatches.count {
+            tokens = streamTokenBatches[streamCallCount]
+        } else {
+            tokens = streamTokens
+        }
+        streamCallCount += 1
         let delay = streamDelayNS
         return AsyncThrowingStream { continuation in
             Task {
@@ -390,6 +400,7 @@ final class StreamingMockLLMClient: LLMClientProtocol {
                     }
                     continuation.yield(token)
                 }
+                self.completedStreamCount += 1
                 continuation.finish()
             }
         }

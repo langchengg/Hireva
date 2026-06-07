@@ -59,7 +59,7 @@ struct ManualCaptureTests {
     }
 
     final class TrackingLLMClient: LLMClientProtocol {
-        let providerKind: LLMProviderKind = .ollamaLocal
+        let providerKind: LLMProviderKind = .deepSeek
         var chatCallsCount = 0
         var lastMessages: [LLMChatMessage] = []
 
@@ -133,8 +133,9 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
         appState.refreshAll()
 
         // 1. Force systemAudio manual capture source
@@ -228,7 +229,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -268,7 +269,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -331,7 +332,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -393,7 +394,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -457,7 +458,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -486,7 +487,7 @@ struct ManualCaptureTests {
 
         appState.startManualCapture()
         var elapsedStart = 0
-        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+        while (appState.manualCaptureState != .recording || capturedTimeoutBlock == nil) && elapsedStart < 100 {
             try? await Task.sleep(for: .milliseconds(20))
             elapsedStart += 1
         }
@@ -525,7 +526,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -562,12 +563,12 @@ struct ManualCaptureTests {
         try await setupOnboardingData(database: database)
 
         final class FailingLLMClient: LLMClientProtocol {
-            let providerKind: LLMProviderKind = .ollamaLocal
+            let providerKind: LLMProviderKind = .deepSeek
             func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
                 return LLMConnectionTestResult(success: false, message: "fail", latencyMS: 1, models: [])
             }
             func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage], responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
-                throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ollama connection timeout error domain"])
+                throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: "API provider timeout error domain"])
             }
             func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
                 return []
@@ -576,7 +577,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let failingLLM = FailingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: failingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: failingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -594,7 +595,7 @@ struct ManualCaptureTests {
 
         // Verify state is suggestionError, and transcript is retained!
         if case .suggestionError(let msg) = appState.manualCaptureState {
-            #expect(msg.contains("Ollama connection timeout error domain"))
+            #expect(msg.contains("API provider timeout error domain"))
         } else {
             Issue.record("Expected state to be suggestionError but was \(appState.manualCaptureState)")
         }
@@ -612,7 +613,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: trackingLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -642,7 +643,7 @@ struct ManualCaptureTests {
         try await setupOnboardingData(database: database)
 
         final class MalformedJSONLLMClient: LLMClientProtocol {
-            let providerKind: LLMProviderKind = .ollamaLocal
+            let providerKind: LLMProviderKind = .deepSeek
             func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
                 return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
             }
@@ -664,9 +665,9 @@ struct ManualCaptureTests {
                 return LLMChatResult(
                     content: rawContent,
                     modelName: "test-model",
-                    providerKind: .ollamaLocal,
-                    providerName: "Ollama",
-                    baseURL: "http://localhost:11434",
+                    providerKind: .deepSeek,
+                    providerName: "DeepSeek",
+                    baseURL: "https://api.deepseek.com",
                     latencyMS: 100,
                     isLocal: true,
                     rawResponse: nil
@@ -679,7 +680,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let malformedLLM = MalformedJSONLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: malformedLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: malformedLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -710,7 +711,7 @@ struct ManualCaptureTests {
         try await setupOnboardingData(database: database)
 
         final class PlainTextLLMClient: LLMClientProtocol {
-            let providerKind: LLMProviderKind = .ollamaLocal
+            let providerKind: LLMProviderKind = .deepSeek
             func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
                 return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
             }
@@ -719,9 +720,9 @@ struct ManualCaptureTests {
                 return LLMChatResult(
                     content: rawContent,
                     modelName: "test-model",
-                    providerKind: .ollamaLocal,
-                    providerName: "Ollama",
-                    baseURL: "http://localhost:11434",
+                    providerKind: .deepSeek,
+                    providerName: "DeepSeek",
+                    baseURL: "https://api.deepseek.com",
                     latencyMS: 100,
                     isLocal: true,
                     rawResponse: nil
@@ -734,7 +735,7 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let plainLLM = PlainTextLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.ollamaLocal: plainLLM])
+        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: plainLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
         appState.refreshAll()
 
@@ -757,4 +758,3 @@ struct ManualCaptureTests {
         #expect(suggestion.keyPoints.contains("Bullet point 1"))
     }
 }
-

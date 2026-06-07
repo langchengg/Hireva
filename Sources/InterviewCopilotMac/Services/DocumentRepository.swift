@@ -2,6 +2,11 @@ import Foundation
 import GRDB
 import CommonCrypto
 
+public struct CleanRAGIndexRebuildResult: Equatable {
+    public let documentsRebuilt: Int
+    public let chunksRebuilt: Int
+}
+
 final class DocumentRepository {
     private let database: AppDatabase
     private let meaningfulMinimumCharacters = 80
@@ -14,26 +19,41 @@ final class DocumentRepository {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let now = Date()
         let existing = try document(type: type)
+        
+        let sanitizedResult = DocumentTextSanitizer.sanitize(trimmed)
+        let sanitizedText = sanitizedResult.sanitizedContent
+        let preview = sanitizedResult.sanitizedPreview
+        let warningsStr = sanitizedResult.sanitizationWarnings.joined(separator: "\n")
+        
         let record = DocumentRecord(
             id: existing?.id ?? UUID().uuidString,
             type: type,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? type.title : title,
             content: trimmed,
             createdAt: existing?.createdAt ?? now,
-            updatedAt: now
+            updatedAt: now,
+            sanitizedContent: sanitizedText,
+            sanitizedPreview: preview,
+            sanitizationWarnings: warningsStr
         )
-        let chunks = TextChunker.chunks(from: trimmed)
+        let chunks = TextChunker.chunks(from: sanitizedText)
 
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO documents (id, type, title, content, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO documents (
+                    id, type, title, content, created_at, updated_at,
+                    sanitized_content, sanitized_preview, sanitization_warnings
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     type = excluded.type,
                     title = excluded.title,
                     content = excluded.content,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    sanitized_content = excluded.sanitized_content,
+                    sanitized_preview = excluded.sanitized_preview,
+                    sanitization_warnings = excluded.sanitization_warnings
                 """,
                 arguments: [
                     record.id,
@@ -41,7 +61,10 @@ final class DocumentRepository {
                     record.title,
                     record.content,
                     DateCoding.string(from: record.createdAt),
-                    DateCoding.string(from: record.updatedAt)
+                    DateCoding.string(from: record.updatedAt),
+                    record.sanitizedContent,
+                    record.sanitizedPreview,
+                    record.sanitizationWarnings
                 ]
             )
             try db.execute(sql: "DELETE FROM document_chunks WHERE document_id = ?", arguments: [record.id])
@@ -128,6 +151,90 @@ final class DocumentRepository {
         }
     }
 
+    func latexPollutedChunkCount() throws -> Int {
+        try database.dbQueue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                SELECT COUNT(*)
+                FROM document_chunks
+                WHERE content LIKE '%documentclass%'
+                   OR content LIKE '%usepackage%'
+                   OR content LIKE '%geometry%'
+                   OR content LIKE '%begin{document}%'
+                """
+            ) ?? 0
+        }
+    }
+
+    @discardableResult
+    func rebuildCleanRAGIndex() throws -> CleanRAGIndexRebuildResult {
+        let storedDocuments = try documents()
+        let now = Date()
+        var chunksRebuilt = 0
+
+        try database.dbQueue.write { db in
+            for document in storedDocuments {
+                let rawContent = document.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let sanitized = DocumentTextSanitizer.sanitize(rawContent)
+                let chunks = TextChunker.chunks(from: sanitized.sanitizedContent)
+                chunksRebuilt += chunks.count
+
+                try db.execute(
+                    sql: """
+                    UPDATE documents
+                    SET content = ?,
+                        sanitized_content = ?,
+                        sanitized_preview = ?,
+                        sanitization_warnings = ?
+                    WHERE id = ?
+                    """,
+                    arguments: [
+                        rawContent,
+                        sanitized.sanitizedContent,
+                        sanitized.sanitizedPreview,
+                        sanitized.sanitizationWarnings.joined(separator: "\n"),
+                        document.id
+                    ]
+                )
+
+                try db.execute(
+                    sql: "DELETE FROM document_chunks WHERE document_id = ?",
+                    arguments: [document.id]
+                )
+
+                for (index, chunk) in chunks.enumerated() {
+                    try db.execute(
+                        sql: """
+                        INSERT INTO document_chunks (
+                            id, document_id, document_type, chunk_index, content, keywords,
+                            section_title, word_count, metadata_json, created_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        arguments: [
+                            UUID().uuidString,
+                            document.id,
+                            document.type.rawValue,
+                            index,
+                            chunk.content,
+                            chunk.keywords.joined(separator: ","),
+                            chunk.sectionTitle,
+                            chunk.wordCount,
+                            chunk.metadataJSON,
+                            DateCoding.string(from: now)
+                        ]
+                    )
+                }
+            }
+        }
+
+        return CleanRAGIndexRebuildResult(
+            documentsRebuilt: storedDocuments.count,
+            chunksRebuilt: chunksRebuilt
+        )
+    }
+
     private func hasMeaningfulContent(_ content: String?) -> Bool {
         guard let content else { return false }
         return content.trimmingCharacters(in: .whitespacesAndNewlines).count >= meaningfulMinimumCharacters
@@ -140,7 +247,10 @@ final class DocumentRepository {
             title: row["title"],
             content: row["content"],
             createdAt: DateCoding.date(from: row["created_at"]),
-            updatedAt: DateCoding.date(from: row["updated_at"])
+            updatedAt: DateCoding.date(from: row["updated_at"]),
+            sanitizedContent: row["sanitized_content"],
+            sanitizedPreview: row["sanitized_preview"],
+            sanitizationWarnings: row["sanitization_warnings"]
         )
     }
 

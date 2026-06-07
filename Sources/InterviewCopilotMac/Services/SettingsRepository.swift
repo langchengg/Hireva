@@ -13,16 +13,23 @@ final class SettingsRepository {
     }
 
     func loadSettings() throws -> AppSettings {
-        try database.dbQueue.read { db in
-            guard let value: String = try String.fetchOne(
+        let rawValue: String? = try database.dbQueue.read { db in
+            try String.fetchOne(
                 db,
                 sql: "SELECT value FROM app_settings WHERE key = ?",
                 arguments: [settingsKey]
-            ), let data = value.data(using: .utf8) else {
-                return .default
-            }
-            return (try? JSONDecoder().decode(AppSettings.self, from: data)) ?? .default
+            )
         }
+
+        guard let value = rawValue, let data = value.data(using: .utf8) else {
+            return .default
+        }
+
+        let settings = (try? JSONDecoder().decode(AppSettings.self, from: data)) ?? .default
+        if Self.containsLegacyAppSettingsMarkers(value) {
+            try saveSettings(settings)
+        }
+        return settings
     }
 
     func saveSettings(_ settings: AppSettings) throws {
@@ -58,19 +65,33 @@ final class SettingsRepository {
 
     @discardableResult
     func ensureDefaultProviderConfigurations() throws -> [LLMProviderConfiguration] {
-        let existing = try providerConfigurations()
+        try disableLegacyLocalProviderRows()
+        var existing = try providerConfigurations()
         if !existing.isEmpty {
-            if try activeRealtimeProvider() == nil, let realtime = existing.first(where: { $0.isDefaultForRealtime }) ?? existing.first {
-                try setActiveRealtimeProvider(id: realtime.id)
+            if !existing.contains(where: { $0.kind == .deepSeek }) {
+                try saveProviderConfiguration(.deepSeekDefault())
+                existing = try providerConfigurations()
             }
-            if try activeRecapProvider() == nil, let recap = existing.first(where: { $0.isDefaultForRecap }) ?? existing.first {
-                try setActiveRecapProvider(id: recap.id)
+            if !existing.contains(where: { $0.kind == .openAICompatible }) {
+                try saveProviderConfiguration(.openAICompatibleDefault())
+                existing = try providerConfigurations()
             }
-            return existing
+            let realtimeProvider = try activeRealtimeProvider()
+            if realtimeProvider == nil || realtimeProvider?.kind == .ollamaLocal {
+                if let realtime = existing.first(where: { $0.kind == .deepSeek }) ?? existing.first(where: { $0.isDefaultForRealtime }) ?? existing.first {
+                    try setActiveRealtimeProvider(id: realtime.id)
+                }
+            }
+            let recapProvider = try activeRecapProvider()
+            if recapProvider == nil || recapProvider?.kind == .ollamaLocal {
+                if let recap = existing.first(where: { $0.kind == .deepSeek }) ?? existing.first(where: { $0.isDefaultForRecap }) ?? existing.first {
+                    try setActiveRecapProvider(id: recap.id)
+                }
+            }
+            return try providerConfigurations()
         }
 
         let defaults = [
-            LLMProviderConfiguration.localOllamaDefault(),
             LLMProviderConfiguration.deepSeekDefault(),
             LLMProviderConfiguration.openAICompatibleDefault()
         ]
@@ -86,10 +107,27 @@ final class SettingsRepository {
         return defaults
     }
 
+    private func disableLegacyLocalProviderRows() throws {
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE llm_provider_configurations
+                SET name = 'Legacy Local Provider (Disabled)',
+                    is_default_for_realtime = 0,
+                    is_default_for_recap = 0,
+                    updated_at = ?
+                WHERE kind = ? OR base_url LIKE '%localhost:11434%'
+                """,
+                arguments: [DateCoding.string(from: Date()), LLMProviderKind.ollamaLocal.rawValue]
+            )
+        }
+    }
+
     func providerConfigurations() throws -> [LLMProviderConfiguration] {
         try database.dbQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM llm_provider_configurations ORDER BY created_at ASC")
                 .map(Self.makeProviderConfiguration)
+                .filter { !Self.isLegacyLocalProvider($0) }
         }
     }
 
@@ -100,7 +138,11 @@ final class SettingsRepository {
                 sql: "SELECT * FROM llm_provider_configurations WHERE id = ?",
                 arguments: [id.uuidString]
             )
-            return row.map(Self.makeProviderConfiguration)
+            guard let provider = row.map(Self.makeProviderConfiguration),
+                  !Self.isLegacyLocalProvider(provider) else {
+                return nil
+            }
+            return provider
         }
     }
 
@@ -236,5 +278,16 @@ final class SettingsRepository {
             createdAt: DateCoding.date(from: row["created_at"]),
             updatedAt: DateCoding.date(from: row["updated_at"])
         )
+    }
+
+    private static func isLegacyLocalProvider(_ provider: LLMProviderConfiguration) -> Bool {
+        provider.kind == .ollamaLocal || provider.baseURL.localizedCaseInsensitiveContains("localhost:11434")
+    }
+
+    private static func containsLegacyAppSettingsMarkers(_ value: String) -> Bool {
+        value.contains("localOllama")
+            || value.contains("nomic-embed-text")
+            || value.localizedCaseInsensitiveContains("localhost:11434")
+            || value.contains("ollamaRequestTimeoutSeconds")
     }
 }

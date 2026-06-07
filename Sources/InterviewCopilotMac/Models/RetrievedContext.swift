@@ -3,9 +3,10 @@ import Foundation
 struct RetrievedContext: Hashable {
     var cvChunks: [DocumentChunk]
     var jobDescriptionChunks: [DocumentChunk]
+    var additionalNotesChunks: [DocumentChunk] = []
 
     var isEmpty: Bool {
-        cvChunks.isEmpty && jobDescriptionChunks.isEmpty
+        cvChunks.isEmpty && jobDescriptionChunks.isEmpty && additionalNotesChunks.isEmpty
     }
 
     var promptText: String {
@@ -15,6 +16,9 @@ struct RetrievedContext: Hashable {
         }
         if !jobDescriptionChunks.isEmpty {
             sections.append("Job description context:\n" + jobDescriptionChunks.map { "- \($0.content)" }.joined(separator: "\n"))
+        }
+        if !additionalNotesChunks.isEmpty {
+            sections.append("Additional notes context:\n" + additionalNotesChunks.map { "- \($0.content)" }.joined(separator: "\n"))
         }
         return sections.joined(separator: "\n\n")
     }

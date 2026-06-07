@@ -8,11 +8,15 @@ enum LLMProviderKind: String, Codable, CaseIterable, Identifiable, Hashable {
     case anthropic
     case gemini
 
+    static var allCases: [LLMProviderKind] {
+        [.deepSeek, .openAICompatible, .openAI, .anthropic, .gemini]
+    }
+
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .ollamaLocal: return "Local Ollama"
+        case .ollamaLocal: return "Legacy Local Provider (Disabled)"
         case .deepSeek: return "DeepSeek"
         case .openAICompatible: return "OpenAI-compatible"
         case .openAI: return "OpenAI"
@@ -22,7 +26,7 @@ enum LLMProviderKind: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 
     var isLocal: Bool {
-        self == .ollamaLocal
+        false
     }
 }
 
@@ -41,25 +45,6 @@ struct LLMProviderConfiguration: Codable, Equatable, Identifiable, Hashable {
     var createdAt: Date
     var updatedAt: Date
 
-    static func localOllamaDefault(model: String = "gemma4:26b") -> LLMProviderConfiguration {
-        let now = Date()
-        return LLMProviderConfiguration(
-            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
-            name: "Local Ollama",
-            kind: .ollamaLocal,
-            baseURL: "http://localhost:11434",
-            model: model,
-            apiKeyAccount: nil,
-            isDefaultForRealtime: true,
-            isDefaultForRecap: false,
-            supportsJSONMode: true,
-            supportsStreaming: true,
-            supportsThinking: false,
-            createdAt: now,
-            updatedAt: now
-        )
-    }
-
     static func deepSeekDefault(model: String = "deepseek-v4-flash") -> LLMProviderConfiguration {
         let now = Date()
         return LLMProviderConfiguration(
@@ -69,7 +54,7 @@ struct LLMProviderConfiguration: Codable, Equatable, Identifiable, Hashable {
             baseURL: "https://api.deepseek.com",
             model: model,
             apiKeyAccount: "deepseek.default",
-            isDefaultForRealtime: false,
+            isDefaultForRealtime: true,
             isDefaultForRecap: true,
             supportsJSONMode: true,
             supportsStreaming: true,
@@ -171,7 +156,6 @@ enum LLMProviderError: LocalizedError, Equatable {
     case notConfigured(String)
     case invalidBaseURL(String)
     case missingAPIKey(providerName: String)
-    case ollamaNotRunning
     case modelNotFound(String)
     case invalidResponse(String)
     case emptyResponse(providerName: String)
@@ -188,10 +172,8 @@ enum LLMProviderError: LocalizedError, Equatable {
             return "Invalid provider base URL: \(baseURL)"
         case .missingAPIKey(let providerName):
             return "\(providerName) requires an API key. Add one in Settings."
-        case .ollamaNotRunning:
-            return "Ollama is not running. Start it with the Ollama app or run `ollama serve`."
         case .modelNotFound(let model):
-            return "Model not found locally. Run: ollama pull \(model) or choose another installed model."
+            return "Model not found for the selected provider. Check the configured model name: \(model)."
         case .invalidResponse(let message):
             return "Provider returned an invalid response: \(message)"
         case .emptyResponse(let providerName):

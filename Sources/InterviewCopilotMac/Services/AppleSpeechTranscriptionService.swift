@@ -15,6 +15,31 @@ struct AudioTranscriptionSessionID: Hashable, Equatable {
     let source: AudioSourceType
 }
 
+/// Utterance-level ASR latency tracking (per speech segment, not per session)
+struct UtteranceLatency {
+    let utteranceID: String
+    var utteranceStartedAt: Date
+    var firstPartialAt: Date?
+    var firstFinalAt: Date?
+    var bestTranscriptSelectedAt: Date?
+    var finalizationReason: String?
+
+    var asrFirstPartialMS: Int? {
+        guard let firstPartialAt else { return nil }
+        return Int(firstPartialAt.timeIntervalSince(utteranceStartedAt) * 1000)
+    }
+
+    var asrFinalMS: Int? {
+        guard let firstFinalAt else { return nil }
+        return Int(firstFinalAt.timeIntervalSince(utteranceStartedAt) * 1000)
+    }
+
+    var asrBestSelectedMS: Int? {
+        guard let bestTranscriptSelectedAt else { return nil }
+        return Int(bestTranscriptSelectedAt.timeIntervalSince(utteranceStartedAt) * 1000)
+    }
+}
+
 final class AppleSpeechTranscriptionSession: NSObject {
     let sessionID: AudioTranscriptionSessionID
     let parentSessionID: String
@@ -38,6 +63,15 @@ final class AppleSpeechTranscriptionSession: NSObject {
     
     // Current utterance ID to prevent duplication in transcript feed
     private var utteranceID: String = UUID().uuidString
+    
+    // Session-level ASR timestamps
+    private(set) var sessionStartedAt: Date?
+    private(set) var firstPartialReceivedAt: Date?
+    private(set) var firstFinalReceivedAt: Date?
+    
+    // Utterance-level ASR latency (tracks per-utterance, not per-session)
+    private(set) var currentUtteranceLatency: UtteranceLatency?
+    private(set) var lastCompletedUtteranceLatency: UtteranceLatency?
     
     private let onEmit: (TranscriptSegment) -> Void
     private let onStateChange: () -> Void
@@ -73,6 +107,14 @@ final class AppleSpeechTranscriptionSession: NSObject {
             .count
     }
     
+    private func resetUtteranceLatency() {
+        let newID = utteranceID
+        currentUtteranceLatency = UtteranceLatency(
+            utteranceID: newID,
+            utteranceStartedAt: Date()
+        )
+    }
+    
     func start() async throws {
         // Test environment safety bypass
         #if DEBUG
@@ -91,6 +133,10 @@ final class AppleSpeechTranscriptionSession: NSObject {
             self.bestTranscriptUsed = ""
             self.finalizationReason = ""
             self.utteranceID = UUID().uuidString
+            self.sessionStartedAt = Date()
+            self.firstPartialReceivedAt = nil
+            self.firstFinalReceivedAt = nil
+            resetUtteranceLatency()
             self.serviceState = .running
             self.simulatedTaskActive = true
             self.request = SFSpeechAudioBufferRecognitionRequest()
@@ -115,6 +161,10 @@ final class AppleSpeechTranscriptionSession: NSObject {
         self.bestTranscriptUsed = ""
         self.finalizationReason = ""
         self.utteranceID = UUID().uuidString
+        self.sessionStartedAt = Date()
+        self.firstPartialReceivedAt = nil
+        self.firstFinalReceivedAt = nil
+        resetUtteranceLatency()
         self.serviceState = .starting
         
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -137,6 +187,14 @@ final class AppleSpeechTranscriptionSession: NSObject {
                         self.lastPartialTranscript = text
                         self.lastPartialTranscriptUpdatedAt = Date()
                         
+                        // Utterance-level ASR latency: record first partial
+                        if self.firstPartialReceivedAt == nil {
+                            self.firstPartialReceivedAt = Date()
+                        }
+                        if self.currentUtteranceLatency?.firstPartialAt == nil {
+                            self.currentUtteranceLatency?.firstPartialAt = Date()
+                        }
+                        
                         if self.sessionID.source == .microphone {
                             print("[DualAudio] mic partial = \(text)")
                         } else {
@@ -148,8 +206,18 @@ final class AppleSpeechTranscriptionSession: NSObject {
                         self.onStateChange()
                     } else {
                         // Final result arrived!
-                        self.lastFinalTranscriptTimestamp = Date()
+                        let finalReceivedAt = Date()
+                        self.lastFinalTranscriptTimestamp = finalReceivedAt
                         self.lastFinalTranscript = text
+                        
+                        // Session-level: record first final
+                        if self.firstFinalReceivedAt == nil {
+                            self.firstFinalReceivedAt = finalReceivedAt
+                        }
+                        // Utterance-level: record first final
+                        if self.currentUtteranceLatency?.firstFinalAt == nil {
+                            self.currentUtteranceLatency?.firstFinalAt = finalReceivedAt
+                        }
                         
                         if self.sessionID.source == .microphone {
                             print("[DualAudio] mic final segment source=microphone speaker=candidate: \"\(text)\"")
@@ -177,14 +245,23 @@ final class AppleSpeechTranscriptionSession: NSObject {
                             self.finalizationReason = "final is longer or similar"
                         }
                         
-                        print("[DualAudio] finalization resolved. reason: \"\(self.finalizationReason)\" | best: \"\(bestTranscript)\"")
+                        // Record best-transcript-selected timestamp and finalization reason
+                        let bestSelectedAt = Date()
+                        self.currentUtteranceLatency?.bestTranscriptSelectedAt = bestSelectedAt
+                        self.currentUtteranceLatency?.finalizationReason = self.finalizationReason
+                        
+                        print("[DualAudio] finalization resolved. reason: \"\(self.finalizationReason)\" | best: \"\(bestTranscript)\" | asrFirstPartialMS=\(self.currentUtteranceLatency?.asrFirstPartialMS ?? -1) asrFinalMS=\(self.currentUtteranceLatency?.asrFinalMS ?? -1) asrBestSelectedMS=\(self.currentUtteranceLatency?.asrBestSelectedMS ?? -1)")
+                        
+                        // Complete utterance latency and archive it
+                        self.lastCompletedUtteranceLatency = self.currentUtteranceLatency
                         
                         // Emit the finalized best transcript using the SAME utteranceID to overwrite any partials
-                        self.emit(text: bestTranscript, id: self.utteranceID)
+                        self.emitWithLatency(text: bestTranscript, id: self.utteranceID)
                         self.onStateChange()
                         
                         // Rotate to a new utterance ID for subsequent inputs
                         self.utteranceID = UUID().uuidString
+                        self.resetUtteranceLatency()
                     }
                 }
             } else if let error = error {
@@ -232,10 +309,26 @@ final class AppleSpeechTranscriptionSession: NSObject {
         if !isFinal {
             self.lastPartialTranscript = text
             self.lastPartialTranscriptUpdatedAt = Date()
+            // Track utterance-level partial latency
+            if self.currentUtteranceLatency?.firstPartialAt == nil {
+                self.currentUtteranceLatency?.firstPartialAt = Date()
+            }
+            if self.firstPartialReceivedAt == nil {
+                self.firstPartialReceivedAt = Date()
+            }
             self.emit(text: text, id: self.utteranceID)
         } else {
-            self.lastFinalTranscriptTimestamp = Date()
+            let finalAt = Date()
+            self.lastFinalTranscriptTimestamp = finalAt
             self.lastFinalTranscript = text
+            
+            // Track utterance-level final latency
+            if self.currentUtteranceLatency?.firstFinalAt == nil {
+                self.currentUtteranceLatency?.firstFinalAt = finalAt
+            }
+            if self.firstFinalReceivedAt == nil {
+                self.firstFinalReceivedAt = finalAt
+            }
             
             let bestTranscript: String
             let wordCountFinal = self.getWordCount(text)
@@ -256,8 +349,13 @@ final class AppleSpeechTranscriptionSession: NSObject {
                 self.finalizationReason = "final is longer or similar"
             }
             
-            self.emit(text: bestTranscript, id: self.utteranceID)
+            self.currentUtteranceLatency?.bestTranscriptSelectedAt = Date()
+            self.currentUtteranceLatency?.finalizationReason = self.finalizationReason
+            self.lastCompletedUtteranceLatency = self.currentUtteranceLatency
+            
+            self.emitWithLatency(text: bestTranscript, id: self.utteranceID)
             self.utteranceID = UUID().uuidString
+            self.resetUtteranceLatency()
         }
         self.onStateChange()
     }
@@ -267,22 +365,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         
-        let deviceName: String?
-        let outputDeviceName: String?
-        let deviceID: String?
-        let speaker: SpeakerRole
-        
-        if sessionID.source == .microphone {
-            deviceName = AudioDeviceManager.shared.currentInputDeviceName
-            outputDeviceName = nil
-            deviceID = AudioDeviceManager.shared.currentInputDeviceID
-            speaker = .candidate
-        } else {
-            deviceName = nil
-            outputDeviceName = "System Audio Capture"
-            deviceID = "system_audio"
-            speaker = .interviewer
-        }
+        let (deviceName, outputDeviceName, deviceID, speaker) = deviceInfo()
         
         let segment = TranscriptSegment(
             id: id,
@@ -299,6 +382,55 @@ final class AppleSpeechTranscriptionSession: NSObject {
             confidence: 1.0
         )
         onEmit(segment)
+    }
+    
+    /// Emit with ASR latency data from the completed utterance
+    @MainActor
+    private func emitWithLatency(text: String, id: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        let (deviceName, outputDeviceName, deviceID, speaker) = deviceInfo()
+        let latency = lastCompletedUtteranceLatency
+        
+        let segment = TranscriptSegment(
+            id: id,
+            sessionID: parentSessionID,
+            source: sessionID.source,
+            speaker: speaker,
+            text: trimmed,
+            startTime: nil,
+            endTime: nil,
+            createdAt: Date(),
+            inputDeviceName: deviceName,
+            outputDeviceName: outputDeviceName,
+            deviceID: deviceID,
+            confidence: 1.0,
+            asrFirstPartialMS: latency?.asrFirstPartialMS,
+            asrFinalMS: latency?.asrFinalMS,
+            asrBestSelectedMS: latency?.asrBestSelectedMS,
+            asrFinalizationReason: latency?.finalizationReason
+        )
+        onEmit(segment)
+    }
+    
+    @MainActor
+    private func deviceInfo() -> (String?, String?, String?, SpeakerRole) {
+        if sessionID.source == .microphone {
+            return (
+                AudioDeviceManager.shared.currentInputDeviceName,
+                nil,
+                AudioDeviceManager.shared.currentInputDeviceID,
+                .candidate
+            )
+        } else {
+            return (
+                nil,
+                "System Audio Capture",
+                "system_audio",
+                .interviewer
+            )
+        }
     }
 }
 

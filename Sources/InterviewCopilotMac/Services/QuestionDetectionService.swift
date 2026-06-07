@@ -81,22 +81,22 @@ final class QuestionDetectionService {
                 questionComplete: false,
                 modelName: "local-heuristic",
                 promptVersion: "local-v1",
-                providerKind: .ollamaLocal,
-                providerName: "LocalHeuristic",
+                providerKind: .openAICompatible,
+                providerName: "Internal Heuristic",
                 providerBaseURL: "",
                 latencyMS: 0,
-                isLocal: true,
+                isLocal: false,
                 rawJSON: nil,
                 createdAt: Date()
             )
             return (question, LLMChatResult(
                 content: "{}",
                 modelName: "local-heuristic",
-                providerKind: .ollamaLocal,
-                providerName: "LocalHeuristic",
+                providerKind: .openAICompatible,
+                providerName: "Internal Heuristic",
                 baseURL: "",
                 latencyMS: 0,
-                isLocal: true,
+                isLocal: false,
                 rawResponse: nil
             ))
         }

@@ -28,7 +28,7 @@ struct OnboardingView: View {
                 .padding(18)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
 
-                Text("AI features send only the detected question, recent transcript, and top relevant CV/JD snippets to the active provider. Local Ollama mode keeps prompts on this Mac. Cloud API keys are stored in Keychain.")
+                Text("AI features send only the detected question, recent transcript, and top relevant CV/JD snippets to configured API providers. Cloud API keys are stored in Keychain.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -58,7 +58,7 @@ struct OnboardingView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Optional DeepSeek API Key")
                             .font(.headline)
-                        SecureField("Optional for cloud mode; local Ollama does not need a key", text: $apiKey)
+                        SecureField("DeepSeek API key", text: $apiKey)
                             .textFieldStyle(.roundedBorder)
                         HStack {
                             Button("Save Key") {

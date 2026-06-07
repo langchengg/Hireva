@@ -13,10 +13,10 @@ struct ProviderEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label(draft.name, systemImage: draft.kind == .ollamaLocal ? "desktopcomputer" : "cloud")
+                Label(draft.name, systemImage: "cloud")
                     .font(.headline)
                 Spacer()
-                StatusPill(title: draft.kind.displayName, systemImage: "cpu", tint: draft.kind == .ollamaLocal ? .green : .blue)
+                StatusPill(title: draft.kind.displayName, systemImage: "cpu", tint: .blue)
             }
 
             HStack {
@@ -34,26 +34,7 @@ struct ProviderEditorView: View {
             TextField("Model", text: $draft.model)
                 .textFieldStyle(.roundedBorder)
 
-            if draft.kind == .ollamaLocal {
-                HStack {
-                    Button {
-                        appState.refreshOllamaModels(for: draft)
-                    } label: {
-                        Label("Refresh Ollama Models", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-
-                    if !appState.ollamaModels.isEmpty {
-                        Menu("Installed Models") {
-                            ForEach(appState.ollamaModels) { model in
-                                Button(model.name) {
-                                    draft.model = model.name
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if draft.apiKeyAccount != nil {
+            if draft.apiKeyAccount != nil {
                 HStack {
                     SecureField("API key for \(draft.name)", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
@@ -116,8 +97,10 @@ struct ProviderEditorView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
         .onChange(of: draft.kind) { _, newKind in
             if newKind == .ollamaLocal {
-                draft.apiKeyAccount = nil
-                if draft.baseURL.isEmpty { draft.baseURL = "http://localhost:11434" }
+                draft.kind = .deepSeek
+                draft.baseURL = "https://api.deepseek.com"
+                draft.model = "deepseek-v4-flash"
+                draft.apiKeyAccount = KeychainConstants.deepSeekAccount
             } else if draft.apiKeyAccount == nil {
                 draft.apiKeyAccount = "custom.\(draft.id.uuidString)"
             }

@@ -80,7 +80,7 @@ struct HybridRetrievalTests {
         var settings = AppSettings.default
         settings.enableVectorRAG = true
         settings.forceHybridRAG = true
-        settings.embeddingProviderKind = .localOllama
+        settings.embeddingProviderKind = .openAICompatibleCloud
         settings.embeddingModelName = "controlled-mock-model"
         settings.hybridSemanticWeight = 0.8
         settings.hybridKeywordWeight = 0.2
@@ -163,7 +163,7 @@ struct HybridRetrievalTests {
         var settings = AppSettings.default
         settings.enableVectorRAG = true
         settings.forceHybridRAG = false // DO NOT force
-        settings.embeddingProviderKind = .localOllama
+        settings.embeddingProviderKind = .openAICompatibleCloud
         settings.embeddingModelName = "controlled-mock-model"
         settings.hybridSemanticWeight = 0.7
         settings.hybridKeywordWeight = 0.3
@@ -182,7 +182,7 @@ struct HybridRetrievalTests {
             maxJDWords: 100
         )
         
-        #expect(traceLowCov.retrievalMode == "vectorFallback")
+        #expect(traceLowCov.retrievalMode == "keywordOnly")
         #expect(traceLowCov.fallbackReason?.contains("Low Coverage") == true)
         
         // Now force hybrid RAG -> should succeed despite coverage
@@ -211,10 +211,10 @@ struct HybridRetrievalTests {
         var settings = AppSettings.default
         settings.enableVectorRAG = true
         settings.forceHybridRAG = true
-        settings.embeddingProviderKind = .localOllama
+        settings.embeddingProviderKind = .openAICompatibleCloud
         settings.embeddingModelName = "controlled-mock-model"
         
-        // Passing nil for the embedding provider resolver (e.g. offline Ollama)
+        // Passing nil for the embedding provider resolver should not require any local runtime.
         let service = HybridContextRetrievalService(
             documentRepository: documents,
             settingsProvider: { settings },
@@ -228,8 +228,9 @@ struct HybridRetrievalTests {
             maxJDWords: 100
         )
         
-        #expect(trace.retrievalMode == "vectorFallback")
-        #expect(trace.fallbackReason == "No Provider Available")
+        #expect(trace.retrievalMode == "keywordOnly")
+        #expect(trace.fallbackReason == "Embedding provider not configured")
+        #expect(trace.queryEmbeddingGenerated == false)
     }
     
     private func makeTemporaryDatabase() throws -> AppDatabase {

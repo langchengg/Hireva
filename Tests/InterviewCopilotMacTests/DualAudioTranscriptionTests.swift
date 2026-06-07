@@ -317,6 +317,11 @@ struct DualAudioTranscriptionTests {
     
     @Test
     func realRuntimeASRQualityAndDatabaseVerification() async throws {
+        guard TestSupport.realAppDatabaseTestsEnabled else {
+            print("Skipping realRuntimeASRQualityAndDatabaseVerification: set REAL_APP_DB_TESTS=1 to allow real app database access.")
+            return
+        }
+
         print("=== STARTING REAL RUNTIME ASR QUALITY VERIFICATION ===")
         
         // 1. Initialize real AppDatabase and repositories using AppPaths.databaseURL

@@ -21,7 +21,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
         maxCVWords: Int = 1_500,
         maxJDWords: Int = 1_000
     ) async throws -> RetrievedContext {
-        try await retrieveContextWithTrace(question: question, intent: intent, maxCVWords: maxCVWords, maxJDWords: maxJDWords).context
+        try await retrieveContextWithTrace(question: question, intent: intent, maxCVWords: maxCVWords, maxJDWords: maxJDWords, strategy: nil).context
     }
 
     func retrieveContextWithTrace(
@@ -29,6 +29,16 @@ final class HybridContextRetrievalService: ContextRetrievalService {
         intent: QuestionIntent,
         maxCVWords: Int = 1_500,
         maxJDWords: Int = 1_000
+    ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
+        try await retrieveContextWithTrace(question: question, intent: intent, maxCVWords: maxCVWords, maxJDWords: maxJDWords, strategy: nil)
+    }
+
+    func retrieveContextWithTrace(
+        question: String,
+        intent: QuestionIntent,
+        maxCVWords: Int = 1_500,
+        maxJDWords: Int = 1_000,
+        strategy: AnswerStrategy?
     ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
         let startTime = Date()
         let settings = settingsProvider()
@@ -39,6 +49,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
 
         let allCVChunks = try documentRepository.chunks(type: .cv)
         let allJDChunks = try documentRepository.chunks(type: .jobDescription)
+        let allNotesChunks = try documentRepository.chunks(type: .additionalNotes)
 
         // Pre-telemetry variables
         var queryEmbeddingGenerated = false
@@ -48,23 +59,55 @@ final class HybridContextRetrievalService: ContextRetrievalService {
         var fallbackReason: String? = nil
         var activeMode = "hybrid"
 
+        // Determine Retrieval Profile
+        let profile = RetrievalProfile.from(intent, strategy ?? .directAnswer, question)
+        var actualCVWords = maxCVWords
+        var actualJDWords = maxJDWords
+        var cvChunksLimit: Int? = nil
+
+        switch profile {
+        case .whyRole:
+            actualCVWords = min(maxCVWords, 240)
+            actualJDWords = min(maxJDWords, 180)
+            cvChunksLimit = 1
+        case .projectWalkthrough:
+            actualCVWords = min(maxCVWords, 300)
+            actualJDWords = min(maxJDWords, 120)
+        case .technicalChallenge:
+            actualCVWords = min(maxCVWords, 300)
+            actualJDWords = min(maxJDWords, 120)
+        case .tellMeAboutYourself:
+            actualCVWords = min(maxCVWords, 240)
+            actualJDWords = min(maxJDWords, 120)
+        case .generic:
+            actualCVWords = maxCVWords
+            actualJDWords = maxJDWords
+        }
+
         // Rule 1: Is Vector RAG enabled?
         if !settings.enableVectorRAG {
             activeMode = "keywordOnly"
             fallbackReason = "Vector RAG Disabled"
         }
 
-        // Rule 2: Coverage Check (>= 80% coverage required)
+        // Rule 2: Provider availability. Missing cloud embeddings should never
+        // block retrieval; keyword RAG remains ready.
+        if activeMode == "hybrid" && provider == nil {
+            activeMode = "keywordOnly"
+            fallbackReason = "Embedding provider not configured"
+        }
+
+        // Rule 3: Coverage Check (>= 80% coverage required)
         var coveragePercent: Double = 100.0
-        if activeMode == "hybrid" {
+        if activeMode == "hybrid", let provider {
             do {
                 let cov = try documentRepository.embeddingCoverage(
-                    currentProvider: provider?.providerID ?? settings.embeddingProviderKind.rawValue,
+                    currentProvider: provider.providerID,
                     currentModel: settings.embeddingModelName
                 )
                 coveragePercent = cov.coveragePercent
                 if coveragePercent < 80.0 && !settings.forceHybridRAG {
-                    activeMode = "vectorFallback"
+                    activeMode = "keywordOnly"
                     fallbackReason = "Low Coverage (\(Int(coveragePercent))%)"
                 }
             } catch {
@@ -72,22 +115,18 @@ final class HybridContextRetrievalService: ContextRetrievalService {
             }
         }
 
-        // Rule 3: Provider availability
-        if activeMode == "hybrid" && provider == nil {
-            activeMode = "vectorFallback"
-            fallbackReason = "No Provider Available"
-        }
-
         // Embed the query
         var queryEmbedding: [Float]? = nil
         if activeMode == "hybrid", let provider = provider {
             let embedStart = Date()
             do {
-                queryEmbedding = try await provider.embed(text: question)
+                queryEmbedding = try await Self.withTimeout(seconds: 0.45) {
+                    try await provider.embed(text: question)
+                }
                 queryEmbeddingGenerated = true
                 queryEmbeddingLatencyMS = Date().timeIntervalSince(embedStart) * 1000.0
             } catch {
-                activeMode = "vectorFallback"
+                activeMode = "keywordOnly"
                 fallbackReason = "Query Embed Failed: \(error.localizedDescription)"
                 embeddingWarnings.append("Failed to embed query: \(error.localizedDescription)")
             }
@@ -124,7 +163,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
             // A: Compute Keyword score
             struct InterimScored {
                 let chunk: DocumentChunk
-                let keywordScore: Double
+                var keywordScore: Double
                 let keyOverlap: Int
                 let contentOverlap: Int
                 var semanticScore: Double?
@@ -137,7 +176,33 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                 let contentTokens = Set(TextChunker.tokenize(chunk.content))
                 let keyOverlap = keywordTokens.intersection(queryTokens).count
                 let contentOverlap = contentTokens.intersection(queryTokens).count
-                let kwScore = Double(keyOverlap * 3 + contentOverlap)
+                var kwScore = Double(keyOverlap * 3 + contentOverlap)
+
+                // Apply Profile-Specific Keyword Boosting
+                if chunk.documentType == .cv {
+                    let contentLower = chunk.content.lowercased()
+                    switch profile {
+                    case .whyRole:
+                        if HybridContextRetrievalService.isFormattingChunk(chunk.content) {
+                            kwScore -= 9999.0 // strongly penalize formatting chunks
+                        }
+                    case .projectWalkthrough:
+                        if contentLower.contains("project") || contentLower.contains("grasping") || contentLower.contains("thesis") || contentLower.contains("robotics") || contentLower.contains("vlm") || contentLower.contains("ros2") {
+                            kwScore += 10.0
+                        }
+                    case .technicalChallenge:
+                        if contentLower.contains("challenge") || contentLower.contains("difficult") || contentLower.contains("solved") || contentLower.contains("implemented") || contentLower.contains("optimized") || contentLower.contains("critical") {
+                            kwScore += 10.0
+                        }
+                    case .tellMeAboutYourself:
+                        if contentLower.contains("education") || contentLower.contains("degree") || contentLower.contains("university") || contentLower.contains("project") || contentLower.contains("experience") {
+                            kwScore += 10.0
+                        }
+                    case .generic:
+                        break
+                    }
+                }
+
                 return InterimScored(chunk: chunk, keywordScore: kwScore, keyOverlap: keyOverlap, contentOverlap: contentOverlap)
             }
 
@@ -146,11 +211,15 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                 let vectorStart = Date()
                 for i in 0..<scored.count {
                     let chunk = scored[i].chunk
+                    // Skip semantic search for heavily penalized formatting chunks
+                    if profile == .whyRole && HybridContextRetrievalService.isFormattingChunk(chunk.content) {
+                        scored[i].semanticScore = 0.0
+                        continue
+                    }
                     if let chunkData = chunk.embedding {
                         let chunkEmb = VectorStore.decodeEmbedding(chunkData)
                         if chunkEmb.count == qEmb.count {
                             let sim = VectorStore.cosineSimilarity(qEmb, chunkEmb)
-                            // Cosine similarity naturally ranges from -1 to 1; map or clip negative to 0.0
                             scored[i].semanticScore = max(0.0, sim)
                         } else {
                             embeddingWarnings.append("Dimension mismatch on chunk \(chunk.id): expected \(qEmb.count) but got \(chunkEmb.count)")
@@ -251,29 +320,34 @@ final class HybridContextRetrievalService: ContextRetrievalService {
 
         let (rankedCV, cvZeroFallback) = rankAndScore(chunks: allCVChunks)
         let (rankedJD, jdZeroFallback) = rankAndScore(chunks: allJDChunks)
+        let (rankedNotes, notesZeroFallback) = rankAndScore(chunks: allNotesChunks)
 
         let zeroScoreFallbackUsed = !emptyQueryFallbackUsed && 
-            ((!allCVChunks.isEmpty && cvZeroFallback) || (!allJDChunks.isEmpty && jdZeroFallback))
+            ((!allCVChunks.isEmpty && cvZeroFallback) || (!allJDChunks.isEmpty && jdZeroFallback) || (!allNotesChunks.isEmpty && notesZeroFallback))
 
         let candidateCV = Array(rankedCV.prefix(8))
         let candidateJD = Array(rankedJD.prefix(6))
+        let candidateNotes = Array(rankedNotes.prefix(4))
 
-        func applyBudget(candidates: [RetrievedChunk], maxWords: Int) -> (included: [RetrievedChunk], excluded: [RetrievedChunk], wordsUsed: Int, updatedCandidates: [RetrievedChunk]) {
+        func applyBudget(candidates: [RetrievedChunk], maxWords: Int, maxChunks: Int? = nil) -> (included: [RetrievedChunk], excluded: [RetrievedChunk], wordsUsed: Int, updatedCandidates: [RetrievedChunk]) {
             var remaining = maxWords
             var included: [RetrievedChunk] = []
             var excluded: [RetrievedChunk] = []
             var wordsUsed = 0
             var updatedCandidates: [RetrievedChunk] = []
+            var chunksCount = 0
 
             for candidate in candidates {
                 var chunk = candidate
-                if remaining > 0 {
+                let withinLimit = (maxChunks == nil || chunksCount < maxChunks!)
+                if remaining > 0 && withinLimit {
                     let words = chunk.fullContent.split(whereSeparator: \.isWhitespace)
                     if words.count <= remaining {
                         chunk.isIncludedInPrompt = true
                         included.append(chunk)
                         wordsUsed += words.count
                         remaining -= words.count
+                        chunksCount += 1
                     } else {
                         chunk.isIncludedInPrompt = true
                         let trimmedWords = words.prefix(remaining)
@@ -302,6 +376,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                         wordsUsed += remaining
                         remaining = 0
                         chunk = trimmedChunk
+                        chunksCount += 1
                     }
                 } else {
                     chunk.isIncludedInPrompt = false
@@ -313,8 +388,9 @@ final class HybridContextRetrievalService: ContextRetrievalService {
             return (included, excluded, wordsUsed, updatedCandidates)
         }
 
-        let (includedCV, excludedCV, cvWordsUsed, updatedCV) = applyBudget(candidates: candidateCV, maxWords: maxCVWords)
-        let (includedJD, excludedJD, jdWordsUsed, updatedJD) = applyBudget(candidates: candidateJD, maxWords: maxJDWords)
+        let (includedCV, excludedCV, cvWordsUsed, updatedCV) = applyBudget(candidates: candidateCV, maxWords: actualCVWords, maxChunks: cvChunksLimit)
+        let (includedJD, excludedJD, jdWordsUsed, updatedJD) = applyBudget(candidates: candidateJD, maxWords: actualJDWords)
+        let (includedNotes, _, _, _) = applyBudget(candidates: candidateNotes, maxWords: 500)
 
         var finalRankedCV = updatedCV
         if rankedCV.count > candidateCV.count {
@@ -367,8 +443,8 @@ final class HybridContextRetrievalService: ContextRetrievalService {
             excludedJDChunks: finalExcludedJD,
             cvWordsUsed: cvWordsUsed,
             jdWordsUsed: jdWordsUsed,
-            cvWordBudget: maxCVWords,
-            jdWordBudget: maxJDWords,
+            cvWordBudget: actualCVWords,
+            jdWordBudget: actualJDWords,
             retrievalLatencyMS: latencyMS,
             emptyQueryFallbackUsed: emptyQueryFallbackUsed,
             zeroScoreFallbackUsed: zeroScoreFallbackUsed,
@@ -415,9 +491,100 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                     metadataJSON: nil,
                     createdAt: Date()
                 )
+            },
+            additionalNotesChunks: includedNotes.map { chunk in
+                DocumentChunk(
+                    id: chunk.id,
+                    documentID: chunk.documentID,
+                    documentType: chunk.documentType,
+                    chunkIndex: chunk.chunkIndex,
+                    content: chunk.fullContent,
+                    keywords: chunk.keywords,
+                    sectionTitle: chunk.sectionTitle,
+                    wordCount: chunk.wordCount,
+                    metadataJSON: nil,
+                    createdAt: Date()
+                )
             }
         )
 
         return (context, trace)
+    }
+}
+
+// MARK: - RetrievalProfile Enum and Helpers
+enum RetrievalProfile: String, Codable {
+    case whyRole
+    case projectWalkthrough
+    case technicalChallenge
+    case tellMeAboutYourself
+    case generic
+
+    static func from(_ intent: QuestionIntent, _ strategy: AnswerStrategy, _ questionText: String) -> RetrievalProfile {
+        let textLower = questionText.lowercased()
+        if textLower.contains("why do you want this role") || 
+           textLower.contains("why this role") || 
+           textLower.contains("why do you want to work") || 
+           textLower.contains("why are you interested in this") ||
+           intent == .companyFit {
+            return .whyRole
+        }
+        
+        switch strategy {
+        case .projectWalkthrough:
+            return .projectWalkthrough
+        case .technicalExplanation:
+            return .technicalChallenge
+        case .directAnswer where intent == .projectDeepDive:
+            return .projectWalkthrough
+        case .starStory:
+            if textLower.contains("tell me about a time") || textLower.contains("challenge") || textLower.contains("difficult") {
+                return .technicalChallenge
+            }
+            return .generic
+        default:
+            if textLower.contains("tell me about yourself") || textLower.contains("walk me through your resume") || textLower.contains("introduce yourself") {
+                return .tellMeAboutYourself
+            }
+            return .generic
+        }
+    }
+}
+
+extension HybridContextRetrievalService {
+    static func isFormattingChunk(_ content: String) -> Bool {
+        let lower = content.lowercased()
+        if lower.contains("documentclass") || lower.contains("usepackage") || lower.contains("geometry") || lower.contains("hidelinks") {
+            return true
+        }
+        // If it looks like a contact details block with very little content
+        if (lower.contains("email") || lower.contains("@")) && (lower.contains("linkedin.com") || lower.contains("github.com") || lower.contains("phone")) {
+            return true
+        }
+        return false
+    }
+
+    private static func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw NSError(
+                    domain: "EmbeddingTimeout",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Query embedding timed out after \(Int(seconds * 1000)) ms"]
+                )
+            }
+            guard let result = try await group.next() else {
+                throw NSError(domain: "EmbeddingTimeout", code: 2)
+            }
+            group.cancelAll()
+            return result
+        }
     }
 }

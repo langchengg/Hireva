@@ -44,12 +44,12 @@ struct SuggestionCardView: View {
                                         ForEach(included) { chunk in
                                             VStack(alignment: .leading, spacing: 4) {
                                                 HStack {
-                                                    Text(chunk.documentType == .cv ? "CV" : "JD")
+                                                    Text(chunk.documentType.shortTitle)
                                                         .font(.caption2.weight(.bold))
                                                         .padding(.horizontal, 6)
                                                         .padding(.vertical, 2)
-                                                        .background(chunk.documentType == .cv ? Color.blue.opacity(0.15) : Color.purple.opacity(0.15))
-                                                        .foregroundStyle(chunk.documentType == .cv ? Color.blue : Color.purple)
+                                                        .background(sourceTint(for: chunk.documentType).opacity(0.15))
+                                                        .foregroundStyle(sourceTint(for: chunk.documentType))
                                                         .clipShape(RoundedRectangle(cornerRadius: 4))
 
                                                     Text("Rank #\(chunk.rank)")
@@ -167,6 +167,14 @@ struct SuggestionCardView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+    }
+
+    private func sourceTint(for type: DocumentType) -> Color {
+        switch type {
+        case .cv: return .blue
+        case .jobDescription: return .purple
+        case .additionalNotes: return .teal
         }
     }
 }

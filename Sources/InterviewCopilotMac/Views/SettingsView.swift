@@ -2,62 +2,77 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var audioDeviceManager = AudioDeviceManager.shared
     @State private var settings = AppSettings.default
     @State private var includeAPIKeyInDelete = false
     @State private var newProviderKind: LLMProviderKind = .openAICompatible
+    @State private var embeddingAPIKey = ""
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 Text("Settings")
                     .font(.largeTitle.weight(.bold))
 
-                aiProvidersSection
-                modelSection
-                ragSettingsSection
-                manualCaptureSection
-                floatingWindowSection
-                privacySection
-                advancedSection
+                aiProviderCard
+                relevantContextCard
+                audioCard
+                floatingWindowCard
+                privacyCard
             }
             .padding(28)
-            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: 840, alignment: .leading)
         }
+        .navigationTitle("Settings")
         .onAppear {
             settings = appState.settings
         }
+        .onChange(of: appState.settings) { _, newValue in
+            settings = newValue
+        }
     }
 
-    private var aiProvidersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("AI Providers", systemImage: "server.rack")
-                .font(.headline)
-
+    private var aiProviderCard: some View {
+        settingsCard("AI Provider", icon: "brain") {
             HStack {
-                Text("Realtime")
-                    .foregroundStyle(.secondary)
+                statusLine("DeepSeek key", appState.keychainDeepSeekKeyExists ? "Securely saved" : "Missing")
                 Spacer()
-                Text(appState.activeRealtimeProviderBadge)
-                    .font(.callout.weight(.medium))
+                Button("Test Connection") {
+                    appState.testDeepSeekConnection()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!appState.keychainDeepSeekKeyExists || appState.isTestingConnection)
             }
-            HStack {
-                Text("Recap")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(appState.activeRecapProvider.map { "\($0.name): \($0.model)" } ?? "No recap provider")
-                    .font(.callout.weight(.medium))
-            }
-            Text(appState.activeRealtimeProviderPrivacyNote)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
-            ForEach(appState.providerConfigurations) { provider in
+            statusLine("Realtime model", appState.activeRealtimeProvider?.model ?? settings.realtimeModel.displayName)
+            statusLine("Full answer model", appState.activeRecapProvider?.model ?? settings.recapModel.displayName)
+
+            if appState.isTestingConnection {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            if let result = appState.connectionResult {
+                Text(result)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            Divider()
+
+            ForEach(visibleProviderConfigurations) { provider in
                 ProviderEditorView(appState: appState, provider: provider)
             }
 
+            if visibleProviderConfigurations.isEmpty {
+                Text("DeepSeek is the recommended provider. Add a compatible provider only if your team uses a different API.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
-                Picker("New provider", selection: $newProviderKind) {
+                Picker("Add provider", selection: $newProviderKind) {
                     ForEach(LLMProviderKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
                     }
@@ -67,321 +82,212 @@ struct SettingsView: View {
                 } label: {
                     Label("Add Provider", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
             }
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var modelSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Models and Automation", systemImage: "brain")
-                .font(.headline)
-            Toggle("Enable automatic question detection", isOn: $settings.automaticQuestionDetectionEnabled)
-            Toggle("Enable manual-only mode", isOn: $settings.manualOnlyMode)
-            Toggle("Save transcripts locally", isOn: $settings.saveTranscriptsLocally)
-            Toggle("Allow question detection from microphone-only audio", isOn: $settings.allowQuestionDetectionFromMicrophoneOnly)
-            Button("Save Settings") {
-                appState.saveSettings(settings)
+    private var relevantContextCard: some View {
+        settingsCard("Embeddings / Relevant Context", icon: "doc.text.magnifyingglass") {
+            Picker("Retrieval mode", selection: relevantContextModeBinding) {
+                Text("Keyword-only").tag(false)
+                Text("Cloud embeddings").tag(true)
             }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
+            .pickerStyle(.segmented)
 
-    private var ragSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("RAG & Vector Embeddings Settings", systemImage: "doc.text.magnifyingglass")
-                .font(.headline)
-            
-            Toggle("Enable Hybrid Vector RAG", isOn: $settings.enableVectorRAG)
-            
             if settings.enableVectorRAG {
-                Toggle("Force Hybrid RAG (Bypass 80% coverage check)", isOn: $settings.forceHybridRAG)
-                
-                Picker("Embedding Provider", selection: $settings.embeddingProviderKind) {
+                Picker("Embedding provider", selection: $settings.embeddingProviderKind) {
                     ForEach(EmbeddingProviderKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
                     }
                 }
                 .pickerStyle(.menu)
-                
+
+                TextField("Embedding base URL", text: $settings.embeddingBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Embedding model", text: $settings.embeddingModelName)
+                    .textFieldStyle(.roundedBorder)
+
                 HStack {
-                    Text("Model Name:")
-                        .foregroundStyle(.secondary)
-                    TextField("Model Name (e.g. nomic-embed-text)", text: $settings.embeddingModelName)
+                    SecureField("Embedding API key", text: $embeddingAPIKey)
                         .textFieldStyle(.roundedBorder)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Semantic Similarity Weight")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f", settings.hybridSemanticWeight))
-                            .font(.callout.monospacedDigit().weight(.semibold))
+                    Button("Save Key") {
+                        appState.saveSettings(settings)
+                        appState.saveEmbeddingAPIKey(embeddingAPIKey, account: settings.embeddingApiKeyAccount)
+                        embeddingAPIKey = ""
                     }
-                    Slider(value: $settings.hybridSemanticWeight, in: 0.0...1.0, step: 0.1)
-                        .onChange(of: settings.hybridSemanticWeight) { _, newValue in
-                            settings.hybridKeywordWeight = max(0.0, 1.0 - newValue)
-                        }
+                    .disabled(embeddingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Keyword Overlap Weight")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f", settings.hybridKeywordWeight))
-                            .font(.callout.monospacedDigit().weight(.semibold))
-                    }
-                    Slider(value: $settings.hybridKeywordWeight, in: 0.0...1.0, step: 0.1)
-                        .onChange(of: settings.hybridKeywordWeight) { _, newValue in
-                            settings.hybridSemanticWeight = max(0.0, 1.0 - newValue)
-                        }
-                }
+
+                statusLine("Embedding key", appState.embeddingKeyStatus(account: settings.embeddingApiKeyAccount))
+            } else {
+                Text("Keyword search is local and ready after documents are saved. Cloud embeddings are optional.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            
-            Divider()
-            
-            VStack(alignment: .leading, spacing: 8) {
-                if let coverage = appState.embeddingCoverage {
-                    HStack {
-                        Text("Coverage:")
-                            .foregroundStyle(.secondary)
-                        Text("\(coverage.chunksWithEmbeddings) / \(coverage.totalChunks) chunks ready (\(Int(coverage.coveragePercent))%)")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    
-                    if let dim = coverage.dimension {
-                        Text("Dimension: \(dim) elements")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    if coverage.staleChunksCount > 0 {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text("\(coverage.staleChunksCount) chunks are missing or have stale embeddings.")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                } else {
-                    Text("No embedding coverage info. Rebuild below to initialize.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+
+            statusLine("Current context", appState.userFacingRelevantContextStatus)
+            if let coverage = appState.embeddingCoverage {
+                statusLine("Embedding coverage", "\(coverage.chunksWithEmbeddings) / \(coverage.totalChunks) chunks (\(Int(coverage.coveragePercent))%)")
+            }
+
+            if appState.isRebuildingEmbeddings {
+                ProgressView(value: appState.rebuildProgress, total: 1.0)
+                Button("Cancel Rebuild") {
+                    appState.cancelEmbeddingRebuild()
                 }
-                
-                if appState.isRebuildingEmbeddings {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ProgressView(value: appState.rebuildProgress, total: 1.0)
-                        HStack {
-                            Text("Rebuilding: \(Int(appState.rebuildProgress * 100))% complete")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Cancel") {
-                                appState.cancelEmbeddingRebuild()
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                .buttonStyle(.bordered)
+            } else {
+                HStack {
+                    Button("Rebuild Clean Context Index") {
+                        appState.rebuildCleanRAGIndex()
                     }
-                    .padding(.vertical, 4)
-                } else {
-                    HStack(spacing: 12) {
-                        Button("Rebuild Embeddings") {
-                            appState.rebuildAllEmbeddings()
-                        }
-                        .buttonStyle(.bordered)
-                        
-                        Button("Save RAG Settings") {
-                            appState.saveSettings(settings)
-                        }
-                        .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
+
+                    Button("Rebuild Embeddings") {
+                        appState.rebuildAllEmbeddings()
                     }
+                    .buttonStyle(.bordered)
+                    .disabled(!settings.enableVectorRAG)
+
+                    Button("Save Context Settings") {
+                        appState.saveSettings(settings)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             }
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var manualCaptureSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Manual Capture Options (Push-to-Ask)", systemImage: "hand.tap.fill")
-                .font(.headline)
-                .foregroundStyle(.purple)
-            
-            Picker("Manual Capture Source", selection: $settings.manualCaptureSource) {
-                ForEach(ManualCaptureSource.allCases) { source in
-                    Text(source.displayName).tag(source)
+    private var audioCard: some View {
+        settingsCard("Audio", icon: "speaker.wave.2.fill") {
+            statusLine("Input device", audioDeviceManager.currentInputDeviceName)
+            statusLine("Output device", audioDeviceManager.currentOutputDeviceName)
+
+            Picker("Default capture mode", selection: $settings.audioCaptureMode) {
+                ForEach(AudioCaptureMode.allCases) { mode in
+                    Text(mode.shortDisplayName).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .padding(.vertical, 4)
-            
-            if settings.manualCaptureSource == .microphone {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("Microphone capture may include your own voice, room echo, or mixed audio. System Audio is recommended for interviewer questions.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(8)
-                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-            }
-            
-            Toggle("Auto-send after transcription", isOn: $settings.autoSendAfterTranscription)
-            Toggle("Always show transcript review before sending", isOn: $settings.showTranscriptBeforeSending)
-            Toggle("Save audio clips locally", isOn: $settings.saveManualClips)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Max Capture Duration")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(settings.maxManualCaptureSeconds) seconds")
-                        .font(.callout.monospacedDigit().weight(.semibold))
-                }
-                Slider(value: Binding(
-                    get: { Double(settings.maxManualCaptureSeconds) },
-                    set: { settings.maxManualCaptureSeconds = Int($0) }
-                ), in: 5...120, step: 5)
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Ollama Request Timeout")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(settings.ollamaRequestTimeoutSeconds) seconds")
-                        .font(.callout.monospacedDigit().weight(.semibold))
-                }
-                Slider(value: Binding(
-                    get: { Double(settings.ollamaRequestTimeoutSeconds) },
-                    set: { settings.ollamaRequestTimeoutSeconds = Int($0) }
-                ), in: 30...300, step: 10)
-            }
-            
-            Button("Save Manual Capture Settings") {
+
+            Text(settings.audioCaptureMode.userFacingDescription)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Enable automatic question detection", isOn: $settings.automaticQuestionDetectionEnabled)
+            Toggle("Save transcripts locally", isOn: $settings.saveTranscriptsLocally)
+
+            Button("Save Audio Settings") {
                 appState.saveSettings(settings)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.purple)
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var floatingWindowSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Floating Window Options", systemImage: "macwindow")
-                .font(.headline)
-            
-            Toggle("High Contrast Floating Panel", isOn: $settings.highContrastFloatingPanel)
+    private var floatingWindowCard: some View {
+        settingsCard("Floating Window", icon: "macwindow") {
+            Picker("Display mode", selection: $settings.floatingAssistantDisplayMode) {
+                ForEach(FloatingAssistantDisplayMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Toggle("High contrast answer card", isOn: $settings.highContrastFloatingPanel)
                 .onChange(of: settings.highContrastFloatingPanel) { _, newValue in
                     if newValue {
                         settings.floatingWindowOpacity = max(settings.floatingWindowOpacity, 0.65)
                     }
                 }
-            
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Floating Window Opacity")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(String(format: "%.0f%%", settings.floatingWindowOpacity * 100))
-                        .font(.callout.monospacedDigit().weight(.semibold))
-                }
-                
-                Slider(value: $settings.floatingWindowOpacity, in: (settings.highContrastFloatingPanel ? 0.65 : 0.35)...1.0)
+
+            HStack {
+                Text("Opacity")
+                    .foregroundStyle(.secondary)
+                Slider(value: $settings.floatingWindowOpacity, in: (settings.highContrastFloatingPanel ? 0.65 : 0.55)...1.0)
+                Text(String(format: "%.0f%%", settings.floatingWindowOpacity * 100))
+                    .font(.callout.monospacedDigit())
+                    .frame(width: 48, alignment: .trailing)
             }
-            
-            Button("Save Settings") {
+
+            statusLine("Always on top", "On")
+
+            Button("Save Floating Window Settings") {
                 appState.saveSettings(settings)
             }
             .buttonStyle(.borderedProminent)
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var privacySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Privacy Controls", systemImage: "hand.raised")
-                .font(.headline)
-            Text("When AI features are used, InterviewCopilotMac sends the detected question, recent transcript up to 800 words, and top relevant CV/JD chunks up to 1,500 CV words and 1,000 JD words to the active provider. In local Ollama mode, prompts stay on this Mac. API keys and full documents are never logged.")
+    private var privacyCard: some View {
+        settingsCard("Privacy & Security", icon: "lock.shield") {
+            Text("Provider keys are securely saved and never shown in raw form. Documents, transcripts, and sessions are stored locally unless you clear them.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Toggle("Also delete provider API keys from Keychain", isOn: $includeAPIKeyInDelete)
-            Button("Delete All Local Data", role: .destructive) {
+
+            Toggle("Also delete securely saved provider keys", isOn: $includeAPIKeyInDelete)
+
+            Button("Clear Local Data", role: .destructive) {
                 appState.deleteAllLocalData(includeAPIKey: includeAPIKeyInDelete)
             }
             .buttonStyle(.bordered)
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var advancedSection: some View {
+    private func settingsCard<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Advanced Diagnostics", systemImage: "stethoscope")
+            Label(title, systemImage: icon)
                 .font(.headline)
-            diagnosticRow("State", appState.diagnostics.liveState.displayName)
-            diagnosticRow("API calls", "\(appState.diagnostics.apiCallCount)")
-            diagnosticRow("Last latency", appState.diagnostics.lastAPILatencyMS.map { "\($0) ms" } ?? "None")
-            diagnosticRow("Last provider", appState.diagnostics.lastProviderName ?? "None")
-            diagnosticRow("Last model", appState.diagnostics.lastProviderModel ?? "None")
-            diagnosticBox("Last detected question JSON", appState.diagnostics.lastDetectedQuestionJSON)
-            diagnosticBox("Last suggestion JSON", appState.diagnostics.lastSuggestionJSON)
-            diagnosticBox("Last error", appState.diagnostics.lastError)
+            content()
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func diagnosticRow(_ title: String, _ value: String) -> some View {
-        HStack {
+    private func statusLine(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             Text(title)
                 .foregroundStyle(.secondary)
             Spacer()
             Text(value)
+                .font(.callout.weight(.medium))
+                .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
         }
         .font(.callout)
     }
 
-    private func diagnosticBox(_ title: String, _ value: String?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value ?? "None")
-                .font(.caption.monospaced())
-                .lineLimit(6)
-                .textSelection(.enabled)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        }
+    private var relevantContextModeBinding: Binding<Bool> {
+        Binding(
+            get: { settings.enableVectorRAG },
+            set: { enabled in
+                settings.enableVectorRAG = enabled
+                if !enabled {
+                    settings.embeddingProviderKind = .disabled
+                } else if settings.embeddingProviderKind == .disabled {
+                    settings.embeddingProviderKind = .openAICompatibleCloud
+                }
+            }
+        )
+    }
+
+    private var visibleProviderConfigurations: [LLMProviderConfiguration] {
+        appState.providerConfigurations.filter { $0.kind != .ollamaLocal }
     }
 
     private func makeNewProvider(kind: LLMProviderKind) -> LLMProviderConfiguration {
         let now = Date()
         switch kind {
         case .ollamaLocal:
-            var provider = LLMProviderConfiguration.localOllamaDefault()
+            var provider = LLMProviderConfiguration.deepSeekDefault()
             provider.id = UUID()
-            provider.name = "Local Ollama"
             provider.createdAt = now
             provider.updatedAt = now
             provider.isDefaultForRealtime = false
+            provider.isDefaultForRecap = false
             return provider
         case .deepSeek:
             var provider = LLMProviderConfiguration.deepSeekDefault()

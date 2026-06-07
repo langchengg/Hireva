@@ -45,10 +45,14 @@ final class SuggestionRepository {
     }
 
     func saveSuggestionCard(_ card: SuggestionCard) throws {
-        try saveSuggestionCard(card, retrievedChunks: [])
+        try saveSuggestionCard(card, retrievedChunks: nil)
     }
 
     func saveSuggestionCard(_ card: SuggestionCard, retrievedChunks: [RetrievedChunk]) throws {
+        try saveSuggestionCard(card, retrievedChunks: Optional(retrievedChunks))
+    }
+
+    private func saveSuggestionCard(_ card: SuggestionCard, retrievedChunks: [RetrievedChunk]?) throws {
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
@@ -60,9 +64,58 @@ final class SuggestionRepository {
                     say_first_source, stage_a_timed_out, stage_b_completed, stage_b_status,
                     latency_first_token_ms, latency_first_visible_ms, latency_full_card_ms,
                     soft_fallback_used, soft_fallback_latency_ms, deepseek_first_token_ms,
-                    deepseek_first_visible_ms, final_visible_source
+                    deepseek_first_visible_ms, final_visible_source,
+                    rag_retrieval_latency_ms, question_asr_first_partial_ms,
+                    question_asr_final_ms, question_asr_best_selected_ms,
+                    first_visible_answer_ms, first_key_point_visible_ms,
+                    all_key_points_visible_ms, follow_up_visible_ms,
+                    full_card_visible_ms, db_persisted_ms,
+                    stage_b_stream_started_ms, stage_b_first_section_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    question_id = excluded.question_id,
+                    strategy = excluded.strategy,
+                    say_first = excluded.say_first,
+                    key_points_json = excluded.key_points_json,
+                    follow_up_ready_json = excluded.follow_up_ready_json,
+                    confidence = excluded.confidence,
+                    caution = excluded.caution,
+                    evidence_used_json = excluded.evidence_used_json,
+                    risk_level = excluded.risk_level,
+                    model_name = excluded.model_name,
+                    prompt_version = excluded.prompt_version,
+                    provider_kind = excluded.provider_kind,
+                    provider_name = excluded.provider_name,
+                    provider_base_url = excluded.provider_base_url,
+                    latency_ms = excluded.latency_ms,
+                    is_local = excluded.is_local,
+                    raw_json = excluded.raw_json,
+                    say_first_source = excluded.say_first_source,
+                    stage_a_timed_out = excluded.stage_a_timed_out,
+                    stage_b_completed = excluded.stage_b_completed,
+                    stage_b_status = excluded.stage_b_status,
+                    latency_first_token_ms = excluded.latency_first_token_ms,
+                    latency_first_visible_ms = excluded.latency_first_visible_ms,
+                    latency_full_card_ms = excluded.latency_full_card_ms,
+                    soft_fallback_used = excluded.soft_fallback_used,
+                    soft_fallback_latency_ms = excluded.soft_fallback_latency_ms,
+                    deepseek_first_token_ms = excluded.deepseek_first_token_ms,
+                    deepseek_first_visible_ms = excluded.deepseek_first_visible_ms,
+                    final_visible_source = excluded.final_visible_source,
+                    rag_retrieval_latency_ms = excluded.rag_retrieval_latency_ms,
+                    question_asr_first_partial_ms = excluded.question_asr_first_partial_ms,
+                    question_asr_final_ms = excluded.question_asr_final_ms,
+                    question_asr_best_selected_ms = excluded.question_asr_best_selected_ms,
+                    first_visible_answer_ms = excluded.first_visible_answer_ms,
+                    first_key_point_visible_ms = excluded.first_key_point_visible_ms,
+                    all_key_points_visible_ms = excluded.all_key_points_visible_ms,
+                    follow_up_visible_ms = excluded.follow_up_visible_ms,
+                    full_card_visible_ms = excluded.full_card_visible_ms,
+                    db_persisted_ms = excluded.db_persisted_ms,
+                    stage_b_stream_started_ms = excluded.stage_b_stream_started_ms,
+                    stage_b_first_section_ms = excluded.stage_b_first_section_ms
                 """,
                 arguments: [
                     card.id,
@@ -96,8 +149,27 @@ final class SuggestionRepository {
                     card.softFallbackLatencyMS,
                     card.deepseekFirstTokenMS,
                     card.deepseekFirstVisibleMS,
-                    card.finalVisibleSource
+                    card.finalVisibleSource,
+                    card.ragRetrievalLatencyMS,
+                    card.questionASRFirstPartialMS,
+                    card.questionASRFinalMS,
+                    card.questionASRBestSelectedMS,
+                    card.firstVisibleAnswerMS ?? card.latencyFirstVisibleMS,
+                    card.firstKeyPointVisibleMS,
+                    card.allKeyPointsVisibleMS,
+                    card.followUpVisibleMS,
+                    card.fullCardVisibleMS ?? card.latencyFullCardMS,
+                    card.dbPersistedMS,
+                    card.stageBStreamStartedMS,
+                    card.stageBFirstSectionMS
                 ]
+            )
+
+            guard let retrievedChunks else { return }
+
+            try db.execute(
+                sql: "DELETE FROM suggestion_card_retrieved_chunks WHERE suggestion_card_id = ?",
+                arguments: [card.id]
             )
 
             for chunk in retrievedChunks {
@@ -272,7 +344,127 @@ final class SuggestionRepository {
             softFallbackLatencyMS: row["soft_fallback_latency_ms"],
             deepseekFirstTokenMS: row["deepseek_first_token_ms"],
             deepseekFirstVisibleMS: row["deepseek_first_visible_ms"],
-            finalVisibleSource: row["final_visible_source"]
+            finalVisibleSource: row["final_visible_source"],
+            ragRetrievalLatencyMS: row["rag_retrieval_latency_ms"],
+            questionASRFirstPartialMS: row["question_asr_first_partial_ms"],
+            questionASRFinalMS: row["question_asr_final_ms"],
+            questionASRBestSelectedMS: row["question_asr_best_selected_ms"],
+            firstVisibleAnswerMS: row["first_visible_answer_ms"],
+            firstKeyPointVisibleMS: row["first_key_point_visible_ms"],
+            allKeyPointsVisibleMS: row["all_key_points_visible_ms"],
+            followUpVisibleMS: row["follow_up_visible_ms"],
+            fullCardVisibleMS: row["full_card_visible_ms"],
+            dbPersistedMS: row["db_persisted_ms"],
+            stageBStreamStartedMS: row["stage_b_stream_started_ms"],
+            stageBFirstSectionMS: row["stage_b_first_section_ms"]
         )
+    }
+
+    // MARK: - Latency Averages
+
+    func fetchLatencyAverages(
+        last n: Int = 10,
+        provider: String? = nil,
+        mode: InterviewMode? = nil
+    ) throws -> LatencyAverages {
+        try database.dbQueue.read { db in
+            var sql = """
+                SELECT sc.latency_first_visible_ms, sc.latency_full_card_ms,
+                       sc.first_visible_answer_ms, sc.first_key_point_visible_ms,
+                       sc.all_key_points_visible_ms, sc.follow_up_visible_ms,
+                       sc.full_card_visible_ms, sc.db_persisted_ms,
+                       sc.stage_b_stream_started_ms, sc.stage_b_first_section_ms,
+                       sc.rag_retrieval_latency_ms, sc.question_asr_best_selected_ms,
+                       sc.soft_fallback_used, sc.stage_b_status
+                FROM suggestion_cards sc
+            """
+            var conditions: [String] = []
+            var args: [DatabaseValueConvertible?] = []
+
+            if let provider {
+                conditions.append("sc.provider_name = ?")
+                args.append(provider)
+            }
+            if let mode {
+                sql += " JOIN interview_sessions s ON sc.session_id = s.id"
+                conditions.append("s.mode = ?")
+                args.append(mode.rawValue)
+            }
+
+            if !conditions.isEmpty {
+                sql += " WHERE " + conditions.joined(separator: " AND ")
+            }
+            sql += " ORDER BY sc.created_at DESC LIMIT ?"
+            args.append(n)
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args.map { $0 as Any }) ?? [])
+
+            guard !rows.isEmpty else { return .empty }
+
+            var firstVisibles: [Int] = []
+            var firstKeyPoints: [Int] = []
+            var allKeyPoints: [Int] = []
+            var followUps: [Int] = []
+            var fullCards: [Int] = []
+            var dbPersisted: [Int] = []
+            var streamStarted: [Int] = []
+            var firstSections: [Int] = []
+            var ragRetrievals: [Int] = []
+            var asrBests: [Int] = []
+            var softFallbackCount = 0
+            var failureCount = 0
+
+            for row in rows {
+                if let v: Int = row["first_visible_answer_ms"] ?? row["latency_first_visible_ms"] { firstVisibles.append(v) }
+                if let v: Int = row["first_key_point_visible_ms"] { firstKeyPoints.append(v) }
+                if let v: Int = row["all_key_points_visible_ms"] { allKeyPoints.append(v) }
+                if let v: Int = row["follow_up_visible_ms"] { followUps.append(v) }
+                if let v: Int = row["full_card_visible_ms"] ?? row["latency_full_card_ms"] { fullCards.append(v) }
+                if let v: Int = row["db_persisted_ms"] { dbPersisted.append(v) }
+                if let v: Int = row["stage_b_stream_started_ms"] { streamStarted.append(v) }
+                if let v: Int = row["stage_b_first_section_ms"] { firstSections.append(v) }
+                if let v: Int = row["rag_retrieval_latency_ms"] { ragRetrievals.append(v) }
+                if let v: Int = row["question_asr_best_selected_ms"] { asrBests.append(v) }
+                if let sf: Int = row["soft_fallback_used"], sf == 1 { softFallbackCount += 1 }
+                if let status: String = row["stage_b_status"], status != "completed" { failureCount += 1 }
+            }
+
+            let count = rows.count
+            return LatencyAverages(
+                count: count,
+                avgFirstVisibleMS: Self.avg(firstVisibles),
+                p50FirstVisibleMS: Self.percentile(firstVisibles, 50),
+                p90FirstVisibleMS: Self.percentile(firstVisibles, 90),
+                avgFirstKeyPointVisibleMS: Self.avg(firstKeyPoints),
+                p50FirstKeyPointVisibleMS: Self.percentile(firstKeyPoints, 50),
+                p90FirstKeyPointVisibleMS: Self.percentile(firstKeyPoints, 90),
+                avgAllKeyPointsVisibleMS: Self.avg(allKeyPoints),
+                avgFollowUpVisibleMS: Self.avg(followUps),
+                avgFullCardMS: Self.avg(fullCards),
+                p50FullCardMS: Self.percentile(fullCards, 50),
+                p90FullCardMS: Self.percentile(fullCards, 90),
+                avgDBPersistedMS: Self.avg(dbPersisted),
+                avgStageBStreamStartedMS: Self.avg(streamStarted),
+                avgStageBFirstSectionMS: Self.avg(firstSections),
+                avgRagRetrievalMS: Self.avg(ragRetrievals),
+                avgASRBestSelectedMS: Self.avg(asrBests),
+                softFallbackRate: Double(softFallbackCount) / Double(count),
+                failureRate: Double(failureCount) / Double(count)
+            )
+        }
+    }
+
+    // MARK: - Percentile Helpers
+
+    private static func avg(_ values: [Int]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        return Double(values.reduce(0, +)) / Double(values.count)
+    }
+
+    private static func percentile(_ values: [Int], _ p: Int) -> Int? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let index = Int(ceil(Double(p) / 100.0 * Double(sorted.count))) - 1
+        return sorted[max(0, min(index, sorted.count - 1))]
     }
 }
