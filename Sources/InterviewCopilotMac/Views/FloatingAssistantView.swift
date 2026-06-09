@@ -26,6 +26,7 @@ struct FloatingAssistantView: View {
         VStack(alignment: .leading, spacing: displayMode == .compact ? 10 : 12) {
             header
             statusRow
+            InlineStatusBanner(floatingFeedback)
 
             Divider()
 
@@ -83,16 +84,21 @@ struct FloatingAssistantView: View {
             Button {
                 regenerate()
             } label: {
-                Image(systemName: "arrow.clockwise")
+                if appState.isActionLoading(ActionID.floatingRegenerate) || appState.isActionLoading(ActionID.generateAnswer) || appState.isActionLoading(ActionID.manualGenerate) {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
             }
             .buttonStyle(.borderless)
             .help("Regenerate")
-            .disabled(!appState.liveState.canAnswerNow && appState.manualCaptureState != .suggestionReady)
+            .disabled(regenerateDisabled)
 
             Button {
                 copyAnswer()
             } label: {
-                Image(systemName: "doc.on.doc")
+                Image(systemName: appState.latestActionFeedback(for: ActionID.floatingCopy)?.kind == .success ? "checkmark.circle.fill" : "doc.on.doc")
             }
             .buttonStyle(.borderless)
             .help("Copy Answer")
@@ -359,6 +365,7 @@ struct FloatingAssistantView: View {
             set: { mode in
                 var next = appState.settings
                 next.floatingAssistantDisplayMode = mode
+                appState.infoAction(ActionID.floatingDisplayMode, title: "Display mode changed", message: "\(mode.displayName) mode is active.")
                 appState.saveSettings(next)
             }
         )
@@ -420,15 +427,40 @@ struct FloatingAssistantView: View {
     }
 
     private func regenerate() {
+        guard !regenerateDisabled else { return }
+        appState.beginAction(ActionID.floatingRegenerate, title: "Regenerating", message: "Keeping the current answer visible until a new answer is ready.")
         if appState.manualCaptureState == .suggestionReady {
             appState.regenerateManualSuggestion()
+            appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "Manual capture answer is being refreshed.")
         } else {
             appState.manualAnswerNow()
+            appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "A new answer is being generated from the current transcript.")
         }
     }
 
     private func copyAnswer() {
+        appState.beginAction(ActionID.floatingCopy, title: "Copying answer", message: "Copying the visible answer to the clipboard...")
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(answerText, forType: .string)
+        if NSPasteboard.general.setString(answerText, forType: .string) {
+            appState.completeAction(ActionID.floatingCopy, title: "Copied", message: "Answer copied to clipboard.")
+        } else {
+            appState.failAction(ActionID.floatingCopy, title: "Copy failed", message: "The clipboard did not accept the answer text.")
+        }
+    }
+
+    private var regenerateDisabled: Bool {
+        (appState.isActionLoading(ActionID.floatingRegenerate) || appState.isActionLoading(ActionID.generateAnswer) || appState.isActionLoading(ActionID.manualGenerate)) ||
+        (!appState.liveState.canAnswerNow && appState.manualCaptureState != .suggestionReady)
+    }
+
+    private var floatingFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.floatingCopy,
+            ActionID.floatingRegenerate,
+            ActionID.floatingDisplayMode,
+            ActionID.generateAnswer,
+            ActionID.manualGenerate,
+            ActionID.stopListening
+        ])
     }
 }

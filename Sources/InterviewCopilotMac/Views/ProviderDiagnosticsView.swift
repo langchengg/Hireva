@@ -113,11 +113,19 @@ struct ProviderDiagnosticsView: View {
                 row("Model", provider.model)
                 row("Connection", appState.providerConnectionResults[provider.id] ?? "Not tested")
                 HStack {
-                    Button("Test Connection") {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.provider(ActionID.providerTest, provider.id),
+                        title: "Test Connection",
+                        loadingTitle: "Testing...",
+                        successTitle: "Connected",
+                        systemImage: "network",
+                        isProminent: true
+                    ) {
                         appState.testProviderConnection(provider)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
+                InlineStatusBanner(appState.latestActionFeedback(for: ActionID.provider(ActionID.providerTest, provider.id)))
             } else {
                 Text("No provider selected.")
                     .foregroundStyle(.secondary)
@@ -226,15 +234,28 @@ struct ProviderDiagnosticsView: View {
                 row("Dimension", coverage.dimension.map { "\($0)" } ?? "None")
             }
             HStack {
-                Button("Test Embedding Provider") {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.providerTest,
+                    title: "Test Embedding Provider",
+                    loadingTitle: "Testing...",
+                    successTitle: "Connected",
+                    systemImage: "network"
+                ) {
                     appState.testEmbeddingProvider()
                 }
-                .buttonStyle(.bordered)
-                Button("Rebuild Embeddings") {
+                ProgressButton(
+                    appState: appState,
+                    actionID: ActionID.rebuildEmbeddings,
+                    title: "Rebuild Embeddings",
+                    loadingTitle: "Rebuilding...",
+                    systemImage: "square.stack.3d.up",
+                    progress: appState.rebuildProgress
+                ) {
                     appState.rebuildAllEmbeddings()
                 }
-                .buttonStyle(.borderedProminent)
             }
+            InlineStatusBanner(appState.latestActionFeedback(matching: [ActionID.providerTest, ActionID.rebuildEmbeddings]))
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

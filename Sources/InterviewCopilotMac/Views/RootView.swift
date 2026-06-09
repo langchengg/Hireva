@@ -19,6 +19,29 @@ struct RootView: View {
         } detail: {
             detailView
         }
+        .overlay(alignment: .topTrailing) {
+            ToastBanner(feedbacks: appState.activeActionFeedbacks)
+        }
+        .overlay(alignment: .top) {
+            if let warning = appState.staleBundleWarning {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(warning)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .frame(maxWidth: 720)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.orange.opacity(0.35), lineWidth: 1)
+                )
+                .padding(.top, 12)
+            }
+        }
         .alert("InterviewCopilotMac", isPresented: Binding(
             get: { appState.errorMessage != nil },
             set: { if !$0 { appState.errorMessage = nil } }

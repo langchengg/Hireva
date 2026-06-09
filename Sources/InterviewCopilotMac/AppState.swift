@@ -65,6 +65,8 @@ final class AppState: ObservableObject {
     @Published var lastTranscriptSnippet: String = ""
     @Published var isFloatingAssistantVisible = false
     @Published var errorMessage: String?
+    @Published var activeActionFeedbacks: [ActionFeedback] = []
+    @Published var actionLoadingStates: [String: Bool] = [:]
     
     @Published var lastQuestionDetectionProvider: String? = nil
     @Published var lastQuestionDetectionModel: String? = nil
@@ -100,6 +102,11 @@ final class AppState: ObservableObject {
     @Published var lastRetrievalTrace: RetrievalTrace?
     @Published var currentSuggestionRetrievedChunks: [RetrievedChunk] = []
     @Published var latexPollutedChunkCount: Int = 0
+    @Published var buildIdentity = BuildIdentity.current()
+
+    var staleBundleWarning: String? {
+        buildIdentity.staleWarning
+    }
     
     // RAG Phase 3 Embedding properties
     @Published var embeddingCoverage: EmbeddingCoverage? = nil
@@ -108,6 +115,7 @@ final class AppState: ObservableObject {
     @Published var lastEmbeddingTestStatus: String = "Not tested"
     @Published var lastEmbeddingError: String?
     private var activeEmbeddingRebuildTask: Task<Void, Never>? = nil
+    private var actionFeedbackDismissTasks: [String: Task<Void, Never>] = [:]
     @Published var historicalSuggestionChunks: [String: [RetrievedChunk]] = [:]
 
     // MARK: - Manual Capture Push-to-Ask state
@@ -169,7 +177,9 @@ final class AppState: ObservableObject {
     var isSystemAudioASRActive: Bool { appleSpeechService?.systemAudioSession?.recognitionTask != nil }
 
     // --- Dual Stream Diagnostics ---
-    var micCaptureRunning: Bool { AudioEngineManager.shared.isEngineRunning }
+    var micCaptureRunning: Bool {
+        isMicPipelineActive || microphoneDiagnostics.isRunning
+    }
     var micBufferCount: Int { appleSpeechService?.microphoneSession?.totalBuffersAppended ?? 0 }
     var micLastBufferTimestamp: Date? { appleSpeechService?.microphoneSession?.lastBufferReceivedAt }
     var micLevelDBFS: Double { microphoneDiagnostics.decibels }
@@ -625,6 +635,110 @@ final class AppState: ObservableObject {
         if let token = activeObserverToken {
             NotificationCenter.default.removeObserver(token)
         }
+        actionFeedbackDismissTasks.values.forEach { $0.cancel() }
+    }
+
+    func beginAction(_ id: String, title: String, message: String) {
+        actionLoadingStates[id] = true
+        setActionFeedback(
+            ActionFeedback(
+                actionID: id,
+                title: title,
+                message: message,
+                kind: .loading
+            )
+        )
+    }
+
+    func completeAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4.0) {
+        actionLoadingStates[id] = false
+        setActionFeedback(
+            ActionFeedback(
+                actionID: id,
+                title: title,
+                message: message,
+                kind: .success,
+                autoDismissAfter: autoDismissAfter
+            )
+        )
+    }
+
+    func warnAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 6.0) {
+        actionLoadingStates[id] = false
+        setActionFeedback(
+            ActionFeedback(
+                actionID: id,
+                title: title,
+                message: message,
+                kind: .warning,
+                autoDismissAfter: autoDismissAfter
+            )
+        )
+    }
+
+    func failAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = nil) {
+        actionLoadingStates[id] = false
+        setActionFeedback(
+            ActionFeedback(
+                actionID: id,
+                title: title,
+                message: message,
+                kind: .error,
+                autoDismissAfter: autoDismissAfter
+            )
+        )
+        updateDiagnostics { $0.lastError = message }
+    }
+
+    func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4.0) {
+        setActionFeedback(
+            ActionFeedback(
+                actionID: id,
+                title: title,
+                message: message,
+                kind: .info,
+                autoDismissAfter: autoDismissAfter
+            )
+        )
+    }
+
+    func clearActionFeedback(_ id: String) {
+        actionLoadingStates[id] = false
+        activeActionFeedbacks.removeAll { $0.actionID == id }
+        actionFeedbackDismissTasks[id]?.cancel()
+        actionFeedbackDismissTasks[id] = nil
+    }
+
+    func isActionLoading(_ id: String) -> Bool {
+        actionLoadingStates[id] == true
+    }
+
+    func latestActionFeedback(for id: String) -> ActionFeedback? {
+        activeActionFeedbacks.last { $0.actionID == id }
+    }
+
+    func latestActionFeedback(matching ids: [String]) -> ActionFeedback? {
+        activeActionFeedbacks.last { ids.contains($0.actionID) }
+    }
+
+    private func setActionFeedback(_ feedback: ActionFeedback) {
+        actionFeedbackDismissTasks[feedback.actionID]?.cancel()
+        activeActionFeedbacks.removeAll { $0.actionID == feedback.actionID }
+        activeActionFeedbacks.append(feedback)
+        if activeActionFeedbacks.count > 8 {
+            activeActionFeedbacks = Array(activeActionFeedbacks.suffix(8))
+        }
+        guard let autoDismissAfter = feedback.autoDismissAfter else { return }
+        actionFeedbackDismissTasks[feedback.actionID] = Task { [weak self, feedbackID = feedback.id, actionID = feedback.actionID] in
+            try? await Task.sleep(for: .seconds(autoDismissAfter))
+            await MainActor.run {
+                guard let self else { return }
+                self.activeActionFeedbacks.removeAll { $0.id == feedbackID }
+                if self.actionFeedbackDismissTasks[actionID]?.isCancelled == false {
+                    self.actionFeedbackDismissTasks[actionID] = nil
+                }
+            }
+        }
     }
 
     var onboardingComplete: Bool {
@@ -743,30 +857,50 @@ final class AppState: ObservableObject {
     }
 
     func saveDocument(type: DocumentType, title: String, content: String) {
+        let actionID = ActionID.saveDocument(type)
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Saving \(type.title)", message: "Saving and rebuilding clean context chunks...")
         do {
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count >= 80 else {
-                showError("\(type.title) is too short to save. Paste at least 80 characters so suggestions can be grounded in meaningful context.")
+                warnAction(actionID, title: "More text needed", message: "Paste at least 80 characters before saving \(type.title).")
                 return
             }
-            _ = try documentRepository.saveDocument(type: type, title: title, content: content)
+            let saved = try documentRepository.saveDocument(type: type, title: title, content: content)
             refreshAll()
             triggerEmbeddingGeneration(for: type)
+            if saved.sanitizationWarnings?.isEmpty == false {
+                warnAction(actionID, title: "Saved and cleaned", message: "LaTeX or formatting noise was cleaned for relevant context.")
+            } else {
+                let chunks = (try? documentRepository.chunks(type: type).count) ?? 0
+                completeAction(actionID, title: "Saved and indexed", message: "\(type.title) saved. \(chunks) clean chunks are ready.")
+            }
         } catch {
-            showError("Could not save \(type.title): \(error.localizedDescription)")
+            let message = "Could not save \(type.title): \(error.localizedDescription)"
+            failAction(actionID, title: "Save failed", message: message)
+            showError(message)
         }
     }
 
     func deleteDocument(_ document: DocumentRecord) {
+        let actionID = ActionID.clearDocument(document.type)
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Clearing \(document.type.title)", message: "Removing the saved document and refreshing context status...")
         do {
             try documentRepository.deleteDocument(id: document.id)
             refreshAll()
+            completeAction(actionID, title: "Document cleared", message: "\(document.type.title) was removed.")
         } catch {
-            showError("Could not delete document: \(error.localizedDescription)")
+            let message = "Could not delete document: \(error.localizedDescription)"
+            failAction(actionID, title: "Clear failed", message: message)
+            showError(message)
         }
     }
 
     func saveSettings(_ newSettings: AppSettings) {
+        let actionID = ActionID.saveSettings
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Saving settings", message: "Applying the latest preferences...")
         var next = newSettings
         next.compactMode = next.floatingAssistantDisplayMode == .compact
         if next.highContrastFloatingPanel {
@@ -776,48 +910,72 @@ final class AppState: ObservableObject {
             settings = next
             try settingsRepository.saveSettings(next)
             refreshAll()
+            completeAction(actionID, title: "Settings saved", message: "Your settings were applied.")
         } catch {
-            showError("Could not save settings: \(error.localizedDescription)")
+            let message = "Could not save settings: \(error.localizedDescription)"
+            failAction(actionID, title: "Save failed", message: message)
+            showError(message)
         }
     }
 
     func saveAPIKey(_ apiKey: String) {
+        let actionID = ActionID.providerSaveKey
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Saving securely", message: "Saving the provider key without displaying it.")
         do {
             try keychainService.saveAPIKey(apiKey)
             self.connectionResult = "API key securely saved."
             self.refreshAll()
+            completeAction(actionID, title: "Saved securely", message: "Provider key saved. Raw key is hidden.")
         } catch {
-            showError("Could not save API key: \(error.localizedDescription)")
+            let message = "Could not save API key: \(error.localizedDescription)"
+            failAction(actionID, title: "Key save failed", message: message)
+            showError(message)
         }
     }
 
     func saveAPIKey(_ apiKey: String, for provider: LLMProviderConfiguration) {
+        let actionID = ActionID.provider(ActionID.providerSaveKey, provider.id)
+        guard !isActionLoading(actionID) else { return }
         guard let account = provider.apiKeyAccount else {
             connectionResult = "\(provider.name) does not require an API key."
+            infoAction(actionID, title: "No key needed", message: "\(provider.name) does not require an API key.")
             return
         }
+        beginAction(actionID, title: "Saving securely", message: "Saving \(provider.name) key without displaying it.")
         do {
             try keychainService.saveAPIKey(apiKey, account: account)
             self.providerConnectionResults[provider.id] = "API key securely saved."
             self.refreshAll()
+            completeAction(actionID, title: "Saved securely", message: "\(provider.name) key saved. Raw key is hidden.")
         } catch {
-            showError("Could not save API key: \(error.localizedDescription)")
+            let message = "Could not save API key: \(error.localizedDescription)"
+            failAction(actionID, title: "Key save failed", message: message)
+            showError(message)
         }
     }
 
     func saveEmbeddingAPIKey(_ apiKey: String, account: String) {
+        let actionID = ActionID.saveEmbeddingKey
+        guard !isActionLoading(actionID) else { return }
         let cleanedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedAccount.isEmpty else {
-            showError("Embedding API key account is missing.")
+            let message = "Embedding API key account is missing."
+            failAction(actionID, title: "Key save failed", message: message)
+            showError(message)
             return
         }
+        beginAction(actionID, title: "Saving securely", message: "Saving the embedding provider key without displaying it.")
         do {
             try keychainService.saveAPIKey(apiKey, account: cleanedAccount)
             lastEmbeddingError = nil
             lastEmbeddingTestStatus = "Embedding API key securely saved."
             refreshAll()
+            completeAction(actionID, title: "Saved securely", message: "Embedding key saved. Raw key is hidden.")
         } catch {
-            showError("Could not save embedding API key: \(error.localizedDescription)")
+            let message = "Could not save embedding API key: \(error.localizedDescription)"
+            failAction(actionID, title: "Key save failed", message: message)
+            showError(message)
         }
     }
 
@@ -833,16 +991,21 @@ final class AppState: ObservableObject {
     }
 
     func testEmbeddingProvider() {
+        let actionID = ActionID.providerTest
+        guard !isActionLoading(actionID) else { return }
         guard settings.embeddingProviderKind != .disabled else {
             lastEmbeddingError = nil
             lastEmbeddingTestStatus = "Keyword RAG ready; vector embeddings not configured."
+            infoAction(actionID, title: "Keyword search ready", message: "Cloud embeddings are not configured.")
             return
         }
         guard let provider = resolveEmbeddingProvider() else {
             lastEmbeddingTestStatus = "Keyword RAG ready; vector embeddings not configured."
+            warnAction(actionID, title: "Embedding key missing", message: "Keyword search remains ready. Add a cloud embedding key to test embeddings.")
             return
         }
 
+        beginAction(actionID, title: "Testing embeddings", message: "Sending a small provider test request...")
         isTestingConnection = true
         lastEmbeddingError = nil
         activeAITask?.cancel()
@@ -855,10 +1018,12 @@ final class AppState: ObservableObject {
                 let latency = Int(Date().timeIntervalSince(started) * 1000)
                 self.lastEmbeddingTestStatus = "Connected. Dimension \(vector.count), latency \(latency) ms."
                 self.lastEmbeddingError = nil
+                self.completeAction(actionID, title: "Embedding provider connected", message: "Dimension \(vector.count), latency \(latency) ms.")
             } catch {
                 guard !Task.isCancelled else { return }
                 self.lastEmbeddingTestStatus = "Embedding provider test failed."
                 self.lastEmbeddingError = self.userFacing(error)
+                self.failAction(actionID, title: "Embedding test failed", message: self.userFacing(error))
             }
             self.isTestingConnection = false
         }
@@ -875,33 +1040,54 @@ final class AppState: ObservableObject {
     }
 
     func saveProviderConfiguration(_ provider: LLMProviderConfiguration) {
+        let actionID = ActionID.provider(ActionID.providerSave, provider.id)
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Saving provider", message: "Saving \(provider.name) configuration...")
         do {
             try settingsRepository.saveProviderConfiguration(provider)
             refreshAll()
+            completeAction(actionID, title: "Provider saved", message: "\(provider.name) configuration saved.")
         } catch {
-            showError("Could not save provider: \(error.localizedDescription)")
+            let message = "Could not save provider: \(error.localizedDescription)"
+            failAction(actionID, title: "Provider save failed", message: message)
+            showError(message)
         }
     }
 
     func deleteProviderConfiguration(_ provider: LLMProviderConfiguration) {
+        let actionID = ActionID.provider(ActionID.providerDelete, provider.id)
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Deleting provider", message: "Removing \(provider.name)...")
         do {
             try settingsRepository.deleteProviderConfiguration(id: provider.id)
             refreshAll()
+            completeAction(actionID, title: "Provider deleted", message: "\(provider.name) was removed.")
         } catch {
-            showError("Could not delete provider: \(error.localizedDescription)")
+            let message = "Could not delete provider: \(error.localizedDescription)"
+            failAction(actionID, title: "Provider delete failed", message: message)
+            showError(message)
         }
     }
 
     func setActiveRealtimeProvider(_ provider: LLMProviderConfiguration) {
+        let actionID = ActionID.providerSwitch
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Switching provider", message: "Setting \(provider.name) for realtime answers...")
         do {
             try settingsRepository.setActiveRealtimeProvider(id: provider.id)
             refreshAll()
+            completeAction(actionID, title: "Provider switched", message: "\(provider.name) is now used for realtime answers.")
         } catch {
-            showError("Could not set realtime provider: \(error.localizedDescription)")
+            let message = "Could not set realtime provider: \(error.localizedDescription)"
+            failAction(actionID, title: "Provider switch failed", message: message)
+            showError(message)
         }
     }
 
     func updateActiveRealtimeProvider(provider: LLMProviderConfiguration, model: String?) {
+        let actionID = ActionID.providerSwitch
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Switching provider", message: "Checking \(provider.name) configuration...")
         activeAITask?.cancel()
         errorMessage = nil
         lastProviderSwitchError = nil
@@ -917,6 +1103,7 @@ final class AppState: ObservableObject {
                 let msg = "Local providers are disabled. Please choose DeepSeek or another API provider."
                 self.lastProviderSwitchError = msg
                 self.errorMessage = "Could not switch provider: \(msg)"
+                failAction(actionID, title: "Provider switch failed", message: msg)
                 return
             } else if updated.kind == .deepSeek || updated.kind == .openAICompatible {
                 guard let account = updated.apiKeyAccount,
@@ -924,6 +1111,7 @@ final class AppState: ObservableObject {
                     let msg = "Missing API Key for \(updated.name)."
                     self.lastProviderSwitchError = msg
                     self.errorMessage = "Could not switch provider: \(msg)"
+                    failAction(actionID, title: "Provider switch failed", message: msg)
                     return
                 }
                 
@@ -935,23 +1123,34 @@ final class AppState: ObservableObject {
                 try settingsRepository.setActiveRealtimeProvider(id: updated.id)
                 refreshAll()
             }
+            completeAction(actionID, title: "Provider switched", message: "\(updated.name) \(updated.model) is active.")
         } catch {
             let msg = error.localizedDescription
             self.lastProviderSwitchError = msg
             self.errorMessage = "Could not switch provider: \(msg)"
+            failAction(actionID, title: "Provider switch failed", message: msg)
         }
     }
 
     func setActiveRecapProvider(_ provider: LLMProviderConfiguration) {
+        let actionID = ActionID.provider(ActionID.providerSave, provider.id)
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Saving recap provider", message: "Setting \(provider.name) for full answers and recaps...")
         do {
             try settingsRepository.setActiveRecapProvider(id: provider.id)
             refreshAll()
+            completeAction(actionID, title: "Recap provider saved", message: "\(provider.name) is now used for recaps.")
         } catch {
-            showError("Could not set recap provider: \(error.localizedDescription)")
+            let message = "Could not set recap provider: \(error.localizedDescription)"
+            failAction(actionID, title: "Provider save failed", message: message)
+            showError(message)
         }
     }
 
     func testProviderConnection(_ provider: LLMProviderConfiguration) {
+        let actionID = ActionID.provider(ActionID.providerTest, provider.id)
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Testing \(provider.name)", message: "Testing provider connection...")
         isTestingConnection = true
         providerConnectionResults[provider.id] = nil
         activeAITask?.cancel()
@@ -961,6 +1160,7 @@ final class AppState: ObservableObject {
                 let result = try await llmRouter.testProvider(configuration: provider)
                 guard !Task.isCancelled else { return }
                 providerConnectionResults[provider.id] = result.message
+                completeAction(actionID, title: "\(provider.name) connected", message: result.message)
                 updateDiagnostics {
                     $0.lastAPILatencyMS = result.latencyMS
                     $0.lastProviderName = provider.name
@@ -970,6 +1170,7 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled else { return }
                 let message = self.userFacing(error)
                 providerConnectionResults[provider.id] = message
+                self.failAction(actionID, title: "\(provider.name) test failed", message: message)
                 updateDiagnostics { $0.lastError = message }
             }
             isTestingConnection = false
@@ -1027,14 +1228,19 @@ final class AppState: ObservableObject {
     }
 
     func testDeepSeekConnection() {
+        let actionID = ActionID.testDeepSeek
+        guard !isActionLoading(actionID) else { return }
         guard let provider = providerConfigurations.first(where: { $0.kind == .deepSeek }) else {
             connectionResult = "DeepSeek provider is not configured."
+            failAction(actionID, title: "DeepSeek not configured", message: "Add DeepSeek in Settings before testing.")
             return
         }
         guard provider.apiKeyAccount.map({ keychainService.hasAPIKey(account: $0) }) ?? false else {
             connectionResult = "Add a DeepSeek API key before testing the connection."
+            failAction(actionID, title: "DeepSeek key missing", message: "Save a DeepSeek API key before testing.")
             return
         }
+        beginAction(actionID, title: "Testing DeepSeek", message: "Checking the saved key and model endpoint...")
         isTestingConnection = true
         connectionResult = nil
         activeAITask?.cancel()
@@ -1044,6 +1250,7 @@ final class AppState: ObservableObject {
                 let response = try await llmRouter.testProvider(configuration: provider)
                 guard !Task.isCancelled else { return }
                 connectionResult = response.message
+                completeAction(actionID, title: "DeepSeek connected", message: response.message)
                 updateDiagnostics {
                     $0.lastAPILatencyMS = response.latencyMS
                     $0.lastProviderName = provider.name
@@ -1052,6 +1259,7 @@ final class AppState: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 connectionResult = self.userFacing(error)
+                failAction(actionID, title: "DeepSeek test failed", message: self.userFacing(error))
                 updateDiagnostics { $0.lastError = self.userFacing(error) }
             }
             isTestingConnection = false
@@ -1059,11 +1267,19 @@ final class AppState: ObservableObject {
     }
 
     func startListening(mode: InterviewMode) {
+        let actionID = ActionID.startInterview
+        guard !isActionLoading(actionID) else { return }
         guard onboardingComplete else {
-            showError(liveBlockedReason ?? "Run the readiness check before starting.")
+            let message = liveBlockedReason ?? "Run the readiness check before starting."
+            failAction(actionID, title: "Setup incomplete", message: message)
+            showError(message)
             return
         }
-        guard liveState.canStartListening else { return }
+        guard liveState.canStartListening else {
+            warnAction(actionID, title: "Already running", message: "Stop listening before starting a new interview.")
+            return
+        }
+        beginAction(actionID, title: "Starting audio", message: "Starting \(settings.audioCaptureMode.shortDisplayName) capture...")
         errorMessage = nil
         possibleQuestion = nil
         activeAITask?.cancel()
@@ -1117,7 +1333,9 @@ final class AppState: ObservableObject {
                         liveState = .permissionDenied
                         currentCaptureRuntimeState = .stopped(reason: .permissionDenied)
                         addCaptureEvent(name: "listeningStopped", stateBefore: "starting", stateAfter: "stopped", reason: "permissionDenied")
-                        showError("Grant microphone permission to start live transcription. You can change this in macOS Privacy & Security settings.")
+                        let message = "Grant microphone permission to start live transcription. You can change this in macOS Privacy & Security settings."
+                        failAction(ActionID.startInterview, title: "Microphone permission needed", message: message)
+                        showError(message)
                         return
                     }
                     
@@ -1131,7 +1349,9 @@ final class AppState: ObservableObject {
                         liveState = .permissionDenied
                         currentCaptureRuntimeState = .stopped(reason: .permissionDenied)
                         addCaptureEvent(name: "listeningStopped", stateBefore: "starting", stateAfter: "stopped", reason: "permissionDenied")
-                        showError("Speech Recognition permission is required for Apple Speech transcription. Grant access in macOS Privacy & Security settings, or use Practice Testing.")
+                        let message = "Speech Recognition permission is required for Apple Speech transcription. Grant access in macOS Privacy & Security settings, or use Practice Testing."
+                        failAction(ActionID.startInterview, title: "Speech permission needed", message: message)
+                        showError(message)
                         return
                     }
                 } else {
@@ -1165,15 +1385,25 @@ final class AppState: ObservableObject {
                                 addCaptureEvent(name: "listeningStopped", stateBefore: "starting", stateAfter: "stopped", reason: "permissionDenied")
                                 switch finalState {
                                 case .permissionMissing:
-                                    showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                                    let message = "Enable Screen & System Audio Recording in System Settings to capture interviewer audio."
+                                    failAction(ActionID.startInterview, title: "Permission needed", message: message)
+                                    showError(message)
                                 case .restartLikely:
-                                    showError("macOS requires restarting the application for Screen & System Audio Recording to take effect.")
+                                    let message = "macOS requires restarting the application for Screen & System Audio Recording to take effect."
+                                    failAction(ActionID.startInterview, title: "Restart required", message: message)
+                                    showError(message)
                                 case .identityMismatch:
-                                    showError("Application identity mismatch suspected. macOS permissions may not match System Settings.")
+                                    let message = "Application identity mismatch suspected. macOS permissions may not match System Settings."
+                                    failAction(ActionID.startInterview, title: "Permission mismatch", message: message)
+                                    showError(message)
                                 case .shareableContentProbeFailed(let err):
-                                    showError("ScreenCaptureKit shareable content probe failed: \(err)")
+                                    let message = "ScreenCaptureKit shareable content probe failed: \(err)"
+                                    failAction(ActionID.startInterview, title: "System audio failed", message: message)
+                                    showError(message)
                                 case .streamAudioProbeFailed(let err):
-                                    showError("System audio capture stream failed: \(err)")
+                                    let message = "System audio capture stream failed: \(err)"
+                                    failAction(ActionID.startInterview, title: "System audio failed", message: message)
+                                    showError(message)
                                 case .granted:
                                     break
                                 }
@@ -1185,15 +1415,25 @@ final class AppState: ObservableObject {
                             addCaptureEvent(name: "listeningStopped", stateBefore: "starting", stateAfter: "stopped", reason: "permissionDenied")
                             switch state {
                             case .restartLikely:
-                                showError("macOS requires restarting the application for Screen & System Audio Recording to take effect.")
+                                let message = "macOS requires restarting the application for Screen & System Audio Recording to take effect."
+                                failAction(ActionID.startInterview, title: "Restart required", message: message)
+                                showError(message)
                             case .identityMismatch:
-                                showError("Application identity mismatch suspected. macOS permissions may not match System Settings.")
+                                let message = "Application identity mismatch suspected. macOS permissions may not match System Settings."
+                                failAction(ActionID.startInterview, title: "Permission mismatch", message: message)
+                                showError(message)
                             case .shareableContentProbeFailed(let err):
-                                showError("ScreenCaptureKit shareable content probe failed: \(err)")
+                                let message = "ScreenCaptureKit shareable content probe failed: \(err)"
+                                failAction(ActionID.startInterview, title: "System audio failed", message: message)
+                                showError(message)
                             case .streamAudioProbeFailed(let err):
-                                showError("System audio capture stream failed: \(err)")
+                                let message = "System audio capture stream failed: \(err)"
+                                failAction(ActionID.startInterview, title: "System audio failed", message: message)
+                                showError(message)
                             case .permissionMissing:
-                                showError("Enable Screen & System Audio Recording in System Settings to capture interviewer audio.")
+                                let message = "Enable Screen & System Audio Recording in System Settings to capture interviewer audio."
+                                failAction(ActionID.startInterview, title: "Permission needed", message: message)
+                                showError(message)
                             case .granted:
                                 break
                             }
@@ -1222,6 +1462,7 @@ final class AppState: ObservableObject {
                 liveState = .listening
                 showFloatingAssistant()
                 consumeSegments(from: provider)
+                completeAction(ActionID.startInterview, title: "Listening started", message: "Practice capture is active.")
             } else {
                 let captureMode = settings.audioCaptureMode
                 print("[DualAudio] mode = \(captureMode.rawValue)")
@@ -1265,6 +1506,7 @@ final class AppState: ObservableObject {
                 currentCaptureRuntimeState = .listening
                 addCaptureEvent(name: "listeningActive", stateBefore: "starting", stateAfter: "listening", reason: "captureActive")
                 showFloatingAssistant()
+                completeAction(ActionID.startInterview, title: "Listening started", message: "\(captureMode.shortDisplayName) is active.")
                 
                 // Start background silence / signal validation
                 startAudioSignalMonitoring()
@@ -1274,6 +1516,7 @@ final class AppState: ObservableObject {
             liveState = .error(message)
             currentCaptureRuntimeState = .error(reason: message)
             addCaptureEvent(name: "startListeningFailed", stateBefore: "starting", stateAfter: "error", reason: message)
+            failAction(ActionID.startInterview, title: "Could not start", message: message)
             showError(message)
         }
     }
@@ -1284,6 +1527,9 @@ final class AppState: ObservableObject {
         line: Int = #line,
         function: String = #function
     ) {
+        if reason == .userRequested {
+            beginAction(ActionID.stopListening, title: "Stopping", message: "Stopping audio capture and preserving the current answer...")
+        }
         let stateBefore = currentCaptureRuntimeState.displayName
         currentCaptureRuntimeState = .stopping
         self.stopReason = reason
@@ -1370,9 +1616,13 @@ final class AppState: ObservableObject {
         )
         
         refreshAll()
+        if reason == .userRequested {
+            completeAction(ActionID.stopListening, title: "Listening stopped", message: "The latest suggestion remains visible.")
+        }
     }
  
     func clearLiveSession() {
+        beginAction(ActionID.clearLiveSession, title: "Clearing session", message: "Removing current transcript, question, and answer from the live workspace...")
         let stateBefore = currentCaptureRuntimeState.displayName
         cancelStageBTask()
         activeAITask?.cancel()
@@ -1401,6 +1651,7 @@ final class AppState: ObservableObject {
         currentCaptureRuntimeState = .idle
         
         addCaptureEvent(name: "clearLiveSession", stateBefore: stateBefore, stateAfter: "idle", reason: "sessionCleared")
+        completeAction(ActionID.clearLiveSession, title: "Session cleared", message: "Ready for a new question.")
     }
 
     func submitMockQuestion(_ text: String) {
@@ -1450,22 +1701,33 @@ final class AppState: ObservableObject {
     }
 
     func manualAnswerNow() {
-        guard liveState.canAnswerNow else { return }
+        guard !isActionLoading(ActionID.generateAnswer) else { return }
+        guard liveState.canAnswerNow else {
+            warnAction(ActionID.generateAnswer, title: "Answer already running", message: "Wait for the current generation to finish before retrying.")
+            return
+        }
         guard onboardingComplete else {
-            showError(liveBlockedReason ?? "Run the readiness check before generating an answer.")
+            let message = liveBlockedReason ?? "Run the readiness check before generating an answer."
+            failAction(ActionID.generateAnswer, title: "Setup incomplete", message: message)
+            showError(message)
             return
         }
         guard let session = currentSession ?? (try? sessionRepository.createSession(mode: .mock)) else {
-            showError("Could not create an interview session.")
+            let message = "Could not create an interview session."
+            failAction(ActionID.generateAnswer, title: "Generation failed", message: message)
+            showError(message)
             return
         }
         currentSession = session
         let transcript = recentTranscriptText()
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            showError("There is no transcript yet. Start Listening first, or use Practice / Developer Testing to inject a test question.")
+            let message = "There is no transcript yet. Start Listening first, or use Practice / Developer Testing to inject a test question."
+            failAction(ActionID.generateAnswer, title: "No transcript yet", message: message)
+            showError(message)
             return
         }
 
+        beginAction(ActionID.generateAnswer, title: "Generating first answer", message: "Transcript is preserved while DeepSeek prepares the answer.")
         activeAITask?.cancel()
         activeAITask = Task { [weak self] in
             guard let self else { return }
@@ -1474,6 +1736,8 @@ final class AppState: ObservableObject {
     }
 
     func generateRecap(for session: InterviewSession) {
+        guard !isActionLoading(ActionID.sessionRecap) else { return }
+        beginAction(ActionID.sessionRecap, title: "Generating recap", message: "Summarizing transcript and relevant context...")
         isGeneratingRecap = true
         activeAITask?.cancel()
         activeAITask = Task { [weak self] in
@@ -1500,9 +1764,12 @@ final class AppState: ObservableObject {
                     $0.lastAPILatencyMS = result.response.latencyMS
                     $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
                 }
+                completeAction(ActionID.sessionRecap, title: "Recap ready", message: "Session recap is visible.")
             } catch {
                 guard !Task.isCancelled else { return }
-                showError(userFacing(error))
+                let message = userFacing(error)
+                failAction(ActionID.sessionRecap, title: "Recap failed", message: message)
+                showError(message)
             }
             isGeneratingRecap = false
         }
@@ -1510,13 +1777,21 @@ final class AppState: ObservableObject {
 
     func exportSelectedRecap() {
         guard let recap = selectedSessionRecap,
-              let session = sessions.first(where: { $0.id == recap.sessionID }) else { return }
+              let session = sessions.first(where: { $0.id == recap.sessionID }) else {
+            warnAction(ActionID.sessionExport, title: "Nothing to export", message: "Generate a recap before exporting.")
+            return
+        }
+        guard !isActionLoading(ActionID.sessionExport) else { return }
+        beginAction(ActionID.sessionExport, title: "Exporting recap", message: "Writing Markdown file...")
         do {
             let url = try recapRepository.exportMarkdown(recap: recap, sessionTitle: session.title)
             connectionResult = "Exported recap to \(url.path)."
+            completeAction(ActionID.sessionExport, title: "Recap exported", message: url.lastPathComponent)
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } catch {
-            showError("Could not export recap: \(error.localizedDescription)")
+            let message = "Could not export recap: \(error.localizedDescription)"
+            failAction(ActionID.sessionExport, title: "Export failed", message: message)
+            showError(message)
         }
     }
 
@@ -1538,6 +1813,8 @@ final class AppState: ObservableObject {
     }
 
     func deleteSession(_ session: InterviewSession) {
+        guard !isActionLoading(ActionID.sessionDelete) else { return }
+        beginAction(ActionID.sessionDelete, title: "Deleting session", message: "Removing \(session.title)...")
         do {
             try sessionRepository.deleteSession(id: session.id)
             if selectedSessionID == session.id {
@@ -1547,12 +1824,17 @@ final class AppState: ObservableObject {
                 selectedSessionRecap = nil
             }
             refreshAll()
+            completeAction(ActionID.sessionDelete, title: "Session deleted", message: "\(session.title) was removed.")
         } catch {
-            showError("Could not delete session: \(error.localizedDescription)")
+            let message = "Could not delete session: \(error.localizedDescription)"
+            failAction(ActionID.sessionDelete, title: "Delete failed", message: message)
+            showError(message)
         }
     }
 
     func deleteAllLocalData(includeAPIKey: Bool) {
+        guard !isActionLoading(ActionID.clearLocalData) else { return }
+        beginAction(ActionID.clearLocalData, title: "Clearing local data", message: "Stopping capture and deleting local app data...")
         stopListening()
         do {
             if includeAPIKey {
@@ -1563,8 +1845,11 @@ final class AppState: ObservableObject {
             try localDataService.deleteAllLocalData(includeAPIKey: includeAPIKey)
             clearLiveSession()
             refreshAll()
+            completeAction(ActionID.clearLocalData, title: "Local data cleared", message: includeAPIKey ? "Documents, sessions, transcripts, and saved keys were cleared." : "Documents, sessions, and transcripts were cleared.")
         } catch {
-            showError("Could not delete local data: \(error.localizedDescription)")
+            let message = "Could not delete local data: \(error.localizedDescription)"
+            failAction(ActionID.clearLocalData, title: "Clear failed", message: message)
+            showError(message)
         }
     }
 
@@ -1658,13 +1943,16 @@ final class AppState: ObservableObject {
     }
 
     func showFloatingAssistant() {
+        beginAction(ActionID.showFloatingPanel, title: "Opening floating panel", message: "Bringing the answer card to the front...")
         FloatingAssistantPanelController.shared.show(appState: self)
         isFloatingAssistantVisible = true
+        completeAction(ActionID.showFloatingPanel, title: "Floating panel visible", message: "The answer card is ready.")
     }
 
     func hideFloatingAssistant() {
         FloatingAssistantPanelController.shared.hide()
         isFloatingAssistantVisible = false
+        infoAction(ActionID.showFloatingPanel, title: "Floating panel hidden", message: "Use Show Floating Panel to bring it back.")
     }
 
     func openMainWindow() {
@@ -2003,6 +2291,7 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             let message = userFacing(error)
             liveState = .error(message)
+            failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(message)")
             
             if self.lastFailedTaskType != .suggestionGeneration {
                 self.lastFailedTaskType = .questionDetection
@@ -2309,6 +2598,9 @@ final class AppState: ObservableObject {
     ) async throws {
         // Cancel any existing background Stage B task first
         cancelStageBTask()
+        if !isActionLoading(ActionID.generateAnswer) {
+            beginAction(ActionID.generateAnswer, title: "Generating first answer", message: autoGenerated ? "Question detected. Preparing a speakable answer..." : "Preparing a speakable first answer...")
+        }
 
         liveState = .generatingSuggestion
         let stateBefore = currentCaptureRuntimeState.displayName
@@ -2620,6 +2912,7 @@ final class AppState: ObservableObject {
                     generationID: generationID,
                     requestStart: requestStart
                 )
+                self.completeAction(ActionID.generateAnswer, title: "Answer ready", message: "First answer and key points are visible.")
 
                 // Only restore .listening if safety conditions are met
                 if self.currentSession?.id == localSession.id &&
@@ -2667,6 +2960,9 @@ final class AppState: ObservableObject {
                     }
                     self.currentSuggestion = updated
                     try? self.suggestionRepository.saveSuggestionCard(updated, retrievedChunks: self.currentSuggestionRetrievedChunks)
+                    self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "Full answer expansion failed. The visible answer was kept.")
+                } else {
+                    self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(self.userFacing(error))")
                 }
             }
         }
@@ -2937,7 +3233,9 @@ final class AppState: ObservableObject {
     // MARK: - Audio Signal and Route Recovery monitoring
 
     public func restartAudioInput() {
+        beginAction(ActionID.restartAudioInput, title: "Restarting audio input", message: "Resetting the local audio input path...")
         AudioEngineManager.shared.restartForRouteChange(reason: "Manual restart requested by user")
+        completeAction(ActionID.restartAudioInput, title: "Audio input restarted", message: "Watch the audio status and retry listening if needed.")
     }
 
     private func startAudioSignalMonitoring() {
@@ -3070,10 +3368,14 @@ final class AppState: ObservableObject {
     
     @MainActor
     func startManualCapture() {
+        guard !isActionLoading(ActionID.manualRecord) else { return }
         guard onboardingComplete else {
-            showError(liveBlockedReason ?? "Run the readiness check before recording a question.")
+            let message = liveBlockedReason ?? "Run the readiness check before recording a question."
+            failAction(ActionID.manualRecord, title: "Setup incomplete", message: message)
+            showError(message)
             return
         }
+        beginAction(ActionID.manualRecord, title: "Preparing capture", message: "Checking permissions and preparing the recorder...")
         
         // Prevent pipeline conflicts
         stopAllContinuousPipelines(reason: .userRequested)
@@ -3100,7 +3402,9 @@ final class AppState: ObservableObject {
                     self.systemAudioPermissionState = state
                     
                     guard state == .granted else {
-                        self.manualCaptureState = .error("System audio permission is required to capture interviewer audio.")
+                        let message = "System audio permission is required to capture interviewer audio."
+                        self.manualCaptureState = .error(message)
+                        self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
                         return
                     }
                 } else {
@@ -3108,19 +3412,24 @@ final class AppState: ObservableObject {
                     let micStatus = await permissionService.requestMicrophonePermission()
                     refreshPermissions()
                     guard micStatus == .authorized else {
-                        self.manualCaptureState = .error("Microphone permission is required to record speech.")
+                        let message = "Microphone permission is required to record speech."
+                        self.manualCaptureState = .error(message)
+                        self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
                         return
                     }
                     
                     let speechStatus = await permissionService.requestSpeechRecognition()
                     refreshPermissions()
                     guard speechStatus == .granted else {
-                        self.manualCaptureState = .error("Speech Recognition permission is required for transcription.")
+                        let message = "Speech Recognition permission is required for transcription."
+                        self.manualCaptureState = .error(message)
+                        self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
                         return
                     }
                 }
                 
                 self.manualCaptureState = .recording
+                self.completeAction(ActionID.manualRecord, title: "Recording question", message: "Audio capture is active. Stop when the question is complete.")
                 
                 // Initialize transcription task in parallel with capture for real-time partial feedback
                 try await ManualQuestionTranscriptionService.shared.startTranscription(
@@ -3156,6 +3465,7 @@ final class AppState: ObservableObject {
                 }
             } catch {
                 self.manualCaptureState = .error(error.localizedDescription)
+                self.failAction(ActionID.manualRecord, title: "Capture failed", message: error.localizedDescription)
             }
         }
     }
@@ -3163,6 +3473,8 @@ final class AppState: ObservableObject {
     @MainActor
     func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
         guard self.manualCaptureState == .recording else { return }
+        guard !isActionLoading(ActionID.manualStopTranscribe) else { return }
+        beginAction(ActionID.manualStopTranscribe, title: "Transcribing", message: "Stopping audio and finalizing the transcript...")
         
         self.manualCaptureState = .stopping
         
@@ -3194,23 +3506,28 @@ final class AppState: ObservableObject {
                 self.manualCaptureTranscript = trimmed
                 
                 if trimmed.isEmpty {
-                    self.manualCaptureState = .error("No speech detected or transcription failed. Try recording again.")
+                    let message = "No speech detected or transcription failed. Try recording again."
+                    self.manualCaptureState = .error(message)
+                    self.failAction(ActionID.manualStopTranscribe, title: "Transcription failed", message: message)
                     return
                 }
                 
                 self.manualCaptureState = .transcriptReady
+                self.completeAction(ActionID.manualStopTranscribe, title: "Transcript ready", message: "Review the question and generate an answer.")
                 
                 if !settings.showTranscriptBeforeSending && settings.autoSendAfterTranscription {
                     sendManualCaptureToAI()
                 }
             } catch {
                 self.manualCaptureState = .error(error.localizedDescription)
+                self.failAction(ActionID.manualStopTranscribe, title: "Transcription failed", message: error.localizedDescription)
             }
         }
     }
     
     @MainActor
     func cancelManualCapture() {
+        beginAction(ActionID.manualCancel, title: "Cancelling", message: "Discarding the current manual capture...")
         ManualQuestionCaptureService.shared.cancelCapture()
         ManualQuestionTranscriptionService.shared.cancel()
         self.manualCaptureState = .idle
@@ -3219,10 +3536,12 @@ final class AppState: ObservableObject {
         self.manualCaptureError = nil
         self.manualCaptureBufferCount = 0
         self.manualCaptureLastBufferTimestamp = nil
+        completeAction(ActionID.manualCancel, title: "Recording discarded", message: "Ready to record a new question.")
     }
     
     @MainActor
     func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
+        guard !isActionLoading(ActionID.manualGenerate) else { return }
         guard self.manualCaptureState == .transcriptReady || 
               self.manualCaptureState == .suggestionReady || 
               caseSuggestionError(self.manualCaptureState) else { return }
@@ -3230,6 +3549,7 @@ final class AppState: ObservableObject {
         let rawText = self.manualCaptureTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawText.isEmpty else {
             self.manualCaptureState = .suggestionError("Transcript is empty.")
+            failAction(ActionID.manualGenerate, title: "Generation failed", message: "Transcript is empty.")
             return
         }
         
@@ -3237,6 +3557,7 @@ final class AppState: ObservableObject {
         let text = cleanTranscript(rawText)
         
         self.manualCaptureState = .generatingSuggestion
+        beginAction(ActionID.manualGenerate, title: "Generating first answer", message: "Keeping the transcript visible while generating...")
         
         Task {
             do {
@@ -3309,6 +3630,7 @@ final class AppState: ObservableObject {
                 self.lastSuggestionGenerationModel = result.response.modelName
                 self.manualCaptureSuggestion = result.card
                 self.manualCaptureState = .suggestionReady
+                self.completeAction(ActionID.manualGenerate, title: "Answer ready", message: "Manual capture answer is visible.")
                 
                 // If a live session is running, persist to database and update lists
                 if let session = self.currentSession {
@@ -3377,6 +3699,7 @@ final class AppState: ObservableObject {
                 }
             } catch {
                 self.manualCaptureState = .suggestionError(error.localizedDescription)
+                self.failAction(ActionID.manualGenerate, title: "Generation failed", message: "Transcript preserved. \(error.localizedDescription)")
                 self.updateDiagnostics { diag in
                     diag.lastError = error.localizedDescription
                     diag.rawTranscript = rawText
@@ -3423,16 +3746,19 @@ final class AppState: ObservableObject {
     
     @MainActor
     func retryManualCapture() {
+        beginAction(ActionID.manualRecord, title: "Resetting capture", message: "Clearing the previous manual recording...")
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
         self.manualCaptureError = nil
         self.manualCaptureBufferCount = 0
         self.manualCaptureLastBufferTimestamp = nil
         self.manualCaptureState = .idle
+        completeAction(ActionID.manualRecord, title: "Ready to record", message: "Record a new interviewer question.")
     }
     
     @MainActor
     func clearManualCapture() {
+        beginAction(ActionID.manualClear, title: "Clearing manual capture", message: "Removing transcript and suggestion from the manual capture panel...")
         cancelStageBTask()
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
@@ -3440,6 +3766,7 @@ final class AppState: ObservableObject {
         self.manualCaptureBufferCount = 0
         self.manualCaptureLastBufferTimestamp = nil
         self.manualCaptureState = .idle
+        completeAction(ActionID.manualClear, title: "Manual capture cleared", message: "Ready to record again.")
     }
     
     @MainActor
@@ -3761,15 +4088,19 @@ final class AppState: ObservableObject {
     }
 
     func rebuildAllEmbeddings() {
+        let actionID = ActionID.rebuildEmbeddings
+        guard !isActionLoading(actionID) else { return }
         guard let provider = resolveEmbeddingProvider() else {
             isRebuildingEmbeddings = false
             rebuildProgress = 1.0
             lastEmbeddingTestStatus = "Keyword RAG ready; vector embeddings not configured."
             refreshAll()
+            infoAction(actionID, title: "Keyword search ready", message: "Embedding provider not configured; keyword context is ready.")
             return
         }
         
         cancelEmbeddingRebuild()
+        beginAction(actionID, title: "Rebuilding embeddings", message: "Preparing clean context chunks for cloud embeddings...")
         isRebuildingEmbeddings = true
         rebuildProgress = 0.0
         
@@ -3786,6 +4117,7 @@ final class AppState: ObservableObject {
                     await MainActor.run {
                         self.isRebuildingEmbeddings = false
                         self.rebuildProgress = 1.0
+                        self.warnAction(actionID, title: "No chunks to embed", message: "Save documents or rebuild the clean context index first.")
                     }
                     return
                 }
@@ -3831,12 +4163,15 @@ final class AppState: ObservableObject {
                     self.isRebuildingEmbeddings = false
                     self.lastEmbeddingTestStatus = "Embedding rebuild complete."
                     self.refreshAll()
+                    self.completeAction(actionID, title: "Embeddings rebuilt", message: "\(all.count) chunks checked for cloud embeddings.")
                 }
             } catch {
                 await MainActor.run {
                     self.isRebuildingEmbeddings = false
                     self.lastEmbeddingError = error.localizedDescription
-                    self.showError("Failed to rebuild embeddings: \(error.localizedDescription)")
+                    let message = "Failed to rebuild embeddings: \(error.localizedDescription)"
+                    self.failAction(actionID, title: "Embedding rebuild failed", message: message)
+                    self.showError(message)
                 }
             }
         }
@@ -3861,18 +4196,31 @@ final class AppState: ObservableObject {
         activeEmbeddingRebuildTask?.cancel()
         activeEmbeddingRebuildTask = nil
         isRebuildingEmbeddings = false
+        warnAction(ActionID.rebuildEmbeddings, title: "Embedding rebuild cancelled", message: "Existing context remains available.")
     }
 
     func rebuildCleanRAGIndex() {
+        let actionID = ActionID.rebuildCleanRAG
+        guard !isActionLoading(actionID) else { return }
+        beginAction(actionID, title: "Rebuilding clean index", message: "Sanitizing documents and rebuilding chunks...")
         Task {
             do {
-                _ = try documentRepository.rebuildCleanRAGIndex()
+                let result = try documentRepository.rebuildCleanRAGIndex()
                 await MainActor.run {
-                    self.rebuildAllEmbeddings()
+                    self.refreshAll()
+                    let polluted = self.latexPollutedChunkCount
+                    if self.settings.enableVectorRAG {
+                        self.completeAction(actionID, title: "Clean index rebuilt", message: "\(result.chunksRebuilt) clean chunks ready. Updating embeddings next...")
+                        self.rebuildAllEmbeddings()
+                    } else {
+                        self.completeAction(actionID, title: "Clean index rebuilt", message: "\(result.chunksRebuilt) clean chunks ready. \(polluted) LaTeX warnings remain.")
+                    }
                 }
             } catch {
                 await MainActor.run {
-                    self.showError("Failed to rebuild clean RAG index: \(error.localizedDescription)")
+                    let message = "Failed to rebuild clean RAG index: \(error.localizedDescription)"
+                    self.failAction(actionID, title: "Rebuild failed", message: "Existing index preserved. \(message)")
+                    self.showError(message)
                 }
             }
         }

@@ -28,7 +28,7 @@ struct OnboardingView: View {
                 .padding(18)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
 
-                Text("AI features send only the detected question, recent transcript, and top relevant CV/JD snippets to configured API providers. Cloud API keys are stored in Keychain.")
+                Text("AI features send only the detected question, recent transcript, and top relevant CV/JD snippets to configured API providers. Cloud API keys are securely saved.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -43,6 +43,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     documentEditor(
                         title: "CV / Resume",
+                        type: .cv,
                         placeholder: "Paste resume text here. Plain text, .txt, and .md content work best in this MVP.",
                         text: $cvText,
                         action: { appState.saveDocument(type: .cv, title: "CV / Resume", content: cvText) }
@@ -50,6 +51,7 @@ struct OnboardingView: View {
 
                     documentEditor(
                         title: "Job Description",
+                        type: .jobDescription,
                         placeholder: "Paste the target role's job description here.",
                         text: $jdText,
                         action: { appState.saveDocument(type: .jobDescription, title: "Job Description", content: jdText) }
@@ -61,20 +63,35 @@ struct OnboardingView: View {
                         SecureField("DeepSeek API key", text: $apiKey)
                             .textFieldStyle(.roundedBorder)
                         HStack {
-                            Button("Save Key") {
+                            ActionButton(
+                                appState: appState,
+                                actionID: ActionID.providerSaveKey,
+                                title: "Save Key",
+                                loadingTitle: "Saving securely...",
+                                successTitle: "Saved",
+                                systemImage: "key.fill",
+                                disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ) {
                                 appState.saveAPIKey(apiKey)
                                 apiKey = ""
                             }
-                            .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            Button("Test DeepSeek") {
+                            ActionButton(
+                                appState: appState,
+                                actionID: ActionID.testDeepSeek,
+                                title: "Test DeepSeek",
+                                loadingTitle: "Testing...",
+                                successTitle: "Connected",
+                                systemImage: "network",
+                                disabled: !appState.hasAPIKey || appState.isTestingConnection
+                            ) {
                                 appState.testDeepSeekConnection()
                             }
-                            .disabled(!appState.hasAPIKey || appState.isTestingConnection)
                             if appState.isTestingConnection {
                                 ProgressView()
                                     .controlSize(.small)
                             }
                         }
+                        InlineStatusBanner(appState.latestActionFeedback(matching: [ActionID.providerSaveKey, ActionID.testDeepSeek]))
                         if let result = appState.connectionResult {
                             Text(result)
                                 .font(.caption)
@@ -86,12 +103,20 @@ struct OnboardingView: View {
 
                     HStack {
                         Spacer()
-                        PrimaryButton(
+                        ActionButton(
+                            appState: appState,
+                            actionID: ActionID.runReadiness,
                             title: appState.onboardingComplete ? "Enter App" : "Add CV and JD",
+                            loadingTitle: "Opening...",
+                            successTitle: "Home opened",
                             systemImage: "arrow.right",
-                            isDisabled: !appState.onboardingComplete
+                            isProminent: true,
+                            controlSize: .large,
+                            disabled: !appState.onboardingComplete
                         ) {
+                            appState.beginAction(ActionID.runReadiness, title: "Opening app", message: "Taking you to Home / Interview.")
                             appState.selectSection(.home)
+                            appState.completeAction(ActionID.runReadiness, title: "Home opened", message: "Start with the readiness check or Start Interview.")
                         }
                     }
                 }
@@ -116,6 +141,7 @@ struct OnboardingView: View {
 
     private func documentEditor(
         title: String,
+        type: DocumentType,
         placeholder: String,
         text: Binding<String>,
         action: @escaping () -> Void
@@ -147,9 +173,19 @@ struct OnboardingView: View {
                     .font(.caption)
                     .foregroundStyle(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).count < 80 ? Color.secondary : Color.green)
                 Spacer()
-                Button("Save \(title)") { action() }
-                    .buttonStyle(.borderedProminent)
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.saveDocument(type),
+                    title: "Save \(title)",
+                    loadingTitle: "Saving...",
+                    successTitle: "Saved",
+                    systemImage: "square.and.arrow.down",
+                    isProminent: true,
+                    disabled: text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).count < 80,
+                    action: action
+                )
             }
+            InlineStatusBanner(appState.latestActionFeedback(for: ActionID.saveDocument(type)))
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

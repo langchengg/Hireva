@@ -5,6 +5,11 @@ struct DiagnosticsView: View {
 
     var body: some View {
         TabView {
+            diagnosticsPage(title: "Build") {
+                BuildIdentityCardView(identity: appState.buildIdentity)
+            }
+            .tabItem { Label("Build", systemImage: "shippingbox") }
+
             diagnosticsPage(title: "Provider") {
                 providerTab
             }
@@ -60,10 +65,19 @@ struct DiagnosticsView: View {
                 diagnosticRow("Last provider", appState.diagnostics.lastProviderName ?? "None")
                 diagnosticRow("Last model", appState.diagnostics.lastProviderModel ?? "None")
                 diagnosticRow("Last error", appState.diagnostics.lastError ?? "None")
-                Button("Test DeepSeek") {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.testDeepSeek,
+                    title: "Test DeepSeek",
+                    loadingTitle: "Testing...",
+                    successTitle: "Connected",
+                    systemImage: "network",
+                    isProminent: true,
+                    disabled: appState.isTestingConnection
+                ) {
                     appState.testDeepSeekConnection()
                 }
-                .buttonStyle(.borderedProminent)
+                InlineStatusBanner(appState.latestActionFeedback(for: ActionID.testDeepSeek))
                 if let result = appState.connectionResult {
                     Text(result)
                         .font(.caption)

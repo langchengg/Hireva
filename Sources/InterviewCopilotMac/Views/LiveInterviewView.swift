@@ -54,10 +54,16 @@ struct LiveInterviewView: View {
     @ViewBuilder
     private func primaryActions(isCompact: Bool) -> some View {
         if appState.interviewCopilotMode == .autoDetect {
-            PrimaryButton(
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.startInterview,
                 title: isCompact ? "Start" : "Start Listening",
+                loadingTitle: "Starting...",
+                successTitle: "Listening",
                 systemImage: "mic.fill",
-                isDisabled: appState.anyCaptureRunning || !appState.liveState.canStartListening || appState.liveBlockedReason != nil
+                isProminent: true,
+                controlSize: .large,
+                disabled: appState.anyCaptureRunning || !appState.liveState.canStartListening || appState.liveBlockedReason != nil
             ) {
                 appState.startListening(mode: .microphone)
             }
@@ -72,28 +78,34 @@ struct LiveInterviewView: View {
             .disabled(appState.anyCaptureRunning || !appState.liveState.canStartListening)
             .help("Choose what audio streams to capture: \n• Mic: Microphone Only\n• System: System Audio Only\n• Mic + System: Microphone + System Audio")
 
-            Button {
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.stopListening,
+                title: isCompact ? "Stop" : "Stop",
+                loadingTitle: "Stopping...",
+                successTitle: "Stopped",
+                systemImage: "stop.fill",
+                controlSize: .large,
+                disabled: !appState.canStopCapture
+            ) {
                 appState.stopListening()
-            } label: {
-                Label(isCompact ? "Stop" : "Stop", systemImage: "stop.fill")
-                    .lineLimit(1)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(!appState.canStopCapture)
         }
     }
 
     @ViewBuilder
     private func secondaryControls(isCompact: Bool) -> some View {
-        Button {
+        ActionButton(
+            appState: appState,
+            actionID: ActionID.showFloatingPanel,
+            title: isCompact ? "Overlay" : "Floating Assistant",
+            loadingTitle: "Opening...",
+            successTitle: "Visible",
+            systemImage: "macwindow.badge.plus",
+            controlSize: .large
+        ) {
             appState.showFloatingAssistant()
-        } label: {
-            Label(isCompact ? "Overlay" : "Floating Assistant", systemImage: "macwindow.badge.plus")
-                .lineLimit(1)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
 
         if appState.interviewCopilotMode == .autoDetect {
             Toggle(isOn: automaticDetectionBinding) {
@@ -104,36 +116,45 @@ struct LiveInterviewView: View {
             .controlSize(.small)
             .help("Automatically detect complete interviewer questions and generate suggestions.")
 
-            Button {
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.generateAnswer,
+                title: isCompact ? "Fallback" : "Answer Fallback",
+                loadingTitle: "Generating...",
+                successTitle: "Answer ready",
+                systemImage: "keyboard",
+                controlSize: .large,
+                disabled: !appState.liveState.canAnswerNow || appState.liveBlockedReason != nil
+            ) {
                 appState.manualAnswerNow()
-            } label: {
-                Label(isCompact ? "Fallback" : "Answer Fallback", systemImage: "keyboard")
-                    .lineLimit(1)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(!appState.liveState.canAnswerNow || appState.liveBlockedReason != nil)
             .help("Fallback: manually trigger generation from the recent transcript.")
         }
 
-        Button {
+        ActionButton(
+            appState: appState,
+            actionID: ActionID.clearLiveSession,
+            title: isCompact ? "Clear" : "Clear",
+            loadingTitle: "Clearing...",
+            successTitle: "Cleared",
+            systemImage: "trash",
+            controlSize: .large
+        ) {
             appState.clearLiveSession()
-        } label: {
-            Label(isCompact ? "Clear" : "Clear", systemImage: "trash")
-                .lineLimit(1)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
 
         if appState.interviewCopilotMode == .autoDetect {
-            Button {
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.restartAudioInput,
+                title: isCompact ? "Restart" : "Restart",
+                loadingTitle: "Restarting...",
+                successTitle: "Restarted",
+                systemImage: "arrow.clockwise.circle",
+                controlSize: .large
+            ) {
                 appState.restartAudioInput()
-            } label: {
-                Label(isCompact ? "Restart" : "Restart", systemImage: "arrow.clockwise.circle")
-                    .lineLimit(1)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
             .help("Manual audio capture reset if device changes.")
         }
     }
@@ -273,26 +294,49 @@ struct LiveInterviewView: View {
                 
                 HStack {
                     if !hasMic && needsMic {
-                        Button("Request Microphone") {
-                            appState.requestMicrophonePermission()
-                        }
-                        .buttonStyle(.bordered)
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.openPermissions,
+                        title: "Request Microphone",
+                        loadingTitle: "Opening...",
+                        successTitle: "Opened",
+                        systemImage: "mic"
+                    ) {
+                        appState.infoAction(ActionID.openPermissions, title: "Requesting microphone", message: "macOS may ask for permission. If access is denied, System Settings will open.")
+                        appState.requestMicrophonePermission()
                     }
+                }
                     
-                    if needsScreen && !hasScreen {
-                        Button("Request Screen Recording") {
-                            appState.requestScreenRecordingPermission()
-                        }
-                        .buttonStyle(.bordered)
+                if needsScreen && !hasScreen {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.openPermissions,
+                        title: "Request Screen Recording",
+                        loadingTitle: "Opening...",
+                        successTitle: "Opened",
+                        systemImage: "display"
+                    ) {
+                        appState.infoAction(ActionID.openPermissions, title: "Opening screen recording permissions", message: "Grant Screen & System Audio Recording in macOS Privacy & Security.")
+                        appState.requestScreenRecordingPermission()
                     }
+                }
                     
-                    Button("Open System Settings") {
-                        appState.openMicrophonePrivacySettings()
-                    }
-                    .buttonStyle(.borderedProminent)
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.openPermissions,
+                    title: "Open System Settings",
+                    loadingTitle: "Opening...",
+                    successTitle: "Opened",
+                    systemImage: "gearshape",
+                    isProminent: true
+                ) {
+                    appState.beginAction(ActionID.openPermissions, title: "Opening System Settings", message: "Opening macOS Privacy & Security.")
+                    appState.openMicrophonePrivacySettings()
+                    appState.completeAction(ActionID.openPermissions, title: "System Settings opened", message: "Grant permissions, then refresh.")
+                }
                     
-                    Button("Refresh") {
-                        appState.refreshPermissions()
+                Button("Refresh") {
+                    appState.refreshPermissions()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -317,11 +361,18 @@ struct LiveInterviewView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button(appState.isFloatingAssistantVisible ? "Show Overlay" : "Launch Overlay") {
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.showFloatingPanel,
+                title: appState.isFloatingAssistantVisible ? "Show Overlay" : "Launch Overlay",
+                loadingTitle: "Opening...",
+                successTitle: "Visible",
+                systemImage: "macwindow.badge.plus",
+                isProminent: true,
+                controlSize: .large
+            ) {
                 appState.showFloatingAssistant()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -590,6 +641,7 @@ struct LiveInterviewView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
                             statusStrip(isCompact: false)
+                            InlineStatusBanner(liveFeedback)
                             audioDeviceConfigPanel
                             audioRouteWarning
                             permissionRecovery
@@ -615,6 +667,7 @@ struct LiveInterviewView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         statusStrip(isCompact: true)
+                        InlineStatusBanner(liveFeedback)
                         audioDeviceConfigPanel
                         audioRouteWarning
                         permissionRecovery
@@ -810,6 +863,19 @@ struct LiveInterviewView: View {
             }
         }
     }
+
+    private var liveFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.startInterview,
+            ActionID.stopListening,
+            ActionID.showFloatingPanel,
+            ActionID.generateAnswer,
+            ActionID.clearLiveSession,
+            ActionID.restartAudioInput,
+            ActionID.openPermissions,
+            ActionID.saveSettings
+        ])
+    }
     
     private func computeLevelText() -> String {
         let bufferCount = appState.manualCaptureState == .recording ? ManualQuestionCaptureService.shared.capturedBufferCount : appState.manualCaptureBufferCount
@@ -854,6 +920,7 @@ struct LiveInterviewView: View {
             
             // Dynamic State Banner
             manualCaptureStateBanner
+            InlineStatusBanner(manualFeedback)
             
             // Level Meter
             if appState.manualCaptureState == .recording {
@@ -877,76 +944,100 @@ struct LiveInterviewView: View {
                    appState.manualCaptureState == .transcriptReady || 
                    appState.manualCaptureState == .suggestionReady ||
                    caseError(appState.manualCaptureState) {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualRecord,
+                        title: isCompact ? "Record" : "Record Question",
+                        loadingTitle: "Preparing...",
+                        successTitle: "Recording",
+                        systemImage: "record.circle",
+                        isProminent: true,
+                        controlSize: .large
+                    ) {
                         appState.startManualCapture()
-                    } label: {
-                        Label(isCompact ? "Record" : "Record Question", systemImage: "record.circle")
-                            .font(.headline)
-                            .padding(.horizontal, 6)
                     }
-                    .buttonStyle(.borderedProminent)
                     .tint(.red)
-                    .controlSize(.large)
                 }
                 
                 if appState.manualCaptureState == .recording {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualStopTranscribe,
+                        title: isCompact ? "Stop" : "Stop & Transcribe",
+                        loadingTitle: "Transcribing...",
+                        successTitle: "Transcript ready",
+                        systemImage: "stop.circle.fill",
+                        isProminent: true,
+                        controlSize: .large
+                    ) {
                         appState.stopAndTranscribeManualCapture()
-                    } label: {
-                        Label(isCompact ? "Stop" : "Stop & Transcribe", systemImage: "stop.circle.fill")
-                            .font(.headline)
-                            .padding(.horizontal, 6)
                     }
-                    .buttonStyle(.borderedProminent)
                     .tint(.blue)
-                    .controlSize(.large)
                 }
                 
                 if appState.manualCaptureState == .recording || 
                    appState.manualCaptureState == .transcribing || 
                    appState.manualCaptureState == .generatingSuggestion {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualCancel,
+                        title: "Cancel",
+                        loadingTitle: "Cancelling...",
+                        successTitle: "Cancelled",
+                        systemImage: "xmark.circle",
+                        controlSize: .large
+                    ) {
                         appState.cancelManualCapture()
-                    } label: {
-                        Label("Cancel", systemImage: "xmark.circle")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                 }
                 
                 if appState.manualCaptureState == .transcriptReady {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualGenerate,
+                        title: isCompact ? "Ask" : "Send to AI",
+                        loadingTitle: "Generating...",
+                        successTitle: "Answer ready",
+                        systemImage: "paperplane.fill",
+                        isProminent: true,
+                        controlSize: .large
+                    ) {
                         appState.sendManualCaptureToAI()
-                    } label: {
-                        Label(isCompact ? "Ask" : "Send to AI", systemImage: "paperplane.fill")
-                            .font(.headline)
                     }
-                    .buttonStyle(.borderedProminent)
                     .tint(.green)
-                    .controlSize(.large)
                 }
                 
                 if appState.manualCaptureState == .suggestionReady {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualRecord,
+                        title: isCompact ? "Retry" : "Retry Recording",
+                        loadingTitle: "Resetting...",
+                        successTitle: "Ready",
+                        systemImage: "arrow.clockwise.circle",
+                        controlSize: .large
+                    ) {
                         appState.retryManualCapture()
-                    } label: {
-                        Label(isCompact ? "Retry" : "Retry Recording", systemImage: "arrow.clockwise.circle")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                 }
                 
                 if case .suggestionError = appState.manualCaptureState {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualGenerate,
+                        title: "Retry LLM",
+                        loadingTitle: "Generating...",
+                        successTitle: "Answer ready",
+                        systemImage: "arrow.clockwise",
+                        isProminent: true,
+                        controlSize: .large
+                    ) {
                         appState.sendManualCaptureToAI()
-                    } label: {
-                        Label("Retry LLM", systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.borderedProminent)
                     .tint(.green)
-                    .controlSize(.large)
                     
                     Button {
+                        appState.infoAction(ActionID.manualGenerate, title: "Confirm DeepSeek retry", message: "Confirm before sending the transcript to DeepSeek.", autoDismissAfter: nil)
                         self.showDeepSeekConfirmation = true
                     } label: {
                         Label("Regenerate with DeepSeek", systemImage: "sparkles")
@@ -954,29 +1045,43 @@ struct LiveInterviewView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.readiness(.openSettings),
+                        title: "Open Provider Settings",
+                        loadingTitle: "Opening...",
+                        successTitle: "Settings open",
+                        systemImage: "gearshape",
+                        controlSize: .large
+                    ) {
+                        appState.beginAction(ActionID.readiness(.openSettings), title: "Opening settings", message: "Opening provider settings for recovery.")
                         appState.selectSection(.settings)
-                    } label: {
-                        Label("Open Provider Settings", systemImage: "gearshape")
+                        appState.completeAction(ActionID.readiness(.openSettings), title: "Settings opened", message: "Check provider key and model configuration.")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                     
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualRecord,
+                        title: "Retry Recording",
+                        loadingTitle: "Resetting...",
+                        successTitle: "Ready",
+                        systemImage: "record.circle",
+                        controlSize: .large
+                    ) {
                         appState.retryManualCapture()
-                    } label: {
-                        Label("Retry Recording", systemImage: "record.circle")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                     
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualClear,
+                        title: "Clear",
+                        loadingTitle: "Clearing...",
+                        successTitle: "Cleared",
+                        systemImage: "trash",
+                        controlSize: .large
+                    ) {
                         appState.clearManualCapture()
-                    } label: {
-                        Label("Clear", systemImage: "trash")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                 }
                 
                 Spacer()
@@ -1081,15 +1186,21 @@ struct LiveInterviewView: View {
                 if appState.manualCaptureState == .transcriptReady || 
                    appState.manualCaptureState == .suggestionReady || 
                    appState.caseSuggestionError(appState.manualCaptureState) {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.manualGenerate,
+                        title: "Send to AI",
+                        loadingTitle: "Generating...",
+                        successTitle: "Answer ready",
+                        systemImage: "paperplane.fill",
+                        isProminent: true,
+                        disabled: appState.manualCaptureTranscript.isEmpty
+                    ) {
                         appState.sendManualCaptureToAI()
-                    } label: {
-                        Label("Send to AI", systemImage: "paperplane.fill")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(appState.manualCaptureTranscript.isEmpty)
                     
                     Button {
+                        appState.infoAction(ActionID.manualGenerate, title: "Confirm DeepSeek retry", message: "Confirm before sending the transcript to DeepSeek.", autoDismissAfter: nil)
                         self.showDeepSeekConfirmation = true
                     } label: {
                         Label("Regenerate with DeepSeek", systemImage: "sparkles")
@@ -1109,6 +1220,17 @@ struct LiveInterviewView: View {
         }
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var manualFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.manualRecord,
+            ActionID.manualStopTranscribe,
+            ActionID.manualCancel,
+            ActionID.manualGenerate,
+            ActionID.manualClear,
+            ActionID.readiness(.openSettings)
+        ])
     }
 }
 

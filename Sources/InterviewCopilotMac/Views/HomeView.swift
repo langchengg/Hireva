@@ -33,7 +33,9 @@ struct HomeView: View {
             }
             Spacer()
             Button {
+                appState.beginAction(ActionID.diagnosticsRefresh, title: "Opening diagnostics", message: "Developer diagnostics are opening.")
                 appState.selectSection(.diagnostics)
+                appState.completeAction(ActionID.diagnosticsRefresh, title: "Diagnostics opened", message: "Technical details are available for troubleshooting.")
             } label: {
                 Label("Diagnostics", systemImage: "stethoscope")
             }
@@ -72,51 +74,71 @@ struct HomeView: View {
             }
 
             HStack(spacing: 10) {
-                Button {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.runReadiness,
+                    title: "Run Readiness Check",
+                    loadingTitle: "Opening check...",
+                    systemImage: "checklist.checked"
+                ) {
+                    appState.beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing the pre-interview checklist...")
                     appState.selectSection(.readinessCheck)
-                } label: {
-                    Label("Run Readiness Check", systemImage: "checklist.checked")
+                    appState.completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
                 }
-                .buttonStyle(.bordered)
 
-                Button {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.showFloatingPanel,
+                    title: appState.isFloatingAssistantVisible ? "Show Floating Panel" : "Open Floating Panel",
+                    loadingTitle: "Opening panel...",
+                    systemImage: "macwindow.badge.plus"
+                ) {
                     appState.showFloatingAssistant()
-                } label: {
-                    Label(appState.isFloatingAssistantVisible ? "Show Floating Panel" : "Open Floating Panel", systemImage: "macwindow.badge.plus")
                 }
-                .buttonStyle(.bordered)
 
                 if appState.lastDetectedQuestion != nil || appState.possibleQuestion != nil {
-                    Button {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.generateAnswer,
+                        title: "Generate Answer",
+                        loadingTitle: "Generating first answer...",
+                        successTitle: "Answer ready",
+                        systemImage: "sparkles",
+                        isProminent: true,
+                        disabled: !appState.liveState.canAnswerNow
+                    ) {
                         appState.manualAnswerNow()
-                    } label: {
-                        Label("Generate Answer", systemImage: "sparkles")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!appState.liveState.canAnswerNow)
                 }
             }
+
+            InlineStatusBanner(homeFeedback)
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var primaryAction: some View {
-        Button {
+        ActionButton(
+            appState: appState,
+            actionID: primaryActionID,
+            title: appState.primaryHomeActionTitle,
+            loadingTitle: primaryLoadingTitle,
+            successTitle: primarySuccessTitle,
+            systemImage: appState.primaryHomeActionSystemImage,
+            isProminent: true,
+            controlSize: .large
+        ) {
             if appState.primaryHomeActionShouldStop {
                 appState.stopListening()
             } else if !appState.coreInterviewReadinessPassed {
+                appState.beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing exactly what needs attention...")
                 appState.selectSection(.readinessCheck)
+                appState.completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
             } else {
                 appState.startListening(mode: .microphone)
             }
-        } label: {
-            Label(appState.primaryHomeActionTitle, systemImage: appState.primaryHomeActionSystemImage)
-                .font(.headline)
-                .frame(minWidth: 160)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
     }
 
     private var modeSelector: some View {
@@ -196,16 +218,24 @@ struct HomeView: View {
                     title: "Setup is incomplete",
                     message: "Run the readiness check to see exactly what needs attention before the interview.",
                     buttonTitle: "Run Readiness Check",
-                    systemImage: "checklist.checked"
+                    systemImage: "checklist.checked",
+                    actionID: ActionID.runReadiness,
+                    loadingTitle: "Opening check...",
+                    successTitle: "Checklist open"
                 ) {
+                    appState.beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing exactly what needs attention...")
                     appState.selectSection(.readinessCheck)
+                    appState.completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
                 }
             } else if !appState.isListening {
                 emptyAction(
                     title: "Listening is stopped",
                     message: "Start listening or capture a question to generate an answer.",
                     buttonTitle: "Start Listening",
-                    systemImage: "play.fill"
+                    systemImage: "play.fill",
+                    actionID: ActionID.startInterview,
+                    loadingTitle: "Starting...",
+                    successTitle: "Listening started"
                 ) {
                     appState.startListening(mode: .microphone)
                 }
@@ -280,6 +310,7 @@ struct HomeView: View {
             guard !appState.anyCaptureRunning else { return }
             var next = appState.settings
             next.audioCaptureMode = mode
+            appState.infoAction(ActionID.switchCaptureMode, title: "Capture mode selected", message: "\(mode.shortDisplayName): \(mode.userFacingDescription)")
             appState.saveSettings(next)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -315,6 +346,9 @@ struct HomeView: View {
         message: String,
         buttonTitle: String,
         systemImage: String,
+        actionID: String,
+        loadingTitle: String,
+        successTitle: String,
         action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: 12) {
@@ -328,8 +362,16 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
-            Button(buttonTitle, action: action)
-                .buttonStyle(.borderedProminent)
+            ActionButton(
+                appState: appState,
+                actionID: actionID,
+                title: buttonTitle,
+                loadingTitle: loadingTitle,
+                successTitle: successTitle,
+                systemImage: systemImage,
+                isProminent: true,
+                action: action
+            )
         }
         .padding(26)
         .frame(maxWidth: .infinity, minHeight: 190)
@@ -387,5 +429,47 @@ struct HomeView: View {
         case .microphoneOnly: return "mic.fill"
         case .microphoneAndSystem: return "headphones"
         }
+    }
+
+    private var homeFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.startInterview,
+            ActionID.stopListening,
+            ActionID.runReadiness,
+            ActionID.showFloatingPanel,
+            ActionID.generateAnswer,
+            ActionID.switchCaptureMode,
+            ActionID.diagnosticsRefresh
+        ])
+    }
+
+    private var primaryActionID: String {
+        if appState.primaryHomeActionShouldStop {
+            return ActionID.stopListening
+        }
+        if !appState.coreInterviewReadinessPassed {
+            return ActionID.runReadiness
+        }
+        return ActionID.startInterview
+    }
+
+    private var primaryLoadingTitle: String {
+        if appState.primaryHomeActionShouldStop {
+            return "Stopping..."
+        }
+        if !appState.coreInterviewReadinessPassed {
+            return "Opening check..."
+        }
+        return "Starting..."
+    }
+
+    private var primarySuccessTitle: String {
+        if appState.primaryHomeActionShouldStop {
+            return "Stopped"
+        }
+        if !appState.coreInterviewReadinessPassed {
+            return "Checklist open"
+        }
+        return "Listening started"
     }
 }

@@ -37,7 +37,7 @@ struct LLMProviderQuickSwitcherView: View {
                 manualModelName = active.model
             }
         }
-        .onChange(of: appState.activeRealtimeProvider) { newProvider in
+        .onChange(of: appState.activeRealtimeProvider) { _, newProvider in
             if let active = newProvider {
                 manualModelName = active.model
             }
@@ -93,17 +93,20 @@ struct LLMProviderQuickSwitcherView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if appState.isTestingConnection {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Button("Test") {
-                                appState.testProviderConnection(active)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                        ActionButton(
+                            appState: appState,
+                            actionID: ActionID.provider(ActionID.providerTest, active.id),
+                            title: "Test",
+                            loadingTitle: "Testing...",
+                            successTitle: "Connected",
+                            systemImage: "network",
+                            controlSize: .small,
+                            disabled: appState.isTestingConnection
+                        ) {
+                            appState.testProviderConnection(active)
                         }
                     }
+                    InlineStatusBanner(quickSwitcherFeedback)
                     if let result = appState.providerConnectionResults[active.id] {
                         Text(result)
                             .font(.system(size: 10))
@@ -123,7 +126,7 @@ struct LLMProviderQuickSwitcherView: View {
             
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
-                    ForEach(appState.providerConfigurations) { provider in
+                    ForEach(visibleProviderConfigurations) { provider in
                         let isActive = provider.id == appState.activeRealtimeProvider?.id
                         Button {
                             selectProvider(provider)
@@ -145,6 +148,7 @@ struct LLMProviderQuickSwitcherView: View {
                             .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
+                        .disabled(appState.isActionLoading(ActionID.providerSwitch))
                     }
                 }
             }
@@ -171,6 +175,7 @@ struct LLMProviderQuickSwitcherView: View {
                                     .buttonStyle(.bordered)
                                     .tint(isCurrent ? .blue : .secondary)
                                     .controlSize(.small)
+                                    .disabled(appState.isActionLoading(ActionID.providerSwitch))
                                 }
                             }
                         }
@@ -186,6 +191,7 @@ struct LLMProviderQuickSwitcherView: View {
                                     .buttonStyle(.bordered)
                                     .tint(isCurrent ? .blue : .secondary)
                                     .controlSize(.small)
+                                    .disabled(appState.isActionLoading(ActionID.providerSwitch))
                                 }
                             }
                         }
@@ -203,12 +209,18 @@ struct LLMProviderQuickSwitcherView: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.subheadline)
                             
-                            Button("Apply") {
+                            ActionButton(
+                                appState: appState,
+                                actionID: ActionID.providerSwitch,
+                                title: "Apply",
+                                loadingTitle: "Applying...",
+                                successTitle: "Applied",
+                                systemImage: "checkmark",
+                                controlSize: .small,
+                                disabled: manualModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ) {
                                 commitManualModel()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .disabled(manualModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
                 }
@@ -237,6 +249,20 @@ struct LLMProviderQuickSwitcherView: View {
         let cleaned = manualModelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, let active = appState.activeRealtimeProvider else { return }
         appState.updateActiveRealtimeProvider(provider: active, model: cleaned)
+    }
+
+    private var visibleProviderConfigurations: [LLMProviderConfiguration] {
+        appState.providerConfigurations.filter { $0.kind != .ollamaLocal }
+    }
+
+    private var quickSwitcherFeedback: ActionFeedback? {
+        guard let active = appState.activeRealtimeProvider else {
+            return appState.latestActionFeedback(for: ActionID.providerSwitch)
+        }
+        return appState.latestActionFeedback(matching: [
+            ActionID.providerSwitch,
+            ActionID.provider(ActionID.providerTest, active.id)
+        ])
     }
 
 }

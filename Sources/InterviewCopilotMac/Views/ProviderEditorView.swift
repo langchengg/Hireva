@@ -4,6 +4,7 @@ struct ProviderEditorView: View {
     @ObservedObject var appState: AppState
     @State private var draft: LLMProviderConfiguration
     @State private var apiKey = ""
+    @State private var confirmDeleteProvider = false
 
     init(appState: AppState, provider: LLMProviderConfiguration) {
         self.appState = appState
@@ -22,7 +23,7 @@ struct ProviderEditorView: View {
             HStack {
                 TextField("Provider name", text: $draft.name)
                 Picker("Kind", selection: $draft.kind) {
-                    ForEach(LLMProviderKind.allCases) { kind in
+                    ForEach(visibleProviderKinds) { kind in
                         Text(kind.displayName).tag(kind)
                     }
                 }
@@ -38,11 +39,18 @@ struct ProviderEditorView: View {
                 HStack {
                     SecureField("API key for \(draft.name)", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
-                    Button("Save Key") {
+                    ActionButton(
+                        appState: appState,
+                        actionID: saveKeyActionID,
+                        title: "Save Key",
+                        loadingTitle: "Saving securely...",
+                        successTitle: "Saved",
+                        systemImage: "key.fill",
+                        disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
                         appState.saveAPIKey(apiKey, for: draft)
                         apiKey = ""
                     }
-                    .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 
@@ -53,37 +61,71 @@ struct ProviderEditorView: View {
             }
             .font(.caption)
 
+            InlineStatusBanner(providerFeedback)
+
             HStack {
-                Button("Use for Realtime") {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.providerSwitch,
+                    title: "Use for Realtime",
+                    loadingTitle: "Switching...",
+                    successTitle: "Using realtime",
+                    systemImage: "dot.radiowaves.left.and.right"
+                ) {
                     appState.setActiveRealtimeProvider(draft)
                 }
-                .buttonStyle(.bordered)
                 .tint(appState.activeRealtimeProvider?.id == draft.id ? .accentColor : .secondary)
 
-                Button("Use for Recap") {
+                ActionButton(
+                    appState: appState,
+                    actionID: saveActionID,
+                    title: "Use for Recap",
+                    loadingTitle: "Saving...",
+                    successTitle: "Using recap",
+                    systemImage: "doc.text"
+                ) {
                     appState.setActiveRecapProvider(draft)
                 }
-                .buttonStyle(.bordered)
                 .tint(appState.activeRecapProvider?.id == draft.id ? .accentColor : .secondary)
 
                 Spacer()
 
-                Button("Test") {
+                ActionButton(
+                    appState: appState,
+                    actionID: testActionID,
+                    title: "Test",
+                    loadingTitle: "Testing...",
+                    successTitle: "Connected",
+                    systemImage: "network"
+                ) {
                     appState.testProviderConnection(draft)
                 }
-                .buttonStyle(.bordered)
 
-                Button("Save") {
+                ActionButton(
+                    appState: appState,
+                    actionID: saveActionID,
+                    title: "Save",
+                    loadingTitle: "Saving...",
+                    successTitle: "Saved",
+                    systemImage: "checkmark.circle",
+                    isProminent: true
+                ) {
                     appState.saveProviderConfiguration(draft)
                 }
-                .buttonStyle(.borderedProminent)
 
-                Button(role: .destructive) {
-                    appState.deleteProviderConfiguration(draft)
-                } label: {
-                    Image(systemName: "trash")
+                ActionButton(
+                    appState: appState,
+                    actionID: deleteActionID,
+                    title: "Delete",
+                    loadingTitle: "Deleting...",
+                    successTitle: "Deleted",
+                    systemImage: "trash",
+                    role: .destructive,
+                    controlSize: .small
+                ) {
+                    appState.infoAction(deleteActionID, title: "Confirm provider delete", message: "Confirm before removing \(draft.name).", autoDismissAfter: nil)
+                    confirmDeleteProvider = true
                 }
-                .buttonStyle(.borderless)
             }
 
             if let result = appState.providerConnectionResults[draft.id] {
@@ -105,5 +147,45 @@ struct ProviderEditorView: View {
                 draft.apiKeyAccount = "custom.\(draft.id.uuidString)"
             }
         }
+        .confirmationDialog("Delete provider?", isPresented: $confirmDeleteProvider) {
+            Button("Delete Provider", role: .destructive) {
+                appState.deleteProviderConfiguration(draft)
+            }
+            Button("Cancel", role: .cancel) {
+                appState.infoAction(deleteActionID, title: "Delete cancelled", message: "\(draft.name) was left unchanged.")
+            }
+        } message: {
+            Text("This removes \(draft.name) from normal provider choices. Saved keys remain hidden.")
+        }
+    }
+
+    private var visibleProviderKinds: [LLMProviderKind] {
+        LLMProviderKind.allCases.filter { $0 != .ollamaLocal }
+    }
+
+    private var saveKeyActionID: String {
+        ActionID.provider(ActionID.providerSaveKey, draft.id)
+    }
+
+    private var testActionID: String {
+        ActionID.provider(ActionID.providerTest, draft.id)
+    }
+
+    private var saveActionID: String {
+        ActionID.provider(ActionID.providerSave, draft.id)
+    }
+
+    private var deleteActionID: String {
+        ActionID.provider(ActionID.providerDelete, draft.id)
+    }
+
+    private var providerFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            saveKeyActionID,
+            testActionID,
+            saveActionID,
+            deleteActionID,
+            ActionID.providerSwitch
+        ])
     }
 }

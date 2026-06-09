@@ -40,7 +40,7 @@ enum ReadinessCheckStatus: String, Hashable {
     case failed
 }
 
-enum ReadinessAction: String, Hashable {
+enum ReadinessAction: String, Hashable, CaseIterable {
     case openSettings
     case openDocuments
     case testDeepSeek

@@ -104,36 +104,71 @@ struct DocumentsView: View {
             }
 
             HStack(spacing: 10) {
-                Button("Save Document") {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.saveDocument(type),
+                    title: "Save Document",
+                    loadingTitle: "Saving...",
+                    successTitle: "Saved",
+                    systemImage: "square.and.arrow.down",
+                    isProminent: true,
+                    disabled: trimmed.count < 80
+                ) {
                     appState.saveDocument(type: type, title: type.title, content: text.wrappedValue)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(trimmed.count < 80)
 
-                Button("Rebuild Clean RAG Index") {
+                ProgressButton(
+                    appState: appState,
+                    actionID: ActionID.rebuildCleanRAG,
+                    title: "Rebuild Clean RAG Index",
+                    loadingTitle: "Rebuilding...",
+                    systemImage: "arrow.triangle.2.circlepath",
+                    progress: nil,
+                    disabled: appState.isActionLoading(ActionID.rebuildCleanRAG)
+                ) {
                     appState.rebuildCleanRAGIndex()
                 }
-                .buttonStyle(.bordered)
 
-                Button(previewExpanded ? "Hide Clean Text" : "Preview Clean Text") {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.previewDocument(type),
+                    title: previewExpanded ? "Hide Clean Text" : "Preview Clean Text",
+                    loadingTitle: "Opening preview...",
+                    successTitle: previewExpanded ? "Preview hidden" : "Preview shown",
+                    systemImage: previewExpanded ? "eye.slash" : "eye",
+                    disabled: trimmed.isEmpty && document?.sanitizedContent?.isEmpty != false
+                ) {
+                    let actionID = ActionID.previewDocument(type)
+                    appState.beginAction(actionID, title: previewExpanded ? "Hiding preview" : "Opening clean preview", message: "Showing the text used for relevant context.")
                     if previewExpanded {
                         previewedTypes.remove(type)
+                        appState.completeAction(actionID, title: "Preview hidden", message: "\(type.title) clean text preview is collapsed.")
                     } else {
                         previewedTypes.insert(type)
+                        appState.completeAction(actionID, title: "Clean preview shown", message: "This is the plain-text version used for relevant context.")
                     }
                 }
-                .buttonStyle(.bordered)
-                .disabled(trimmed.isEmpty && document?.sanitizedContent?.isEmpty != false)
 
-                Button("Clear Document", role: .destructive) {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.clearDocument(type),
+                    title: "Clear Document",
+                    loadingTitle: "Clearing...",
+                    successTitle: "Cleared",
+                    systemImage: "trash",
+                    role: .destructive,
+                    disabled: !saved && trimmed.isEmpty
+                ) {
                     if let document {
                         appState.deleteDocument(document)
+                    } else {
+                        appState.completeAction(ActionID.clearDocument(type), title: "Editor cleared", message: "\(type.title) draft text was cleared.")
                     }
                     clearEditor(type)
                 }
-                .buttonStyle(.bordered)
-                .disabled(!saved && trimmed.isEmpty)
             }
+
+            InlineStatusBanner(documentFeedback(for: type))
 
             if trimmed.count < 80 {
                 Text("Paste at least 80 characters before saving.")
@@ -185,6 +220,16 @@ struct DocumentsView: View {
 
     private func chunkCount(for type: DocumentType) -> Int {
         (try? appState.documentRepository.chunks(type: type).count) ?? 0
+    }
+
+    private func documentFeedback(for type: DocumentType) -> ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.saveDocument(type),
+            ActionID.previewDocument(type),
+            ActionID.clearDocument(type),
+            ActionID.rebuildCleanRAG,
+            ActionID.rebuildEmbeddings
+        ])
     }
 
     private func cleanPreview(for document: DocumentRecord?, fallback: DocumentTextSanitizer.Result) -> String {

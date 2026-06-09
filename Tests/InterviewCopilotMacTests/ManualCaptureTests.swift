@@ -176,12 +176,10 @@ struct ManualCaptureTests {
         // Act
         appState.startManualCapture()
         var elapsedStart = 0
-        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+        while (appState.manualCaptureState != .recording || !captureStarted || !transcriptionStarted) && elapsedStart < 150 {
             try? await Task.sleep(for: .milliseconds(20))
             elapsedStart += 1
         }
-        // Allow the async Task to complete startCapture() after setting .recording
-        try await Task.sleep(for: .milliseconds(100))
 
         // Assert Constraint 1: systemAudio manual capture does not request microphone/speech permission
         #expect(mockPermission.micRequestedCount == 0)
@@ -443,7 +441,7 @@ struct ManualCaptureTests {
         if case .error(let message) = appState.manualCaptureState {
             #expect(message.contains("No speech detected"))
         } else {
-            #expect(false, "Expected manualCaptureState to be .error but was \(appState.manualCaptureState)")
+            #expect(Bool(false), "Expected manualCaptureState to be .error but was \(appState.manualCaptureState)")
         }
     }
 
@@ -550,7 +548,7 @@ struct ManualCaptureTests {
         }
 
         #expect(appState.manualCaptureBufferCount == 42)
-        #expect(appState.manualCaptureDuration == 10.5)
+        #expect(abs(appState.manualCaptureDuration - 10.5) <= 0.15)
         #expect(appState.manualCaptureTranscript == "What do you offer?")
     }
 

@@ -18,6 +18,7 @@ MODE="${1:-run}"
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="InterviewCopilotMac"                    # .app bundle name
 EXECUTABLE_NAME="InterviewCopilotMacRunner"       # CFBundleExecutable (binary inside .app)
+LEGACY_EXECUTABLE_NAME="InterviewCopilotMac"
 SPM_PRODUCT_NAME="InterviewCopilotMac"            # SPM product name (output of swift build)
 BUNDLE_ID="com.langcheng.InterviewCopilotMac"
 DISPLAY_NAME="Interview Copilot"
@@ -32,6 +33,10 @@ APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+EXPECTED_BUNDLE_PATH="$APP_BUNDLE"
 
 # --- Handle --reset-tcc mode early ---
 if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
@@ -51,6 +56,10 @@ fi
 cd "$ROOT_DIR"
 
 # --- Quit existing app instance (both old and new executable names) ---
+# Required first step for every build: stop the user-facing process name.
+pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "$LEGACY_EXECUTABLE_NAME" >/dev/null 2>&1 || true
+pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
 echo "[quit] Attempting graceful quit of $BUNDLE_ID ..."
 osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 &
 QUIT_SCRIPT_PID=$!
@@ -69,7 +78,7 @@ fi
 
 # Wait up to 3 seconds for the processes to exit
 for i in {1..12}; do
-    if ! pgrep -x "$EXECUTABLE_NAME" >/dev/null && ! pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
+    if ! pgrep -x "$EXECUTABLE_NAME" >/dev/null && ! pgrep -x "$SPM_PRODUCT_NAME" >/dev/null && ! pgrep -x "$LEGACY_EXECUTABLE_NAME" >/dev/null; then
         echo "[quit] Application exited gracefully."
         break
     fi
@@ -77,11 +86,12 @@ for i in {1..12}; do
 done
 
 # Path-specific fallback kill if still running after 3 seconds
-if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
+if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/null || pgrep -x "$LEGACY_EXECUTABLE_NAME" >/dev/null; then
     echo "[quit] WARNING: Application did not quit gracefully within 3 seconds. Using pkill fallback..."
     pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
     pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
     pkill -x "$SPM_PRODUCT_NAME" >/dev/null 2>&1 || true
+    pkill -x "$LEGACY_EXECUTABLE_NAME" >/dev/null 2>&1 || true
     sleep 0.5
 fi
 
@@ -96,6 +106,9 @@ if [[ ! -f "$BUILD_BINARY" ]]; then
 fi
 
 # --- Assemble .app bundle ---
+# Always remove the old bundle before assembly so Finder never launches stale code.
+echo "[bundle] Removing stale bundle at $APP_BUNDLE ..."
+rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"
 
 # Copy the SPM product binary, renamed to match CFBundleExecutable
@@ -117,6 +130,11 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert NSPrincipalClass           -string "NSApplication"        "$INFO_PLIST"
 /usr/bin/plutil -insert NSHighResolutionCapable    -bool true                     "$INFO_PLIST"
 /usr/bin/plutil -insert NSHumanReadableCopyright   -string "Copyright 2026"       "$INFO_PLIST"
+/usr/bin/plutil -insert ICBuildTimestampUTC        -string "$BUILD_TIMESTAMP_UTC" "$INFO_PLIST"
+/usr/bin/plutil -insert ICGitCommitHash            -string "$GIT_COMMIT_HASH"     "$INFO_PLIST"
+/usr/bin/plutil -insert ICGitBranch                -string "$GIT_BRANCH"          "$INFO_PLIST"
+/usr/bin/plutil -insert ICSourceRoot               -string "$ROOT_DIR"            "$INFO_PLIST"
+/usr/bin/plutil -insert ICExpectedBundlePath       -string "$EXPECTED_BUNDLE_PATH" "$INFO_PLIST"
 
 # --- Usage descriptions (required for TCC prompts) ---
 /usr/bin/plutil -insert NSMicrophoneUsageDescription \
@@ -162,6 +180,9 @@ else
         "$APP_BUNDLE"
 fi
 
+echo "[sign] Verifying code signature..."
+codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
 echo ""
 echo "[sign] Running signing diagnostics..."
 codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 || true
@@ -175,6 +196,16 @@ echo "  - TeamIdentifier: $(codesign -dv "$APP_BUNDLE" 2>&1 | grep "TeamIdentifi
 echo "  - CFBundleIdentifier: $BUNDLE_ID"
 echo "  - Executable Path: $APP_BINARY"
 echo "  - App Bundle Path: $APP_BUNDLE"
+echo ""
+
+echo "[verify] Bundle timestamps:"
+stat -f "%Sm  %N" "$APP_BINARY"
+stat -f "%Sm  %N" "$INFO_PLIST"
+echo ""
+
+echo "[verify] Bundle identity:"
+plutil -p "$INFO_PLIST" | grep -E "CFBundleIdentifier|CFBundleName|NSMicrophoneUsageDescription|NSSpeechRecognitionUsageDescription"
+codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier" || true
 echo ""
 
 # --- Launch ---
@@ -208,8 +239,13 @@ case "$MODE" in
         ;;
     --verify|verify)
         open_app
-        sleep 2
-        if pgrep -x "$EXECUTABLE_NAME" >/dev/null; then
+        for i in {1..20}; do
+            if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -f "$APP_BINARY" >/dev/null; then
+                break
+            fi
+            sleep 0.5
+        done
+        if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -f "$APP_BINARY" >/dev/null; then
             echo "[verify] ✅ $EXECUTABLE_NAME is running."
             echo "[verify] Bundle: $APP_BUNDLE"
             echo "[verify] Bundle ID: $BUNDLE_ID"

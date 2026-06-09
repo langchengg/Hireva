@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionDetailView: View {
     @ObservedObject var appState: AppState
     var session: InterviewSession
+    @State private var confirmDeleteSession = false
 
     var body: some View {
         ScrollView {
@@ -15,34 +16,52 @@ struct SessionDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button(role: .destructive) {
-                        appState.deleteSession(session)
-                    } label: {
-                        Label("Delete Session", systemImage: "trash")
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.sessionDelete,
+                        title: "Delete Session",
+                        loadingTitle: "Deleting...",
+                        successTitle: "Deleted",
+                        systemImage: "trash",
+                        role: .destructive
+                    ) {
+                        appState.infoAction(ActionID.sessionDelete, title: "Confirm session delete", message: "Confirm before removing this session.", autoDismissAfter: nil)
+                        confirmDeleteSession = true
                     }
-                    .buttonStyle(.bordered)
                 }
+
+                InlineStatusBanner(sessionFeedback)
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Recap")
                             .font(.headline)
                         Spacer()
-                        Button {
+                        ActionButton(
+                            appState: appState,
+                            actionID: ActionID.sessionRecap,
+                            title: "Generate Recap",
+                            loadingTitle: "Generating...",
+                            successTitle: "Recap ready",
+                            systemImage: "wand.and.stars",
+                            isProminent: true,
+                            disabled: appState.isGeneratingRecap
+                        ) {
                             appState.generateRecap(for: session)
-                        } label: {
-                            Label("Generate Recap", systemImage: "wand.and.stars")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(appState.isGeneratingRecap)
-                        Button {
+                        ActionButton(
+                            appState: appState,
+                            actionID: ActionID.sessionExport,
+                            title: "Export Markdown",
+                            loadingTitle: "Exporting...",
+                            successTitle: "Exported",
+                            systemImage: "square.and.arrow.up",
+                            disabled: appState.selectedSessionRecap == nil
+                        ) {
                             appState.exportSelectedRecap()
-                        } label: {
-                            Label("Export Markdown", systemImage: "square.and.arrow.up")
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(appState.selectedSessionRecap == nil)
                     }
+                    InlineStatusBanner(sessionFeedback)
                     if appState.isGeneratingRecap {
                         ProgressView("Generating recap...")
                     }
@@ -87,5 +106,23 @@ struct SessionDetailView: View {
         .onAppear {
             appState.loadSessionDetails(sessionID: session.id)
         }
+        .confirmationDialog("Delete session?", isPresented: $confirmDeleteSession) {
+            Button("Delete Session", role: .destructive) {
+                appState.deleteSession(session)
+            }
+            Button("Cancel", role: .cancel) {
+                appState.infoAction(ActionID.sessionDelete, title: "Delete cancelled", message: "\(session.title) was left unchanged.")
+            }
+        } message: {
+            Text("This removes the transcript, suggestions, and recap for this interview session.")
+        }
+    }
+
+    private var sessionFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.sessionDelete,
+            ActionID.sessionRecap,
+            ActionID.sessionExport
+        ])
     }
 }

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var includeAPIKeyInDelete = false
     @State private var newProviderKind: LLMProviderKind = .openAICompatible
     @State private var embeddingAPIKey = ""
+    @State private var confirmClearLocalData = false
 
     var body: some View {
         ScrollView {
@@ -37,15 +38,23 @@ struct SettingsView: View {
             HStack {
                 statusLine("DeepSeek key", appState.keychainDeepSeekKeyExists ? "Securely saved" : "Missing")
                 Spacer()
-                Button("Test Connection") {
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.testDeepSeek,
+                    title: "Test Connection",
+                    loadingTitle: "Testing...",
+                    successTitle: "Connected",
+                    systemImage: "network",
+                    disabled: !appState.keychainDeepSeekKeyExists || appState.isTestingConnection
+                ) {
                     appState.testDeepSeekConnection()
                 }
-                .buttonStyle(.bordered)
-                .disabled(!appState.keychainDeepSeekKeyExists || appState.isTestingConnection)
             }
 
             statusLine("Realtime model", appState.activeRealtimeProvider?.model ?? settings.realtimeModel.displayName)
             statusLine("Full answer model", appState.activeRecapProvider?.model ?? settings.recapModel.displayName)
+
+            InlineStatusBanner(aiProviderFeedback)
 
             if appState.isTestingConnection {
                 ProgressView()
@@ -73,16 +82,23 @@ struct SettingsView: View {
 
             HStack {
                 Picker("Add provider", selection: $newProviderKind) {
-                    ForEach(LLMProviderKind.allCases) { kind in
+                    ForEach(visibleProviderKinds) { kind in
                         Text(kind.displayName).tag(kind)
                     }
                 }
-                Button {
-                    appState.saveProviderConfiguration(makeNewProvider(kind: newProviderKind))
-                } label: {
-                    Label("Add Provider", systemImage: "plus")
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.providerSave,
+                    title: "Add Provider",
+                    loadingTitle: "Adding...",
+                    successTitle: "Provider added",
+                    systemImage: "plus"
+                ) {
+                    let provider = makeNewProvider(kind: newProviderKind)
+                    appState.beginAction(ActionID.providerSave, title: "Adding provider", message: "Creating \(provider.name)...")
+                    appState.saveProviderConfiguration(provider)
+                    appState.completeAction(ActionID.providerSave, title: "Provider added", message: "\(provider.name) is ready to configure.")
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -111,12 +127,19 @@ struct SettingsView: View {
                 HStack {
                     SecureField("Embedding API key", text: $embeddingAPIKey)
                         .textFieldStyle(.roundedBorder)
-                    Button("Save Key") {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.saveEmbeddingKey,
+                        title: "Save Key",
+                        loadingTitle: "Saving securely...",
+                        successTitle: "Saved",
+                        systemImage: "key.fill",
+                        disabled: embeddingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
                         appState.saveSettings(settings)
                         appState.saveEmbeddingAPIKey(embeddingAPIKey, account: settings.embeddingApiKeyAccount)
                         embeddingAPIKey = ""
                     }
-                    .disabled(embeddingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
                 statusLine("Embedding key", appState.embeddingKeyStatus(account: settings.embeddingApiKeyAccount))
@@ -132,6 +155,8 @@ struct SettingsView: View {
                 statusLine("Embedding coverage", "\(coverage.chunksWithEmbeddings) / \(coverage.totalChunks) chunks (\(Int(coverage.coveragePercent))%)")
             }
 
+            InlineStatusBanner(relevantContextFeedback)
+
             if appState.isRebuildingEmbeddings {
                 ProgressView(value: appState.rebuildProgress, total: 1.0)
                 Button("Cancel Rebuild") {
@@ -140,21 +165,40 @@ struct SettingsView: View {
                 .buttonStyle(.bordered)
             } else {
                 HStack {
-                    Button("Rebuild Clean Context Index") {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.rebuildCleanRAG,
+                        title: "Rebuild Clean Context Index",
+                        loadingTitle: "Rebuilding...",
+                        successTitle: "Context rebuilt",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    ) {
                         appState.rebuildCleanRAGIndex()
                     }
-                    .buttonStyle(.bordered)
 
-                    Button("Rebuild Embeddings") {
+                    ProgressButton(
+                        appState: appState,
+                        actionID: ActionID.rebuildEmbeddings,
+                        title: "Rebuild Embeddings",
+                        loadingTitle: "Rebuilding...",
+                        systemImage: "square.stack.3d.up",
+                        progress: appState.rebuildProgress,
+                        disabled: !settings.enableVectorRAG
+                    ) {
                         appState.rebuildAllEmbeddings()
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(!settings.enableVectorRAG)
 
-                    Button("Save Context Settings") {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.saveSettings,
+                        title: "Save Context Settings",
+                        loadingTitle: "Saving...",
+                        successTitle: "Saved",
+                        systemImage: "checkmark.circle",
+                        isProminent: true
+                    ) {
                         appState.saveSettings(settings)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
             }
         }
@@ -180,10 +224,19 @@ struct SettingsView: View {
             Toggle("Enable automatic question detection", isOn: $settings.automaticQuestionDetectionEnabled)
             Toggle("Save transcripts locally", isOn: $settings.saveTranscriptsLocally)
 
-            Button("Save Audio Settings") {
+            InlineStatusBanner(appState.latestActionFeedback(for: ActionID.saveSettings))
+
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.saveSettings,
+                title: "Save Audio Settings",
+                loadingTitle: "Saving...",
+                successTitle: "Saved",
+                systemImage: "checkmark.circle",
+                isProminent: true
+            ) {
                 appState.saveSettings(settings)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -214,10 +267,19 @@ struct SettingsView: View {
 
             statusLine("Always on top", "On")
 
-            Button("Save Floating Window Settings") {
+            InlineStatusBanner(appState.latestActionFeedback(matching: [ActionID.saveSettings, ActionID.floatingDisplayMode]))
+
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.saveSettings,
+                title: "Save Floating Window Settings",
+                loadingTitle: "Saving...",
+                successTitle: "Saved",
+                systemImage: "checkmark.circle",
+                isProminent: true
+            ) {
                 appState.saveSettings(settings)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -230,10 +292,30 @@ struct SettingsView: View {
 
             Toggle("Also delete securely saved provider keys", isOn: $includeAPIKeyInDelete)
 
+            InlineStatusBanner(appState.latestActionFeedback(for: ActionID.clearLocalData))
+
+            ActionButton(
+                appState: appState,
+                actionID: ActionID.clearLocalData,
+                title: "Clear Local Data",
+                loadingTitle: "Clearing...",
+                successTitle: "Cleared",
+                systemImage: "trash",
+                role: .destructive
+            ) {
+                appState.infoAction(ActionID.clearLocalData, title: "Confirm clear local data", message: "Confirm before deleting local documents, sessions, and transcripts.", autoDismissAfter: nil)
+                confirmClearLocalData = true
+            }
+        }
+        .confirmationDialog("Clear local app data?", isPresented: $confirmClearLocalData) {
             Button("Clear Local Data", role: .destructive) {
                 appState.deleteAllLocalData(includeAPIKey: includeAPIKeyInDelete)
             }
-            .buttonStyle(.bordered)
+            Button("Cancel", role: .cancel) {
+                appState.infoAction(ActionID.clearLocalData, title: "Clear cancelled", message: "Local documents, sessions, transcripts, and keys were left unchanged.")
+            }
+        } message: {
+            Text(includeAPIKeyInDelete ? "This clears local documents, sessions, transcripts, and securely saved provider keys." : "This clears local documents, sessions, and transcripts. Securely saved provider keys are kept.")
         }
     }
 
@@ -276,6 +358,32 @@ struct SettingsView: View {
 
     private var visibleProviderConfigurations: [LLMProviderConfiguration] {
         appState.providerConfigurations.filter { $0.kind != .ollamaLocal }
+    }
+
+    private var visibleProviderKinds: [LLMProviderKind] {
+        LLMProviderKind.allCases.filter { $0 != .ollamaLocal }
+    }
+
+    private var aiProviderFeedback: ActionFeedback? {
+        let providerIDs = visibleProviderConfigurations.flatMap { provider in
+            [
+                ActionID.provider(ActionID.providerSaveKey, provider.id),
+                ActionID.provider(ActionID.providerTest, provider.id),
+                ActionID.provider(ActionID.providerSave, provider.id),
+                ActionID.provider(ActionID.providerDelete, provider.id)
+            ]
+        }
+        return appState.latestActionFeedback(matching: [ActionID.testDeepSeek, ActionID.providerSave, ActionID.providerSwitch] + providerIDs)
+    }
+
+    private var relevantContextFeedback: ActionFeedback? {
+        appState.latestActionFeedback(matching: [
+            ActionID.saveEmbeddingKey,
+            ActionID.rebuildCleanRAG,
+            ActionID.rebuildEmbeddings,
+            ActionID.saveSettings,
+            ActionID.providerTest
+        ])
     }
 
     private func makeNewProvider(kind: LLMProviderKind) -> LLMProviderConfiguration {

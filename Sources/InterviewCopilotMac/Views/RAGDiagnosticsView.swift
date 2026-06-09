@@ -71,11 +71,20 @@ struct RAGDiagnosticsView: View {
                         }
                     }
                 } else {
-                    Button("Rebuild Clean RAG Index") {
+                    ActionButton(
+                        appState: appState,
+                        actionID: ActionID.rebuildCleanRAG,
+                        title: "Rebuild Clean RAG Index",
+                        loadingTitle: "Rebuilding...",
+                        successTitle: "Index rebuilt",
+                        systemImage: "arrow.triangle.2.circlepath",
+                        isProminent: true
+                    ) {
                         appState.rebuildCleanRAGIndex()
                     }
-                    .buttonStyle(.borderedProminent)
                 }
+
+                InlineStatusBanner(appState.latestActionFeedback(matching: [ActionID.rebuildCleanRAG, ActionID.rebuildEmbeddings]))
             }
             .padding(18)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
