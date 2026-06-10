@@ -15,6 +15,11 @@ struct DiagnosticsView: View {
             }
             .tabItem { Label("Provider", systemImage: "server.rack") }
 
+            diagnosticsPage(title: "Current Generation") {
+                currentGenerationTab
+            }
+            .tabItem { Label("Generation", systemImage: "sparkles") }
+
             ScrollView {
                 RAGDiagnosticsView(appState: appState)
                     .padding(28)
@@ -93,6 +98,74 @@ struct DiagnosticsView: View {
                 diagnosticRow("Question detection model", appState.lastQuestionDetectionModel ?? "None")
                 diagnosticRow("Suggestion provider", appState.lastSuggestionGenerationProvider ?? "None")
                 diagnosticRow("Suggestion model", appState.lastSuggestionGenerationModel ?? "None")
+            }
+        }
+    }
+
+    private var currentGenerationTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            card("Current Generation", icon: "sparkles") {
+                diagnosticRow("generationState", appState.generationUIState.displayName)
+                diagnosticRow("activeGenerationID", appState.activeGenerationID ?? "None")
+                diagnosticRow("activeQuestionID", appState.activeQuestionID ?? "None")
+                diagnosticRow("activeTriggerPath", appState.activeTriggerPath?.rawValue ?? "None")
+                diagnosticRow("activeGenerationStartedAt", diagnosticTime(appState.activeGenerationStartedAt))
+                diagnosticRow("activeGenerationElapsedMs", appState.activeGenerationElapsedMs.map { "\($0)" } ?? "None")
+                diagnosticRow("lastGenerationStateChangeAt", diagnosticTime(appState.lastGenerationStateChangeAt))
+                diagnosticRow("activeTaskSummary", appState.activeTaskSummary)
+                diagnosticRow("previousGenerationID", appState.previousGenerationID ?? "None")
+                diagnosticRow("questionID", appState.currentGenerationTelemetry.questionID ?? "None")
+                diagnosticRow("generationID", appState.currentGenerationTelemetry.generationID ?? "None")
+                diagnosticRow("triggerPath", appState.currentGenerationTelemetry.triggerPath?.rawValue ?? "None")
+                diagnosticRow("elapsedMs", appState.currentGenerationTelemetry.elapsedMs.map { "\($0)" } ?? "None")
+                diagnosticRow("visibleAnswerExists", appState.visibleAnswerExists ? "true" : "false")
+                diagnosticRow("currentSpinnerVisible", appState.currentSpinnerVisible ? "true" : "false")
+                diagnosticRow("currentSuggestionExists", appState.currentSuggestion == nil ? "false" : "true")
+                diagnosticRow("fallbackWatchdogActive", appState.fallbackWatchdogActive ? "true" : "false")
+                diagnosticRow("stageBTaskActive", appState.stageBTaskActive ? "true" : "false")
+                diagnosticRow("providerStreamActive", appState.providerStreamActive ? "true" : "false")
+                diagnosticRow("lastProviderError", appState.currentGenerationTelemetry.providerError ?? "None")
+                diagnosticRow("lastJSONParseError", appState.currentGenerationTelemetry.jsonParseError ?? "None")
+                diagnosticRow("lastDBError", appState.currentGenerationTelemetry.dbError ?? "None")
+                diagnosticRow("wasStaleDiscarded", appState.currentGenerationTelemetry.wasStaleDiscarded ? "true" : "false")
+                diagnosticRow("cancelledGenerationCount", "\(appState.cancelledGenerationCount)")
+                diagnosticRow("staleCallbackDiscardCount", "\(appState.staleCallbackDiscardCount)")
+                diagnosticRow("staleDiscardCount", "\(appState.currentGenerationTelemetry.staleDiscardCount)")
+                diagnosticRow("duplicateSuppressionCount", "\(appState.duplicateSuppressionCount)")
+            }
+
+            card("Question Detection", icon: "questionmark.bubble") {
+                diagnosticRow("lastDetectedQuestionText", appState.lastDetectedQuestionText.isEmpty ? "None" : appState.lastDetectedQuestionText)
+                diagnosticRow("lastDetectedQuestionSource", appState.lastDetectedQuestionSource.isEmpty ? "None" : appState.lastDetectedQuestionSource)
+                diagnosticRow("lastDetectedQuestionSpeaker", appState.lastDetectedQuestionSpeaker.isEmpty ? "None" : appState.lastDetectedQuestionSpeaker)
+                diagnosticRow("lastQuestionConfidence", String(format: "%.2f", appState.lastQuestionConfidence))
+                diagnosticRow("lastQuestionIntent", appState.lastDetectionReason.isEmpty ? "None" : appState.lastDetectionReason)
+                diagnosticRow("duplicateSuppressionCount", "\(appState.duplicateSuppressionCount)")
+                diagnosticRow("ignoredCandidateQuestionCount", "\(appState.ignoredCandidateQuestionCount)")
+                diagnosticRow("ignoredSmallTalkCount", "\(appState.ignoredSmallTalkCount)")
+                diagnosticRow("detectedQuestionsInSessionCount", "\(appState.detectedQuestionsInSessionCount)")
+                diagnosticRow("currentGenerationState", appState.generationUIState.displayName)
+            }
+
+            card("Main Thread / Long Operations", icon: "cpu") {
+                diagnosticRow("mainThreadHeartbeatAt", diagnosticTime(appState.mainThreadHeartbeatAt))
+                diagnosticRow("mainThreadHeartbeatDelayMs", "\(appState.mainThreadHeartbeatDelayMs)")
+                diagnosticRow("lastLongOperationName", appState.lastLongOperationName)
+                diagnosticRow("lastLongOperationStartedAt", diagnosticTime(appState.lastLongOperationStartedAt))
+                diagnosticRow("lastSQLiteOperation", appState.lastSQLiteOperation)
+                diagnosticRow("lastRAGOperation", appState.lastRAGOperation)
+                diagnosticRow("lastProviderOperation", appState.lastProviderOperation)
+            }
+
+            card("Generation Timestamps", icon: "timer") {
+                diagnosticRow("startedAt", diagnosticTime(appState.currentGenerationTelemetry.startedAt))
+                diagnosticRow("firstVisibleAt", diagnosticTime(appState.currentGenerationTelemetry.firstVisibleAt))
+                diagnosticRow("fallbackShownAt", diagnosticTime(appState.currentGenerationTelemetry.fallbackShownAt))
+                diagnosticRow("firstDeepSeekTokenAt", diagnosticTime(appState.currentGenerationTelemetry.firstDeepSeekTokenAt))
+                diagnosticRow("firstKeyPointAt", diagnosticTime(appState.currentGenerationTelemetry.firstKeyPointAt))
+                diagnosticRow("fullCardAt", diagnosticTime(appState.currentGenerationTelemetry.fullCardAt))
+                diagnosticRow("dbPersistedAt", diagnosticTime(appState.currentGenerationTelemetry.dbPersistedAt))
+                diagnosticRow("failureReason", appState.currentGenerationTelemetry.failureReason ?? "None")
             }
         }
     }
@@ -215,6 +288,11 @@ struct DiagnosticsView: View {
             Spacer()
         }
         .font(.callout)
+    }
+
+    private func diagnosticTime(_ date: Date?) -> String {
+        guard let date else { return "None" }
+        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .medium)
     }
 
     private func health(_ title: String, _ active: Bool) -> some View {

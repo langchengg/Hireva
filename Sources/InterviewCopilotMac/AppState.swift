@@ -151,11 +151,17 @@ final class AppState: ObservableObject {
     @Published public var lastSystemAudioASRError: String? = nil
     @Published public var lastQuestionDetectionResult: String = "No question detected yet."
     @Published public var lastDetectedQuestionText: String = ""
+    @Published public var lastDetectedQuestionSource: String = ""
+    @Published public var lastDetectedQuestionSpeaker: String = ""
     @Published var lastDetectionConfidence: Double = 0.0
+    @Published public var lastQuestionConfidence: Double = 0.0
     @Published public var lastDetectionShouldTrigger: Bool = false
     @Published public var lastDetectionReason: String = ""
     @Published public var lastDetectionRawJSON: String = ""
     @Published public var lastDetectionSkipReason: String = ""
+    @Published public var ignoredCandidateQuestionCount: Int = 0
+    @Published public var ignoredSmallTalkCount: Int = 0
+    @Published public var detectedQuestionsInSessionCount: Int = 0
 
     // --- System Audio ASR Diagnostics ---
     @Published public var systemASRTaskRunning: Bool = false
@@ -343,6 +349,17 @@ final class AppState: ObservableObject {
     @Published public var suggestionProviderModel: String = ""
     @Published public var lastSuggestionCardJSON: String = ""
     @Published public var floatingPanelUpdated: Bool = false
+    @Published public var generationUIState: GenerationUIState = .idle
+    @Published public var currentGenerationTelemetry: GenerationTelemetry = .idle
+    @Published public var mainThreadHeartbeatAt: Date? = nil
+    @Published public var mainThreadHeartbeatDelayMs: Int = 0
+    @Published public var lastGenerationStateChangeAt: Date? = nil
+    @Published public var activeTaskSummary: String = "Idle"
+    @Published public var lastLongOperationName: String = "None"
+    @Published public var lastLongOperationStartedAt: Date? = nil
+    @Published public var lastSQLiteOperation: String = "None"
+    @Published public var lastRAGOperation: String = "None"
+    @Published public var lastProviderOperation: String = "None"
 
     // --- Pipeline Latency Metrics ---
     @Published public var ragRetrievalLatencyMS: Int? = nil
@@ -375,6 +392,7 @@ final class AppState: ObservableObject {
     
     // Delay Provider for mock time unit testing
     public var delayProvider: DelayProvider = RealDelayProvider()
+    public var generationFullCardWatchdogNanoseconds: UInt64 = 8_000_000_000
 
     // Soft Fallback & Advanced Provenance
     @Published public var softFallbackUsed: Bool = false
@@ -384,6 +402,17 @@ final class AppState: ObservableObject {
     @Published public var deepseekFirstVisibleMS: Int? = nil
     @Published public var finalVisibleSource: String? = nil
     @Published public var currentGenerationID: String? = nil
+    @Published public private(set) var activeGenerationID: String? = nil
+    @Published public private(set) var activeQuestionID: String? = nil
+    @Published public private(set) var activeTriggerPath: GenerationTriggerPath? = nil
+    @Published public private(set) var activeGenerationStartedAt: Date? = nil
+    @Published public private(set) var previousGenerationID: String? = nil
+    @Published public private(set) var cancelledGenerationCount: Int = 0
+    @Published public private(set) var staleCallbackDiscardCount: Int = 0
+    @Published public private(set) var duplicateSuppressionCount: Int = 0
+    @Published public private(set) var fallbackWatchdogActive: Bool = false
+    @Published public private(set) var stageBTaskActive: Bool = false
+    @Published public private(set) var providerStreamActive: Bool = false
     @Published public var userInteractedWithCard: Bool = false
     
     // Keychain Diagnostics properties
@@ -401,6 +430,35 @@ final class AppState: ObservableObject {
     // Stage B lifecycle task reference for cost control / cancellation
     private var stageBTask: Task<Void, Never>? = nil
     private var softFallbackTask: Task<Void, Never>? = nil
+    private var fullCardWatchdogTask: Task<Void, Never>? = nil
+    public var simulateSuggestionPersistenceFailure: Bool = false
+    public var simulatedSuggestionPersistenceDelayNanoseconds: UInt64 = 0
+
+    private struct ActiveGenerationController {
+        let generationID: String
+        let questionID: String?
+        let triggerPath: GenerationTriggerPath
+        let startedAt: Date
+        var stageATask: Task<String, Error>?
+        var stageBTask: Task<Void, Never>?
+        var fallbackWatchdogTask: Task<Void, Never>?
+        var fullCardWatchdogTask: Task<Void, Never>?
+
+        mutating func cancelAll() {
+            stageATask?.cancel()
+            stageATask = nil
+            stageBTask?.cancel()
+            stageBTask = nil
+            fallbackWatchdogTask?.cancel()
+            fallbackWatchdogTask = nil
+            fullCardWatchdogTask?.cancel()
+            fullCardWatchdogTask = nil
+        }
+    }
+
+    private var activeGenerationController: ActiveGenerationController?
+    private var mainThreadHeartbeatTask: Task<Void, Never>?
+    private var lastHeartbeatTickAt: Date?
     
     // Background RAG precompute cache and debounce
     private struct RAGPrecomputeCacheItem {
@@ -439,6 +497,7 @@ final class AppState: ObservableObject {
     }
     private var recentSystemAudioRecords: [RecentSystemAudioRecord] = []
     private var detectionDebounceTask: Task<Void, Never>?
+    private var activeDetectionTask: Task<Void, Never>?
     private var activeAITask: Task<Void, Never>?
     private var lastDetectionAt: Date?
     private var lastAutoSuggestionAt: Date?
@@ -449,7 +508,7 @@ final class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var audioSignalMonitoringTimer: Timer?
 
-    private let detectionDebounceSeconds: TimeInterval = 2
+    var detectionDebounceSeconds: TimeInterval = 2
     private let autoSuggestionCooldownSeconds: TimeInterval = 5
     private let autoSuggestionConfidenceThreshold = 0.75
     private let possibleQuestionConfidenceRange = 0.55..<0.75
@@ -457,7 +516,9 @@ final class AppState: ObservableObject {
     static func bootstrap() -> AppState {
         do {
             let database = try AppDatabase()
-            return AppState(database: database)
+            let state = AppState(database: database)
+            state.startMainThreadHeartbeat()
+            return state
         } catch {
             let fallbackURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("InterviewCopilotMac-\(UUID().uuidString).sqlite")
@@ -466,6 +527,7 @@ final class AppState: ObservableObject {
                 preconditionFailure("Unable to initialize SQLite or in-memory database.")
             }
             let state = AppState(database: fallback)
+            state.startMainThreadHeartbeat()
             state.showError("Could not open the application database at the normal path. Using a temporary database for this run. \(error.localizedDescription)")
             return state
         }
@@ -475,7 +537,8 @@ final class AppState: ObservableObject {
         database: AppDatabase,
         llmRouter: LLMRouter? = nil,
         permissionService: PermissionService? = nil,
-        keychainService: KeychainService = KeychainService()
+        keychainService: KeychainService = KeychainService(),
+        contextRetrievalService: ContextRetrievalService? = nil
     ) {
         let documents = DocumentRepository(database: database)
         let sessions = SessionRepository(database: database)
@@ -513,7 +576,7 @@ final class AppState: ObservableObject {
         self.suggestionGenerationService = SuggestionGenerationService(llmRouter: router)
         self.recapGenerationService = RecapGenerationService(llmRouter: router)
         
-        self.contextRetrievalService = HybridContextRetrievalService(
+        self.contextRetrievalService = contextRetrievalService ?? HybridContextRetrievalService(
             documentRepository: documents,
             settingsProvider: { [weak self] in self?.settings ?? AppSettings.default },
             embeddingProviderResolver: { [weak self] in self?.resolveEmbeddingProvider() }
@@ -636,6 +699,7 @@ final class AppState: ObservableObject {
             NotificationCenter.default.removeObserver(token)
         }
         actionFeedbackDismissTasks.values.forEach { $0.cancel() }
+        mainThreadHeartbeatTask?.cancel()
     }
 
     func beginAction(_ id: String, title: String, message: String) {
@@ -691,6 +755,7 @@ final class AppState: ObservableObject {
     }
 
     func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4.0) {
+        actionLoadingStates[id] = false
         setActionFeedback(
             ActionFeedback(
                 actionID: id,
@@ -736,6 +801,116 @@ final class AppState: ObservableObject {
                 self.activeActionFeedbacks.removeAll { $0.id == feedbackID }
                 if self.actionFeedbackDismissTasks[actionID]?.isCancelled == false {
                     self.actionFeedbackDismissTasks[actionID] = nil
+                }
+            }
+        }
+    }
+
+    public func startMainThreadHeartbeat() {
+        mainThreadHeartbeatTask?.cancel()
+        let now = Date()
+        mainThreadHeartbeatAt = now
+        lastHeartbeatTickAt = now
+        mainThreadHeartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                let tick = Date()
+                let previous = self.lastHeartbeatTickAt ?? tick
+                let delay = max(0, Int((tick.timeIntervalSince(previous) - 0.5) * 1_000))
+                self.mainThreadHeartbeatAt = tick
+                self.mainThreadHeartbeatDelayMs = delay
+                self.lastHeartbeatTickAt = tick
+                if delay > 2_000 {
+                    self.lastLongOperationName = "Main thread appears blocked"
+                    self.lastLongOperationStartedAt = previous
+                    print("[AppState] Main thread appears blocked: \(delay) ms")
+                }
+            }
+        }
+    }
+
+    private func markSQLiteOperation(_ operation: String) {
+        lastSQLiteOperation = operation
+        lastLongOperationName = operation
+        lastLongOperationStartedAt = Date()
+        updateActiveTaskSummary()
+    }
+
+    private func markRAGOperation(_ operation: String) {
+        lastRAGOperation = operation
+        lastLongOperationName = operation
+        lastLongOperationStartedAt = Date()
+        updateActiveTaskSummary()
+    }
+
+    private func markProviderOperation(_ operation: String) {
+        lastProviderOperation = operation
+        lastLongOperationName = operation
+        lastLongOperationStartedAt = Date()
+        updateActiveTaskSummary()
+    }
+
+    private func updateActiveTaskSummary() {
+        guard let activeGenerationID else {
+            activeTaskSummary = "Idle"
+            return
+        }
+        let shortGeneration = String(activeGenerationID.prefix(8))
+        let question = activeQuestionID.map { String($0.prefix(8)) } ?? "none"
+        activeTaskSummary = "generation=\(shortGeneration) question=\(question) state=\(generationUIState.displayName) fallbackWatchdog=\(fallbackWatchdogActive) stageB=\(stageBTaskActive) providerStream=\(providerStreamActive)"
+    }
+
+    private func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment) {
+        let repository = transcriptRepository
+        markSQLiteOperation("Saving transcript segment in background")
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                try repository.saveSegment(segment)
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Saved transcript segment"
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Transcript save failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func saveDetectedQuestionInBackground(_ question: DetectedQuestion) {
+        let repository = suggestionRepository
+        markSQLiteOperation("Saving detected question in background")
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                try repository.saveDetectedQuestion(question)
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Saved detected question"
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Detected question save failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
+        let repository = suggestionRepository
+        markSQLiteOperation("Saving suggestion snapshot in background")
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                try repository.saveSuggestionCard(card, retrievedChunks: chunks)
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Saved suggestion snapshot"
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Suggestion snapshot save failed: \(error.localizedDescription)"
                 }
             }
         }
@@ -1282,6 +1457,7 @@ final class AppState: ObservableObject {
         beginAction(actionID, title: "Starting audio", message: "Starting \(settings.audioCaptureMode.shortDisplayName) capture...")
         errorMessage = nil
         possibleQuestion = nil
+        activeDetectionTask?.cancel()
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
@@ -1444,10 +1620,18 @@ final class AppState: ObservableObject {
                 refreshPermissions()
             }
 
+            let reusableSession: InterviewSession? = {
+                guard let currentSession else { return nil }
+                let persistedSession = try? sessionRepository.session(id: currentSession.id)
+                let candidate = persistedSession ?? currentSession
+                return candidate.endedAt == nil ? candidate : nil
+            }()
+
             let session: InterviewSession
-            if let currentSession {
-                session = currentSession
+            if let reusableSession {
+                session = reusableSession
             } else {
+                resetLiveContextForFreshSession()
                 session = try sessionRepository.createSession(mode: mode)
             }
             currentSession = session
@@ -1521,6 +1705,51 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func resetLiveContextForFreshSession() {
+        precomputeDebounceTask?.cancel()
+        detectionDebounceTask?.cancel()
+        activeDetectionTask?.cancel()
+        cancelStageBTask()
+        fullCardWatchdogTask?.cancel()
+        fullCardWatchdogTask = nil
+
+        transcriptSegments = []
+        currentSuggestion = nil
+        currentSuggestionRetrievedChunks = []
+        lastDetectedQuestion = nil
+        possibleQuestion = nil
+        lastTranscriptSnippet = ""
+        lastSystemTranscript = ""
+        lastSystemAudioTranscript = ""
+        lastQuestionDetectionResult = "No question detected yet."
+        lastDetectedQuestionText = ""
+        lastDetectedQuestionSource = ""
+        lastDetectedQuestionSpeaker = ""
+        lastDetectionConfidence = 0.0
+        lastQuestionConfidence = 0.0
+        lastDetectionShouldTrigger = false
+        lastDetectionReason = ""
+        lastDetectionRawJSON = ""
+        lastDetectionSkipReason = ""
+        ignoredCandidateQuestionCount = 0
+        ignoredSmallTalkCount = 0
+        detectedQuestionsInSessionCount = 0
+        lastDetectionQuestionComplete = false
+        lastDetectionAnswerStrategy = ""
+        lastDetectionAt = nil
+        lastAutoQuestionText = nil
+        recentQuestionTimestamps.removeAll()
+        recentQuestionsFingerprints.removeAll()
+        precomputedRAGCache.removeAll()
+        streamedSayFirst = ""
+        streamedSayFirstSetAt = nil
+        isStreamingSayFirst = false
+        isExpandingSuggestionCard = false
+        suggestionGenerationStarted = false
+        currentGenerationID = nil
+        generationUIState = .idle
+    }
+
     func stopListening(
         reason: StopReason = .userRequested,
         file: String = #file,
@@ -1533,7 +1762,8 @@ final class AppState: ObservableObject {
         let stateBefore = currentCaptureRuntimeState.displayName
         currentCaptureRuntimeState = .stopping
         self.stopReason = reason
-        self.lastCaptureStoppedAt = Date()
+        let stoppedAt = Date()
+        self.lastCaptureStoppedAt = stoppedAt
         
         print("[CaptureState] stopListening reason = \(reason)")
         print("[CaptureState] systemCaptureRunning before stop = \(systemCaptureRunning)")
@@ -1549,7 +1779,10 @@ final class AppState: ObservableObject {
             function: function
         )
         
-        cancelStageBTask()
+        if reason == .userRequested {
+            cancelStageBTask()
+        }
+        activeDetectionTask?.cancel()
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
@@ -1571,11 +1804,17 @@ final class AppState: ObservableObject {
         lastSystemAudioASRError = nil
         lastQuestionDetectionResult = "No question detected yet."
         lastDetectedQuestionText = ""
+        lastDetectedQuestionSource = ""
+        lastDetectedQuestionSpeaker = ""
         lastDetectionConfidence = 0.0
+        lastQuestionConfidence = 0.0
         lastDetectionShouldTrigger = false
         lastDetectionReason = ""
         lastDetectionRawJSON = ""
         lastDetectionSkipReason = ""
+        ignoredCandidateQuestionCount = 0
+        ignoredSmallTalkCount = 0
+        detectedQuestionsInSessionCount = 0
         
         // Reset ASR, Segment, Detection, and Suggestion Diagnostics
         systemASRTaskRunning = false
@@ -1601,6 +1840,7 @@ final class AppState: ObservableObject {
         
         if let sessionID = currentSession?.id {
             try? sessionRepository.endSession(id: sessionID)
+            currentSession?.endedAt = stoppedAt
         }
         liveState = .stopped
         currentCaptureRuntimeState = .stopped(reason: reason)
@@ -1625,6 +1865,9 @@ final class AppState: ObservableObject {
         beginAction(ActionID.clearLiveSession, title: "Clearing session", message: "Removing current transcript, question, and answer from the live workspace...")
         let stateBefore = currentCaptureRuntimeState.displayName
         cancelStageBTask()
+        fullCardWatchdogTask?.cancel()
+        fullCardWatchdogTask = nil
+        activeDetectionTask?.cancel()
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
@@ -1644,6 +1887,8 @@ final class AppState: ObservableObject {
         currentSuggestion = nil
         lastDetectedQuestion = nil
         possibleQuestion = nil
+        currentGenerationID = nil
+        generationUIState = .idle
         lastTranscriptSnippet = ""
         lastAutoQuestionText = nil
         errorMessage = nil
@@ -1761,8 +2006,8 @@ final class AppState: ObservableObject {
                 try recapRepository.saveRecap(result.recap)
                 selectedSessionRecap = result.recap
                 updateDiagnostics {
-                    $0.lastAPILatencyMS = result.response.latencyMS
-                    $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
+                $0.lastAPILatencyMS = result.response.latencyMS
+                $0.apiCallCount += 1
                 }
                 completeAction(ActionID.sessionRecap, title: "Recap ready", message: "Session recap is visible.")
             } catch {
@@ -1890,6 +2135,36 @@ final class AppState: ObservableObject {
         permissionService.openPrivacySettings()
     }
 
+    func openSpeechRecognitionPrivacySettings() {
+        permissionService.openSpeechRecognitionSettings()
+        refreshPermissions()
+    }
+
+    func openScreenRecordingPrivacySettings() {
+        permissionService.openScreenRecordingSettings()
+        refreshPermissions()
+    }
+
+    func handleReadinessPermissionAction(itemID: String?) {
+        switch itemID {
+        case "speech":
+            switch permissionSnapshot.speechRecognition {
+            case .notDetermined, .unknown:
+                requestSpeechPermission()
+            case .denied, .restricted:
+                openSpeechRecognitionPrivacySettings()
+            case .granted:
+                refreshPermissions()
+            }
+        case "microphone":
+            requestMicrophonePermission()
+        case "system-audio":
+            openScreenRecordingPrivacySettings()
+        default:
+            openSystemPrivacySettings()
+        }
+    }
+
     func refreshPermissions() {
         microphonePermissionState = permissionService.checkMicrophonePermission()
         permissionSnapshot = permissionService.refreshPermissions()
@@ -1988,9 +2263,20 @@ final class AppState: ObservableObject {
         if segment.source == .systemAudio {
             lastSystemTranscript = segment.text
         }
-        currentSession = currentSession ?? (try? sessionRepository.session(id: segment.sessionID))
+        if currentSession == nil {
+            let repository = sessionRepository
+            markSQLiteOperation("Loading transcript session in background")
+            Task.detached(priority: .utility) { [weak self] in
+                let session = try? repository.session(id: segment.sessionID)
+                await MainActor.run { [weak self] in
+                    guard let self, self.currentSession == nil else { return }
+                    self.currentSession = session
+                    self.lastSQLiteOperation = session == nil ? "Transcript session not found" : "Loaded transcript session"
+                }
+            }
+        }
         if settings.saveTranscriptsLocally {
-            try? transcriptRepository.saveSegment(segment)
+            saveTranscriptSegmentInBackground(segment)
         }
 
         // Background debounced RAG precompute
@@ -1998,6 +2284,7 @@ final class AppState: ObservableObject {
             let words = segment.text.split(whereSeparator: \.isWhitespace)
             if words.count >= 6 { // 5-7 words range
                 precomputeDebounceTask?.cancel()
+                let retrievalService = contextRetrievalService!
                 precomputeDebounceTask = Task { [weak self] in
                     do {
                         try await Task.sleep(nanoseconds: 400_000_000) // 300-500ms debounce
@@ -2005,15 +2292,17 @@ final class AppState: ObservableObject {
                         return
                     }
                     guard let self = self, !Task.isCancelled else { return }
-                    
+	                    
                     let key = segment.id + "_" + self.normalizedTextHash(segment.text)
                     do {
-                        let (context, trace) = try await self.contextRetrievalService.retrieveContextWithTrace(
-                            question: segment.text,
-                            intent: .unclear,
-                            maxCVWords: 240,
-                            maxJDWords: 120
-                        )
+                        let (context, trace) = try await Task.detached(priority: .utility) {
+                            try await retrievalService.retrieveContextWithTrace(
+                                question: segment.text,
+                                intent: .unclear,
+                                maxCVWords: 240,
+                                maxJDWords: 120
+                            )
+                        }.value
                         await MainActor.run {
                             self.precomputedRAGCache[key] = RAGPrecomputeCacheItem(
                                 context: context,
@@ -2119,6 +2408,11 @@ final class AppState: ObservableObject {
             maybeRunAutomaticDetection(triggeringSegment: segment)
         } else {
             self.lastDetectionSkipReason = skipReason
+            if segment.source == .microphone,
+               segment.speaker == .candidate,
+               questionDetectionService.isLikelyQuestion(segment.text).shouldTrigger {
+                ignoredCandidateQuestionCount += 1
+            }
             liveState = .listening
         }
 
@@ -2157,8 +2451,8 @@ final class AppState: ObservableObject {
             return
         }
 
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
+        activeDetectionTask?.cancel()
+        activeDetectionTask = Task { [weak self] in
             guard let self else { return }
             await self.runAutomaticDetection(session: session, transcript: transcript, triggeringSegmentID: triggeringSegmentID)
         }
@@ -2174,6 +2468,8 @@ final class AppState: ObservableObject {
             self.lastDetectionSubmittedSegmentText = triggeringSegment?.text ?? "Unknown segment text"
             self.lastDetectionPromptSource = triggeringSegment?.source.rawValue ?? "Unknown source"
             self.lastDetectionPromptSpeaker = triggeringSegment?.speaker.rawValue ?? "Unknown speaker"
+            self.lastDetectedQuestionSource = triggeringSegment?.source.rawValue ?? ""
+            self.lastDetectedQuestionSpeaker = triggeringSegment?.speaker.rawValue ?? ""
             
             let detection = try await questionDetectionService.detect(
                 transcriptContext: transcript,
@@ -2184,13 +2480,13 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             self.lastQuestionDetectionProvider = detection.response.providerName
             self.lastQuestionDetectionModel = detection.response.modelName
-            try suggestionRepository.saveDetectedQuestion(detection.question)
+            saveDetectedQuestionInBackground(detection.question)
             updateDiagnostics {
                 $0.lastDetectedQuestionJSON = detection.question.rawJSON
                 $0.lastAPILatencyMS = detection.response.latencyMS
                 $0.lastProviderName = detection.response.providerName
                 $0.lastProviderModel = detection.response.modelName
-                $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
+                $0.apiCallCount += 1
             }
 
             let question = detection.question
@@ -2199,6 +2495,7 @@ final class AppState: ObservableObject {
             // Set structured question detection diagnostics
             self.lastDetectedQuestionText = question.questionText
             self.lastDetectionConfidence = question.confidence
+            self.lastQuestionConfidence = question.confidence
             self.lastDetectionShouldTrigger = question.shouldTrigger
             self.lastDetectionReason = question.intent.displayName
             self.lastDetectionRawJSON = question.rawJSON ?? ""
@@ -2208,12 +2505,16 @@ final class AppState: ObservableObject {
             self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Confidence: \(Int(question.confidence * 100))%"
 
 
+            let duplicateQuestion = isRecentDuplicateAutoQuestion(question.questionText)
+
             if question.shouldTrigger,
                question.questionComplete,
                question.confidence >= autoSuggestionConfidenceThreshold,
-               isOutsideAutoSuggestionCooldown(),
-               !isDuplicateAutoQuestion(question.questionText) {
-                try await generateSuggestion(for: question, session: session, transcript: transcript, autoGenerated: true)
+               !duplicateQuestion {
+                rememberAutoQuestion(question.questionText)
+                lastAutoSuggestionAt = Date()
+                detectedQuestionsInSessionCount += 1
+                startAutoSuggestionGeneration(for: question, session: session, transcript: transcript)
             } else {
                 var skipMsg = ""
                 if !question.shouldTrigger {
@@ -2222,12 +2523,16 @@ final class AppState: ObservableObject {
                     skipMsg = "Question is not complete"
                 } else if question.confidence < autoSuggestionConfidenceThreshold {
                     skipMsg = "Confidence (\(Int(question.confidence * 100))%) below threshold (\(Int(autoSuggestionConfidenceThreshold * 100))%)"
-                } else if !isOutsideAutoSuggestionCooldown() {
-                    skipMsg = "Within auto-suggestion cooldown"
-                } else if isDuplicateAutoQuestion(question.questionText) {
+                } else if duplicateQuestion {
                     skipMsg = "Duplicate of recently answered question"
+                    recordDuplicateSuppression()
                 } else {
                     skipMsg = "Not qualified for suggestion generation"
+                }
+                let interviewerAudioSegment = triggeringSegment?.speaker == .interviewer &&
+                    (triggeringSegment?.source == .systemAudio || triggeringSegment?.source == .processAudio || triggeringSegment?.source == .mock)
+                if !question.shouldTrigger, interviewerAudioSegment {
+                    ignoredSmallTalkCount += 1
                 }
                 self.lastDetectionSkipReason = skipMsg
                 
@@ -2260,6 +2565,34 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func startAutoSuggestionGeneration(
+        for question: DetectedQuestion,
+        session: InterviewSession,
+        transcript: String
+    ) {
+        activeAITask?.cancel()
+        activeAITask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.generateSuggestion(for: question, session: session, transcript: transcript, autoGenerated: true)
+            } catch {
+                guard !Task.isCancelled else { return }
+                let message = self.userFacing(error)
+                if self.stopReason == nil && self.anyCaptureRunning {
+                    self.liveState = .listening
+                    self.currentCaptureRuntimeState = .listening
+                }
+                self.lastFailedTaskType = .suggestionGeneration
+                self.lastFailedQuestion = question
+                self.lastFailedTranscriptContext = transcript
+                self.lastFailedCVJDContext = nil
+                self.lastFailedProviderConfig = self.activeRealtimeProvider
+                self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(message)")
+                self.showError(message)
+            }
+        }
+    }
+
     private func runManualAnswer(session: InterviewSession, transcript: String) async {
         do {
             liveState = .detectingQuestion
@@ -2272,13 +2605,13 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             self.lastQuestionDetectionProvider = detection.response.providerName
             self.lastQuestionDetectionModel = detection.response.modelName
-            try suggestionRepository.saveDetectedQuestion(detection.question)
+            saveDetectedQuestionInBackground(detection.question)
             updateDiagnostics {
                 $0.lastDetectedQuestionJSON = detection.question.rawJSON
                 $0.lastAPILatencyMS = detection.response.latencyMS
                 $0.lastProviderName = detection.response.providerName
                 $0.lastProviderModel = detection.response.modelName
-                $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? $0.apiCallCount
+                $0.apiCallCount += 1
             }
 
             var question = detection.question
@@ -2306,23 +2639,18 @@ final class AppState: ObservableObject {
     }
 
     func cancelStageBTask() {
-        softFallbackTask?.cancel()
-        softFallbackTask = nil
-        
-        if let task = stageBTask {
-            task.cancel()
-            self.stageBTask = nil
+        let hadActiveStageB = stageBTaskActive || stageBTask != nil
+        if hadActiveStageB {
             print("[StageB] Cancelled active background Stage B suggestion task.")
-            
-            if var current = self.currentSuggestion {
-                current.stageBCompleted = false
-                current.stageBStatus = "cancelled"
-                current.caution = "Full answer cancelled by user action."
-                self.currentSuggestion = current
-                
-                try? self.suggestionRepository.saveSuggestionCard(current, retrievedChunks: self.currentSuggestionRetrievedChunks)
-            }
         }
+        if var current = self.currentSuggestion, hadActiveStageB {
+            current.stageBCompleted = false
+            current.stageBStatus = "cancelled"
+            current.caution = "Full answer cancelled by user action."
+            self.currentSuggestion = current
+            saveSuggestionSnapshotInBackground(current, chunks: self.currentSuggestionRetrievedChunks)
+        }
+        cancelActiveGenerationForStop()
     }
 
     private func trimContextForRealtime(_ context: RetrievedContext, question: DetectedQuestion) -> RetrievedContext {
@@ -2340,6 +2668,91 @@ final class AppState: ObservableObject {
         let cleanContent = doc.content.replacingOccurrences(of: "\n", with: " ")
         let excerpt = cleanContent.prefix(250)
         return "Title: \(title) | Excerpt: \(excerpt)..."
+    }
+
+    private func makeInitialFirstAnswerFallbackCard(
+        cardID: String,
+        question: DetectedQuestion,
+        session: InterviewSession,
+        requestStart: Date
+    ) -> SuggestionCard {
+        let answer = initialFallbackSayFirst(for: question)
+        return SuggestionCard(
+            id: cardID,
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "Local First Answer Fallback",
+            sayFirst: answer.sayFirst,
+            keyPoints: answer.keyPoints,
+            followUpReady: ["I can expand with a concrete example if helpful."],
+            confidence: 0.45,
+            caution: "Fast local answer shown while the full answer is still generating.",
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "local-first-answer-fallback",
+            promptVersion: "local-first-answer-v1",
+            providerKind: nil,
+            providerName: "Local First Answer Fallback",
+            providerBaseURL: "",
+            latencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
+            isLocal: true,
+            rawJSON: nil,
+            createdAt: Date(),
+            sayFirstSource: "local_first_answer_fallback",
+            stageATimedOut: false,
+            stageBCompleted: false,
+            stageBStatus: "expanding",
+            latencyFirstTokenMS: nil,
+            latencyFirstVisibleMS: nil,
+            latencyFullCardMS: nil,
+            softFallbackUsed: true,
+            softFallbackLatencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
+            deepseekFirstTokenMS: nil,
+            deepseekFirstVisibleMS: nil,
+            finalVisibleSource: "local_first_answer_fallback"
+        )
+    }
+
+    private func initialFallbackSayFirst(for question: DetectedQuestion) -> (sayFirst: String, keyPoints: [String]) {
+        let lower = question.questionText.lowercased()
+        if lower.contains("why") && (lower.contains("role") || lower.contains("company") || lower.contains("join")) {
+            return (
+                "I’m interested in this role because it lines up with the kind of work I want to do next: applying my experience to practical problems, learning the domain quickly, and contributing with clear engineering judgment.",
+                [
+                    "Role fit with my background and growth direction.",
+                    "Technical execution connected to practical impact.",
+                    "Motivation to learn the domain and contribute quickly."
+                ]
+            )
+        }
+        if question.intent == .projectDeepDive || lower.contains("project") {
+            return (
+                "One project I’d point to is work where I had to connect the technical details to a real outcome. I can walk through the problem, the choices I made, and what changed because of the work.",
+                [
+                    "Problem and constraints.",
+                    "Implementation choices and tradeoffs.",
+                    "Result and what I learned."
+                ]
+            )
+        }
+        if question.intent == .technical || lower.contains("technical") || lower.contains("system design") {
+            return (
+                "I’d approach this by first clarifying the requirements, then breaking the system into the core pieces and explaining the tradeoffs behind each decision.",
+                [
+                    "Requirements and constraints.",
+                    "Core components and tradeoffs.",
+                    "Reliability and user impact."
+                ]
+            )
+        }
+        return (
+            "The short version is that I try to give a clear answer, back it up with a concrete example from my experience, and connect it to the result it produced.",
+            [
+                "Direct answer.",
+                "Concrete example.",
+                "Result or lesson learned."
+            ]
+        )
     }
 
     private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
@@ -2387,7 +2800,7 @@ final class AppState: ObservableObject {
                 if self.currentGenerationID == generationID, var current = self.currentSuggestion {
                     current.sayFirst = rewritten
                     self.currentSuggestion = current
-                    try? self.suggestionRepository.saveSuggestionCard(current, retrievedChunks: self.currentSuggestionRetrievedChunks)
+                    self.saveSuggestionSnapshotInBackground(current, chunks: self.currentSuggestionRetrievedChunks)
                     print("[QualityValidator] Background provider rewrite complete! Rewritten say_first: \(rewritten)")
                 }
             }
@@ -2433,6 +2846,462 @@ final class AppState: ObservableObject {
 
     private func elapsedMS(since start: Date) -> Int {
         Int(Date().timeIntervalSince(start) * 1000)
+    }
+
+    public var activeGenerationElapsedMs: Int? {
+        guard let activeGenerationStartedAt else { return nil }
+        return elapsedMS(since: activeGenerationStartedAt)
+    }
+
+    public var currentSpinnerVisible: Bool {
+        shouldShowBlockingAnswerSpinner
+    }
+
+    public var visibleAnswerExists: Bool {
+        if let card = currentSuggestion, !card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        return !streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public var shouldShowBlockingAnswerSpinner: Bool {
+        let elapsed = activeGenerationElapsedMs ?? currentGenerationTelemetry.elapsedMs ?? 0
+        return generationUIState.isLoadingWithoutVisibleAnswer && !visibleAnswerExists && elapsed < 1_500
+    }
+
+    public var shouldShowAnswerExpansionStatus: Bool {
+        visibleAnswerExists && (generationUIState.isExpandingAfterVisibleAnswer || isExpandingSuggestionCard)
+    }
+
+    private func cancelActiveGenerationForReplacement() {
+        guard var controller = activeGenerationController else {
+            cancelLegacyGenerationTaskReferences()
+            return
+        }
+
+        previousGenerationID = controller.generationID
+        cancelledGenerationCount += 1
+        persistVisibleSuggestionBeforeReplacement(controller: controller)
+        controller.cancelAll()
+        activeGenerationController = nil
+        cancelLegacyGenerationTaskReferences()
+        fallbackWatchdogActive = false
+        stageBTaskActive = false
+        providerStreamActive = false
+        updateActiveTaskSummary()
+    }
+
+    private func cancelActiveGenerationForStop() {
+        if var controller = activeGenerationController {
+            previousGenerationID = controller.generationID
+            cancelledGenerationCount += 1
+            persistVisibleSuggestionBeforeReplacement(controller: controller)
+            controller.cancelAll()
+        }
+        activeGenerationController = nil
+        activeGenerationID = nil
+        activeQuestionID = nil
+        activeTriggerPath = nil
+        activeGenerationStartedAt = nil
+        currentGenerationID = nil
+        cancelLegacyGenerationTaskReferences()
+        fallbackWatchdogActive = false
+        stageBTaskActive = false
+        providerStreamActive = false
+        updateActiveTaskSummary()
+    }
+
+    private func cancelLegacyGenerationTaskReferences() {
+        softFallbackTask?.cancel()
+        softFallbackTask = nil
+        fullCardWatchdogTask?.cancel()
+        fullCardWatchdogTask = nil
+        stageBTask?.cancel()
+        stageBTask = nil
+    }
+
+    private func persistVisibleSuggestionBeforeReplacement(controller: ActiveGenerationController) {
+        guard let current = currentSuggestion,
+              current.questionID == controller.questionID,
+              !current.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        let chunks = currentSuggestionRetrievedChunks
+        saveSuggestionSnapshotInBackground(current, chunks: chunks)
+    }
+
+    private func activateGeneration(
+        question: DetectedQuestion,
+        generationID: String,
+        triggerPath: GenerationTriggerPath,
+        requestStart: Date,
+        source: AudioSourceType?,
+        speaker: SpeakerRole?
+    ) {
+        cancelActiveGenerationForReplacement()
+        currentGenerationID = generationID
+        activeGenerationController = ActiveGenerationController(
+            generationID: generationID,
+            questionID: question.id,
+            triggerPath: triggerPath,
+            startedAt: requestStart
+        )
+        activeGenerationID = generationID
+        activeQuestionID = question.id
+        activeTriggerPath = triggerPath
+        activeGenerationStartedAt = requestStart
+        providerStreamActive = false
+        stageBTaskActive = false
+        fallbackWatchdogActive = false
+        currentSuggestion = nil
+        currentSuggestionRetrievedChunks = []
+        streamedSayFirst = ""
+        updateActiveTaskSummary()
+        beginGenerationUI(
+            question: question,
+            generationID: generationID,
+            triggerPath: triggerPath,
+            source: source,
+            speaker: speaker
+        )
+    }
+
+    private func isActiveGeneration(_ generationID: String) -> Bool {
+        activeGenerationController?.generationID == generationID && currentGenerationID == generationID
+    }
+
+    private func registerStageATask(_ task: Task<String, Error>, generationID: String) {
+        guard isActiveGeneration(generationID) else {
+            task.cancel()
+            recordStaleGenerationDiscard()
+            return
+        }
+        activeGenerationController?.stageATask?.cancel()
+        activeGenerationController?.stageATask = task
+        providerStreamActive = true
+        updateActiveTaskSummary()
+    }
+
+    private func clearStageATask(generationID: String) {
+        guard isActiveGeneration(generationID) else { return }
+        activeGenerationController?.stageATask?.cancel()
+        activeGenerationController?.stageATask = nil
+        providerStreamActive = false
+        updateActiveTaskSummary()
+    }
+
+    private func registerStageBTask(_ task: Task<Void, Never>, generationID: String) {
+        guard isActiveGeneration(generationID) else {
+            task.cancel()
+            recordStaleGenerationDiscard()
+            return
+        }
+        activeGenerationController?.stageBTask?.cancel()
+        activeGenerationController?.stageBTask = task
+        stageBTask = task
+        stageBTaskActive = true
+        updateActiveTaskSummary()
+    }
+
+    private func clearStageBTask(generationID: String) {
+        guard isActiveGeneration(generationID) else { return }
+        activeGenerationController?.stageBTask = nil
+        if stageBTask != nil {
+            stageBTask = nil
+        }
+        stageBTaskActive = false
+        updateActiveTaskSummary()
+    }
+
+    private func cancelActiveStageBTask(generationID: String) {
+        guard isActiveGeneration(generationID) else { return }
+        activeGenerationController?.stageBTask?.cancel()
+        activeGenerationController?.stageBTask = nil
+        stageBTask?.cancel()
+        stageBTask = nil
+        stageBTaskActive = false
+        updateActiveTaskSummary()
+    }
+
+    private func registerFallbackWatchdogTask(_ task: Task<Void, Never>, generationID: String) {
+        guard isActiveGeneration(generationID) else {
+            task.cancel()
+            recordStaleGenerationDiscard()
+            return
+        }
+        activeGenerationController?.fallbackWatchdogTask?.cancel()
+        activeGenerationController?.fallbackWatchdogTask = task
+        softFallbackTask = task
+        fallbackWatchdogActive = true
+        updateActiveTaskSummary()
+    }
+
+    private func clearFallbackWatchdogTask(generationID: String) {
+        guard isActiveGeneration(generationID) else { return }
+        activeGenerationController?.fallbackWatchdogTask?.cancel()
+        activeGenerationController?.fallbackWatchdogTask = nil
+        softFallbackTask = nil
+        fallbackWatchdogActive = false
+        updateActiveTaskSummary()
+    }
+
+    private func registerFullCardWatchdogTask(_ task: Task<Void, Never>, generationID: String) {
+        guard isActiveGeneration(generationID) else {
+            task.cancel()
+            recordStaleGenerationDiscard()
+            return
+        }
+        activeGenerationController?.fullCardWatchdogTask?.cancel()
+        activeGenerationController?.fullCardWatchdogTask = task
+        fullCardWatchdogTask = task
+        updateActiveTaskSummary()
+    }
+
+    private func clearFullCardWatchdogTask(generationID: String) {
+        guard isActiveGeneration(generationID) else { return }
+        activeGenerationController?.fullCardWatchdogTask?.cancel()
+        activeGenerationController?.fullCardWatchdogTask = nil
+        fullCardWatchdogTask = nil
+        updateActiveTaskSummary()
+    }
+
+    private func beginGenerationUI(
+        question: DetectedQuestion,
+        generationID: String,
+        triggerPath: GenerationTriggerPath,
+        source: AudioSourceType?,
+        speaker: SpeakerRole?
+    ) {
+        generationUIState = .preparing(questionID: question.id, generationID: generationID, triggerPath: triggerPath)
+        lastGenerationStateChangeAt = Date()
+        currentGenerationTelemetry = GenerationTelemetry(
+            questionID: question.id,
+            generationID: generationID,
+            source: source?.rawValue,
+            speaker: speaker?.rawValue,
+            triggerPath: triggerPath,
+            generationState: generationUIState.displayName,
+            startedAt: Date(),
+            firstVisibleAt: nil,
+            fallbackShownAt: nil,
+            firstDeepSeekTokenAt: nil,
+            firstKeyPointAt: nil,
+            fullCardAt: nil,
+            dbPersistedAt: nil,
+            failureReason: nil,
+            wasStaleDiscarded: false,
+            duplicateSuppressionCount: currentGenerationTelemetry.duplicateSuppressionCount,
+            staleDiscardCount: currentGenerationTelemetry.staleDiscardCount,
+            providerError: nil,
+            jsonParseError: nil,
+            dbError: nil
+        )
+        updateActiveTaskSummary()
+    }
+
+    private func setGenerationUIState(_ state: GenerationUIState, generationID: String? = nil) {
+        if let generationID, currentGenerationID != generationID {
+            recordStaleGenerationDiscard()
+            return
+        }
+        generationUIState = state
+        lastGenerationStateChangeAt = Date()
+        currentGenerationTelemetry.generationState = state.displayName
+        if let reason = state.failureReason {
+            currentGenerationTelemetry.failureReason = reason
+        }
+        updateActiveTaskSummary()
+    }
+
+    private func markFirstVisibleAnswer(generationID: String, fallback: Bool) {
+        guard currentGenerationID == generationID else {
+            recordStaleGenerationDiscard()
+            return
+        }
+        let now = Date()
+        if currentGenerationTelemetry.firstVisibleAt == nil {
+            currentGenerationTelemetry.firstVisibleAt = now
+        }
+        if fallback {
+            currentGenerationTelemetry.fallbackShownAt = currentGenerationTelemetry.fallbackShownAt ?? now
+        }
+        firstVisibleStateSetAt = firstVisibleStateSetAt ?? now
+        actionLoadingStates[ActionID.generateAnswer] = false
+    }
+
+    private func markFirstKeyPointVisible(generationID: String) {
+        guard currentGenerationID == generationID else {
+            recordStaleGenerationDiscard()
+            return
+        }
+        currentGenerationTelemetry.firstKeyPointAt = currentGenerationTelemetry.firstKeyPointAt ?? Date()
+    }
+
+    private func markFullCardVisible(generationID: String) {
+        guard currentGenerationID == generationID else {
+            recordStaleGenerationDiscard()
+            return
+        }
+        currentGenerationTelemetry.fullCardAt = Date()
+        clearFullCardWatchdogTask(generationID: generationID)
+        clearStageBTask(generationID: generationID)
+        setGenerationUIState(.answerReady(
+            questionID: currentGenerationTelemetry.questionID,
+            generationID: generationID,
+            triggerPath: currentGenerationTelemetry.triggerPath ?? .manualGenerate
+        ), generationID: generationID)
+    }
+
+    private func markGenerationFailed(
+        generationID: String?,
+        reason: String,
+        providerError: String? = nil,
+        jsonParseError: String? = nil,
+        timeout: Bool = false,
+        cancelled: Bool = false
+    ) {
+        if let generationID, currentGenerationID != generationID {
+            recordStaleGenerationDiscard()
+            return
+        }
+        isStreamingSayFirst = false
+        isExpandingSuggestionCard = false
+        suggestionGenerationStarted = false
+        actionLoadingStates[ActionID.generateAnswer] = false
+        actionLoadingStates[ActionID.manualGenerate] = false
+        currentGenerationTelemetry.failureReason = reason
+        currentGenerationTelemetry.providerError = providerError ?? currentGenerationTelemetry.providerError
+        currentGenerationTelemetry.jsonParseError = jsonParseError ?? currentGenerationTelemetry.jsonParseError
+        let questionID = currentGenerationTelemetry.questionID
+        let triggerPath = currentGenerationTelemetry.triggerPath
+        if timeout {
+            generationUIState = .timeout(questionID: questionID, generationID: generationID, triggerPath: triggerPath, reason: reason)
+        } else if cancelled {
+            generationUIState = .cancelled(questionID: questionID, generationID: generationID, triggerPath: triggerPath, reason: reason)
+        } else {
+            generationUIState = .failed(questionID: questionID, generationID: generationID, triggerPath: triggerPath, reason: reason)
+        }
+        lastGenerationStateChangeAt = Date()
+        currentGenerationTelemetry.generationState = generationUIState.displayName
+        if let generationID {
+            clearFallbackWatchdogTask(generationID: generationID)
+            clearFullCardWatchdogTask(generationID: generationID)
+            clearStageATask(generationID: generationID)
+            clearStageBTask(generationID: generationID)
+        }
+        updateActiveTaskSummary()
+    }
+
+    private func recordStaleGenerationDiscard() {
+        staleCallbackDiscardCount += 1
+        currentGenerationTelemetry.staleDiscardCount = staleCallbackDiscardCount
+        updateActiveTaskSummary()
+    }
+
+    private func recordDuplicateSuppression() {
+        suggestionGenerationStarted = false
+        isStreamingSayFirst = false
+        if !visibleAnswerExists {
+            isExpandingSuggestionCard = false
+            generationUIState = .idle
+        }
+        currentGenerationTelemetry.duplicateSuppressionCount += 1
+        duplicateSuppressionCount += 1
+        actionLoadingStates[ActionID.generateAnswer] = false
+        updateActiveTaskSummary()
+    }
+
+    private func restoreCaptureAfterGenerationIfNeeded(
+        session: InterviewSession,
+        generationID: String,
+        reason: String
+    ) {
+        if currentSession?.id == session.id &&
+            currentCaptureRuntimeState == .generating &&
+            stopReason == nil &&
+            currentGenerationID == generationID &&
+            anyCaptureRunning {
+            liveState = .listening
+            currentCaptureRuntimeState = .listening
+            addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: reason)
+        } else if liveState == .generatingSuggestion && !anyCaptureRunning {
+            liveState = .stopped
+            if currentCaptureRuntimeState == .generating {
+                currentCaptureRuntimeState = .stopped(reason: stopReason)
+            }
+        }
+    }
+
+    private func startFullCardWatchdog(
+        generationID: String,
+        cardID: String,
+        question: DetectedQuestion,
+        session: InterviewSession,
+        requestStart: Date,
+        triggerPath: GenerationTriggerPath
+    ) {
+        let timeoutNanoseconds = generationFullCardWatchdogNanoseconds
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            } catch {
+                return
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.currentGenerationID == generationID else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
+
+                let elapsed = self.elapsedMS(since: requestStart)
+                if var current = self.currentSuggestion, !current.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    current.stageBCompleted = false
+                    current.stageBStatus = "timed_out"
+                    current.caution = current.caution ?? "Full answer is delayed. The first answer is still safe to use."
+                    self.currentSuggestion = current
+                    self.isStreamingSayFirst = false
+                    self.isExpandingSuggestionCard = false
+                    self.suggestionGenerationStarted = false
+                    self.cancelActiveStageBTask(generationID: generationID)
+                    self.currentGenerationTelemetry.failureReason = "Full answer timed out after \(elapsed) ms."
+                    self.setGenerationUIState(.timeout(
+                        questionID: question.id,
+                        generationID: generationID,
+                        triggerPath: triggerPath,
+                        reason: "Full answer timed out after \(elapsed) ms."
+                    ), generationID: generationID)
+                    self.restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "generationFullCardTimeout")
+                    self.warnAction(ActionID.generateAnswer, title: "First answer visible", message: "Full answer is delayed. You can retry, but the visible answer remains available.")
+                    return
+                }
+
+                var fallbackCard = self.makeInitialFirstAnswerFallbackCard(
+                    cardID: cardID,
+                    question: question,
+                    session: session,
+                    requestStart: requestStart
+                )
+                fallbackCard.firstVisibleAnswerMS = elapsed
+                fallbackCard.stageBStatus = "timed_out"
+                fallbackCard.caution = "Provider timed out. Local first answer shown; retry when ready."
+                self.currentSuggestion = fallbackCard
+                self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+                self.softFallbackUsed = true
+                self.softFallbackLatencyMS = elapsed
+                self.softFallbackShownAt = self.softFallbackShownAt ?? Date()
+                self.finalVisibleSource = fallbackCard.finalVisibleSource
+                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
+                self.markGenerationFailed(
+                    generationID: generationID,
+                    reason: "No visible answer within 8 seconds.",
+                    timeout: true
+                )
+                self.cancelActiveStageBTask(generationID: generationID)
+                self.restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "generationFullCardTimeout")
+                self.warnAction(ActionID.generateAnswer, title: "Local answer shown", message: "DeepSeek timed out. The fallback answer is visible; retry is available.")
+            }
+        }
+        registerFullCardWatchdogTask(task, generationID: generationID)
     }
 
     private func applyStreamingSections(
@@ -2538,7 +3407,10 @@ final class AppState: ObservableObject {
         preserveExistingSayFirst: Bool = false,
         markFullCardVisible: Bool = false
     ) {
-        guard currentGenerationID == generationID else { return }
+        guard currentGenerationID == generationID else {
+            recordStaleGenerationDiscard()
+            return
+        }
         let card = applyStreamingSections(
             sections,
             to: currentSuggestion,
@@ -2555,6 +3427,20 @@ final class AppState: ObservableObject {
             currentSuggestionSetAt = Date()
         }
         isExpandingSuggestionCard = !markFullCardVisible
+        if !card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            markFirstVisibleAnswer(generationID: generationID, fallback: false)
+            setGenerationUIState(.expandingFullAnswer(
+                questionID: question.id,
+                generationID: generationID,
+                triggerPath: currentGenerationTelemetry.triggerPath ?? .manualGenerate
+            ), generationID: generationID)
+        }
+        if !card.keyPoints.isEmpty {
+            markFirstKeyPointVisible(generationID: generationID)
+        }
+        if markFullCardVisible {
+            self.markFullCardVisible(generationID: generationID)
+        }
     }
 
     private func persistSuggestionInBackground(
@@ -2564,9 +3450,24 @@ final class AppState: ObservableObject {
         requestStart: Date
     ) {
         let repository = suggestionRepository
+        let simulateFailure = simulateSuggestionPersistenceFailure
+        let simulatedDelay = simulatedSuggestionPersistenceDelayNanoseconds
+        markSQLiteOperation("Saving suggestion card in background")
+        if simulateFailure {
+            guard currentGenerationID == generationID else { return }
+            let message = "Suggestion is visible, but saving it failed: Simulated suggestion persistence failure."
+            errorMessage = message
+            currentGenerationTelemetry.dbError = message
+            lastSQLiteOperation = "Suggestion save failed: simulated"
+            warnAction(ActionID.generateAnswer, title: "Answer visible", message: "Saving failed, but the answer remains visible.")
+            return
+        }
         Task.detached(priority: .utility) { [weak self] in
             var persistedCard = card
             do {
+                if simulatedDelay > 0 {
+                    try await Task.sleep(nanoseconds: simulatedDelay)
+                }
                 try repository.saveSuggestionCard(persistedCard, retrievedChunks: chunks)
                 persistedCard.dbPersistedMS = Int(Date().timeIntervalSince(requestStart) * 1000)
                 try repository.saveSuggestionCard(persistedCard, retrievedChunks: chunks)
@@ -2574,7 +3475,9 @@ final class AppState: ObservableObject {
                 let persistedDBMS = persistedCard.dbPersistedMS
                 await MainActor.run { [weak self, persistedID, persistedDBMS] in
                     guard let self = self, self.currentGenerationID == generationID else { return }
+                    self.lastSQLiteOperation = "Saved suggestion card"
                     self.streamPersistedAt = Date()
+                    self.currentGenerationTelemetry.dbPersistedAt = Date()
                     if self.currentSuggestion?.id == persistedID {
                         self.currentSuggestion?.dbPersistedMS = persistedDBMS
                     }
@@ -2584,7 +3487,10 @@ final class AppState: ObservableObject {
                 let message = "Suggestion is visible, but saving it failed: \(error.localizedDescription)"
                 await MainActor.run { [weak self, message] in
                     guard let self = self, self.currentGenerationID == generationID else { return }
+                    self.lastSQLiteOperation = "Suggestion save failed: \(error.localizedDescription)"
                     self.errorMessage = message
+                    self.currentGenerationTelemetry.dbError = message
+                    self.warnAction(ActionID.generateAnswer, title: "Answer visible", message: "Saving failed, but the answer remains visible.")
                 }
             }
         }
@@ -2594,12 +3500,23 @@ final class AppState: ObservableObject {
         for question: DetectedQuestion,
         session: InterviewSession,
         transcript: String,
-        autoGenerated: Bool
+        autoGenerated: Bool,
+        triggerPath explicitTriggerPath: GenerationTriggerPath? = nil,
+        source explicitSource: AudioSourceType? = nil,
+        speaker explicitSpeaker: SpeakerRole? = nil
     ) async throws {
-        // Cancel any existing background Stage B task first
-        cancelStageBTask()
+        let triggerPath = explicitTriggerPath ?? (autoGenerated ? .autoDetect : .manualGenerate)
+        let attributedSegment = question.transcriptSegmentID.flatMap { segmentID in
+            transcriptSegments.first(where: { $0.id == segmentID })
+        }
+        let telemetrySource = explicitSource ?? attributedSegment?.source
+        let telemetrySpeaker = explicitSpeaker ?? attributedSegment?.speaker
         if !isActionLoading(ActionID.generateAnswer) {
-            beginAction(ActionID.generateAnswer, title: "Generating first answer", message: autoGenerated ? "Question detected. Preparing a speakable answer..." : "Preparing a speakable first answer...")
+            beginAction(
+                ActionID.generateAnswer,
+                title: autoGenerated ? "Question detected" : "Generating first answer",
+                message: autoGenerated ? "Generating answer..." : "Preparing a speakable first answer..."
+            )
         }
 
         liveState = .generatingSuggestion
@@ -2608,6 +3525,96 @@ final class AppState: ObservableObject {
         addCaptureEvent(name: "suggestionGenerationStarted", stateBefore: stateBefore, stateAfter: "generating", reason: "questionDetected")
         self.suggestionGenerationStarted = true
         self.floatingPanelUpdated = false
+
+        let requestStart = Date()
+        let cardID = UUID().uuidString
+        let generationID = UUID().uuidString
+        activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: triggerPath,
+            requestStart: requestStart,
+            source: telemetrySource,
+            speaker: telemetrySpeaker
+        )
+        setGenerationUIState(.generatingFirstAnswer(questionID: question.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+        startFullCardWatchdog(
+            generationID: generationID,
+            cardID: cardID,
+            question: question,
+            session: session,
+            requestStart: requestStart,
+            triggerPath: triggerPath
+        )
+
+        self.streamRequestStartAt = requestStart
+        self.streamFirstTokenAt = nil
+        self.streamFirstVisibleTextAt = nil
+        self.streamFirstSentenceAt = nil
+        self.streamFullResponseAt = nil
+        self.streamJSONParsedAt = nil
+        self.streamPersistedAt = nil
+
+        self.isStreamingSayFirst = true
+        self.streamedSayFirst = ""
+        self.isExpandingSuggestionCard = false
+
+        self.softFallbackUsed = false
+        self.softFallbackLatencyMS = nil
+        self.softFallbackShownAt = nil
+        self.deepseekFirstTokenMS = nil
+        self.deepseekFirstVisibleMS = nil
+        self.finalVisibleSource = nil
+        self.userInteractedWithCard = false
+        self.ragRetrievalLatencyMS = nil
+        self.firstVisibleStateSetAt = nil
+        self.currentSuggestionSetAt = nil
+        self.streamedSayFirstSetAt = nil
+
+        let localQuestion = question
+        let localSession = session
+        let localTranscript = transcript
+
+        // This watchdog covers the whole answer pipeline, including RAG retrieval.
+        // The later RAG/DeepSeek paths replace it with more specific content.
+        let initialFallbackTask = Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
+            guard self.currentGenerationID == generationID else { return }
+            guard self.currentSuggestion == nil, self.streamFirstVisibleTextAt == nil else { return }
+            let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
+            self.softFallbackUsed = true
+            self.softFallbackLatencyMS = elapsed
+            self.softFallbackShownAt = Date()
+            self.finalVisibleSource = "local_first_answer_fallback"
+            var fallbackCard = self.makeInitialFirstAnswerFallbackCard(
+                cardID: cardID,
+                question: localQuestion,
+                session: localSession,
+                requestStart: requestStart
+            )
+            fallbackCard.firstVisibleAnswerMS = elapsed
+            if !fallbackCard.keyPoints.isEmpty {
+                fallbackCard.firstKeyPointVisibleMS = elapsed
+                fallbackCard.allKeyPointsVisibleMS = elapsed
+            }
+            if !fallbackCard.followUpReady.isEmpty {
+                fallbackCard.followUpVisibleMS = elapsed
+            }
+            self.currentSuggestion = fallbackCard
+            self.currentSuggestionSetAt = Date()
+            self.isStreamingSayFirst = false
+            self.isExpandingSuggestionCard = true
+            self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
+            self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+            self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Local first answer is visible while the full answer expands.", autoDismissAfter: 3.0)
+            print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
+        }
+        registerFallbackWatchdogTask(initialFallbackTask, generationID: generationID)
         
         var retrievedContext: RetrievedContext? = nil
         var retrievalTrace: RetrievalTrace? = nil
@@ -2630,8 +3637,10 @@ final class AppState: ObservableObject {
                     retrievedContext = cached.context
                     retrievalTrace = cached.trace
                     hitCache = true
+                    lastRAGOperation = "Relevant context cache hit"
                     print("[PrecomputeRAG] Cache hit! (similarity \(similarity)) for key: \(cacheKey)")
                 } else {
+                    lastRAGOperation = "Relevant context cache miss"
                     print("[PrecomputeRAG] Cache miss due to significant text difference (similarity \(similarity)) for key: \(cacheKey). Rerunning retrieval.")
                 }
                 precomputedRAGCache.removeValue(forKey: cacheKey)
@@ -2639,19 +3648,42 @@ final class AppState: ObservableObject {
         }
         
         if !hitCache {
-            let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
-                question: question.questionText,
-                intent: question.intent,
-                maxCVWords: 300,
-                maxJDWords: 180,
-                strategy: question.answerStrategy
-            )
-            retrievedContext = context
-            retrievalTrace = trace
+            do {
+                markRAGOperation("Relevant context retrieval started")
+                let retrievalService = contextRetrievalService!
+                let (context, trace) = try await Task.detached(priority: .userInitiated) {
+                    try await retrievalService.retrieveContextWithTrace(
+                        question: question.questionText,
+                        intent: question.intent,
+                        maxCVWords: 300,
+                        maxJDWords: 180,
+                        strategy: question.answerStrategy
+                    )
+                }.value
+                retrievedContext = context
+                retrievalTrace = trace
+                lastRAGOperation = "Relevant context retrieval completed"
+            } catch {
+                lastRAGOperation = "Relevant context retrieval failed: \(error.localizedDescription)"
+                markGenerationFailed(
+                    generationID: generationID,
+                    reason: "Relevant context retrieval failed: \(error.localizedDescription)",
+                    providerError: error.localizedDescription
+                )
+                failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context. \(userFacing(error))")
+                throw error
+            }
         }
         
         guard let context = retrievedContext, let trace = retrievalTrace else {
-            throw LLMProviderError.invalidResponse("Could not retrieve RAG context.")
+            let error = LLMProviderError.invalidResponse("Could not retrieve relevant context.")
+            markGenerationFailed(generationID: generationID, reason: error.localizedDescription, providerError: error.localizedDescription)
+            failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context.")
+            throw error
+        }
+        guard isActiveGeneration(generationID) else {
+            recordStaleGenerationDiscard()
+            return
         }
         self.lastRetrievalTrace = trace
         self.ragRetrievalLatencyMS = Int(trace.retrievalLatencyMS)
@@ -2660,46 +3692,24 @@ final class AppState: ObservableObject {
         let optimizedContext = trimContextForRealtime(context, question: question)
         
         // Load CV/JD compact summaries for prompt prefix stabilization
-        let cvRecord = try? documentRepository.document(type: .cv)
-        let jdRecord = try? documentRepository.document(type: .jobDescription)
+        let documentRepository = self.documentRepository
+        markSQLiteOperation("Loading document summaries in background")
+        let (cvRecord, jdRecord) = await Task.detached(priority: .utility) {
+            (
+                try? documentRepository.document(type: .cv),
+                try? documentRepository.document(type: .jobDescription)
+            )
+        }.value
+        guard isActiveGeneration(generationID) else {
+            recordStaleGenerationDiscard()
+            return
+        }
+        lastSQLiteOperation = "Loaded document summaries"
         let cvSummary = makeCompactSummary(cvRecord)
         let jdSummary = makeCompactSummary(jdRecord)
         
-        // 3. Reset streaming state and metrics
-        let requestStart = Date()
-        self.streamRequestStartAt = requestStart
-        self.streamFirstTokenAt = nil
-        self.streamFirstVisibleTextAt = nil
-        self.streamFirstSentenceAt = nil
-        self.streamFullResponseAt = nil
-        self.streamJSONParsedAt = nil
-        self.streamPersistedAt = nil
-        
-        self.isStreamingSayFirst = true
-        self.streamedSayFirst = ""
-        self.isExpandingSuggestionCard = false
-        
         // Create references for background task capture
-        let localQuestion = question
-        let localSession = session
         let localTrace = trace
-        let localTranscript = transcript
-        
-        let cardID = UUID().uuidString
-        let generationID = UUID().uuidString
-        self.currentGenerationID = generationID
-        
-        self.softFallbackUsed = false
-        self.softFallbackLatencyMS = nil
-        self.softFallbackShownAt = nil
-        self.deepseekFirstTokenMS = nil
-        self.deepseekFirstVisibleMS = nil
-        self.finalVisibleSource = nil
-        self.userInteractedWithCard = false
-        self.ragRetrievalLatencyMS = nil
-        self.firstVisibleStateSetAt = nil
-        self.currentSuggestionSetAt = nil
-        self.streamedSayFirstSetAt = nil
         
         // Helper to construct a local fallback card
         func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
@@ -2753,7 +3763,7 @@ final class AppState: ObservableObject {
         let trigger = StageBTrigger()
         
         // Start 1.5s parallel soft fallback timer task
-        self.softFallbackTask = Task { [weak self] in
+        let ragFallbackTask = Task { [weak self] in
             guard let self = self else { return }
             do {
                 try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
@@ -2770,25 +3780,37 @@ final class AppState: ObservableObject {
                     visibleFallback.firstVisibleAnswerMS = elapsed
                     self.currentSuggestion = visibleFallback
                     self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+                    self.isStreamingSayFirst = false
                     self.isExpandingSuggestionCard = true
+                    self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
+                    self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                    self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Fast local answer is visible while DeepSeek continues.", autoDismissAfter: 3.0)
                     print("[StreamingASR] Soft fallback triggered at \(elapsed)ms because no DeepSeek text was visible yet.")
                 }
             } catch {
                 // Cancelled or sleep error
             }
         }
+        registerFallbackWatchdogTask(ragFallbackTask, generationID: generationID)
         
         // Cost Control: Launch Stage B in parallel immediately, but it waits for the trigger!
-        self.stageBTask = Task { [weak self] in
+        let stageBGenerationTask = Task { [weak self] in
             guard let self = self else { return }
             // Wait for Stage B trigger (timeout after 500ms if first visible text doesn't show up sooner)
             await trigger.wait(timeoutMs: 500)
             
-            guard self.currentGenerationID == generationID else { return }
-            guard !Task.isCancelled else {
-                print("[StageB] Task was cancelled in-flight.")
+            guard self.currentGenerationID == generationID else {
+                self.recordStaleGenerationDiscard()
                 return
             }
+                guard !Task.isCancelled else {
+                    print("[StageB] Task was cancelled in-flight.")
+                    self.clearStageBTask(generationID: generationID)
+                    return
+                }
+                if self.visibleAnswerExists {
+                    self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                }
             
             let activeFallback = self.softFallbackUsed || self.currentSuggestion?.sayFirstSource == "rag_template_fallback" || self.currentSuggestion?.sayFirstSource == "rag_template_soft_fallback"
             
@@ -2799,6 +3821,7 @@ final class AppState: ObservableObject {
                 var latestSections = StreamingSuggestionSections()
                 var sawStreamingSections = false
 
+                self.markProviderOperation("Stage B section stream started")
                 let sectionStream = try await self.suggestionGenerationService.generateFullCardSectionStream(
                     question: localQuestion,
                     context: optimizedContext,
@@ -2809,9 +3832,13 @@ final class AppState: ObservableObject {
                 )
 
                 for try await token in sectionStream {
-                    guard self.currentGenerationID == generationID else { return }
+                    guard self.currentGenerationID == generationID else {
+                        self.recordStaleGenerationDiscard()
+                        return
+                    }
                     guard !Task.isCancelled else {
                         print("[StageB] Task was cancelled in-flight.")
+                        self.clearStageBTask(generationID: generationID)
                         return
                     }
 
@@ -2836,13 +3863,18 @@ final class AppState: ObservableObject {
                     }
                 }
 
-                guard self.currentGenerationID == generationID else { return }
+                guard self.currentGenerationID == generationID else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 guard !Task.isCancelled else {
                     print("[StageB] Task was cancelled in-flight.")
+                    self.clearStageBTask(generationID: generationID)
                     return
                 }
 
                 if !sawStreamingSections {
+                    self.markProviderOperation("Stage B full-card fallback started")
                     let result = try await self.withTimeout(seconds: 15.0) {
                         try await self.suggestionGenerationService.generateFullCard(
                             question: localQuestion,
@@ -2853,6 +3885,15 @@ final class AppState: ObservableObject {
                             jdSummary: jdSummary
                         )
                     }
+                    guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                        self.recordStaleGenerationDiscard()
+                        return
+                    }
+                    if let caution = result.card.caution,
+                       caution.localizedCaseInsensitiveContains("non-JSON") ||
+                        caution.localizedCaseInsensitiveContains("JSON") {
+                        self.currentGenerationTelemetry.jsonParseError = caution
+                    }
                     latestSections = StreamingSuggestionSections(
                         strategy: result.card.strategy,
                         sayFirst: result.card.sayFirst,
@@ -2862,6 +3903,10 @@ final class AppState: ObservableObject {
                     )
                 }
 
+                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 let preserveFallbackSayFirst = self.softFallbackUsed &&
                     (self.userInteractedWithCard || (!latestSections.sayFirst.isEmpty && !self.isSpecificAnswer(latestSections.sayFirst)))
                 self.publishStreamingSections(
@@ -2894,14 +3939,34 @@ final class AppState: ObservableObject {
                 finalCard.finalVisibleSource = self.finalVisibleSource ?? finalCard.finalVisibleSource ?? (self.softFallbackUsed ? "rag_template_soft_fallback" : "deepseek_section_stream")
                 finalCard.ragRetrievalLatencyMS = self.ragRetrievalLatencyMS
 
-                if let segmentID = localQuestion.transcriptSegmentID,
-                   let segment = try? self.transcriptRepository.segmentByID(segmentID) {
-                    finalCard.questionASRFirstPartialMS = segment.asrFirstPartialMS
-                    finalCard.questionASRFinalMS = segment.asrFinalMS
-                    finalCard.questionASRBestSelectedMS = segment.asrBestSelectedMS
+                if let segmentID = localQuestion.transcriptSegmentID {
+                    let transcriptRepository = self.transcriptRepository
+                    self.markSQLiteOperation("Loading transcript timing in background")
+                    let timing = await Task.detached(priority: .utility) {
+                        guard let segment = try? transcriptRepository.segmentByID(segmentID) else {
+                            return (firstPartial: Optional<Int>.none, final: Optional<Int>.none, best: Optional<Int>.none)
+                        }
+                        return (
+                            firstPartial: segment.asrFirstPartialMS,
+                            final: segment.asrFinalMS,
+                            best: segment.asrBestSelectedMS
+                        )
+                    }.value
+                    guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                        self.recordStaleGenerationDiscard()
+                        return
+                    }
+                    self.lastSQLiteOperation = "Loaded transcript timing"
+                    finalCard.questionASRFirstPartialMS = timing.firstPartial
+                    finalCard.questionASRFinalMS = timing.final
+                    finalCard.questionASRBestSelectedMS = timing.best
                 }
 
                 let validatedCard = await self.validateAndRewriteIfNeeded(finalCard, generationID: generationID)
+                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 self.currentSuggestion = validatedCard
                 self.currentSuggestionRetrievedChunks = localTrace.rankedCVChunks + localTrace.rankedJDChunks
                 self.isExpandingSuggestionCard = false
@@ -2923,6 +3988,9 @@ final class AppState: ObservableObject {
                     self.liveState = .listening
                     self.currentCaptureRuntimeState = .listening
                     self.addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: "generationSuccess")
+                } else if self.currentGenerationID == generationID && !self.anyCaptureRunning {
+                    self.liveState = .ready
+                    self.currentCaptureRuntimeState = .stopped(reason: self.stopReason)
                 } else {
                     print("[CaptureState] Bypassed restoring listening: sessionID=\(self.currentSession?.id ?? "nil"), state=\(self.currentCaptureRuntimeState), stopReason=\(String(describing: self.stopReason)), generationID=\(String(describing: self.currentGenerationID)), anyCaptureRunning=\(self.anyCaptureRunning)")
                 }
@@ -2932,10 +4000,23 @@ final class AppState: ObservableObject {
                 
                 print("[StreamingASR] Stage B Full SuggestionCard completed and merged successfully!")
             } catch {
-                guard self.currentGenerationID == generationID else { return }
+                self.clearStageBTask(generationID: generationID)
+                guard self.currentGenerationID == generationID else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 print("[StreamingASR] Stage B Full SuggestionCard failed or timed out: \(error.localizedDescription)")
-                self.isExpandingSuggestionCard = false
-                self.suggestionGenerationStarted = false
+                let errorMessage = error.localizedDescription
+                let timedOut = errorMessage.lowercased().contains("timed out") || errorMessage.lowercased().contains("timeout")
+                let jsonParseError = errorMessage.lowercased().contains("json") ? errorMessage : nil
+                self.markGenerationFailed(
+                    generationID: generationID,
+                    reason: errorMessage,
+                    providerError: errorMessage,
+                    jsonParseError: jsonParseError,
+                    timeout: timedOut,
+                    cancelled: error is CancellationError
+                )
                 
                 // Only restore .listening if safety conditions are met
                 if self.currentSession?.id == localSession.id &&
@@ -2956,20 +4037,27 @@ final class AppState: ObservableObject {
                     updated.stageBStatus = error is CancellationError ? "cancelled" : "timed_out"
                     updated.caution = "DeepSeek full card generation failed/timed out. Showing opener only."
                     if activeFallback {
-                        updated.caution = "Fast fallback shown; DeepSeek still expanding..."
+                        updated.caution = "Fast fallback is visible. Full answer expansion failed or timed out."
                     }
                     self.currentSuggestion = updated
-                    try? self.suggestionRepository.saveSuggestionCard(updated, retrievedChunks: self.currentSuggestionRetrievedChunks)
+                    self.persistSuggestionInBackground(
+                        updated,
+                        chunks: self.currentSuggestionRetrievedChunks,
+                        generationID: generationID,
+                        requestStart: requestStart
+                    )
                     self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "Full answer expansion failed. The visible answer was kept.")
                 } else {
                     self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(self.userFacing(error))")
                 }
             }
         }
+        registerStageBTask(stageBGenerationTask, generationID: generationID)
         
         // Stage A streaming task
         let fastSayFirstTask = Task {
             do {
+                self.markProviderOperation("Stage A first-answer stream started")
                 let stream = try await self.suggestionGenerationService.generateFastSayFirstStream(
                     question: localQuestion,
                     context: optimizedContext,
@@ -2980,10 +4068,14 @@ final class AppState: ObservableObject {
                 var collected = ""
                 var sayFirstThrottle = StreamingUpdateThrottle()
                 for try await token in stream {
-                    guard self.currentGenerationID == generationID else { throw CancellationError() }
+                    guard self.currentGenerationID == generationID else {
+                        self.recordStaleGenerationDiscard()
+                        throw CancellationError()
+                    }
                     guard !Task.isCancelled else { break }
                     if self.streamFirstTokenAt == nil {
                         self.streamFirstTokenAt = Date()
+                        self.currentGenerationTelemetry.firstDeepSeekTokenAt = self.streamFirstTokenAt
                         self.deepseekFirstTokenMS = Int(Date().timeIntervalSince(requestStart) * 1000)
                     }
                     collected += token
@@ -2996,6 +4088,9 @@ final class AppState: ObservableObject {
                             self.streamFirstVisibleTextAt = Date()
                             self.firstVisibleStateSetAt = Date()
                             self.deepseekFirstVisibleMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+                            self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
+                            self.setGenerationUIState(.streamingAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                            self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "DeepSeek first answer is streaming.", autoDismissAfter: 2.5)
                             forcePublish = true
                             trigger.trigger() // Start Stage B early!
                         }
@@ -3025,6 +4120,7 @@ final class AppState: ObservableObject {
                 throw error
             }
         }
+        registerStageATask(fastSayFirstTask, generationID: generationID)
         
         // Race Stage A with 6.0s timeout
         var fastSayFirst = ""
@@ -3032,26 +4128,36 @@ final class AppState: ObservableObject {
             fastSayFirst = try await withTimeout(seconds: 6.0) {
                 try await fastSayFirstTask.value
             }
-            guard self.currentGenerationID == generationID else { return }
+            clearStageATask(generationID: generationID)
+            guard self.currentGenerationID == generationID else {
+                recordStaleGenerationDiscard()
+                return
+            }
             self.isStreamingSayFirst = false
             
             // Cancel soft fallback task since Stage A completed
-            softFallbackTask?.cancel()
+            clearFallbackWatchdogTask(generationID: generationID)
             
             let elapsed = Date().timeIntervalSince(requestStart)
             let isSoft = self.softFallbackUsed
             
             if isSoft {
                 // Apply conservative late DeepSeek replacement checks
-                let replace = !self.userInteractedWithCard && elapsed < 4.0 && self.isSpecificAnswer(fastSayFirst)
+                let replace = !self.userInteractedWithCard && elapsed < 6.0 && self.isSpecificAnswer(fastSayFirst)
                 if replace {
                     if var current = self.currentSuggestion, current.stageBCompleted == true {
                         current.sayFirst = fastSayFirst
                         current.sayFirstSource = "deepseek_stream"
                         current.finalVisibleSource = "deepseek_stream"
                         let validated = await self.validateAndRewriteIfNeeded(current, generationID: generationID)
+                        guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                            self.recordStaleGenerationDiscard()
+                            return
+                        }
                         self.currentSuggestion = validated
-                        try? self.suggestionRepository.saveSuggestionCard(validated, retrievedChunks: self.currentSuggestionRetrievedChunks)
+                        self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
+                        self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                        self.persistSuggestionInBackground(validated, chunks: self.currentSuggestionRetrievedChunks, generationID: generationID, requestStart: requestStart)
                     } else {
                         var updated = createRAGFallbackCard(isSoft: true)
                         updated.sayFirst = fastSayFirst
@@ -3061,8 +4167,14 @@ final class AppState: ObservableObject {
                         updated.firstVisibleAnswerMS = updated.firstVisibleAnswerMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
                         self.finalVisibleSource = "deepseek_stream"
                         let validated = await self.validateAndRewriteIfNeeded(updated, generationID: generationID)
+                        guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                            self.recordStaleGenerationDiscard()
+                            return
+                        }
                         self.currentSuggestion = validated
                         self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+                        self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
+                        self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
                     }
                     print("[StreamingASR] Soft fallback replaced with late DeepSeek text at \(Int(elapsed * 1000))ms.")
                 } else {
@@ -3108,15 +4220,26 @@ final class AppState: ObservableObject {
                 visibleTempCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
                 self.finalVisibleSource = "deepseek_stream"
                 let validated = await self.validateAndRewriteIfNeeded(visibleTempCard, generationID: generationID)
+                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 self.currentSuggestion = validated
                 self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                 self.isExpandingSuggestionCard = true
+                self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
+                self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Expanding the full answer and key points.", autoDismissAfter: 3.0)
             }
         } catch {
-            guard self.currentGenerationID == generationID else { return }
+            clearStageATask(generationID: generationID)
+            guard self.currentGenerationID == generationID else {
+                recordStaleGenerationDiscard()
+                return
+            }
             print("[StreamingASR] Stage A Fast Say-First timed out or failed: \(error.localizedDescription)")
             self.isStreamingSayFirst = false
-            softFallbackTask?.cancel()
+            clearFallbackWatchdogTask(generationID: generationID)
             
             // If soft fallback was already shown, preserve it but mark timeout/failure.
             // If not, show hard fallback now.
@@ -3125,14 +4248,39 @@ final class AppState: ObservableObject {
                 var visibleFallback = fallbackCard
                 visibleFallback.firstVisibleAnswerMS = Int(Date().timeIntervalSince(requestStart) * 1000)
                 let validated = await self.validateAndRewriteIfNeeded(visibleFallback, generationID: generationID)
+                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 self.currentSuggestion = validated
                 self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                 self.isExpandingSuggestionCard = true
+                self.softFallbackUsed = true
+                self.softFallbackLatencyMS = visibleFallback.firstVisibleAnswerMS
+                self.softFallbackShownAt = self.softFallbackShownAt ?? Date()
+                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
+                self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                self.warnAction(ActionID.generateAnswer, title: "Local answer shown", message: "DeepSeek first answer failed or timed out. The fallback answer is visible.")
             } else if var current = self.currentSuggestion {
                 current.stageATimedOut = true
                 current.caution = "Fast fallback shown; DeepSeek stream timed out."
                 let validated = await self.validateAndRewriteIfNeeded(current, generationID: generationID)
+                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 self.currentSuggestion = validated
+                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
+                self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "DeepSeek first answer timed out. The visible fallback was kept.")
+            } else {
+                self.markGenerationFailed(
+                    generationID: generationID,
+                    reason: error.localizedDescription,
+                    providerError: error.localizedDescription,
+                    timeout: error.localizedDescription.lowercased().contains("timed out")
+                )
+                self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(self.userFacing(error))")
             }
         }
     }
@@ -3154,17 +4302,21 @@ final class AppState: ObservableObject {
     private var recentQuestionTimestamps = [String: Date]()
 
     func isDuplicateAutoQuestion(_ questionText: String) -> Bool {
+        let duplicate = isRecentDuplicateAutoQuestion(questionText)
+        if duplicate {
+            recordDuplicateSuppression()
+        } else {
+            rememberAutoQuestion(questionText)
+        }
+        return duplicate
+    }
+
+    private func isRecentDuplicateAutoQuestion(_ questionText: String) -> Bool {
         let normalized = normalizedQuestion(questionText)
         guard !normalized.isEmpty else { return false }
         
         let now = Date()
-        
-        // Clean up entries older than 20 seconds
-        for (fingerprint, timestamp) in recentQuestionTimestamps {
-            if now.timeIntervalSince(timestamp) > 20.0 {
-                recentQuestionTimestamps.removeValue(forKey: fingerprint)
-            }
-        }
+        pruneRecentQuestionTimestamps(now: now)
         
         // Check if there is a match in recent questions within 20 seconds
         if let lastTime = recentQuestionTimestamps[normalized], now.timeIntervalSince(lastTime) <= 20.0 {
@@ -3173,15 +4325,70 @@ final class AppState: ObservableObject {
         
         for (fingerprint, timestamp) in recentQuestionTimestamps {
             if now.timeIntervalSince(timestamp) <= 20.0 {
-                if normalized.contains(fingerprint) || fingerprint.contains(normalized) {
+                if isNearDuplicateQuestion(normalized, fingerprint) {
                     return true
                 }
             }
         }
-        
-        // Record the new question timestamp
-        recentQuestionTimestamps[normalized] = now
+
         return false
+    }
+
+    private func isNearDuplicateQuestion(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs {
+            return true
+        }
+
+        let lhsWordCount = lhs.split(separator: " ").count
+        let rhsWordCount = rhs.split(separator: " ").count
+        guard lhsWordCount > 0, rhsWordCount > 0 else {
+            return false
+        }
+
+        let shorter = lhs.count <= rhs.count ? lhs : rhs
+        let longer = lhs.count > rhs.count ? lhs : rhs
+        guard longer.contains(shorter) else {
+            return false
+        }
+
+        let wordRatio = Double(max(lhsWordCount, rhsWordCount)) / Double(min(lhsWordCount, rhsWordCount))
+        if wordRatio <= 1.35 {
+            return true
+        }
+
+        let remainder = longer
+            .replacingOccurrences(of: shorter, with: " ")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return !containsQuestionStarter(remainder)
+    }
+
+    private func containsQuestionStarter(_ text: String) -> Bool {
+        let padded = " \(text.lowercased()) "
+        let starters = [
+            " what ", " how ", " why ", " where ", " who ", " when ",
+            " can you ", " could you ", " would you ", " should you ",
+            " are you ", " do you ", " have you ", " is there ",
+            " tell me ", " walk me ", " describe ", " explain "
+        ]
+        return starters.contains { padded.contains($0) }
+    }
+
+    private func rememberAutoQuestion(_ questionText: String) {
+        let normalized = normalizedQuestion(questionText)
+        guard !normalized.isEmpty else { return }
+        let now = Date()
+        pruneRecentQuestionTimestamps(now: now)
+        recentQuestionTimestamps[normalized] = now
+    }
+
+    private func pruneRecentQuestionTimestamps(now: Date) {
+        for (fingerprint, timestamp) in recentQuestionTimestamps {
+            if now.timeIntervalSince(timestamp) > 20.0 {
+                recentQuestionTimestamps.removeValue(forKey: fingerprint)
+            }
+        }
     }
 
     private func normalizedQuestion(_ text: String) -> String {
@@ -3336,6 +4543,7 @@ final class AppState: ObservableObject {
         )
         
         activeAITask?.cancel()
+        cancelActiveGenerationForStop()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
         
@@ -3530,6 +4738,8 @@ final class AppState: ObservableObject {
         beginAction(ActionID.manualCancel, title: "Cancelling", message: "Discarding the current manual capture...")
         ManualQuestionCaptureService.shared.cancelCapture()
         ManualQuestionTranscriptionService.shared.cancel()
+        cancelActiveGenerationForStop()
+        generationUIState = .idle
         self.manualCaptureState = .idle
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
@@ -3555,19 +4765,136 @@ final class AppState: ObservableObject {
         
         // Clean transcript conservatively
         let text = cleanTranscript(rawText)
+
+        let manualGenerationID = UUID().uuidString
+        let manualQuestionID = UUID().uuidString
+        let manualSessionID = self.currentSession?.id ?? UUID().uuidString
+        let manualSource: AudioSourceType = (settings.manualCaptureSource == .systemAudio) ? .systemAudio : .microphone
+        let manualSpeaker: SpeakerRole = (settings.manualCaptureSource == .systemAudio) ? .interviewer : .unknown
+        let activeProviderForManual = activeRealtimeProvider
+        let manualDetected = DetectedQuestion(
+            id: manualQuestionID,
+            sessionID: manualSessionID,
+            transcriptSegmentID: nil,
+            questionText: text,
+            intent: .technical,
+            answerStrategy: .directAnswer,
+            confidence: 0.95,
+            reason: "Manual Capture Triggered",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: activeProviderForManual?.model ?? "deepseek-v4-flash",
+            promptVersion: "v1",
+            providerKind: activeProviderForManual?.kind,
+            providerName: activeProviderForManual?.name,
+            providerBaseURL: activeProviderForManual?.baseURL,
+            latencyMS: nil,
+            isLocal: false,
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        let fallbackSession = self.currentSession ?? InterviewSession(
+            id: manualSessionID,
+            title: "Manual Capture",
+            company: nil,
+            role: nil,
+            startedAt: Date(),
+            mode: .microphone,
+            createdAt: Date()
+        )
+        let manualRequestStart = Date()
         
         self.manualCaptureState = .generatingSuggestion
+        activateGeneration(
+            question: manualDetected,
+            generationID: manualGenerationID,
+            triggerPath: .manualCapture,
+            requestStart: manualRequestStart,
+            source: manualSource,
+            speaker: manualSpeaker
+        )
+        setGenerationUIState(.generatingFirstAnswer(questionID: manualQuestionID, generationID: manualGenerationID, triggerPath: .manualCapture), generationID: manualGenerationID)
         beginAction(ActionID.manualGenerate, title: "Generating first answer", message: "Keeping the transcript visible while generating...")
-        
-        Task {
+
+        let manualFallbackTask = Task { [weak self] in
+            guard let self else { return }
             do {
-                // Initialize a mock or manual DetectedQuestion
-                let questionID = UUID().uuidString
-                let currentSessionID = self.currentSession?.id ?? UUID().uuidString
-                
-                let source: AudioSourceType = (settings.manualCaptureSource == .systemAudio) ? .systemAudio : .microphone
-                let speaker: SpeakerRole = (settings.manualCaptureSource == .systemAudio) ? .interviewer : .unknown
-                
+                try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
+            guard self.currentGenerationID == manualGenerationID else {
+                self.recordStaleGenerationDiscard()
+                return
+            }
+            guard self.manualCaptureSuggestion == nil else { return }
+
+            var fallback = self.makeInitialFirstAnswerFallbackCard(
+                cardID: UUID().uuidString,
+                question: manualDetected,
+                session: fallbackSession,
+                requestStart: manualRequestStart
+            )
+            let elapsed = self.elapsedMS(since: manualRequestStart)
+            fallback.firstVisibleAnswerMS = elapsed
+            fallback.stageBStatus = "manual_capture_fallback"
+            self.manualCaptureSuggestion = fallback
+            self.currentSuggestion = fallback
+            self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+            self.manualCaptureState = .suggestionReady
+            self.softFallbackUsed = true
+            self.softFallbackLatencyMS = elapsed
+            self.softFallbackShownAt = Date()
+            self.finalVisibleSource = fallback.finalVisibleSource
+            self.markFirstVisibleAnswer(generationID: manualGenerationID, fallback: true)
+            self.setGenerationUIState(.showingFallback(questionID: manualQuestionID, generationID: manualGenerationID, triggerPath: .manualCapture), generationID: manualGenerationID)
+            self.infoAction(ActionID.manualGenerate, title: "First answer visible", message: "Local first answer is visible while DeepSeek continues.", autoDismissAfter: 3.0)
+        }
+        registerFallbackWatchdogTask(manualFallbackTask, generationID: manualGenerationID)
+
+        let manualFullCardTimeoutNanoseconds = generationFullCardWatchdogNanoseconds
+        let manualFullCardTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: manualFullCardTimeoutNanoseconds)
+            } catch {
+                return
+            }
+            guard self.currentGenerationID == manualGenerationID else {
+                self.recordStaleGenerationDiscard()
+                return
+            }
+            if self.manualCaptureSuggestion != nil || self.currentSuggestion != nil {
+                self.markGenerationFailed(
+                    generationID: manualGenerationID,
+                    reason: "Manual capture full answer timed out.",
+                    timeout: true
+                )
+                self.warnAction(ActionID.manualGenerate, title: "First answer visible", message: "Full answer is delayed. Retry is available.")
+                return
+            }
+            var fallback = self.makeInitialFirstAnswerFallbackCard(
+                cardID: UUID().uuidString,
+                question: manualDetected,
+                session: fallbackSession,
+                requestStart: manualRequestStart
+            )
+            fallback.caution = "Provider timed out. Local first answer shown; retry when ready."
+            self.manualCaptureSuggestion = fallback
+            self.currentSuggestion = fallback
+            self.manualCaptureState = .suggestionReady
+            self.markFirstVisibleAnswer(generationID: manualGenerationID, fallback: true)
+            self.markGenerationFailed(
+                generationID: manualGenerationID,
+                reason: "No visible manual answer within 8 seconds.",
+                timeout: true
+            )
+            self.warnAction(ActionID.manualGenerate, title: "Local answer shown", message: "DeepSeek timed out. Retry is available.")
+        }
+        registerFullCardWatchdogTask(manualFullCardTask, generationID: manualGenerationID)
+        
+        let manualProviderTask = Task {
+            do {
                 let customConfig: LLMProviderConfiguration?
                 if forceDeepSeek {
                     guard let deepSeekConfig = providerConfigurations.first(where: { $0.kind == .deepSeek }) else {
@@ -3579,37 +4906,23 @@ final class AppState: ObservableObject {
                 }
                 
                 let activeProvider = customConfig ?? activeRealtimeProvider
-                
-                let detected = DetectedQuestion(
-                    id: questionID,
-                    sessionID: currentSessionID,
-                    transcriptSegmentID: nil,
-                    questionText: text,
-                    intent: .technical,
-                    answerStrategy: .directAnswer,
-                    confidence: 0.95,
-                    reason: "Manual Capture Triggered",
-                    shouldTrigger: true,
-                    questionComplete: true,
-                    modelName: activeProvider?.model ?? "deepseek-v4-flash",
-                    promptVersion: "v1",
-                    providerKind: activeProvider?.kind,
-                    providerName: activeProvider?.name,
-                    providerBaseURL: activeProvider?.baseURL,
-                    latencyMS: nil,
-                    isLocal: false,
-                    rawJSON: nil,
-                    createdAt: Date()
-                )
+                var detected = manualDetected
+                detected.modelName = activeProvider?.model ?? detected.modelName
+                detected.providerKind = activeProvider?.kind ?? detected.providerKind
+                detected.providerName = activeProvider?.name ?? detected.providerName
+                detected.providerBaseURL = activeProvider?.baseURL ?? detected.providerBaseURL
                 
                 // gate context to 800 CV / 600 JD words
-                let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
-                    question: text,
-                    intent: .technical,
-                    maxCVWords: 800,
-                    maxJDWords: 600,
-                    strategy: detected.answerStrategy
-                )
+                let retrievalService = contextRetrievalService!
+                let (context, trace) = try await Task.detached(priority: .userInitiated) {
+                    try await retrievalService.retrieveContextWithTrace(
+                        question: text,
+                        intent: .technical,
+                        maxCVWords: 800,
+                        maxJDWords: 600,
+                        strategy: detected.answerStrategy
+                    )
+                }.value
                 
                 // empty transcript context
                 let transcriptContext = ""
@@ -3621,15 +4934,25 @@ final class AppState: ObservableObject {
                     question: detected,
                     context: context,
                     transcriptContext: transcriptContext,
-                    sessionID: currentSessionID,
+                    sessionID: manualSessionID,
                     timeoutInterval: timeout,
                     customProviderConfig: customConfig
                 )
+                guard self.currentGenerationID == manualGenerationID else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
+                self.clearFallbackWatchdogTask(generationID: manualGenerationID)
                 
                 self.lastSuggestionGenerationProvider = result.response.providerName
                 self.lastSuggestionGenerationModel = result.response.modelName
                 self.manualCaptureSuggestion = result.card
+                self.currentSuggestion = result.card
                 self.manualCaptureState = .suggestionReady
+                self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+                self.markFirstVisibleAnswer(generationID: manualGenerationID, fallback: false)
+                self.markFullCardVisible(generationID: manualGenerationID)
+                self.clearStageBTask(generationID: manualGenerationID)
                 self.completeAction(ActionID.manualGenerate, title: "Answer ready", message: "Manual capture answer is visible.")
                 
                 // If a live session is running, persist to database and update lists
@@ -3638,8 +4961,8 @@ final class AppState: ObservableObject {
                     let segment = TranscriptSegment(
                         id: UUID().uuidString,
                         sessionID: session.id,
-                        source: source,
-                        speaker: speaker,
+                        source: manualSource,
+                        speaker: manualSpeaker,
                         text: rawText, // Keep raw in transcript segment
                         startTime: nil,
                         endTime: nil,
@@ -3650,7 +4973,7 @@ final class AppState: ObservableObject {
                         confidence: 0.95
                     )
                     
-                    try? self.transcriptRepository.saveSegment(segment)
+                    self.saveTranscriptSegmentInBackground(segment)
                     
                     // Update current list of segments
                     self.transcriptSegments.append(segment)
@@ -3659,19 +4982,22 @@ final class AppState: ObservableObject {
                     var savedQuestion = detected
                     savedQuestion.transcriptSegmentID = segment.id
                     savedQuestion.latencyMS = result.response.latencyMS
-                    try? self.suggestionRepository.saveDetectedQuestion(savedQuestion)
+                    self.saveDetectedQuestionInBackground(savedQuestion)
                     
                     var savedCard = result.card
                     savedCard.questionID = savedQuestion.id
-                    
-                    // Save card and retrieved chunks atomically
-                    try self.suggestionRepository.saveSuggestionCard(savedCard, retrievedChunks: trace.rankedCVChunks + trace.rankedJDChunks)
                     
                     // Update AppState current suggestions
                     self.lastRetrievalTrace = trace
                     self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
                     self.currentSuggestion = savedCard
                     self.lastDetectedQuestion = savedQuestion
+                    self.persistSuggestionInBackground(
+                        savedCard,
+                        chunks: trace.rankedCVChunks + trace.rankedJDChunks,
+                        generationID: manualGenerationID,
+                        requestStart: manualRequestStart
+                    )
                     
                     // Update diagnostics
                     self.updateDiagnostics { diag in
@@ -3698,15 +5024,41 @@ final class AppState: ObservableObject {
                     }
                 }
             } catch {
-                self.manualCaptureState = .suggestionError(error.localizedDescription)
-                self.failAction(ActionID.manualGenerate, title: "Generation failed", message: "Transcript preserved. \(error.localizedDescription)")
+                self.clearStageBTask(generationID: manualGenerationID)
+                let message = error.localizedDescription
+                if self.currentGenerationID == manualGenerationID {
+                    if self.manualCaptureSuggestion != nil || self.currentSuggestion != nil {
+                        self.manualCaptureState = .suggestionReady
+                        self.markGenerationFailed(
+                            generationID: manualGenerationID,
+                            reason: message,
+                            providerError: message,
+                            jsonParseError: message.lowercased().contains("json") ? message : nil,
+                            timeout: message.lowercased().contains("timed out") || message.lowercased().contains("timeout")
+                        )
+                        self.warnAction(ActionID.manualGenerate, title: "First answer preserved", message: "Generation failed after a fallback was shown. Retry is available.")
+                    } else {
+                        self.manualCaptureState = .suggestionError(message)
+                        self.markGenerationFailed(
+                            generationID: manualGenerationID,
+                            reason: message,
+                            providerError: message,
+                            jsonParseError: message.lowercased().contains("json") ? message : nil,
+                            timeout: message.lowercased().contains("timed out") || message.lowercased().contains("timeout")
+                        )
+                        self.failAction(ActionID.manualGenerate, title: "Generation failed", message: "Transcript preserved. \(message)")
+                    }
+                } else {
+                    self.recordStaleGenerationDiscard()
+                }
                 self.updateDiagnostics { diag in
-                    diag.lastError = error.localizedDescription
+                    diag.lastError = message
                     diag.rawTranscript = rawText
                     diag.cleanedQuestion = text
                 }
             }
         }
+        registerStageBTask(manualProviderTask, generationID: manualGenerationID)
     }
     
     func caseSuggestionError(_ state: ManualCaptureState) -> Bool {
@@ -3760,6 +5112,10 @@ final class AppState: ObservableObject {
     func clearManualCapture() {
         beginAction(ActionID.manualClear, title: "Clearing manual capture", message: "Removing transcript and suggestion from the manual capture panel...")
         cancelStageBTask()
+        fullCardWatchdogTask?.cancel()
+        fullCardWatchdogTask = nil
+        currentGenerationID = nil
+        generationUIState = .idle
         self.manualCaptureTranscript = ""
         self.manualCaptureSuggestion = nil
         self.manualCaptureError = nil
@@ -4227,11 +5583,24 @@ final class AppState: ObservableObject {
     }
 
     public func refreshLatencyAverages() {
-        do {
-            self.latencyAveragesOverall = try self.suggestionRepository.fetchLatencyAverages(last: 10)
-            self.latencyAveragesDeepSeek = try self.suggestionRepository.fetchLatencyAverages(last: 10, provider: "DeepSeek")
-        } catch {
-            print("[AppState] Failed to refresh latency averages: \(error.localizedDescription)")
+        let repository = suggestionRepository
+        markSQLiteOperation("Refreshing latency averages in background")
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                let overall = try repository.fetchLatencyAverages(last: 10)
+                let deepSeek = try repository.fetchLatencyAverages(last: 10, provider: "DeepSeek")
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.latencyAveragesOverall = overall
+                    self.latencyAveragesDeepSeek = deepSeek
+                    self.lastSQLiteOperation = "Refreshed latency averages"
+                }
+            } catch {
+                print("[AppState] Failed to refresh latency averages: \(error.localizedDescription)")
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Latency averages refresh failed: \(error.localizedDescription)"
+                }
+            }
         }
     }
 }

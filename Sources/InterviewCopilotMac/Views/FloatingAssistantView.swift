@@ -172,6 +172,31 @@ struct FloatingAssistantView: View {
                     diagnosticRow("lastError", appState.diagnostics.lastError ?? "None")
                 }
 
+                diagnosticSection("Current Generation") {
+                    diagnosticRow("state", appState.generationUIState.displayName)
+                    diagnosticRow("activeGenerationID", appState.activeGenerationID ?? "nil")
+                    diagnosticRow("activeQuestionID", appState.activeQuestionID ?? "nil")
+                    diagnosticRow("activeTriggerPath", appState.activeTriggerPath?.rawValue ?? "nil")
+                    diagnosticRow("activeElapsedMs", appState.activeGenerationElapsedMs.map { "\($0)" } ?? "nil")
+                    diagnosticRow("activeTaskSummary", appState.activeTaskSummary)
+                    diagnosticRow("previousGenerationID", appState.previousGenerationID ?? "nil")
+                    diagnosticRow("visibleAnswerExists", appState.visibleAnswerExists ? "true" : "false")
+                    diagnosticRow("currentSpinnerVisible", appState.currentSpinnerVisible ? "true" : "false")
+                    diagnosticRow("fallbackWatchdogActive", appState.fallbackWatchdogActive ? "true" : "false")
+                    diagnosticRow("stageBTaskActive", appState.stageBTaskActive ? "true" : "false")
+                    diagnosticRow("providerStreamActive", appState.providerStreamActive ? "true" : "false")
+                    diagnosticRow("lastProviderError", appState.currentGenerationTelemetry.providerError ?? "nil")
+                    diagnosticRow("lastJSONParseError", appState.currentGenerationTelemetry.jsonParseError ?? "nil")
+                    diagnosticRow("lastDBError", appState.currentGenerationTelemetry.dbError ?? "nil")
+                    diagnosticRow("cancelledGenerationCount", "\(appState.cancelledGenerationCount)")
+                    diagnosticRow("staleCallbackDiscardCount", "\(appState.staleCallbackDiscardCount)")
+                    diagnosticRow("duplicateSuppressionCount", "\(appState.duplicateSuppressionCount)")
+                    diagnosticRow("heartbeatDelayMs", "\(appState.mainThreadHeartbeatDelayMs)")
+                    diagnosticRow("lastSQLiteOperation", appState.lastSQLiteOperation)
+                    diagnosticRow("lastRAGOperation", appState.lastRAGOperation)
+                    diagnosticRow("lastProviderOperation", appState.lastProviderOperation)
+                }
+
                 diagnosticSection("Latency") {
                     diagnosticRow("latencyMS", activeCard?.latencyMS.map { "\($0)" } ?? "nil")
                     diagnosticRow("ragRetrievalLatencyMS", appState.ragRetrievalLatencyMS.map { "\($0)" } ?? "nil")
@@ -225,10 +250,14 @@ struct FloatingAssistantView: View {
                 Text("Say First")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                if appState.isStreamingSayFirst || appState.isExpandingSuggestionCard {
+                if appState.shouldShowBlockingAnswerSpinner {
                     ProgressView()
                         .controlSize(.small)
-                    Text(appState.isStreamingSayFirst ? "Generating first answer" : "Expanding answer")
+                    Text("Generating first answer")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                } else if appState.shouldShowAnswerExpansionStatus {
+                    Text("Expanding full answer...")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -385,13 +414,13 @@ struct FloatingAssistantView: View {
     }
 
     private var answerText: String {
-        if appState.isStreamingSayFirst, !appState.streamedSayFirst.isEmpty {
-            return appState.streamedSayFirst
-        }
         if let card = activeCard, !card.sayFirst.isEmpty {
             return card.sayFirst
         }
-        if appState.isStreamingSayFirst {
+        if !appState.streamedSayFirst.isEmpty {
+            return appState.streamedSayFirst
+        }
+        if appState.shouldShowBlockingAnswerSpinner {
             return "Generating first answer..."
         }
         return emptyAnswerText

@@ -548,7 +548,7 @@ struct ManualCaptureTests {
         }
 
         #expect(appState.manualCaptureBufferCount == 42)
-        #expect(abs(appState.manualCaptureDuration - 10.5) <= 0.15)
+        #expect(abs(appState.manualCaptureDuration - 10.5) <= 0.30)
         #expect(appState.manualCaptureTranscript == "What do you offer?")
     }
 

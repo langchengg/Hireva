@@ -228,6 +228,11 @@ class PermissionService {
         NSWorkspace.shared.open(url)
     }
 
+    func openSpeechRecognitionSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!
+        NSWorkspace.shared.open(url)
+    }
+
     func openPrivacySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
         NSWorkspace.shared.open(url)

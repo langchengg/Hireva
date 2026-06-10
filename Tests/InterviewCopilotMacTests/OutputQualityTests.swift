@@ -49,6 +49,15 @@ struct OutputQualityTests {
         #expect(!result.sanitizedContent.contains("PROFILE"))
         #expect(result.sanitizedContent.contains("MSc Robotics student"))
     }
+
+    @Test
+    func latexPollutionDetectorIgnoresPlainTechnicalWords() throws {
+        let plain = "Converted target masks into 3D object geometry for grasp planning."
+        let latex = #"Candidate used \geometry{left=0.4in} in a raw LaTeX resume."#
+
+        #expect(DocumentTextSanitizer.containsResidualLatexFormattingNoise(plain) == false)
+        #expect(DocumentTextSanitizer.containsResidualLatexFormattingNoise(latex) == true)
+    }
     
     @Test
     func ragChunksAfterRebuildContainNoLaTeXPreamble() async throws {
@@ -222,6 +231,22 @@ struct OutputQualityTests {
         
         let isDup2 = appState.isDuplicateAutoQuestion(detected2.questionText)
         #expect(isDup2 == true)
+        #expect(!appState.shouldShowBlockingAnswerSpinner)
+        #expect(!appState.isActionLoading(ActionID.generateAnswer))
+    }
+
+    @Test
+    @MainActor
+    func followUpQuestionContainingPreviousQuestionIsNotDuplicate() async throws {
+        let database = try makeTemporaryDatabase()
+        let appState = AppState(database: database)
+
+        let first = "What is your project?"
+        let followUp = "What is your project? What is your goal?"
+
+        #expect(appState.isDuplicateAutoQuestion(first) == false)
+        #expect(appState.isDuplicateAutoQuestion(followUp) == false)
+        #expect(appState.isDuplicateAutoQuestion(followUp) == true)
     }
     
     @Test

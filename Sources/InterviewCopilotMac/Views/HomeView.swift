@@ -185,9 +185,13 @@ struct HomeView: View {
                 Label("Live Answer", systemImage: "text.bubble")
                     .font(.headline)
                 Spacer()
-                if appState.isStreamingSayFirst || appState.isExpandingSuggestionCard {
+                if appState.shouldShowBlockingAnswerSpinner {
                     ProgressView()
                         .controlSize(.small)
+                } else if appState.shouldShowAnswerExpansionStatus {
+                    Text("Expanding full answer...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -202,17 +206,17 @@ struct HomeView: View {
                 }
             }
 
-            if appState.isStreamingSayFirst {
+            if let card = appState.currentSuggestion, !card.sayFirst.isEmpty {
+                answerCard(card)
+            } else if appState.shouldShowBlockingAnswerSpinner || !appState.streamedSayFirst.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Say First")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(appState.streamedSayFirst.isEmpty ? "Generating first answer..." : appState.streamedSayFirst)
+                    Text(appState.homeLiveAnswerPreviewText ?? "Generating first answer...")
                         .font(.system(size: 17, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            } else if let card = appState.currentSuggestion {
-                answerCard(card)
             } else if !appState.coreInterviewReadinessPassed {
                 emptyAction(
                     title: "Setup is incomplete",

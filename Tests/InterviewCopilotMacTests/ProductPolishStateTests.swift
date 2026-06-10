@@ -30,6 +30,37 @@ struct ProductPolishStateTests {
     }
 
     @Test
+    func homeLiveAnswerPrefersVisibleSuggestionOverStreamingSpinner() throws {
+        let appState = try makeAppState()
+        makeReady(appState)
+        appState.isStreamingSayFirst = true
+        appState.streamedSayFirst = ""
+        appState.currentSuggestion = SuggestionCard(
+            id: "card-1",
+            sessionID: "session-1",
+            questionID: "question-1",
+            strategy: "Local First Answer Fallback",
+            sayFirst: "I can walk through one project by explaining the problem, my implementation choices, and the result.",
+            keyPoints: ["Problem and constraints.", "Implementation choices.", "Result."],
+            followUpReady: [],
+            confidence: 0.45,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "local-first-answer-fallback",
+            promptVersion: "local-first-answer-v1",
+            providerName: "Local First Answer Fallback",
+            providerBaseURL: "",
+            isLocal: true,
+            createdAt: Date(),
+            sayFirstSource: "local_first_answer_fallback"
+        )
+
+        #expect(appState.homeLiveAnswerPreviewText == appState.currentSuggestion?.sayFirst)
+        #expect(appState.homeLiveAnswerPreviewText != "Generating first answer...")
+    }
+
+    @Test
     func readinessFailedItemsExposeOneAction() throws {
         let appState = try makeAppState()
         makeReady(appState)
@@ -41,6 +72,22 @@ struct ProductPolishStateTests {
         #expect(failed.contains { $0.id == "deepseek" && $0.action == .openSettings })
         #expect(failed.contains { $0.id == "latex" && $0.action == .rebuildRAG })
         #expect(failed.allSatisfy { $0.actionTitle != nil && $0.action != nil })
+    }
+
+    @Test
+    func readinessSeparatesMicrophoneFromSpeechRecognitionPermission() throws {
+        let appState = try makeAppState()
+        makeReady(appState)
+        appState.microphonePermissionState = .authorized
+        appState.permissionSnapshot.speechRecognition = .notDetermined
+
+        let microphone = appState.readinessCheckItems.first { $0.id == "microphone" }
+        let speech = appState.readinessCheckItems.first { $0.id == "speech" }
+
+        #expect(microphone?.status == .passed)
+        #expect(speech?.status == .failed)
+        #expect(speech?.actionTitle == "Request Speech Access")
+        #expect(speech?.action == .openPermissions)
     }
 
     @Test

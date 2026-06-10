@@ -409,7 +409,7 @@ final class StreamingMockLLMClient: LLMClientProtocol {
 
 // MARK: - Soft Fallback & Provenance Suite
 
-@Suite
+@Suite(.serialized)
 struct StreamingSoftFallbackTests {
     
     private func makeTemporaryDatabase() throws -> AppDatabase {
@@ -498,7 +498,7 @@ struct StreamingSoftFallbackTests {
         
         let finalCard = appState.currentSuggestion!
         #expect(finalCard.softFallbackUsed == true)
-        #expect(finalCard.sayFirstSource == "deepseek_stream") // Replaced since elapsed < 4.0s and answer is specific
+        #expect(finalCard.sayFirstSource == "deepseek_stream") // Replaced because the late stream is still inside the conservative window and answer is specific.
         #expect(finalCard.finalVisibleSource == "deepseek_stream")
         #expect(finalCard.stageBCompleted == true)
         #expect(finalCard.keyPoints.contains("First point"))
@@ -530,9 +530,10 @@ struct StreamingSoftFallbackTests {
         
         let appState = AppState(database: database, llmRouter: router)
         
-        // Inject MockDelayProvider with 500ms sleep (DeepSeek stream completes in <1ms)
+        // Keep the fallback timer comfortably slower than the mock stream so
+        // this test verifies cancellation of fallback, not scheduler timing.
         let mockDelay = MockDelayProvider()
-        mockDelay.sleepDuration = 500_000_000 // 500ms sleep
+        mockDelay.sleepDuration = 5_000_000_000
         appState.delayProvider = mockDelay
         
         let session = InterviewSession(id: "sess-2", title: "Test", company: "C", role: "R", startedAt: Date(), endedAt: nil, mode: .microphone, createdAt: Date())

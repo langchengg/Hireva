@@ -112,14 +112,18 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         config.sampleRate = 48000
         config.channelCount = 2
         
-        // Attempt premium tiny video size (16x16) to conserve system resources
+        // ScreenCaptureKit still produces screen frames for a display stream.
+        // Register .screen output and discard it so the framework does not keep
+        // logging "stream output NOT found" while we use the audio buffers.
+        config.queueDepth = 3
         config.width = 16
         config.height = 16
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 10)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 2)
 
         var streamInstance: SCStream?
         do {
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
             try await stream.startCapture()
             streamInstance = stream
@@ -133,6 +137,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             config.minimumFrameInterval = CMTime(value: 1, timescale: 2) // Ultra slow video frames
             
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
             try await stream.startCapture()
             streamInstance = stream

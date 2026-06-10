@@ -153,17 +153,14 @@ final class DocumentRepository {
 
     func latexPollutedChunkCount() throws -> Int {
         try database.dbQueue.read { db in
-            try Int.fetchOne(
+            let contents = try String.fetchAll(
                 db,
                 sql: """
-                SELECT COUNT(*)
+                SELECT content
                 FROM document_chunks
-                WHERE content LIKE '%documentclass%'
-                   OR content LIKE '%usepackage%'
-                   OR content LIKE '%geometry%'
-                   OR content LIKE '%begin{document}%'
                 """
-            ) ?? 0
+            )
+            return contents.filter(DocumentTextSanitizer.containsResidualLatexFormattingNoise).count
         }
     }
 

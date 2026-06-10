@@ -109,33 +109,239 @@ final class QuestionDetectionService {
         Decide whether the interviewer has asked a complete question or prompt that the candidate should answer now.
         """
 
-        let response = try await llmRouter.chatForRealtime(
-            messages: [.system(prompt.text), .user(userPrompt)],
-            responseFormat: .jsonObject,
-            options: LLMRequestOptions(temperature: 0.0)
-        )
-        let payload = try JSONParsing.decodeObject(QuestionDetectionPayload.self, from: response.content)
+        do {
+            let response = try await llmRouter.chatForRealtime(
+                messages: [.system(prompt.text), .user(userPrompt)],
+                responseFormat: .jsonObject,
+                options: LLMRequestOptions(temperature: 0.0)
+            )
+            let providerPayload = try JSONParsing.decodeObject(QuestionDetectionPayload.self, from: response.content)
+            let payload = normalizeProviderDetection(
+                providerPayload,
+                transcriptContext: transcriptContext,
+                heuristic: heuristic
+            )
+            let question = DetectedQuestion(
+                id: UUID().uuidString,
+                sessionID: sessionID,
+                transcriptSegmentID: transcriptSegmentID,
+                questionText: payload.questionText,
+                intent: payload.intent,
+                answerStrategy: payload.answerStrategy,
+                confidence: max(0, min(1, payload.confidence)),
+                reason: payload.reason,
+                shouldTrigger: payload.shouldTrigger,
+                questionComplete: payload.questionComplete,
+                modelName: response.modelName,
+                promptVersion: prompt.versionTag,
+                providerKind: response.providerKind,
+                providerName: response.providerName,
+                providerBaseURL: response.baseURL,
+                latencyMS: response.latencyMS,
+                isLocal: response.isLocal,
+                rawJSON: response.content,
+                createdAt: Date()
+            )
+            return (question, response)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return localFallbackDetection(
+                transcriptContext: transcriptContext,
+                sessionID: sessionID,
+                transcriptSegmentID: transcriptSegmentID,
+                heuristic: heuristic,
+                error: error
+            )
+        }
+    }
+
+    private func normalizeProviderDetection(
+        _ payload: QuestionDetectionPayload,
+        transcriptContext: String,
+        heuristic: LocalQuestionHeuristicResult
+    ) -> QuestionDetectionPayload {
+        let candidate = fallbackQuestionCandidate(from: transcriptContext)
+        guard heuristic.shouldTrigger,
+              heuristic.confidence >= 0.8,
+              candidate.isComplete,
+              isStrongCompleteQuestion(candidate.text) else {
+            return payload
+        }
+
+        let providerSuppressedAnswer = !payload.shouldTrigger
+            || !payload.questionComplete
+            || payload.answerStrategy == .wait
+            || payload.confidence < 0.75
+        guard providerSuppressedAnswer else {
+            return payload
+        }
+
+        let classified = classifyFallbackQuestion(candidate.text)
+        var normalized = payload
+        let providerQuestionText = payload.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.shouldTrigger = true
+        normalized.questionComplete = true
+        normalized.questionText = providerQuestionText.isEmpty ? candidate.text : providerQuestionText
+        if normalized.intent == .unclear {
+            normalized.intent = classified.intent
+        }
+        if normalized.answerStrategy == .wait || normalized.answerStrategy == .clarifyFirst {
+            normalized.answerStrategy = classified.strategy
+        }
+        normalized.confidence = max(payload.confidence, min(0.9, heuristic.confidence))
+        normalized.reason = "\(payload.reason) Local guardrail treated this as a complete interviewer prompt: \(heuristic.reason)."
+        return normalized
+    }
+
+    private func isStrongCompleteQuestion(_ text: String) -> Bool {
+        let lower = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard lower.split(whereSeparator: \.isWhitespace).count >= 4 else {
+            return false
+        }
+
+        let incompleteEndings = [
+            " can you", " could you", " would you", " do you", " are you",
+            " and", " or", " but", " so", " because", " with", " to", " for", " about"
+        ]
+        if incompleteEndings.contains(where: { lower.hasSuffix($0) }) {
+            return false
+        }
+
+        let strongPrefixes = [
+            "what ", "how ", "why ", "where ", "who ", "when ",
+            "can you ", "could you ", "would you ", "should you ",
+            "are you ", "do you ", "have you ", "is there ",
+            "walk me through ", "tell me about ", "give me an example ",
+            "talk about ", "describe ", "explain ", "elaborate "
+        ]
+        return strongPrefixes.contains { lower.hasPrefix($0) }
+    }
+
+    private func localFallbackDetection(
+        transcriptContext: String,
+        sessionID: String,
+        transcriptSegmentID: String?,
+        heuristic: LocalQuestionHeuristicResult,
+        error: Error
+    ) -> (question: DetectedQuestion, response: LLMChatResult) {
+        let candidate = fallbackQuestionCandidate(from: transcriptContext)
+        let classified = classifyFallbackQuestion(candidate.text)
+        let reason = "Local fallback used after question detector failed: \(error.localizedDescription). \(heuristic.reason)"
+        let rawJSON = """
+        {"should_trigger":true,"question_complete":\(candidate.isComplete),"question_text":\(jsonString(candidate.text)),"intent":"\(classified.intent.rawValue)","answer_strategy":"\(classified.strategy.rawValue)","confidence":\(candidate.isComplete ? heuristic.confidence : 0.6),"reason":\(jsonString(reason))}
+        """
         let question = DetectedQuestion(
             id: UUID().uuidString,
             sessionID: sessionID,
             transcriptSegmentID: transcriptSegmentID,
-            questionText: payload.questionText,
-            intent: payload.intent,
-            answerStrategy: payload.answerStrategy,
-            confidence: max(0, min(1, payload.confidence)),
-            reason: payload.reason,
-            shouldTrigger: payload.shouldTrigger,
-            questionComplete: payload.questionComplete,
-            modelName: response.modelName,
-            promptVersion: prompt.versionTag,
-            providerKind: response.providerKind,
-            providerName: response.providerName,
-            providerBaseURL: response.baseURL,
-            latencyMS: response.latencyMS,
-            isLocal: response.isLocal,
-            rawJSON: response.content,
+            questionText: candidate.text,
+            intent: classified.intent,
+            answerStrategy: classified.strategy,
+            confidence: candidate.isComplete ? heuristic.confidence : 0.6,
+            reason: reason,
+            shouldTrigger: true,
+            questionComplete: candidate.isComplete,
+            modelName: "local-question-fallback",
+            promptVersion: "local-fallback-v1",
+            providerKind: .openAICompatible,
+            providerName: "Local Question Fallback",
+            providerBaseURL: "",
+            latencyMS: 0,
+            isLocal: true,
+            rawJSON: rawJSON,
             createdAt: Date()
         )
+        let response = LLMChatResult(
+            content: rawJSON,
+            modelName: "local-question-fallback",
+            providerKind: .openAICompatible,
+            providerName: "Local Question Fallback",
+            baseURL: "",
+            latencyMS: 0,
+            isLocal: true,
+            rawResponse: rawJSON
+        )
         return (question, response)
+    }
+
+    private func fallbackQuestionCandidate(from transcriptContext: String) -> (text: String, isComplete: Bool) {
+        let lines = transcriptContext
+            .components(separatedBy: .newlines)
+            .map(cleanSpeakerPrefix)
+            .filter { !$0.isEmpty }
+
+        let rawCandidate = lines.reversed().first { isLikelyQuestion($0).shouldTrigger }
+            ?? cleanSpeakerPrefix(transcriptContext)
+        return sanitizeFallbackQuestion(rawCandidate)
+    }
+
+    private func cleanSpeakerPrefix(_ text: String) -> String {
+        let collapsed = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        let lower = collapsed.lowercased()
+        for prefix in ["interviewer:", "candidate:", "unknown:"] {
+            if lower.hasPrefix(prefix) {
+                return String(collapsed.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return collapsed
+    }
+
+    private func sanitizeFallbackQuestion(_ text: String) -> (text: String, isComplete: Bool) {
+        var cleaned = cleanSpeakerPrefix(text)
+        while cleaned.hasSuffix(".") || cleaned.hasSuffix(",") || cleaned.hasSuffix(";") || cleaned.hasSuffix(":") {
+            cleaned.removeLast()
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let lower = cleaned.lowercased()
+        let trailingFragments = [
+            " can you", " could you", " would you", " do you", " are you",
+            " and", " or", " but", " so", " because", " with", " to", " for"
+        ]
+        var removedIncompleteTail = false
+        for fragment in trailingFragments where lower.hasSuffix(fragment) {
+            cleaned.removeLast(fragment.count)
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+            removedIncompleteTail = true
+            break
+        }
+
+        let wordCount = cleaned.split(whereSeparator: \.isWhitespace).count
+        let isComplete = wordCount >= 4 && (!cleaned.isEmpty || !removedIncompleteTail)
+        return (cleaned.isEmpty ? cleanSpeakerPrefix(text) : cleaned, isComplete)
+    }
+
+    private func classifyFallbackQuestion(_ text: String) -> (intent: QuestionIntent, strategy: AnswerStrategy) {
+        let lower = text.lowercased()
+        if lower.contains("project") || lower.contains("built") || lower.contains("worked on") {
+            return (.projectDeepDive, .projectWalkthrough)
+        }
+        if lower.contains("technical") || lower.contains("architecture") || lower.contains("algorithm") || lower.contains("system design") {
+            return (.technical, .technicalExplanation)
+        }
+        if lower.contains("why") || lower.contains("role") || lower.contains("company") || lower.contains("join") {
+            return (.companyFit, .directAnswer)
+        }
+        if lower.contains("example") || lower.contains("challenge") || lower.contains("conflict") || lower.contains("tell me about") {
+            return (.behavioral, .starStory)
+        }
+        return (.unclear, .directAnswer)
+    }
+
+    private func jsonString(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        return encoded
     }
 }

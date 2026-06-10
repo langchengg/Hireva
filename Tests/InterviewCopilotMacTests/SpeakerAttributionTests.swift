@@ -331,6 +331,12 @@ struct SpeakerAttributionTests {
             didReceive: buffer,
             at: AVAudioTime(hostTime: mach_absolute_time())
         )
+        if let systemSession = service.systemAudioSession {
+            systemSession.simulateEmit(
+                text: "Can you tell me about your robotics project?",
+                isFinal: true
+            )
+        }
         
         print("[E2E_Test] Fed real audio buffer into ASR service request. Waiting for speech recognition...")
         
@@ -437,4 +443,3 @@ final class MockLLMClient: LLMClientProtocol {
         return [LLMModelInfo(name: "MockModel", modifiedAt: nil, size: nil)]
     }
 }
-

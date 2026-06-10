@@ -106,7 +106,7 @@ struct ReadinessCheckView: View {
                     successTitle: "Done",
                     systemImage: "arrow.right.circle"
                 ) {
-                    perform(action)
+                    perform(action, itemID: item.id)
                 }
                 .tint(item.status == .failed ? .accentColor : .secondary)
             }
@@ -116,14 +116,15 @@ struct ReadinessCheckView: View {
     }
 
     private func focusFirstFailure() {
-        guard let action = appState.readinessCheckItems.first(where: { $0.status == .failed })?.action else {
+        guard let item = appState.readinessCheckItems.first(where: { $0.status == .failed }),
+              let action = item.action else {
             appState.selectSection(.home)
             return
         }
-        perform(action)
+        perform(action, itemID: item.id)
     }
 
-    private func perform(_ action: ReadinessAction) {
+    private func perform(_ action: ReadinessAction, itemID: String? = nil) {
         let id = actionID(for: action)
         switch action {
         case .openSettings:
@@ -139,16 +140,29 @@ struct ReadinessCheckView: View {
         case .rebuildRAG:
             appState.rebuildCleanRAGIndex()
         case .openPermissions:
-            appState.beginAction(id, title: "Opening permissions", message: "Opening macOS privacy settings.")
-            appState.openSystemPrivacySettings()
+            appState.beginAction(id, title: "Opening permissions", message: permissionActionMessage(for: itemID))
+            appState.handleReadinessPermissionAction(itemID: itemID)
             appState.selectSection(.diagnostics)
-            appState.completeAction(id, title: "Permissions opened", message: "Grant access in macOS, then return and refresh.")
+            appState.completeAction(id, title: "Permission action opened", message: "Grant access if macOS asks, then return and refresh.")
         case .showFloatingPanel:
             appState.showFloatingAssistant()
         case .openHome:
             appState.beginAction(id, title: "Opening interview", message: "Returning to the main interview workflow.")
             appState.selectSection(.home)
             appState.completeAction(id, title: "Interview opened", message: "Start Interview is the primary action.")
+        }
+    }
+
+    private func permissionActionMessage(for itemID: String?) -> String {
+        switch itemID {
+        case "speech":
+            return "Requesting Speech Recognition access or opening its privacy settings."
+        case "microphone":
+            return "Requesting microphone access or opening Microphone settings."
+        case "system-audio":
+            return "Opening Screen & System Audio Recording settings."
+        default:
+            return "Opening macOS Privacy & Security."
         }
     }
 

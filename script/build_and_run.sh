@@ -17,8 +17,8 @@ MODE="${1:-run}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="InterviewCopilotMac"                    # .app bundle name
-EXECUTABLE_NAME="InterviewCopilotMacRunner"       # CFBundleExecutable (binary inside .app)
-LEGACY_EXECUTABLE_NAME="InterviewCopilotMac"
+EXECUTABLE_NAME="InterviewCopilotMac"             # CFBundleExecutable (binary inside .app)
+LEGACY_EXECUTABLE_NAME="InterviewCopilotMacRunner"
 SPM_PRODUCT_NAME="InterviewCopilotMac"            # SPM product name (output of swift build)
 BUNDLE_ID="com.langcheng.InterviewCopilotMac"
 DISPLAY_NAME="Interview Copilot"

@@ -246,4 +246,22 @@ public struct DocumentTextSanitizer {
             wasSanitized: wasSanitized
         )
     }
+
+    public static func containsResidualLatexFormattingNoise(_ content: String) -> Bool {
+        let patterns = [
+            #"\\\s*(documentclass|usepackage|geometry)\b"#,
+            #"\\\s*(begin|end)\s*\{\s*document\s*\}"#
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+            let range = NSRange(content.startIndex..<content.endIndex, in: content)
+            if regex.firstMatch(in: content, options: [], range: range) != nil {
+                return true
+            }
+        }
+        return false
+    }
 }

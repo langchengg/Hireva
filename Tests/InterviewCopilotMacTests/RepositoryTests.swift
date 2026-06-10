@@ -235,19 +235,7 @@ struct RepositoryTests {
 
         let result = try repository.rebuildCleanRAGIndex()
         let chunks = try repository.chunks(type: .cv)
-        let pollutedCount = try database.dbQueue.read { db in
-            try Int.fetchOne(
-                db,
-                sql: """
-                SELECT COUNT(*)
-                FROM document_chunks
-                WHERE content LIKE '%documentclass%'
-                   OR content LIKE '%usepackage%'
-                   OR content LIKE '%geometry%'
-                   OR content LIKE '%begin{document}%'
-                """
-            ) ?? 0
-        }
+        let pollutedCount = try repository.latexPollutedChunkCount()
 
         #expect(result.documentsRebuilt == 1)
         #expect(result.chunksRebuilt > 0)
@@ -255,6 +243,34 @@ struct RepositoryTests {
         #expect(chunks.contains { $0.content.contains("Robotics Project") })
         #expect(chunks.allSatisfy { !$0.content.contains("documentclass") && !$0.content.contains("usepackage") && !$0.content.contains("geometry") })
         #expect(try repository.document(type: .cv)?.content == legacyLatex.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    @Test
+    func latexPollutedChunkCountIgnoresPlainGeometryWord() throws {
+        let database = try makeTemporaryDatabase()
+        let repository = DocumentRepository(database: database)
+        let documentID = UUID().uuidString
+        let now = DateCoding.string(from: Date())
+        let cleanTechnicalChunk = "Converted target bbox and mask outputs into 3D object geometry for downstream grasp planning."
+
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO documents (id, type, title, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [documentID, DocumentType.cv.rawValue, "Resume", cleanTechnicalChunk, now, now]
+            )
+            try db.execute(
+                sql: """
+                INSERT INTO document_chunks (id, document_id, document_type, chunk_index, content, keywords, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [UUID().uuidString, documentID, DocumentType.cv.rawValue, 0, cleanTechnicalChunk, "geometry,grasp", now]
+            )
+        }
+
+        #expect(try repository.latexPollutedChunkCount() == 0)
     }
 
     private func makeTemporaryDatabase() throws -> AppDatabase {

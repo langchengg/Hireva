@@ -71,10 +71,10 @@ extension AppState {
         if liveState == .permissionDenied || noAudioWarningVisible || !coreInterviewReadinessPassed {
             return .needsAttention
         }
-        if isStreamingSayFirst {
+        if shouldShowBlockingAnswerSpinner {
             return .generatingFirstAnswer
         }
-        if isExpandingSuggestionCard {
+        if shouldShowAnswerExpansionStatus {
             return .expandingAnswer
         }
         if lastDetectedQuestion != nil || possibleQuestion != nil {
@@ -114,6 +114,19 @@ extension AppState {
 
     var primaryHomeActionShouldStop: Bool {
         liveState.canStop || currentCaptureRuntimeState == .starting || currentCaptureRuntimeState == .listening || currentCaptureRuntimeState == .generating || currentCaptureRuntimeState == .stopping
+    }
+
+    var homeLiveAnswerPreviewText: String? {
+        if let card = currentSuggestion, !card.sayFirst.isEmpty {
+            return card.sayFirst
+        }
+        if !streamedSayFirst.isEmpty {
+            return streamedSayFirst
+        }
+        if shouldShowBlockingAnswerSpinner {
+            return streamedSayFirst.isEmpty ? "Generating first answer..." : streamedSayFirst
+        }
+        return nil
     }
 
     var coreInterviewReadinessPassed: Bool {
@@ -225,7 +238,7 @@ extension AppState {
                 title: "Interviewer audio permission",
                 detail: systemAudioRequired ? systemAudioPermissionState.displayName : "Not needed for the selected capture mode.",
                 status: (!systemAudioRequired || systemAudioPermissionState == .granted) ? .passed : .failed,
-                actionTitle: "Open Permissions",
+                actionTitle: "Open Screen Audio Settings",
                 action: .openPermissions
             ),
             ReadinessCheckItem(
@@ -233,7 +246,7 @@ extension AppState {
                 title: "Your microphone permission",
                 detail: microphoneRequired ? microphonePermissionState.displayName : "Not needed for the selected capture mode.",
                 status: (!microphoneRequired || microphonePermissionState == .authorized) ? .passed : .failed,
-                actionTitle: "Open Permissions",
+                actionTitle: microphonePermissionState == .notDetermined ? "Request Microphone" : "Open Microphone Settings",
                 action: .openPermissions
             ),
             ReadinessCheckItem(
@@ -241,7 +254,7 @@ extension AppState {
                 title: "Speech recognition permission",
                 detail: speechRecognitionRequired ? permissionSnapshot.speechRecognition.displayName : "Not needed for the selected capture mode.",
                 status: (!speechRecognitionRequired || permissionSnapshot.speechRecognition == .granted) ? .passed : .failed,
-                actionTitle: "Open Permissions",
+                actionTitle: permissionSnapshot.speechRecognition == .notDetermined ? "Request Speech Access" : "Open Speech Settings",
                 action: .openPermissions
             ),
             ReadinessCheckItem(
