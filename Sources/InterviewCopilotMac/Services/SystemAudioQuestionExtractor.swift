@@ -64,12 +64,19 @@ enum SystemAudioQuestionExtractor {
             "\\bwalk\\s+me\\s+through\\b",
             "\\bwhat\\s+was\\b",
             "\\bwhat\\s+would\\b",
+            "\\bwhich\\s+part\\s+of\\s+the\\s+pipeline\\b",
+            "\\band\\s+how\\s+did\\b",
             "\\bhow\\s+did\\b",
+            "\\bhow\\s+would\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
+            "\\bwhy\\s+might\\b",
             "\\bdo\\s+you\\s+have\\b",
-            "\\bsuppose\\s+you\\s+had\\b"
+            "\\bsuppose\\s+you\\b",
+            "\\bwhen\\s+you\\s+moved\\b",
+            "\\bwhen\\s+you\\s+move\\b",
+            "\\bif\\s+the\\s+same\\s+issue\\b"
         ]
 
         var starts = Set<Int>()
@@ -91,7 +98,13 @@ enum SystemAudioQuestionExtractor {
                 let previousIndex = String.Index(utf16Offset: previous, in: lower)
                 let currentIndex = String.Index(utf16Offset: start, in: lower)
                 let previousClause = String(lower[previousIndex..<currentIndex])
-                if start - previous < 140, previousClause.contains("suppose you had") {
+                if start - previous < 140, previousClause.contains("suppose you") {
+                    continue
+                }
+                if start - previous < 140, previousClause.contains("when you moved") || previousClause.contains("when you move") {
+                    continue
+                }
+                if start - previous < 140, previousClause.contains("if the same issue") {
                     continue
                 }
             }
@@ -110,7 +123,8 @@ enum SystemAudioQuestionExtractor {
             "okay, interesting ",
             "right ",
             "good ",
-            "thanks "
+            "thanks ",
+            "and "
         ]
         var lower = cleaned.lowercased()
         var removedPrefix = true
@@ -124,6 +138,8 @@ enum SystemAudioQuestionExtractor {
                 break
             }
         }
+
+        cleaned = truncateAtTransitionPhrase(cleaned)
 
         let trailingNoise = [
             " great thanks",
@@ -154,6 +170,29 @@ enum SystemAudioQuestionExtractor {
         return cleaned
     }
 
+    private static func truncateAtTransitionPhrase(_ text: String) -> String {
+        let lower = text.lowercased()
+        let transitions = [
+            " now let us switch to",
+            " now let's switch to",
+            " now lets switch to",
+            " let us switch to",
+            " let's switch to",
+            " lets switch to",
+            " now let us talk about",
+            " now let's talk about",
+            " now lets talk about",
+            " now we can move to",
+            " moving on to"
+        ]
+
+        let firstRange = transitions
+            .compactMap { lower.range(of: $0) }
+            .min { $0.lowerBound < $1.lowerBound }
+        guard let firstRange else { return text }
+        return String(text[..<firstRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func isCompleteQuestion(_ text: String) -> Bool {
         let lower = text.lowercased()
         let words = lower.split(whereSeparator: \.isWhitespace).count
@@ -162,7 +201,7 @@ enum SystemAudioQuestionExtractor {
         let incompleteEndings = [
             " can you", " could you", " would you", " do you",
             " and", " or", " but", " because", " with", " to", " for", " about",
-            " tell me", " walk me"
+            " tell me", " walk me", " when", " which"
         ]
         if incompleteEndings.contains(where: { lower.hasSuffix($0) }) {
             return false
@@ -178,10 +217,28 @@ enum SystemAudioQuestionExtractor {
 
     private static func classify(_ text: String) -> (intent: QuestionIntent, strategy: AnswerStrategy, confidence: Double) {
         let lower = text.lowercased()
+        if lower.contains("diffusion") ||
+            lower.contains("autoregressive") ||
+            lower.contains("auto regressive") ||
+            lower.contains("flow-matching") ||
+            lower.contains("flow matching") ||
+            lower.contains("mujoco") ||
+            lower.contains("mouko") ||
+            lower.contains("continuous action") ||
+            lower.contains("fragile") ||
+            lower.contains("clean demo") ||
+            lower.contains("real robot execution") ||
+            lower.contains("localisation") ||
+            lower.contains("localization") ||
+            lower.contains("timing") ||
+            lower.contains("integration") ||
+            lower.contains("pipeline") {
+            return (.technical, .technicalExplanation, 0.93)
+        }
         if lower.contains("walk me through") || lower.contains("project") || lower.contains("leorover") || lower.contains("leo rover") || lower.contains("leah rover") {
             return (.projectDeepDive, .projectWalkthrough, 0.92)
         }
-        if lower.contains("technical") || lower.contains("detections") || lower.contains("localisation") || lower.contains("localization") || lower.contains("diffusion") || lower.contains("mujoco") || lower.contains("mouko") || lower.contains("python") || lower.contains("ros") || lower.contains("c++") {
+        if lower.contains("technical") || lower.contains("detections") || lower.contains("python") || lower.contains("ros") || lower.contains("c++") {
             return (.technical, .technicalExplanation, 0.92)
         }
         if lower.contains("why do you want") || lower.contains("join our team") || lower.contains("questions for us") || lower.contains("role") {

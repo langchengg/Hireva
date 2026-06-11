@@ -100,6 +100,9 @@ struct GenerationContextIsolationTests {
             appState.currentSuggestion?.detectedQuestionID == second.id &&
             appState.currentQABinding.bindingStatus == .matched
         }
+        try await waitUntil(timeout: 8.0) {
+            client.stageAPrompts.last?.hasPrefix("CURRENT QUESTION TO ANSWER:") == true
+        }
 
         let card = try #require(appState.currentSuggestion)
         #expect(card.questionText == second.questionText)
@@ -146,6 +149,9 @@ struct GenerationContextIsolationTests {
 
         try await waitUntil(timeout: 8.0) {
             appState.currentSuggestion?.detectedQuestionID == frozen.id
+        }
+        try await waitUntil(timeout: 8.0) {
+            client.stageAPrompts.last?.localizedCaseInsensitiveContains(frozen.questionText) == true
         }
 
         #expect(client.stageAPrompts.last?.localizedCaseInsensitiveContains(frozen.questionText) == true)

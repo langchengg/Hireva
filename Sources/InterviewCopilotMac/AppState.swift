@@ -3038,7 +3038,6 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             self.lastQuestionDetectionProvider = detection.response.providerName
             self.lastQuestionDetectionModel = detection.response.modelName
-            saveDetectedQuestionInBackground(detection.question)
             updateDiagnostics {
                 $0.lastDetectedQuestionJSON = detection.question.rawJSON
                 $0.lastAPILatencyMS = detection.response.latencyMS
@@ -3048,6 +3047,17 @@ final class AppState: ObservableObject {
             }
 
             let question = detection.question
+            if let triggeringSegment,
+               processLocallySplitProviderQuestionIfNeeded(
+                   question,
+                   segment: triggeringSegment,
+                   session: session,
+                   suggestionTranscript: suggestionTranscript
+               ) {
+                return
+            }
+
+            saveDetectedQuestionInBackground(question)
             lastDetectedQuestion = question
             if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
                 lastTranscriptQuestionGenerationTrace.detectedQuestionID = question.id
@@ -3152,6 +3162,33 @@ final class AppState: ObservableObject {
             
             showError(userFacing(error))
         }
+    }
+
+    private func processLocallySplitProviderQuestionIfNeeded(
+        _ question: DetectedQuestion,
+        segment: TranscriptSegment,
+        session: InterviewSession,
+        suggestionTranscript: String
+    ) -> Bool {
+        guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
+            return false
+        }
+
+        let extractedQuestions = SystemAudioQuestionExtractor.extract(from: question.questionText)
+        guard !extractedQuestions.isEmpty else { return false }
+
+        let providerQuestion = normalizedBindingText(question.questionText)
+        let extractedQuestion = normalizedBindingText(extractedQuestions.map(\.text).joined(separator: " "))
+        let shouldReplaceProviderQuestion = extractedQuestions.count > 1 || extractedQuestion != providerQuestion
+        guard shouldReplaceProviderQuestion else { return false }
+
+        processExtractedSystemAudioQuestions(
+            extractedQuestions,
+            segment: segment,
+            session: session,
+            suggestionTranscript: suggestionTranscript
+        )
+        return true
     }
 
     private func generationBlockedReason(question: DetectedQuestion, duplicateQuestion: Bool) -> String {
