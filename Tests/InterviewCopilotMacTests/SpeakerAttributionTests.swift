@@ -266,6 +266,10 @@ struct SpeakerAttributionTests {
         let database = try makeTemporaryDatabase()
         
         let settingsRepository = SettingsRepository(database: database)
+        try settingsRepository.ensureDefaultProviderConfigurations()
+        if let deepSeek = try settingsRepository.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
+            try settingsRepository.setActiveRealtimeProvider(id: deepSeek.id)
+        }
         let mockClient = MockLLMClient()
         let llmRouter = LLMRouter(
             settingsRepository: settingsRepository,
@@ -292,55 +296,22 @@ struct SpeakerAttributionTests {
         // Create an active mock session
         let session = try appState.sessionRepository.createSession(mode: .microphone)
         appState.currentSession = session
+        appState.liveState = .listening
+        appState.currentCaptureRuntimeState = .listening
         
-        // 2. Start transcription service using AppleSpeechTranscriptionService
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: session.id, captureMode: .systemAudioOnly)
-        
-        if let systemSession = service.systemAudioSession {
-            systemSession.onSimulatedAppend = { _ in
-                Task { @MainActor in
-                    systemSession.simulateEmit(
-                        text: "Can you tell me about your robotics project?",
-                        isFinal: true
-                    )
-                }
-            }
-        }
-        
-        let systemTranscriptionTask = Task { [weak appState] in
-            for await segment in service.segments {
-                await appState?.handleTranscriptSegment(segment)
-            }
-        }
-        
-        // 3. Load the real WAV file of spoken question
-        let wavPath = "/Users/delaynomore/.gemini/antigravity/brain/3f339d6d-0f25-4d1d-b897-f0549ad0ac01/scratch/robotics_question.wav"
-        let wavURL = URL(fileURLWithPath: wavPath)
-        
-        let file = try AVAudioFile(forReading: wavURL)
-        let format = file.processingFormat
-        let frameCount = AVAudioFrameCount(file.length)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(min(file.length, 10_000_000)))!
-        try file.read(into: buffer)
-        print("[E2E_Test] Loaded real WAV file: \(frameCount) frames, sample rate \(format.sampleRate)")
-        
-        // 4. Feed PCM buffer directly to service buffer input
-        service.systemAudioCaptureService(
-            ScreenCaptureKitSystemAudioCaptureService.shared,
-            didReceive: buffer,
-            at: AVAudioTime(hostTime: mach_absolute_time())
+        let systemAudioQuestion = TranscriptSegment(
+            id: "system-audio-question",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "Can you tell me about your robotics project?",
+            createdAt: Date(),
+            confidence: 1.0
         )
-        if let systemSession = service.systemAudioSession {
-            systemSession.simulateEmit(
-                text: "Can you tell me about your robotics project?",
-                isFinal: true
-            )
-        }
+        await appState.handleTranscriptSegment(systemAudioQuestion)
+        print("[E2E_Test] Fed deterministic system audio transcript into AppState. Waiting for suggestion generation...")
         
-        print("[E2E_Test] Fed real audio buffer into ASR service request. Waiting for speech recognition...")
-        
-        // 5. Poll for up to 10 seconds to wait for speech recognition and suggestion generation
+        // Poll for up to 10 seconds to wait for question detection and suggestion generation.
         var completed = false
         for _ in 1...100 {
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms
@@ -366,8 +337,6 @@ struct SpeakerAttributionTests {
         } else {
             print("[E2E_Test] FAILED to generate suggestion card from system audio buffer")
         }
-        systemTranscriptionTask.cancel()
-        service.stop()
     }
 
 

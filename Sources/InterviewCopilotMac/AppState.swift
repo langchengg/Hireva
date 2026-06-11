@@ -161,7 +161,12 @@ final class AppState: ObservableObject {
     @Published public var lastDetectionSkipReason: String = ""
     @Published public var ignoredCandidateQuestionCount: Int = 0
     @Published public var ignoredSmallTalkCount: Int = 0
+    @Published public var lastTranscriptIngestionMs: Int = 0
+    @Published public var lastQuestionClassificationMs: Int = 0
+    @Published public var lastIgnoredSystemAudioReason: String = ""
+    @Published public var ignoredSystemAudioAnswerLikeCount: Int = 0
     @Published public var detectedQuestionsInSessionCount: Int = 0
+    @Published public var lastTranscriptQuestionGenerationTrace: TranscriptQuestionGenerationTrace = .empty
 
     // --- System Audio ASR Diagnostics ---
     @Published public var systemASRTaskRunning: Bool = false
@@ -457,6 +462,7 @@ final class AppState: ObservableObject {
     }
 
     private var activeGenerationController: ActiveGenerationController?
+    private var pendingIgnoredSystemAudioFallback: (questionID: String, reason: String)?
     private var mainThreadHeartbeatTask: Task<Void, Never>?
     private var lastHeartbeatTickAt: Date?
     
@@ -489,6 +495,7 @@ final class AppState: ObservableObject {
     private let recapGenerationService: RecapGenerationService
     private var appleSpeechService: AppleSpeechTranscriptionService?
     private var activeTranscriptionProvider: TranscriptionProvider?
+    private var ownsSystemAudioCaptureRuntime = false
     private var transcriptionTask: Task<Void, Never>?
     
     private struct RecentSystemAudioRecord {
@@ -619,12 +626,9 @@ final class AppState: ObservableObject {
             .sink { [weak self] capturing in
                 guard let self = self else { return }
                 self.objectWillChange.send()
-                // Propagate capture stream end only for AppState instances that own
-                // an active capture path. The session+mode branch keeps the
-                // ScreenCaptureKit failure path testable without letting unrelated
-                // AppState instances react to singleton test emissions.
-                let sessionRequiresSystemAudio = self.currentSession != nil && self.systemAudioRequired
-                let ownsActiveCapture = self.activeTranscriptionProvider != nil || self.appleSpeechService != nil || sessionRequiresSystemAudio
+                // Propagate capture stream end only for the AppState that actually
+                // started the shared ScreenCaptureKit system-audio runtime.
+                let ownsActiveCapture = self.ownsSystemAudioCaptureRuntime
                 if !capturing,
                    ownsActiveCapture,
                    (self.currentCaptureRuntimeState == .listening || self.currentCaptureRuntimeState == .generating) {
@@ -692,6 +696,10 @@ final class AppState: ObservableObject {
                 self?.refreshPermissions()
             }
         }
+    }
+
+    func markSystemAudioCaptureRuntimeOwnedForTesting(_ owned: Bool) {
+        ownsSystemAudioCaptureRuntime = owned
     }
 
     deinit {
@@ -894,6 +902,26 @@ final class AppState: ObservableObject {
             } catch {
                 await MainActor.run { [weak self] in
                     self?.lastSQLiteOperation = "Detected question save failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func saveDetectedQuestionsInBackground(_ questions: [DetectedQuestion]) {
+        guard !questions.isEmpty else { return }
+        let repository = suggestionRepository
+        markSQLiteOperation("Saving extracted detected questions in background")
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                for question in questions {
+                    try repository.saveDetectedQuestion(question)
+                }
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Saved extracted detected questions"
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.lastSQLiteOperation = "Extracted detected question save failed: \(error.localizedDescription)"
                 }
             }
         }
@@ -1365,7 +1393,12 @@ final class AppState: ObservableObject {
             switch taskType {
             case .questionDetection:
                 let transcript = self.lastFailedTranscriptContext
-                await self.runAutomaticDetection(session: session, transcript: transcript, triggeringSegmentID: nil)
+                await self.runAutomaticDetection(
+                    session: session,
+                    detectionTranscript: transcript,
+                    suggestionTranscript: transcript,
+                    triggeringSegmentID: nil
+                )
             case .suggestionGeneration:
                 guard let question = self.lastFailedQuestion else { return }
                 let transcript = self.lastFailedTranscriptContext
@@ -1476,7 +1509,9 @@ final class AppState: ObservableObject {
         
         do {
             liveState = .requestingPermission
-            refreshPermissions()
+            if mode != .mock {
+                refreshPermissions()
+            }
             if mode == .microphone {
                 let captureMode = settings.audioCaptureMode
                 let microphoneRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
@@ -1672,6 +1707,7 @@ final class AppState: ObservableObject {
                 self.lastSystemAudioASRFinalTranscript = ""
                 
                 try await speechService.start(sessionID: session.id, captureMode: captureMode)
+                ownsSystemAudioCaptureRuntime = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
                 
                 transcriptionTask = Task { [weak self] in
                     for await segment in speechService.segments {
@@ -1696,6 +1732,7 @@ final class AppState: ObservableObject {
                 startAudioSignalMonitoring()
             }
         } catch {
+            ownsSystemAudioCaptureRuntime = false
             let message = userFacing(error)
             liveState = .error(message)
             currentCaptureRuntimeState = .error(reason: message)
@@ -1733,6 +1770,10 @@ final class AppState: ObservableObject {
         lastDetectionSkipReason = ""
         ignoredCandidateQuestionCount = 0
         ignoredSmallTalkCount = 0
+        lastTranscriptIngestionMs = 0
+        lastQuestionClassificationMs = 0
+        lastIgnoredSystemAudioReason = ""
+        ignoredSystemAudioAnswerLikeCount = 0
         detectedQuestionsInSessionCount = 0
         lastDetectionQuestionComplete = false
         lastDetectionAnswerStrategy = ""
@@ -1789,9 +1830,11 @@ final class AppState: ObservableObject {
         
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        ownsSystemAudioCaptureRuntime = false
         
         appleSpeechService?.stop()
         appleSpeechService = nil
+        ownsSystemAudioCaptureRuntime = false
         
         // Stop diagnostics level metering
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
@@ -1814,6 +1857,10 @@ final class AppState: ObservableObject {
         lastDetectionSkipReason = ""
         ignoredCandidateQuestionCount = 0
         ignoredSmallTalkCount = 0
+        lastTranscriptIngestionMs = 0
+        lastQuestionClassificationMs = 0
+        lastIgnoredSystemAudioReason = ""
+        ignoredSystemAudioAnswerLikeCount = 0
         detectedQuestionsInSessionCount = 0
         
         // Reset ASR, Segment, Detection, and Suggestion Diagnostics
@@ -1874,6 +1921,7 @@ final class AppState: ObservableObject {
         
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        ownsSystemAudioCaptureRuntime = false
         
         // Ensure diagnostics are unregistered
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
@@ -2250,8 +2298,25 @@ final class AppState: ObservableObject {
     }
 
     func handleTranscriptSegment(_ segment: TranscriptSegment) async {
+        let ingestionStartedAt = Date()
+        let previousSegment = transcriptSegments.first(where: { $0.id == segment.id })
+        defer {
+            lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)
+        }
         print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
         liveState = .transcribing
+        lastTranscriptQuestionGenerationTrace = TranscriptQuestionGenerationTrace(
+            transcriptSegmentID: segment.id,
+            source: segment.source.rawValue,
+            speaker: segment.speaker.rawValue,
+            text: segment.text,
+            isFinal: segment.asrFinalizationReason != "partial",
+            textLength: segment.text.count,
+            normalizedText: normalizeTraceText(segment.text),
+            providerStatus: activeRealtimeProviderBadge,
+            currentGenerationState: generationUIState.displayName,
+            currentSuggestionExists: currentSuggestion != nil
+        )
         
         if let index = transcriptSegments.firstIndex(where: { $0.id == segment.id }) {
             transcriptSegments[index] = segment
@@ -2279,8 +2344,36 @@ final class AppState: ObservableObject {
             saveTranscriptSegmentInBackground(segment)
         }
 
+        let systemAudioClassification = classifySystemAudioUtteranceIfNeeded(
+            segment,
+            previousSegment: previousSegment
+        )
+        if let systemAudioClassification {
+            lastTranscriptQuestionGenerationTrace.questionCandidate = systemAudioClassification.intent == .answerWorthyQuestion
+            lastTranscriptQuestionGenerationTrace.questionConfidence = systemAudioClassification.confidence
+            lastTranscriptQuestionGenerationTrace.questionIntent = systemAudioClassification.intent.rawValue
+        } else {
+            let localQuestion = questionDetectionService.isLikelyQuestion(segment.text)
+            lastTranscriptQuestionGenerationTrace.questionCandidate = localQuestion.shouldTrigger
+            lastTranscriptQuestionGenerationTrace.questionConfidence = localQuestion.confidence
+            lastTranscriptQuestionGenerationTrace.questionIntent = localQuestion.reason
+        }
+        let extractedSystemAudioQuestions = extractSystemAudioQuestionsIfNeeded(from: segment)
+        if !extractedSystemAudioQuestions.isEmpty {
+            lastTranscriptQuestionGenerationTrace.extractedQuestionCount = extractedSystemAudioQuestions.count
+            lastTranscriptQuestionGenerationTrace.extractedQuestionsPreview = extractedSystemAudioQuestions.map(\.text)
+            lastTranscriptQuestionGenerationTrace.questionCandidate = true
+            lastTranscriptQuestionGenerationTrace.questionConfidence = max(
+                lastTranscriptQuestionGenerationTrace.questionConfidence,
+                extractedSystemAudioQuestions.map(\.confidence).max() ?? 0.0
+            )
+            lastTranscriptQuestionGenerationTrace.questionIntent = extractedSystemAudioQuestions.last?.intent.rawValue ?? lastTranscriptQuestionGenerationTrace.questionIntent
+        }
+
         // Background debounced RAG precompute
-        if segment.source == .systemAudio && segment.speaker == .interviewer {
+        if segment.source == .systemAudio,
+           systemAudioCanUseQuestionIntent(segment),
+           systemAudioClassification?.intent == .answerWorthyQuestion {
             let words = segment.text.split(whereSeparator: \.isWhitespace)
             if words.count >= 6 { // 5-7 words range
                 precomputeDebounceTask?.cancel()
@@ -2354,29 +2447,51 @@ final class AppState: ObservableObject {
         
         if !settings.automaticQuestionDetectionEnabled {
             skipReason = "automatic question detection disabled in settings"
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "autoDetectDisabled"
         } else if settings.manualOnlyMode {
             skipReason = "manual only mode enabled"
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "captureModeDisabled"
         } else if isEchoLeakage {
             skipReason = "echo/leakage detected in mic stream"
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
         } else {
             switch segment.source {
-            case .systemAudio, .processAudio:
+            case .systemAudio:
+                if settings.audioCaptureMode == .systemAudioOnly,
+                   let systemAudioClassification,
+                   systemAudioClassification.intent == .answerWorthyQuestion,
+                   systemAudioClassification.confidence >= autoSuggestionConfidenceThreshold {
+                    shouldTriggerDetection = true
+                } else if settings.audioCaptureMode == .systemAudioOnly,
+                          systemAudioClassification != nil {
+                    shouldTriggerDetection = true
+                } else if segment.speaker == .interviewer {
+                    shouldTriggerDetection = true
+                } else {
+                    skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
+                }
+            case .processAudio:
                 if segment.speaker == .interviewer {
                     shouldTriggerDetection = true
                 } else {
                     skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
                 }
             case .mock:
                 if segment.speaker == .interviewer {
                     shouldTriggerDetection = true
                 } else {
                     skipReason = "mock speaker is not interviewer"
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
                 }
             case .microphone, .mixed:
                 if !settings.allowQuestionDetectionFromMicrophoneOnly {
                     skipReason = "question detection from microphone is disabled (allowQuestionDetectionFromMicrophoneOnly = false)"
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "captureModeDisabled"
                 } else if segment.speaker != .interviewer && segment.speaker != .unknown {
                     skipReason = "speaker is candidate (speaker: \(segment.speaker.rawValue))"
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
                 } else {
                     shouldTriggerDetection = true
                 }
@@ -2403,11 +2518,39 @@ final class AppState: ObservableObject {
             last10SegmentsDiagnostics.removeFirst()
         }
 
+        if shouldTriggerDetection,
+           shouldUseExtractedSystemAudioQuestions(extractedSystemAudioQuestions, classification: systemAudioClassification),
+           let session = currentSession {
+            self.lastDetectionSkipReason = ""
+            processExtractedSystemAudioQuestions(
+                extractedSystemAudioQuestions,
+                segment: segment,
+                session: session,
+                suggestionTranscript: recentTranscriptText()
+            )
+            liveState = .listening
+            return
+        }
+
+        if shouldTriggerDetection,
+           let systemAudioClassification,
+           systemAudioClassification.intent != .answerWorthyQuestion {
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = ignoredReasonCode(for: systemAudioClassification.intent)
+            recordIgnoredSystemAudioUtterance(
+                segment,
+                classification: systemAudioClassification
+            )
+            liveState = .listening
+            return
+        }
+
         if shouldTriggerDetection {
             self.lastDetectionSkipReason = ""
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
             maybeRunAutomaticDetection(triggeringSegment: segment)
         } else {
             self.lastDetectionSkipReason = skipReason
+            lastTranscriptQuestionGenerationTrace.ignoredReason = skipReason
             if segment.source == .microphone,
                segment.speaker == .candidate,
                questionDetectionService.isLikelyQuestion(segment.text).shouldTrigger {
@@ -2416,6 +2559,314 @@ final class AppState: ObservableObject {
             liveState = .listening
         }
 
+    }
+
+    private func normalizeTraceText(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func extractSystemAudioQuestionsIfNeeded(from segment: TranscriptSegment) -> [ExtractedTranscriptQuestion] {
+        guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
+            return []
+        }
+        guard systemAudioCanUseQuestionIntent(segment) else {
+            return []
+        }
+        return SystemAudioQuestionExtractor.extract(from: segment.text)
+    }
+
+    private func shouldUseExtractedSystemAudioQuestions(
+        _ extractedQuestions: [ExtractedTranscriptQuestion],
+        classification: UtteranceIntentClassification?
+    ) -> Bool {
+        guard !extractedQuestions.isEmpty else { return false }
+        if extractedQuestions.count > 1 { return true }
+        return classification?.intent != .answerWorthyQuestion
+    }
+
+    private func processExtractedSystemAudioQuestions(
+        _ extractedQuestions: [ExtractedTranscriptQuestion],
+        segment: TranscriptSegment,
+        session: InterviewSession,
+        suggestionTranscript: String
+    ) {
+        let baseDate = Date()
+        let acceptedQuestions = extractedQuestions.enumerated().map { index, extracted in
+            makeDetectedQuestion(
+                from: extracted,
+                sessionID: session.id,
+                transcriptSegmentID: segment.id,
+                createdAt: baseDate.addingTimeInterval(Double(index) / 1_000.0)
+            )
+        }
+        guard let latestQuestion = acceptedQuestions.last else {
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "lowConfidence"
+            lastTranscriptQuestionGenerationTrace.ignoredReason = "No extracted question passed local completeness checks"
+            return
+        }
+
+        saveDetectedQuestionsInBackground(acceptedQuestions)
+
+        detectedQuestionsInSessionCount += acceptedQuestions.count
+        lastDetectedQuestion = latestQuestion
+        lastDetectedQuestionSource = segment.source.rawValue
+        lastDetectedQuestionSpeaker = segment.speaker.rawValue
+        lastQuestionDetectionProvider = "Local Question Extractor"
+        lastQuestionDetectionModel = "system-audio-question-extractor"
+        lastDetectedQuestionText = latestQuestion.questionText
+        lastDetectionSubmittedSegmentText = segment.text
+        lastDetectionPromptSource = segment.source.rawValue
+        lastDetectionPromptSpeaker = segment.speaker.rawValue
+        lastDetectionConfidence = latestQuestion.confidence
+        lastQuestionConfidence = latestQuestion.confidence
+        lastDetectionShouldTrigger = true
+        lastDetectionReason = latestQuestion.intent.displayName
+        lastDetectionRawJSON = latestQuestion.rawJSON ?? ""
+        lastDetectionQuestionComplete = true
+        lastDetectionAnswerStrategy = latestQuestion.answerStrategy.displayName
+        lastQuestionDetectionResult = "Extracted \(acceptedQuestions.count) questions from one transcript. Latest: \"\(latestQuestion.questionText)\""
+
+        updateDiagnostics {
+            $0.lastDetectedQuestionJSON = latestQuestion.rawJSON
+            $0.lastProviderName = "Local Question Extractor"
+            $0.lastProviderModel = "system-audio-question-extractor"
+        }
+
+        lastTranscriptQuestionGenerationTrace.detectedQuestionID = latestQuestion.id
+        lastTranscriptQuestionGenerationTrace.questionConfidence = latestQuestion.confidence
+        lastTranscriptQuestionGenerationTrace.questionIntent = latestQuestion.intent.rawValue
+        lastTranscriptQuestionGenerationTrace.providerStatus = "Local Question Extractor"
+
+        let duplicateQuestion = isRecentDuplicateAutoQuestion(latestQuestion.questionText)
+        if duplicateQuestion {
+            recordDuplicateSuppression()
+            lastTranscriptQuestionGenerationTrace.duplicateSuppressed = true
+            lastTranscriptQuestionGenerationTrace.generationTriggered = false
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "duplicateSuppressed"
+            if !visibleAnswerExists {
+                showDuplicateQuestionNotice(for: latestQuestion, session: session)
+            }
+            return
+        }
+
+        rememberAutoQuestion(latestQuestion.questionText)
+        lastAutoSuggestionAt = Date()
+        lastTranscriptQuestionGenerationTrace.generationTriggered = true
+        lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
+        startAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
+    }
+
+    private func makeDetectedQuestion(
+        from extracted: ExtractedTranscriptQuestion,
+        sessionID: String,
+        transcriptSegmentID: String,
+        createdAt: Date
+    ) -> DetectedQuestion {
+        let rawJSON = """
+        {"should_trigger":true,"question_complete":true,"question_text":\(JSONParsing.jsonString(extracted.text)),"intent":"\(extracted.intent.rawValue)","answer_strategy":"\(extracted.answerStrategy.rawValue)","confidence":\(extracted.confidence),"reason":"Extracted from multi-question system audio transcript."}
+        """
+        return DetectedQuestion(
+            id: UUID().uuidString,
+            sessionID: sessionID,
+            transcriptSegmentID: transcriptSegmentID,
+            questionText: extracted.text,
+            intent: extracted.intent,
+            answerStrategy: extracted.answerStrategy,
+            confidence: extracted.confidence,
+            reason: "Extracted from multi-question system audio transcript.",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "system-audio-question-extractor",
+            promptVersion: "system-audio-extractor-v1",
+            providerKind: .openAICompatible,
+            providerName: "Local Question Extractor",
+            providerBaseURL: "",
+            latencyMS: 0,
+            isLocal: true,
+            rawJSON: rawJSON,
+            createdAt: createdAt
+        )
+    }
+
+    private func showDuplicateQuestionNotice(for question: DetectedQuestion, session: InterviewSession) {
+        let card = SuggestionCard(
+            id: UUID().uuidString,
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "Similar question already answered",
+            sayFirst: "I’ve already answered a very similar question. I would briefly refer back to that answer and add one new detail if needed.",
+            keyPoints: ["Reuse the previous answer", "Add one fresh detail", "Keep it concise"],
+            followUpReady: [],
+            confidence: 0.72,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "duplicate-question-notice",
+            promptVersion: "duplicate-question-notice-v1",
+            providerKind: .openAICompatible,
+            providerName: "Local Question Extractor",
+            providerBaseURL: "",
+            latencyMS: 0,
+            isLocal: true,
+            rawJSON: nil,
+            createdAt: Date(),
+            sayFirstSource: "duplicate_question_notice"
+        )
+        currentSuggestion = card
+        currentSuggestionSetAt = Date()
+        generationUIState = .idle
+        lastTranscriptQuestionGenerationTrace.currentSuggestionExists = true
+    }
+
+    private func ignoredReasonCode(for intent: UtteranceIntent) -> String {
+        switch intent {
+        case .answerWorthyQuestion:
+            return ""
+        case .candidateStyleAnswer:
+            return "candidateSpeech"
+        case .duplicatePartial:
+            return "duplicateSuppressed"
+        case .smallTalk, .interviewerStatement, .unknown:
+            return "lowConfidence"
+        }
+    }
+
+    private func classifySystemAudioUtteranceIfNeeded(
+        _ segment: TranscriptSegment,
+        previousSegment: TranscriptSegment?
+    ) -> UtteranceIntentClassification? {
+        guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
+            lastQuestionClassificationMs = 0
+            return nil
+        }
+        guard systemAudioCanUseQuestionIntent(segment) else {
+            lastQuestionClassificationMs = 0
+            return nil
+        }
+
+        let startedAt = Date()
+        let classification = SystemAudioUtteranceClassifier.classify(
+            text: segment.text,
+            previousText: previousSegment?.text
+        )
+        lastQuestionClassificationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        return classification
+    }
+
+    private func systemAudioCanUseQuestionIntent(_ segment: TranscriptSegment) -> Bool {
+        if segment.speaker == .interviewer {
+            return true
+        }
+        return settings.audioCaptureMode == .systemAudioOnly && segment.source == .systemAudio
+    }
+
+    private func recordIgnoredSystemAudioUtterance(
+        _ segment: TranscriptSegment,
+        classification: UtteranceIntentClassification
+    ) {
+        let reason = "\(classification.intent.displayName): \(classification.reason)"
+        lastIgnoredSystemAudioReason = reason
+        lastTranscriptQuestionGenerationTrace.ignoredReason = reason
+        lastDetectionSkipReason = reason
+        lastDetectionSubmittedSegmentText = segment.text
+        lastDetectionPromptSource = segment.source.rawValue
+        lastDetectionPromptSpeaker = segment.speaker.rawValue
+        lastDetectedQuestionSource = segment.source.rawValue
+        lastDetectedQuestionSpeaker = segment.speaker.rawValue
+        lastDetectionShouldTrigger = false
+        lastDetectionQuestionComplete = false
+        lastDetectionAnswerStrategy = ""
+        lastQuestionDetectionResult = "Ignored system audio: \(reason)"
+
+        switch classification.intent {
+        case .candidateStyleAnswer:
+            ignoredSystemAudioAnswerLikeCount += 1
+        case .smallTalk, .interviewerStatement, .unknown:
+            ignoredSmallTalkCount += 1
+        case .duplicatePartial:
+            duplicateSuppressionCount += 1
+            currentGenerationTelemetry.duplicateSuppressionCount = duplicateSuppressionCount
+        case .answerWorthyQuestion:
+            break
+        }
+        if !showImmediateFallbackForActiveGenerationIfNeeded(reason: reason),
+           !visibleAnswerExists,
+           let questionID = lastDetectedQuestion?.id {
+            pendingIgnoredSystemAudioFallback = (questionID: questionID, reason: reason)
+        }
+        updateActiveTaskSummary()
+    }
+
+    @discardableResult
+    private func showImmediateFallbackForActiveGenerationIfNeeded(reason: String) -> Bool {
+        guard let controller = activeGenerationController,
+              currentGenerationID == controller.generationID,
+              generationUIState.isLoadingWithoutVisibleAnswer,
+              !visibleAnswerExists,
+              let session = currentSession,
+              let question = lastDetectedQuestion,
+              question.id == controller.questionID
+        else { return false }
+
+        let elapsed = elapsedMS(since: controller.startedAt)
+        softFallbackUsed = true
+        softFallbackLatencyMS = elapsed
+        softFallbackShownAt = Date()
+        finalVisibleSource = "local_first_answer_fallback"
+
+        var fallbackCard = makeInitialFirstAnswerFallbackCard(
+            cardID: UUID().uuidString,
+            question: question,
+            session: session,
+            requestStart: controller.startedAt
+        )
+        fallbackCard.firstVisibleAnswerMS = elapsed
+        if !fallbackCard.keyPoints.isEmpty {
+            fallbackCard.firstKeyPointVisibleMS = elapsed
+            fallbackCard.allKeyPointsVisibleMS = elapsed
+        }
+        if !fallbackCard.followUpReady.isEmpty {
+            fallbackCard.followUpVisibleMS = elapsed
+        }
+
+        currentSuggestion = fallbackCard
+        currentSuggestionSetAt = Date()
+        isStreamingSayFirst = false
+        isExpandingSuggestionCard = true
+        clearFallbackWatchdogTask(generationID: controller.generationID)
+        markFirstVisibleAnswer(generationID: controller.generationID, fallback: true)
+        setGenerationUIState(
+            .showingFallback(
+                questionID: question.id,
+                generationID: controller.generationID,
+                triggerPath: controller.triggerPath
+            ),
+            generationID: controller.generationID
+        )
+        infoAction(
+            ActionID.generateAnswer,
+            title: "First answer visible",
+            message: "Kept the current answer visible while ignoring non-question system audio.",
+            autoDismissAfter: 3.0
+        )
+        print("[SystemAudioClassifier] Immediate fallback shown for active generation after ignoring system audio: \(reason)")
+        return true
+    }
+
+    private func applyPendingIgnoredSystemAudioFallbackIfNeeded(for question: DetectedQuestion) {
+        guard let pending = pendingIgnoredSystemAudioFallback else { return }
+        guard pending.questionID == question.id else {
+            pendingIgnoredSystemAudioFallback = nil
+            return
+        }
+        pendingIgnoredSystemAudioFallback = nil
+        _ = showImmediateFallbackForActiveGenerationIfNeeded(reason: pending.reason)
     }
 
     private func normalizedTextHash(_ text: String) -> String {
@@ -2433,20 +2884,17 @@ final class AppState: ObservableObject {
                 return
             }
             guard !Task.isCancelled else { return }
-            self.beginAutomaticDetection(triggeringSegmentID: triggeringSegment.id)
+            self.beginAutomaticDetection(triggeringSegment: triggeringSegment)
         }
         liveState = .listening
     }
 
-    private func beginAutomaticDetection(triggeringSegmentID: String?) {
+    private func beginAutomaticDetection(triggeringSegment: TranscriptSegment) {
         let now = Date()
-        if let lastDetectionAt, now.timeIntervalSince(lastDetectionAt) < detectionDebounceSeconds {
-            liveState = .listening
-            return
-        }
         lastDetectionAt = now
-        let transcript = recentTranscriptText()
-        guard !transcript.isEmpty, let session = currentSession else {
+        let detectionTranscript = detectionTranscriptText(for: triggeringSegment)
+        let suggestionTranscript = recentTranscriptText()
+        guard !detectionTranscript.isEmpty, let session = currentSession else {
             liveState = .listening
             return
         }
@@ -2454,13 +2902,23 @@ final class AppState: ObservableObject {
         activeDetectionTask?.cancel()
         activeDetectionTask = Task { [weak self] in
             guard let self else { return }
-            await self.runAutomaticDetection(session: session, transcript: transcript, triggeringSegmentID: triggeringSegmentID)
+            await self.runAutomaticDetection(
+                session: session,
+                detectionTranscript: detectionTranscript,
+                suggestionTranscript: suggestionTranscript,
+                triggeringSegmentID: triggeringSegment.id
+            )
         }
     }
 
-    private func runAutomaticDetection(session: InterviewSession, transcript: String, triggeringSegmentID: String?) async {
+    private func runAutomaticDetection(
+        session: InterviewSession,
+        detectionTranscript: String,
+        suggestionTranscript: String,
+        triggeringSegmentID: String?
+    ) async {
         do {
-            print("[AppState] Automatic question detection running on transcript context: \"\(transcript)\" | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
+            print("[AppState] Automatic question detection running on transcript context: \"\(detectionTranscript)\" | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
             liveState = .detectingQuestion
             
             // Set input segment submitted to question detection
@@ -2472,7 +2930,7 @@ final class AppState: ObservableObject {
             self.lastDetectedQuestionSpeaker = triggeringSegment?.speaker.rawValue ?? ""
             
             let detection = try await questionDetectionService.detect(
-                transcriptContext: transcript,
+                transcriptContext: detectionTranscript,
                 sessionID: session.id,
                 transcriptSegmentID: triggeringSegmentID,
                 model: activeRealtimeProvider?.model
@@ -2491,6 +2949,12 @@ final class AppState: ObservableObject {
 
             let question = detection.question
             lastDetectedQuestion = question
+            if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+                lastTranscriptQuestionGenerationTrace.detectedQuestionID = question.id
+                lastTranscriptQuestionGenerationTrace.questionConfidence = question.confidence
+                lastTranscriptQuestionGenerationTrace.questionIntent = question.intent.rawValue
+                lastTranscriptQuestionGenerationTrace.providerStatus = detection.response.providerName
+            }
             
             // Set structured question detection diagnostics
             self.lastDetectedQuestionText = question.questionText
@@ -2514,7 +2978,11 @@ final class AppState: ObservableObject {
                 rememberAutoQuestion(question.questionText)
                 lastAutoSuggestionAt = Date()
                 detectedQuestionsInSessionCount += 1
-                startAutoSuggestionGeneration(for: question, session: session, transcript: transcript)
+                if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+                    lastTranscriptQuestionGenerationTrace.generationTriggered = true
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
+                }
+                startAutoSuggestionGeneration(for: question, session: session, transcript: suggestionTranscript)
             } else {
                 var skipMsg = ""
                 if !question.shouldTrigger {
@@ -2526,8 +2994,17 @@ final class AppState: ObservableObject {
                 } else if duplicateQuestion {
                     skipMsg = "Duplicate of recently answered question"
                     recordDuplicateSuppression()
+                    if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+                        lastTranscriptQuestionGenerationTrace.duplicateSuppressed = true
+                    }
                 } else {
                     skipMsg = "Not qualified for suggestion generation"
+                }
+                if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = generationBlockedReason(
+                        question: question,
+                        duplicateQuestion: duplicateQuestion
+                    )
                 }
                 let interviewerAudioSegment = triggeringSegment?.speaker == .interviewer &&
                     (triggeringSegment?.source == .systemAudio || triggeringSegment?.source == .processAudio || triggeringSegment?.source == .mock)
@@ -2548,6 +3025,10 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             self.lastQuestionDetectionResult = "Detection failed: \(error.localizedDescription)"
             self.lastDetectionSkipReason = "LLM/Detection API call error: \(error.localizedDescription)"
+            if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+                lastTranscriptQuestionGenerationTrace.generationBlockedReason = "deepSeekUnavailable"
+                lastTranscriptQuestionGenerationTrace.providerStatus = error.localizedDescription
+            }
             if self.stopReason == nil && self.anyCaptureRunning {
                 liveState = .listening
                 currentCaptureRuntimeState = .listening
@@ -2556,13 +3037,29 @@ final class AppState: ObservableObject {
             if self.lastFailedTaskType != .suggestionGeneration {
                 self.lastFailedTaskType = .questionDetection
                 self.lastFailedQuestion = nil
-                self.lastFailedTranscriptContext = transcript
+                self.lastFailedTranscriptContext = detectionTranscript
                 self.lastFailedCVJDContext = nil
                 self.lastFailedProviderConfig = activeRealtimeProvider
             }
             
             showError(userFacing(error))
         }
+    }
+
+    private func generationBlockedReason(question: DetectedQuestion, duplicateQuestion: Bool) -> String {
+        if !question.shouldTrigger {
+            return "lowConfidence"
+        }
+        if !question.questionComplete {
+            return "lowConfidence"
+        }
+        if question.confidence < autoSuggestionConfidenceThreshold {
+            return "lowConfidence"
+        }
+        if duplicateQuestion {
+            return "duplicateSuppressed"
+        }
+        return "unknown"
     }
 
     private func startAutoSuggestionGeneration(
@@ -3124,6 +3621,14 @@ final class AppState: ObservableObject {
         if fallback {
             currentGenerationTelemetry.fallbackShownAt = currentGenerationTelemetry.fallbackShownAt ?? now
         }
+        if currentGenerationTelemetry.questionID == lastTranscriptQuestionGenerationTrace.detectedQuestionID ||
+            generationID == lastTranscriptQuestionGenerationTrace.generationID {
+            lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated = true
+            lastTranscriptQuestionGenerationTrace.generationID = generationID
+            lastTranscriptQuestionGenerationTrace.generationTriggered = true
+            lastTranscriptQuestionGenerationTrace.currentSuggestionExists = currentSuggestion != nil
+            lastTranscriptQuestionGenerationTrace.currentGenerationState = generationUIState.displayName
+        }
         firstVisibleStateSetAt = firstVisibleStateSetAt ?? now
         actionLoadingStates[ActionID.generateAnswer] = false
     }
@@ -3529,6 +4034,12 @@ final class AppState: ObservableObject {
         let requestStart = Date()
         let cardID = UUID().uuidString
         let generationID = UUID().uuidString
+        if question.transcriptSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+            lastTranscriptQuestionGenerationTrace.generationTriggered = true
+            lastTranscriptQuestionGenerationTrace.generationID = generationID
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
+            lastTranscriptQuestionGenerationTrace.providerStatus = activeRealtimeProviderBadge
+        }
         activateGeneration(
             question: question,
             generationID: generationID,
@@ -3615,6 +4126,7 @@ final class AppState: ObservableObject {
             print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
         }
         registerFallbackWatchdogTask(initialFallbackTask, generationID: generationID)
+        applyPendingIgnoredSystemAudioFallbackIfNeeded(for: question)
         
         var retrievedContext: RetrievedContext? = nil
         var retrievalTrace: RetrievalTrace? = nil
@@ -4289,9 +4801,23 @@ final class AppState: ObservableObject {
     private func recentTranscriptText() -> String {
         let text = transcriptSegments
             .suffix(18)
-            .map { "\($0.speaker.displayName): \($0.text)" }
+            .map { "\(transcriptSpeakerLabel(for: $0)): \($0.text)" }
             .joined(separator: "\n")
         return ContextBudgeter.limitWords(text, maxWords: 800)
+    }
+
+    private func detectionTranscriptText(for segment: TranscriptSegment) -> String {
+        let boundedText = ContextBudgeter.limitWords(segment.text, maxWords: 160)
+        return "\(transcriptSpeakerLabel(for: segment)): \(boundedText)"
+    }
+
+    private func transcriptSpeakerLabel(for segment: TranscriptSegment) -> String {
+        if settings.audioCaptureMode == .systemAudioOnly,
+           segment.source == .systemAudio,
+           SystemAudioUtteranceClassifier.classify(text: segment.text).intent == .answerWorthyQuestion {
+            return SpeakerRole.interviewer.displayName
+        }
+        return segment.speaker.displayName
     }
 
     private func isOutsideAutoSuggestionCooldown() -> Bool {
@@ -4552,6 +5078,7 @@ final class AppState: ObservableObject {
         
         appleSpeechService?.stop()
         appleSpeechService = nil
+        ownsSystemAudioCaptureRuntime = false
         
         // Stop diagnostics level metering
         AudioEngineManager.shared.unregister(microphoneDiagnostics)
@@ -5358,7 +5885,7 @@ final class AppState: ObservableObject {
         switch kind {
         case .openAICompatibleCloud:
             guard keychainService.hasAPIKey(account: settings.embeddingApiKeyAccount) else {
-                lastEmbeddingError = "Keyword RAG ready; vector embeddings not configured."
+                recordEmbeddingResolutionError("Keyword RAG ready; vector embeddings not configured.")
                 return nil
             }
             return CloudEmbeddingProvider(
@@ -5374,7 +5901,7 @@ final class AppState: ObservableObject {
             )
         case .customCloud:
             guard keychainService.hasAPIKey(account: settings.embeddingApiKeyAccount) else {
-                lastEmbeddingError = "Keyword RAG ready; vector embeddings not configured."
+                recordEmbeddingResolutionError("Keyword RAG ready; vector embeddings not configured.")
                 return nil
             }
             return CloudEmbeddingProvider(
@@ -5389,13 +5916,19 @@ final class AppState: ObservableObject {
                 timeoutInterval: timeout
             )
         case .localOllama:
-            lastEmbeddingError = "Local embeddings are disabled. Please choose a cloud embedding provider."
+            recordEmbeddingResolutionError("Local embeddings are disabled. Please choose a cloud embedding provider.")
             return nil
         case .disabled:
-            lastEmbeddingError = "Keyword RAG ready; vector embeddings not configured."
+            recordEmbeddingResolutionError("Keyword RAG ready; vector embeddings not configured.")
             return nil
         case .mock:
             return ControlledMockEmbeddingProvider()
+        }
+    }
+
+    private func recordEmbeddingResolutionError(_ message: String) {
+        Task { @MainActor [weak self] in
+            self?.lastEmbeddingError = message
         }
     }
 

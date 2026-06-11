@@ -142,14 +142,49 @@ struct DiagnosticsView: View {
                 diagnosticRow("lastQuestionIntent", appState.lastDetectionReason.isEmpty ? "None" : appState.lastDetectionReason)
                 diagnosticRow("duplicateSuppressionCount", "\(appState.duplicateSuppressionCount)")
                 diagnosticRow("ignoredCandidateQuestionCount", "\(appState.ignoredCandidateQuestionCount)")
+                diagnosticRow("ignoredSystemAudioAnswerLikeCount", "\(appState.ignoredSystemAudioAnswerLikeCount)")
+                diagnosticRow("lastIgnoredSystemAudioReason", appState.lastIgnoredSystemAudioReason.isEmpty ? "None" : appState.lastIgnoredSystemAudioReason)
                 diagnosticRow("ignoredSmallTalkCount", "\(appState.ignoredSmallTalkCount)")
                 diagnosticRow("detectedQuestionsInSessionCount", "\(appState.detectedQuestionsInSessionCount)")
                 diagnosticRow("currentGenerationState", appState.generationUIState.displayName)
             }
 
+            card("Last Transcript -> Question -> Generation Trace", icon: "point.3.connected.trianglepath.dotted") {
+                let trace = appState.lastTranscriptQuestionGenerationTrace
+                diagnosticRow("transcriptSegmentID", trace.transcriptSegmentID.isEmpty ? "None" : trace.transcriptSegmentID)
+                diagnosticRow("source", trace.source.isEmpty ? "None" : trace.source)
+                diagnosticRow("speaker", trace.speaker.isEmpty ? "None" : trace.speaker)
+                diagnosticRow("isFinal", trace.isFinal ? "true" : "false")
+                diagnosticRow("textLength", "\(trace.textLength)")
+                diagnosticRow("normalizedText", trace.normalizedText.isEmpty ? "None" : trace.normalizedText)
+                diagnosticRow("extractedQuestionCount", "\(trace.extractedQuestionCount)")
+                diagnosticRow("extractedQuestionsPreview", trace.extractedQuestionsPreview.isEmpty ? "None" : trace.extractedQuestionsPreview.joined(separator: " | "))
+                diagnosticRow("questionCandidate", trace.questionCandidate ? "true" : "false")
+                diagnosticRow("questionConfidence", String(format: "%.2f", trace.questionConfidence))
+                diagnosticRow("questionIntent", trace.questionIntent.isEmpty ? "None" : trace.questionIntent)
+                diagnosticRow("ignoredReason", trace.ignoredReason.isEmpty ? "None" : trace.ignoredReason)
+                diagnosticRow("duplicateSuppressed", trace.duplicateSuppressed ? "true" : "false")
+                diagnosticRow("detectedQuestionID", trace.detectedQuestionID ?? "None")
+                diagnosticRow("generationTriggered", trace.generationTriggered ? "true" : "false")
+                diagnosticRow("generationID", trace.generationID ?? "None")
+                diagnosticRow("generationBlockedReason", trace.generationBlockedReason.isEmpty ? "None" : trace.generationBlockedReason)
+                diagnosticRow("providerStatus", trace.providerStatus.isEmpty ? "None" : trace.providerStatus)
+                diagnosticRow("visibleSuggestionCreated", trace.visibleSuggestionCreated ? "true" : "false")
+                diagnosticRow("currentGenerationState", trace.currentGenerationState.isEmpty ? "None" : trace.currentGenerationState)
+                diagnosticRow("currentSuggestionExists", trace.currentSuggestionExists ? "true" : "false")
+                if !trace.text.isEmpty {
+                    Text(trace.text)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
             card("Main Thread / Long Operations", icon: "cpu") {
                 diagnosticRow("mainThreadHeartbeatAt", diagnosticTime(appState.mainThreadHeartbeatAt))
                 diagnosticRow("mainThreadHeartbeatDelayMs", "\(appState.mainThreadHeartbeatDelayMs)")
+                diagnosticRow("lastTranscriptIngestionMs", "\(appState.lastTranscriptIngestionMs)")
+                diagnosticRow("lastQuestionClassificationMs", "\(appState.lastQuestionClassificationMs)")
                 diagnosticRow("lastLongOperationName", appState.lastLongOperationName)
                 diagnosticRow("lastLongOperationStartedAt", diagnosticTime(appState.lastLongOperationStartedAt))
                 diagnosticRow("lastSQLiteOperation", appState.lastSQLiteOperation)
