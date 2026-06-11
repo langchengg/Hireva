@@ -107,6 +107,40 @@ final class AppState: ObservableObject {
     var staleBundleWarning: String? {
         buildIdentity.staleWarning
     }
+
+    var currentQABinding: QABindingSnapshot {
+        let questionID = lastDetectedQuestion?.id
+        let questionText = lastDetectedQuestion?.questionText ?? ""
+        let suggestion = currentSuggestion
+
+        let status: QABindingStatus
+        if let suggestion {
+            let suggestionQuestionID = suggestion.detectedQuestionID
+            let questionIDMatches = questionID != nil && suggestionQuestionID == questionID
+            let suggestionText = suggestion.questionText ?? ""
+            let textMatches = suggestionText.isEmpty || questionText.isEmpty || normalizedBindingText(suggestionText) == normalizedBindingText(questionText)
+            let semanticMatches = suggestion.alignmentVerdict != .mismatched
+            status = questionIDMatches && textMatches && semanticMatches ? .matched : .mismatched
+        } else if !lastAlignmentError.isEmpty {
+            status = .mismatched
+        } else if questionID == nil {
+            status = .missingQuestion
+        } else {
+            status = .missingSuggestion
+        }
+
+        return QABindingSnapshot(
+            currentQuestionID: questionID,
+            currentQuestionText: questionText,
+            currentSuggestionID: suggestion?.id,
+            currentSuggestionDetectedQuestionID: suggestion?.detectedQuestionID,
+            currentSuggestionQuestionText: suggestion?.questionText ?? "",
+            activeGenerationID: activeGenerationID,
+            activeGenerationQuestionID: activeQuestionID,
+            bindingStatus: status,
+            lastAlignmentError: lastAlignmentError
+        )
+    }
     
     // RAG Phase 3 Embedding properties
     @Published var embeddingCoverage: EmbeddingCoverage? = nil
@@ -414,6 +448,25 @@ final class AppState: ObservableObject {
     @Published public private(set) var previousGenerationID: String? = nil
     @Published public private(set) var cancelledGenerationCount: Int = 0
     @Published public private(set) var staleCallbackDiscardCount: Int = 0
+    @Published public private(set) var staleAnswerDiscardCount: Int = 0
+    @Published public private(set) var answerQuestionMismatchCount: Int = 0
+    @Published public private(set) var lastAlignmentError: String = ""
+    @Published public private(set) var recentSuggestionAlignments: [SuggestionAlignmentRecord] = []
+    @Published public private(set) var currentAnswerQuestionIntent: AnswerRelevanceIntent? = nil
+    @Published public private(set) var currentPromptQuestionText: String = ""
+    @Published public private(set) var currentPromptPrimaryQuestion: String = ""
+    @Published public private(set) var currentPromptContainsPreviousQuestion: Bool = false
+    @Published public private(set) var currentPreviousQuestionIncluded: Bool = false
+    @Published public private(set) var currentPreviousQuestionText: String = ""
+    @Published public private(set) var currentContextBleedRisk: ContextBleedRisk = .low
+    @Published public private(set) var currentRAGChunkIDs: [String] = []
+    @Published public private(set) var currentRAGChunkIntents: [AnswerRelevanceIntent] = []
+    @Published public private(set) var currentFirstQuestionSuppressedReason: String = ""
+    @Published public private(set) var currentPromptTokenEstimate: Int? = nil
+    @Published public private(set) var currentPromptContextPreviews: [String] = []
+    @Published public private(set) var currentAnswerIntent: AnswerRelevanceIntent? = nil
+    @Published public private(set) var currentExpectedThemesMatched: [String] = []
+    @Published public private(set) var currentSuspectedMismatchReason: String = ""
     @Published public private(set) var duplicateSuppressionCount: Int = 0
     @Published public private(set) var fallbackWatchdogActive: Bool = false
     @Published public private(set) var stageBTaskActive: Bool = false
@@ -442,6 +495,8 @@ final class AppState: ObservableObject {
     private struct ActiveGenerationController {
         let generationID: String
         let questionID: String?
+        let questionTextSnapshot: String
+        let questionIntent: AnswerRelevanceIntent
         let triggerPath: GenerationTriggerPath
         let startedAt: Date
         var stageATask: Task<String, Error>?
@@ -471,6 +526,8 @@ final class AppState: ObservableObject {
         let context: RetrievedContext
         let trace: RetrievalTrace
         let rawText: String
+        let normalizedQuestionText: String
+        let questionIntent: AnswerRelevanceIntent
     }
     private var precomputedRAGCache: [String: RAGPrecomputeCacheItem] = [:]
     private var precomputeDebounceTask: Task<Void, Never>? = nil
@@ -2386,7 +2443,12 @@ final class AppState: ObservableObject {
                     }
                     guard let self = self, !Task.isCancelled else { return }
 	                    
-                    let key = segment.id + "_" + self.normalizedTextHash(segment.text)
+                    let precomputeIntent = AnswerRelevancePolicy.intent(for: segment.text)
+                    let key = self.ragPrecomputeCacheKey(
+                        segmentID: segment.id,
+                        questionText: segment.text,
+                        intent: precomputeIntent
+                    )
                     do {
                         let (context, trace) = try await Task.detached(priority: .utility) {
                             try await retrievalService.retrieveContextWithTrace(
@@ -2400,7 +2462,9 @@ final class AppState: ObservableObject {
                             self.precomputedRAGCache[key] = RAGPrecomputeCacheItem(
                                 context: context,
                                 trace: trace,
-                                rawText: segment.text
+                                rawText: segment.text,
+                                normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(for: segment.text),
+                                questionIntent: precomputeIntent
                             )
                             print("[PrecomputeRAG] Cached RAG context for segmentID: \(segment.id) | key: \(key)")
                         }
@@ -2571,6 +2635,16 @@ final class AppState: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func normalizedBindingText(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+    }
+
     private func extractSystemAudioQuestionsIfNeeded(from segment: TranscriptSegment) -> [ExtractedTranscriptQuestion] {
         guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
             return []
@@ -2611,6 +2685,7 @@ final class AppState: ObservableObject {
             return
         }
 
+        let wasFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
         saveDetectedQuestionsInBackground(acceptedQuestions)
 
         detectedQuestionsInSessionCount += acceptedQuestions.count
@@ -2642,8 +2717,10 @@ final class AppState: ObservableObject {
         lastTranscriptQuestionGenerationTrace.questionConfidence = latestQuestion.confidence
         lastTranscriptQuestionGenerationTrace.questionIntent = latestQuestion.intent.rawValue
         lastTranscriptQuestionGenerationTrace.providerStatus = "Local Question Extractor"
+        lastTranscriptQuestionGenerationTrace.firstQuestionSuppressedReason = ""
+        currentFirstQuestionSuppressedReason = ""
 
-        let duplicateQuestion = isRecentDuplicateAutoQuestion(latestQuestion.questionText)
+        let duplicateQuestion = !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(latestQuestion.questionText)
         if duplicateQuestion {
             recordDuplicateSuppression()
             lastTranscriptQuestionGenerationTrace.duplicateSuppressed = true
@@ -2718,10 +2795,19 @@ final class AppState: ObservableObject {
             createdAt: Date(),
             sayFirstSource: "duplicate_question_notice"
         )
-        currentSuggestion = card
-        currentSuggestionSetAt = Date()
-        generationUIState = .idle
-        lastTranscriptQuestionGenerationTrace.currentSuggestionExists = true
+        if displaySuggestionIfAligned(
+            card,
+            question: question,
+            generationID: nil,
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: SpeakerRole(rawValue: lastDetectedQuestionSpeaker),
+            allowInactiveGeneration: true
+        ) {
+            currentSuggestionSetAt = Date()
+            generationUIState = .idle
+            lastTranscriptQuestionGenerationTrace.currentSuggestionExists = true
+        }
     }
 
     private func ignoredReasonCode(for intent: UtteranceIntent) -> String {
@@ -2835,7 +2921,12 @@ final class AppState: ObservableObject {
             fallbackCard.followUpVisibleMS = elapsed
         }
 
-        currentSuggestion = fallbackCard
+        guard displaySuggestionIfAligned(
+            fallbackCard,
+            question: question,
+            generationID: controller.generationID,
+            triggerPath: controller.triggerPath
+        ) else { return false }
         currentSuggestionSetAt = Date()
         isStreamingSayFirst = false
         isExpandingSuggestionCard = true
@@ -2872,6 +2963,15 @@ final class AppState: ObservableObject {
     private func normalizedTextHash(_ text: String) -> String {
         let clean = text.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
         return String(clean.hashValue)
+    }
+
+    private func ragPrecomputeCacheKey(
+        segmentID: String,
+        questionText: String,
+        intent: AnswerRelevanceIntent
+    ) -> String {
+        let normalized = AnswerRelevancePolicy.normalizedQuestionText(for: questionText)
+        return [segmentID, intent.rawValue, normalizedTextHash(normalized)].joined(separator: "_")
     }
 
     private func maybeRunAutomaticDetection(triggeringSegment: TranscriptSegment) {
@@ -2969,7 +3069,8 @@ final class AppState: ObservableObject {
             self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Confidence: \(Int(question.confidence * 100))%"
 
 
-            let duplicateQuestion = isRecentDuplicateAutoQuestion(question.questionText)
+            let isFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
+            let duplicateQuestion = !isFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(question.questionText)
 
             if question.shouldTrigger,
                question.questionComplete,
@@ -2981,7 +3082,9 @@ final class AppState: ObservableObject {
                 if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
                     lastTranscriptQuestionGenerationTrace.generationTriggered = true
                     lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
+                    lastTranscriptQuestionGenerationTrace.firstQuestionSuppressedReason = ""
                 }
+                currentFirstQuestionSuppressedReason = ""
                 startAutoSuggestionGeneration(for: question, session: session, transcript: suggestionTranscript)
             } else {
                 var skipMsg = ""
@@ -3001,10 +3104,15 @@ final class AppState: ObservableObject {
                     skipMsg = "Not qualified for suggestion generation"
                 }
                 if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = generationBlockedReason(
+                    let blockedReason = generationBlockedReason(
                         question: question,
                         duplicateQuestion: duplicateQuestion
                     )
+                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = blockedReason
+                    if isFirstAnswerWorthyQuestion, question.shouldTrigger, question.questionComplete {
+                        lastTranscriptQuestionGenerationTrace.firstQuestionSuppressedReason = blockedReason
+                        currentFirstQuestionSuppressedReason = blockedReason
+                    }
                 }
                 let interviewerAudioSegment = triggeringSegment?.speaker == .interviewer &&
                     (triggeringSegment?.source == .systemAudio || triggeringSegment?.source == .processAudio || triggeringSegment?.source == .mock)
@@ -3151,11 +3259,15 @@ final class AppState: ObservableObject {
     }
 
     private func trimContextForRealtime(_ context: RetrievedContext, question: DetectedQuestion) -> RetrievedContext {
-        return RealtimePromptBudgeter.trim(
+        let budgeted = RealtimePromptBudgeter.trim(
             context,
             question: question.questionText,
             intent: question.intent,
             strategy: question.answerStrategy
+        )
+        return AnswerRelevancePolicy.filterContext(
+            budgeted,
+            intent: AnswerRelevancePolicy.intent(for: question.questionText)
         )
     }
 
@@ -3195,6 +3307,16 @@ final class AppState: ObservableObject {
             isLocal: true,
             rawJSON: nil,
             createdAt: Date(),
+            questionIntent: AnswerRelevancePolicy.intent(for: question.questionText),
+            promptQuestionText: question.questionText,
+            promptPrimaryQuestion: question.questionText,
+            promptContainsPreviousQuestion: false,
+            previousQuestionIncluded: false,
+            previousQuestionText: nil,
+            contextBleedRisk: .low,
+            ragChunkIDs: [],
+            ragChunkIntents: [],
+            promptTokenEstimate: AnswerRelevancePolicy.estimateTokens(question.questionText),
             sayFirstSource: "local_first_answer_fallback",
             stageATimedOut: false,
             stageBCompleted: false,
@@ -3211,45 +3333,8 @@ final class AppState: ObservableObject {
     }
 
     private func initialFallbackSayFirst(for question: DetectedQuestion) -> (sayFirst: String, keyPoints: [String]) {
-        let lower = question.questionText.lowercased()
-        if lower.contains("why") && (lower.contains("role") || lower.contains("company") || lower.contains("join")) {
-            return (
-                "I’m interested in this role because it lines up with the kind of work I want to do next: applying my experience to practical problems, learning the domain quickly, and contributing with clear engineering judgment.",
-                [
-                    "Role fit with my background and growth direction.",
-                    "Technical execution connected to practical impact.",
-                    "Motivation to learn the domain and contribute quickly."
-                ]
-            )
-        }
-        if question.intent == .projectDeepDive || lower.contains("project") {
-            return (
-                "One project I’d point to is work where I had to connect the technical details to a real outcome. I can walk through the problem, the choices I made, and what changed because of the work.",
-                [
-                    "Problem and constraints.",
-                    "Implementation choices and tradeoffs.",
-                    "Result and what I learned."
-                ]
-            )
-        }
-        if question.intent == .technical || lower.contains("technical") || lower.contains("system design") {
-            return (
-                "I’d approach this by first clarifying the requirements, then breaking the system into the core pieces and explaining the tradeoffs behind each decision.",
-                [
-                    "Requirements and constraints.",
-                    "Core components and tradeoffs.",
-                    "Reliability and user impact."
-                ]
-            )
-        }
-        return (
-            "The short version is that I try to give a clear answer, back it up with a concrete example from my experience, and connect it to the result it produced.",
-            [
-                "Direct answer.",
-                "Concrete example.",
-                "Result or lesson learned."
-            ]
-        )
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        return (fallback.sayFirst, fallback.keyPoints)
     }
 
     private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
@@ -3439,6 +3524,8 @@ final class AppState: ObservableObject {
         activeGenerationController = ActiveGenerationController(
             generationID: generationID,
             questionID: question.id,
+            questionTextSnapshot: question.questionText,
+            questionIntent: AnswerRelevancePolicy.intent(for: question.questionText),
             triggerPath: triggerPath,
             startedAt: requestStart
         )
@@ -3452,6 +3539,18 @@ final class AppState: ObservableObject {
         currentSuggestion = nil
         currentSuggestionRetrievedChunks = []
         streamedSayFirst = ""
+        currentAnswerQuestionIntent = AnswerRelevancePolicy.intent(for: question.questionText)
+        currentPromptQuestionText = question.questionText
+        currentPromptPrimaryQuestion = question.questionText
+        currentPromptContainsPreviousQuestion = false
+        currentPreviousQuestionIncluded = false
+        currentPreviousQuestionText = ""
+        currentContextBleedRisk = .low
+        currentRAGChunkIDs = []
+        currentRAGChunkIntents = []
+        currentFirstQuestionSuppressedReason = ""
+        currentPromptTokenEstimate = nil
+        currentPromptContextPreviews = []
         updateActiveTaskSummary()
         beginGenerationUI(
             question: question,
@@ -3464,6 +3563,271 @@ final class AppState: ObservableObject {
 
     private func isActiveGeneration(_ generationID: String) -> Bool {
         activeGenerationController?.generationID == generationID && currentGenerationID == generationID
+    }
+
+    private func isActiveGeneration(_ generationID: String, questionID: String) -> Bool {
+        isActiveGeneration(generationID) && activeGenerationController?.questionID == questionID && activeQuestionID == questionID
+    }
+
+    @discardableResult
+    func applySuggestionIfAlignedForTesting(
+        _ card: SuggestionCard,
+        question: DetectedQuestion,
+        generationID: String?
+    ) -> Bool {
+        displaySuggestionIfAligned(
+            card,
+            question: question,
+            generationID: generationID,
+            triggerPath: activeTriggerPath ?? .manualGenerate,
+            allowInactiveGeneration: true
+        )
+    }
+
+    func setActiveQuestionForTesting(_ question: DetectedQuestion) {
+        activeQuestionID = question.id
+        lastDetectedQuestion = question
+    }
+
+    @discardableResult
+    private func displaySuggestionIfAligned(
+        _ card: SuggestionCard,
+        question: DetectedQuestion,
+        generationID: String?,
+        triggerPath: GenerationTriggerPath?,
+        source: AudioSourceType? = nil,
+        speaker: SpeakerRole? = nil,
+        allowInactiveGeneration: Bool = false
+    ) -> Bool {
+        if let generationID, !allowInactiveGeneration {
+            guard isActiveGeneration(generationID, questionID: question.id) else {
+                recordAlignmentMismatch(
+                    "Stale answer discarded: generation/question no longer active for question \(question.id).",
+                    stale: true
+                )
+                return false
+            }
+        }
+
+        var boundCard = card
+        if boundCard.detectedQuestionID == nil {
+            boundCard.detectedQuestionID = question.id
+        }
+        guard boundCard.detectedQuestionID == question.id else {
+            recordAlignmentMismatch(
+                "Suggestion question mismatch: card question \(boundCard.detectedQuestionID ?? "nil") does not match current question \(question.id)."
+            )
+            return false
+        }
+
+        if let snapshot = boundCard.questionText,
+           !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           normalizedBindingText(snapshot) != normalizedBindingText(question.questionText) {
+            recordAlignmentMismatch("Suggestion question text snapshot does not match detected question text.")
+            return false
+        }
+
+        boundCard.questionText = question.questionText
+        boundCard.transcriptSegmentID = boundCard.transcriptSegmentID ?? question.transcriptSegmentID
+        boundCard.generationID = boundCard.generationID ?? generationID
+        boundCard.source = boundCard.source ?? source?.rawValue ?? currentGenerationTelemetry.source
+        boundCard.speaker = boundCard.speaker ?? speaker?.rawValue ?? currentGenerationTelemetry.speaker
+        boundCard.triggerPath = boundCard.triggerPath ?? triggerPath ?? activeTriggerPath
+        boundCard.questionIntent = boundCard.questionIntent ?? AnswerRelevancePolicy.intent(for: question.questionText)
+        boundCard.promptQuestionText = boundCard.promptQuestionText ?? question.questionText
+        boundCard.promptPrimaryQuestion = boundCard.promptPrimaryQuestion ?? boundCard.promptQuestionText ?? question.questionText
+        boundCard.promptContainsPreviousQuestion = boundCard.promptContainsPreviousQuestion ?? currentPromptContainsPreviousQuestion
+        boundCard.previousQuestionIncluded = boundCard.previousQuestionIncluded ?? currentPreviousQuestionIncluded
+        boundCard.previousQuestionText = boundCard.previousQuestionText ?? (currentPreviousQuestionText.isEmpty ? nil : currentPreviousQuestionText)
+        boundCard.contextBleedRisk = boundCard.contextBleedRisk ?? currentContextBleedRisk
+        if boundCard.ragChunkIDs.isEmpty {
+            boundCard.ragChunkIDs = currentRAGChunkIDs
+        }
+        if boundCard.ragChunkIntents.isEmpty {
+            boundCard.ragChunkIntents = currentRAGChunkIntents
+        }
+        boundCard.firstQuestionSuppressedReason = boundCard.firstQuestionSuppressedReason ?? (currentFirstQuestionSuppressedReason.isEmpty ? nil : currentFirstQuestionSuppressedReason)
+
+        let answerText = ([boundCard.sayFirst] + boundCard.keyPoints + boundCard.followUpReady).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question.questionText,
+            answerText: answerText
+        )
+        boundCard.alignmentScore = alignment.score
+        boundCard.alignmentVerdict = alignment.verdict
+        boundCard.answerIntent = alignment.answerIntent
+        boundCard.mismatchReason = alignment.verdict == .mismatched ? alignment.reason : boundCard.mismatchReason
+
+        if alignment.verdict == .mismatched {
+            currentAnswerQuestionIntent = alignment.questionIntent
+            currentAnswerIntent = alignment.answerIntent
+            currentExpectedThemesMatched = alignment.matchedThemes
+            currentSuspectedMismatchReason = alignment.reason
+            recordSuggestionAlignment(boundCard, question: question, result: alignment)
+            recordAlignmentMismatch("Generated answer did not align with question; using fallback. \(alignment.reason)")
+            if let existing = currentSuggestion,
+               existing.detectedQuestionID == question.id,
+               !existing.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return false
+            }
+
+            var fallbackCard = makeSemanticFallbackCard(
+                replacing: boundCard,
+                question: question,
+                generationID: generationID,
+                triggerPath: triggerPath,
+                source: source,
+                speaker: speaker,
+                mismatchReason: alignment.reason
+            )
+            let fallbackText = ([fallbackCard.sayFirst] + fallbackCard.keyPoints + fallbackCard.followUpReady).joined(separator: " ")
+            let fallbackAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+                questionText: question.questionText,
+                answerText: fallbackText
+            )
+            fallbackCard.alignmentScore = fallbackAlignment.score
+            fallbackCard.alignmentVerdict = fallbackAlignment.verdict
+            fallbackCard.answerIntent = fallbackAlignment.answerIntent
+            currentSuggestion = fallbackCard
+            recordSuggestionAlignment(fallbackCard, question: question, result: fallbackAlignment)
+            currentSuggestionSetAt = currentSuggestionSetAt ?? Date()
+            if let generationID, isActiveGeneration(generationID) {
+                softFallbackUsed = true
+                softFallbackShownAt = softFallbackShownAt ?? Date()
+                softFallbackLatencyMS = softFallbackLatencyMS ?? activeGenerationStartedAt.map { elapsedMS(since: $0) }
+                finalVisibleSource = "semantic_intent_fallback"
+                isStreamingSayFirst = false
+                streamedSayFirst = ""
+                markFirstVisibleAnswer(generationID: generationID, fallback: true)
+                setGenerationUIState(
+                    .showingFallback(
+                        questionID: question.id,
+                        generationID: generationID,
+                        triggerPath: triggerPath ?? activeTriggerPath ?? .manualGenerate
+                    ),
+                    generationID: generationID
+                )
+            }
+            return false
+        }
+
+        currentSuggestion = boundCard
+        lastAlignmentError = ""
+        currentAnswerQuestionIntent = alignment.questionIntent
+        currentAnswerIntent = alignment.answerIntent
+        currentExpectedThemesMatched = alignment.matchedThemes
+        currentSuspectedMismatchReason = ""
+        recordSuggestionAlignment(boundCard, question: question, result: alignment)
+        return true
+    }
+
+    private func makeSemanticFallbackCard(
+        replacing card: SuggestionCard,
+        question: DetectedQuestion,
+        generationID: String?,
+        triggerPath: GenerationTriggerPath?,
+        source: AudioSourceType?,
+        speaker: SpeakerRole?,
+        mismatchReason: String
+    ) -> SuggestionCard {
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        return SuggestionCard(
+            id: card.id,
+            sessionID: card.sessionID,
+            questionID: question.id,
+            strategy: "Semantic Alignment Fallback",
+            sayFirst: fallback.sayFirst,
+            keyPoints: fallback.keyPoints,
+            followUpReady: card.followUpReady,
+            confidence: min(card.confidence ?? 0.6, 0.7),
+            caution: "Generated answer did not align with question; using fallback.",
+            evidenceUsed: card.evidenceUsed,
+            riskLevel: .medium,
+            modelName: "semantic-intent-fallback",
+            promptVersion: "semantic-fallback-v1",
+            providerKind: nil,
+            providerName: "Semantic Alignment Fallback",
+            providerBaseURL: "",
+            latencyMS: card.latencyMS,
+            isLocal: true,
+            rawJSON: card.rawJSON,
+            createdAt: Date(),
+            questionText: question.questionText,
+            transcriptSegmentID: question.transcriptSegmentID,
+            generationID: generationID,
+            source: source?.rawValue ?? card.source,
+            speaker: speaker?.rawValue ?? card.speaker,
+            triggerPath: triggerPath ?? card.triggerPath,
+            questionIntent: AnswerRelevancePolicy.intent(for: question.questionText),
+            promptQuestionText: question.questionText,
+            promptPrimaryQuestion: card.promptPrimaryQuestion ?? card.promptQuestionText ?? question.questionText,
+            promptContainsPreviousQuestion: card.promptContainsPreviousQuestion,
+            previousQuestionIncluded: card.previousQuestionIncluded,
+            previousQuestionText: card.previousQuestionText,
+            contextBleedRisk: card.contextBleedRisk,
+            ragChunkIDs: card.ragChunkIDs,
+            ragChunkIntents: card.ragChunkIntents,
+            firstQuestionSuppressedReason: card.firstQuestionSuppressedReason,
+            promptTokenEstimate: card.promptTokenEstimate,
+            promptContextPreview: card.promptContextPreview,
+            mismatchReason: mismatchReason,
+            sayFirstSource: "semantic_intent_fallback",
+            stageATimedOut: card.stageATimedOut,
+            stageBCompleted: false,
+            stageBStatus: "semantic_mismatch",
+            latencyFirstTokenMS: card.latencyFirstTokenMS,
+            latencyFirstVisibleMS: card.latencyFirstVisibleMS,
+            latencyFullCardMS: card.latencyFullCardMS,
+            softFallbackUsed: true,
+            softFallbackLatencyMS: card.softFallbackLatencyMS,
+            deepseekFirstTokenMS: card.deepseekFirstTokenMS,
+            deepseekFirstVisibleMS: card.deepseekFirstVisibleMS,
+            finalVisibleSource: "semantic_intent_fallback",
+            ragRetrievalLatencyMS: card.ragRetrievalLatencyMS,
+            questionASRFirstPartialMS: card.questionASRFirstPartialMS,
+            questionASRFinalMS: card.questionASRFinalMS,
+            questionASRBestSelectedMS: card.questionASRBestSelectedMS,
+            firstVisibleAnswerMS: card.firstVisibleAnswerMS,
+            firstKeyPointVisibleMS: card.firstKeyPointVisibleMS,
+            allKeyPointsVisibleMS: card.allKeyPointsVisibleMS,
+            followUpVisibleMS: card.followUpVisibleMS,
+            fullCardVisibleMS: card.fullCardVisibleMS,
+            dbPersistedMS: card.dbPersistedMS,
+            stageBStreamStartedMS: card.stageBStreamStartedMS,
+            stageBFirstSectionMS: card.stageBFirstSectionMS
+        )
+    }
+
+    private func recordAlignmentMismatch(_ message: String, stale: Bool = false) {
+        answerQuestionMismatchCount += 1
+        if stale {
+            staleAnswerDiscardCount += 1
+        }
+        lastAlignmentError = message
+        currentSuspectedMismatchReason = message
+        updateActiveTaskSummary()
+    }
+
+    private func recordSuggestionAlignment(
+        _ card: SuggestionCard,
+        question: DetectedQuestion,
+        result: AnswerAlignmentResult
+    ) {
+        let record = SuggestionAlignmentRecord(
+            id: card.id,
+            detectedQuestionID: card.detectedQuestionID,
+            questionText: question.questionText,
+            sayFirstPreview: String(card.sayFirst.prefix(220)),
+            alignmentScore: result.score,
+            alignmentVerdict: result.verdict,
+            answerIntent: result.answerIntent,
+            expectedThemesMatched: result.matchedThemes,
+            suspectedMismatchReason: result.verdict == .mismatched ? result.reason : ""
+        )
+        recentSuggestionAlignments.insert(record, at: 0)
+        if recentSuggestionAlignments.count > 12 {
+            recentSuggestionAlignments.removeLast(recentSuggestionAlignments.count - 12)
+        }
     }
 
     private func registerStageATask(_ task: Task<String, Error>, generationID: String) {
@@ -3698,6 +4062,7 @@ final class AppState: ObservableObject {
 
     private func recordStaleGenerationDiscard() {
         staleCallbackDiscardCount += 1
+        staleAnswerDiscardCount += 1
         currentGenerationTelemetry.staleDiscardCount = staleCallbackDiscardCount
         updateActiveTaskSummary()
     }
@@ -3789,7 +4154,12 @@ final class AppState: ObservableObject {
                 fallbackCard.firstVisibleAnswerMS = elapsed
                 fallbackCard.stageBStatus = "timed_out"
                 fallbackCard.caution = "Provider timed out. Local first answer shown; retry when ready."
-                self.currentSuggestion = fallbackCard
+                guard self.displaySuggestionIfAligned(
+                    fallbackCard,
+                    question: question,
+                    generationID: generationID,
+                    triggerPath: triggerPath
+                ) else { return }
                 self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                 self.softFallbackUsed = true
                 self.softFallbackLatencyMS = elapsed
@@ -3927,7 +4297,14 @@ final class AppState: ObservableObject {
             preserveExistingSayFirst: preserveExistingSayFirst,
             markFullCardVisible: markFullCardVisible
         )
-        currentSuggestion = card
+        guard displaySuggestionIfAligned(
+            card,
+            question: question,
+            generationID: generationID,
+            triggerPath: currentGenerationTelemetry.triggerPath,
+            source: AudioSourceType(rawValue: currentGenerationTelemetry.source ?? ""),
+            speaker: SpeakerRole(rawValue: currentGenerationTelemetry.speaker ?? "")
+        ) else { return }
         if currentSuggestionSetAt == nil {
             currentSuggestionSetAt = Date()
         }
@@ -4016,6 +4393,10 @@ final class AppState: ObservableObject {
         }
         let telemetrySource = explicitSource ?? attributedSegment?.source
         let telemetrySpeaker = explicitSpeaker ?? attributedSegment?.speaker
+        lastDetectedQuestion = question
+        lastDetectedQuestionText = question.questionText
+        lastDetectedQuestionSource = telemetrySource?.rawValue ?? lastDetectedQuestionSource
+        lastDetectedQuestionSpeaker = telemetrySpeaker?.rawValue ?? lastDetectedQuestionSpeaker
         if !isActionLoading(ActionID.generateAnswer) {
             beginAction(
                 ActionID.generateAnswer,
@@ -4116,7 +4497,14 @@ final class AppState: ObservableObject {
             if !fallbackCard.followUpReady.isEmpty {
                 fallbackCard.followUpVisibleMS = elapsed
             }
-            self.currentSuggestion = fallbackCard
+            guard self.displaySuggestionIfAligned(
+                fallbackCard,
+                question: localQuestion,
+                generationID: generationID,
+                triggerPath: triggerPath,
+                source: telemetrySource,
+                speaker: telemetrySpeaker
+            ) else { return }
             self.currentSuggestionSetAt = Date()
             self.isStreamingSayFirst = false
             self.isExpandingSuggestionCard = true
@@ -4134,28 +4522,32 @@ final class AppState: ObservableObject {
         // 1. Check precomputed RAG Cache
         var hitCache = false
         if let segmentID = question.transcriptSegmentID {
-            if let cacheKey = precomputedRAGCache.keys.first(where: { $0.hasPrefix(segmentID + "_") }),
-               let cached = precomputedRAGCache[cacheKey] {
-                let cleanCached = cached.rawText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                let cleanFinal = question.questionText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                let cachedWords = Set(cleanCached.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
-                let finalWords = Set(cleanFinal.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
-                let intersection = cachedWords.intersection(finalWords)
-                let union = cachedWords.union(finalWords)
-                let similarity = union.isEmpty ? 0.0 : Double(intersection.count) / Double(union.count)
-                
-                if similarity >= 0.75 { // 75% similarity threshold
+            let finalIntent = AnswerRelevancePolicy.intent(for: question.questionText)
+            let normalizedFinal = AnswerRelevancePolicy.normalizedQuestionText(for: question.questionText)
+            let exactCacheKey = ragPrecomputeCacheKey(
+                segmentID: segmentID,
+                questionText: question.questionText,
+                intent: finalIntent
+            )
+            if let cached = precomputedRAGCache[exactCacheKey] {
+                if cached.normalizedQuestionText == normalizedFinal && cached.questionIntent == finalIntent {
                     retrievedContext = cached.context
                     retrievalTrace = cached.trace
                     hitCache = true
                     lastRAGOperation = "Relevant context cache hit"
-                    print("[PrecomputeRAG] Cache hit! (similarity \(similarity)) for key: \(cacheKey)")
+                    print("[PrecomputeRAG] Exact cache hit for key: \(exactCacheKey)")
                 } else {
                     lastRAGOperation = "Relevant context cache miss"
-                    print("[PrecomputeRAG] Cache miss due to significant text difference (similarity \(similarity)) for key: \(cacheKey). Rerunning retrieval.")
+                    print("[PrecomputeRAG] Cache miss due to question/intent mismatch for key: \(exactCacheKey). Rerunning retrieval.")
                 }
-                precomputedRAGCache.removeValue(forKey: cacheKey)
+                precomputedRAGCache.removeValue(forKey: exactCacheKey)
+            } else {
+                let staleKeys = precomputedRAGCache.keys.filter { $0.hasPrefix(segmentID + "_") }
+                staleKeys.forEach { precomputedRAGCache.removeValue(forKey: $0) }
+                if !staleKeys.isEmpty {
+                    lastRAGOperation = "Relevant context cache miss"
+                    print("[PrecomputeRAG] Removed \(staleKeys.count) stale cache item(s) for segmentID: \(segmentID).")
+                }
             }
         }
         
@@ -4219,34 +4611,51 @@ final class AppState: ObservableObject {
         lastSQLiteOperation = "Loaded document summaries"
         let cvSummary = makeCompactSummary(cvRecord)
         let jdSummary = makeCompactSummary(jdRecord)
+        let generationSnapshot = AnswerRelevancePolicy.generationRequestSnapshot(
+            question: localQuestion,
+            generationID: generationID,
+            triggerPath: triggerPath,
+            source: telemetrySource,
+            speaker: telemetrySpeaker,
+            acceptedAt: requestStart,
+            context: optimizedContext,
+            transcriptContext: localTranscript,
+            cvSummary: cvSummary,
+            jdSummary: jdSummary,
+            stage: .firstAnswer
+        )
+        let promptSnapshot = generationSnapshot.promptSnapshot
+        currentAnswerQuestionIntent = promptSnapshot.questionIntent
+        currentPromptQuestionText = promptSnapshot.questionTextSnapshot
+        currentPromptPrimaryQuestion = promptSnapshot.promptPrimaryQuestion
+        currentPromptContainsPreviousQuestion = promptSnapshot.promptContainsPreviousQuestion
+        currentPreviousQuestionIncluded = promptSnapshot.previousQuestionIncluded
+        currentPreviousQuestionText = promptSnapshot.previousQuestionText ?? ""
+        currentContextBleedRisk = promptSnapshot.contextBleedRisk
+        currentRAGChunkIDs = promptSnapshot.ragChunkIDs
+        currentRAGChunkIntents = promptSnapshot.ragChunkIntents
+        currentPromptTokenEstimate = promptSnapshot.promptTokenEstimate
+        currentPromptContextPreviews = promptSnapshot.ragChunkPreviews
         
         // Create references for background task capture
         let localTrace = trace
         
         // Helper to construct a local fallback card
         func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
-            var sayFirst = "Focus on explaining the relevant experience: "
-            if let bestChunk = optimizedContext.cvChunks.first {
-                sayFirst += "based on my experience with \(bestChunk.sectionTitle ?? "my past projects"), I worked on \(bestChunk.content.prefix(120))..."
-            } else {
-                sayFirst += "I can speak to my background in software engineering and design principles."
-            }
-            
-            let keyPoints = optimizedContext.cvChunks.map { chunk in
-                "\(chunk.sectionTitle ?? "Experience Detail"): \(chunk.content.prefix(80))."
-            }
+            let fallback = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion)
+            let intent = AnswerRelevancePolicy.intent(for: localQuestion.questionText)
             
             return SuggestionCard(
                 id: cardID,
                 sessionID: localSession.id,
                 questionID: localQuestion.id,
                 strategy: isSoft ? "RAG Template Soft Fallback (DeepSeek Delay)" : "RAG Template Fallback (DeepSeek Timeout)",
-                sayFirst: sayFirst,
-                keyPoints: Array(keyPoints.prefix(3)),
+                sayFirst: fallback.sayFirst,
+                keyPoints: fallback.keyPoints,
                 followUpReady: ["How does this align with the role requirements?"],
                 confidence: 0.5,
                 caution: isSoft ? "Fast local answer shown; DeepSeek still generating..." : "Fast fallback shown; DeepSeek still expanding...",
-                evidenceUsed: optimizedContext.cvChunks.map { $0.id },
+                evidenceUsed: (optimizedContext.cvChunks + optimizedContext.jobDescriptionChunks).map { $0.id },
                 riskLevel: .medium,
                 modelName: "rag-fallback",
                 promptVersion: "fallback-v1",
@@ -4257,6 +4666,17 @@ final class AppState: ObservableObject {
                 isLocal: false,
                 rawJSON: nil,
                 createdAt: Date(),
+                questionIntent: intent,
+                promptQuestionText: localQuestion.questionText,
+                promptPrimaryQuestion: promptSnapshot.promptPrimaryQuestion,
+                promptContainsPreviousQuestion: promptSnapshot.promptContainsPreviousQuestion,
+                previousQuestionIncluded: promptSnapshot.previousQuestionIncluded,
+                previousQuestionText: promptSnapshot.previousQuestionText,
+                contextBleedRisk: promptSnapshot.contextBleedRisk,
+                ragChunkIDs: promptSnapshot.ragChunkIDs,
+                ragChunkIntents: promptSnapshot.ragChunkIntents,
+                promptTokenEstimate: promptSnapshot.promptTokenEstimate,
+                promptContextPreview: promptSnapshot.ragChunkPreviews.joined(separator: "\n"),
                 sayFirstSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback",
                 stageATimedOut: !isSoft,
                 stageBCompleted: false,
@@ -4290,7 +4710,14 @@ final class AppState: ObservableObject {
                     let fallbackCard = createRAGFallbackCard(isSoft: true)
                     var visibleFallback = fallbackCard
                     visibleFallback.firstVisibleAnswerMS = elapsed
-                    self.currentSuggestion = visibleFallback
+                    guard self.displaySuggestionIfAligned(
+                        visibleFallback,
+                        question: localQuestion,
+                        generationID: generationID,
+                        triggerPath: triggerPath,
+                        source: telemetrySource,
+                        speaker: telemetrySpeaker
+                    ) else { return }
                     self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                     self.isStreamingSayFirst = false
                     self.isExpandingSuggestionCard = true
@@ -4479,7 +4906,14 @@ final class AppState: ObservableObject {
                     self.recordStaleGenerationDiscard()
                     return
                 }
-                self.currentSuggestion = validatedCard
+                guard self.displaySuggestionIfAligned(
+                    validatedCard,
+                    question: localQuestion,
+                    generationID: generationID,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker
+                ) else { return }
                 self.currentSuggestionRetrievedChunks = localTrace.rankedCVChunks + localTrace.rankedJDChunks
                 self.isExpandingSuggestionCard = false
                 self.suggestionGenerationStarted = false
@@ -4596,7 +5030,8 @@ final class AppState: ObservableObject {
                     var forcePublish = false
                     if self.streamFirstVisibleTextAt == nil {
                         let wordCount = collected.split(whereSeparator: \.isWhitespace).count
-                        if wordCount >= 3 || collected.count >= 10 {
+                        if (wordCount >= 3 || collected.count >= 10),
+                           self.isAnswerRelevantEnoughForLivePreview(collected, question: localQuestion) {
                             self.streamFirstVisibleTextAt = Date()
                             self.firstVisibleStateSetAt = Date()
                             self.deepseekFirstVisibleMS = Int(Date().timeIntervalSince(requestStart) * 1000)
@@ -4609,8 +5044,9 @@ final class AppState: ObservableObject {
                     }
 
                     if sayFirstThrottle.shouldPublish(characterCount: collected.count, force: forcePublish) {
-                        self.streamedSayFirst = collected
-                        if self.streamedSayFirstSetAt == nil && !collected.isEmpty {
+                        let relevantPreview = self.isAnswerRelevantEnoughForLivePreview(collected, question: localQuestion)
+                        self.streamedSayFirst = relevantPreview ? collected : ""
+                        if relevantPreview && self.streamedSayFirstSetAt == nil && !collected.isEmpty {
                             self.streamedSayFirstSetAt = Date()
                         }
                     }
@@ -4620,8 +5056,9 @@ final class AppState: ObservableObject {
                         self.streamFirstSentenceAt = Date()
                     }
                 }
-                self.streamedSayFirst = collected
-                if self.streamedSayFirstSetAt == nil && !collected.isEmpty {
+                let relevantFinalPreview = self.isAnswerRelevantEnoughForLivePreview(collected, question: localQuestion)
+                self.streamedSayFirst = relevantFinalPreview ? collected : ""
+                if relevantFinalPreview && self.streamedSayFirstSetAt == nil && !collected.isEmpty {
                     self.streamedSayFirstSetAt = Date()
                 }
                 self.streamFullResponseAt = Date()
@@ -4666,7 +5103,14 @@ final class AppState: ObservableObject {
                             self.recordStaleGenerationDiscard()
                             return
                         }
-                        self.currentSuggestion = validated
+                        guard self.displaySuggestionIfAligned(
+                            validated,
+                            question: localQuestion,
+                            generationID: generationID,
+                            triggerPath: triggerPath,
+                            source: telemetrySource,
+                            speaker: telemetrySpeaker
+                        ) else { return }
                         self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
                         self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
                         self.persistSuggestionInBackground(validated, chunks: self.currentSuggestionRetrievedChunks, generationID: generationID, requestStart: requestStart)
@@ -4683,7 +5127,14 @@ final class AppState: ObservableObject {
                             self.recordStaleGenerationDiscard()
                             return
                         }
-                        self.currentSuggestion = validated
+                        guard self.displaySuggestionIfAligned(
+                            validated,
+                            question: localQuestion,
+                            generationID: generationID,
+                            triggerPath: triggerPath,
+                            source: telemetrySource,
+                            speaker: telemetrySpeaker
+                        ) else { return }
                         self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                         self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
                         self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
@@ -4694,10 +5145,10 @@ final class AppState: ObservableObject {
                 }
             } else {
                 // Set temporary suggestion card immediately since DeepSeek was fast!
-                let tempCard = SuggestionCard(
-                    id: cardID,
-                    sessionID: localSession.id,
-                    questionID: localQuestion.id,
+	                let tempCard = SuggestionCard(
+	                    id: cardID,
+	                    sessionID: localSession.id,
+	                    questionID: localQuestion.id,
                     strategy: "Quick Opener",
                     sayFirst: fastSayFirst,
                     keyPoints: [],
@@ -4713,9 +5164,20 @@ final class AppState: ObservableObject {
                     providerBaseURL: "https://api.deepseek.com",
                     latencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
                     isLocal: false,
-                    rawJSON: nil,
-                    createdAt: Date(),
-                    sayFirstSource: "deepseek_stream",
+	                    rawJSON: nil,
+	                    createdAt: Date(),
+	                    questionIntent: promptSnapshot.questionIntent,
+	                    promptQuestionText: promptSnapshot.questionTextSnapshot,
+	                    promptPrimaryQuestion: promptSnapshot.promptPrimaryQuestion,
+	                    promptContainsPreviousQuestion: promptSnapshot.promptContainsPreviousQuestion,
+	                    previousQuestionIncluded: promptSnapshot.previousQuestionIncluded,
+	                    previousQuestionText: promptSnapshot.previousQuestionText,
+	                    contextBleedRisk: promptSnapshot.contextBleedRisk,
+	                    ragChunkIDs: promptSnapshot.ragChunkIDs,
+	                    ragChunkIntents: promptSnapshot.ragChunkIntents,
+	                    promptTokenEstimate: promptSnapshot.promptTokenEstimate,
+	                    promptContextPreview: promptSnapshot.ragChunkPreviews.joined(separator: "\n"),
+	                    sayFirstSource: "deepseek_stream",
                     stageATimedOut: false,
                     stageBCompleted: false,
                     stageBStatus: "skipped",
@@ -4736,7 +5198,14 @@ final class AppState: ObservableObject {
                     self.recordStaleGenerationDiscard()
                     return
                 }
-                self.currentSuggestion = validated
+                guard self.displaySuggestionIfAligned(
+                    validated,
+                    question: localQuestion,
+                    generationID: generationID,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker
+                ) else { return }
                 self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                 self.isExpandingSuggestionCard = true
                 self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
@@ -4764,7 +5233,14 @@ final class AppState: ObservableObject {
                     self.recordStaleGenerationDiscard()
                     return
                 }
-                self.currentSuggestion = validated
+                guard self.displaySuggestionIfAligned(
+                    validated,
+                    question: localQuestion,
+                    generationID: generationID,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker
+                ) else { return }
                 self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                 self.isExpandingSuggestionCard = true
                 self.softFallbackUsed = true
@@ -4781,7 +5257,14 @@ final class AppState: ObservableObject {
                     self.recordStaleGenerationDiscard()
                     return
                 }
-                self.currentSuggestion = validated
+                guard self.displaySuggestionIfAligned(
+                    validated,
+                    question: localQuestion,
+                    generationID: generationID,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker
+                ) else { return }
                 self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
                 self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
                 self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "DeepSeek first answer timed out. The visible fallback was kept.")
@@ -4942,6 +5425,30 @@ final class AppState: ObservableObject {
             }
         }
         return true
+    }
+
+    private func isAnswerRelevantEnoughForLivePreview(_ text: String, question: DetectedQuestion) -> Bool {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleaned.count >= 24 else { return false }
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question.questionText,
+            answerText: cleaned
+        )
+        if alignment.verdict == .mismatched {
+            currentAnswerQuestionIntent = alignment.questionIntent
+            currentAnswerIntent = alignment.answerIntent
+            currentExpectedThemesMatched = alignment.matchedThemes
+            currentSuspectedMismatchReason = alignment.reason
+            return false
+        }
+        if alignment.verdict == .aligned || alignment.verdict == .weaklyAligned {
+            currentAnswerQuestionIntent = alignment.questionIntent
+            currentAnswerIntent = alignment.answerIntent
+            currentExpectedThemesMatched = alignment.matchedThemes
+            currentSuspectedMismatchReason = ""
+            return true
+        }
+        return AnswerRelevancePolicy.intent(for: question.questionText) == .generic && isSpecificAnswer(cleaned)
     }
 
     private func showError(_ message: String) {
@@ -5365,8 +5872,15 @@ final class AppState: ObservableObject {
             let elapsed = self.elapsedMS(since: manualRequestStart)
             fallback.firstVisibleAnswerMS = elapsed
             fallback.stageBStatus = "manual_capture_fallback"
-            self.manualCaptureSuggestion = fallback
-            self.currentSuggestion = fallback
+            guard self.displaySuggestionIfAligned(
+                fallback,
+                question: manualDetected,
+                generationID: manualGenerationID,
+                triggerPath: .manualCapture,
+                source: manualSource,
+                speaker: manualSpeaker
+            ) else { return }
+            self.manualCaptureSuggestion = self.currentSuggestion
             self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
             self.manualCaptureState = .suggestionReady
             self.softFallbackUsed = true
@@ -5407,8 +5921,15 @@ final class AppState: ObservableObject {
                 requestStart: manualRequestStart
             )
             fallback.caution = "Provider timed out. Local first answer shown; retry when ready."
-            self.manualCaptureSuggestion = fallback
-            self.currentSuggestion = fallback
+            guard self.displaySuggestionIfAligned(
+                fallback,
+                question: manualDetected,
+                generationID: manualGenerationID,
+                triggerPath: .manualCapture,
+                source: manualSource,
+                speaker: manualSpeaker
+            ) else { return }
+            self.manualCaptureSuggestion = self.currentSuggestion
             self.manualCaptureState = .suggestionReady
             self.markFirstVisibleAnswer(generationID: manualGenerationID, fallback: true)
             self.markGenerationFailed(
@@ -5473,8 +5994,15 @@ final class AppState: ObservableObject {
                 
                 self.lastSuggestionGenerationProvider = result.response.providerName
                 self.lastSuggestionGenerationModel = result.response.modelName
-                self.manualCaptureSuggestion = result.card
-                self.currentSuggestion = result.card
+                guard self.displaySuggestionIfAligned(
+                    result.card,
+                    question: detected,
+                    generationID: manualGenerationID,
+                    triggerPath: .manualCapture,
+                    source: manualSource,
+                    speaker: manualSpeaker
+                ) else { return }
+                self.manualCaptureSuggestion = self.currentSuggestion
                 self.manualCaptureState = .suggestionReady
                 self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
                 self.markFirstVisibleAnswer(generationID: manualGenerationID, fallback: false)
@@ -5516,9 +6044,18 @@ final class AppState: ObservableObject {
                     
                     // Update AppState current suggestions
                     self.lastRetrievalTrace = trace
-                    self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
-                    self.currentSuggestion = savedCard
                     self.lastDetectedQuestion = savedQuestion
+                    self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
+                    guard self.displaySuggestionIfAligned(
+                        savedCard,
+                        question: savedQuestion,
+                        generationID: manualGenerationID,
+                        triggerPath: .manualCapture,
+                        source: manualSource,
+                        speaker: manualSpeaker
+                    ) else { return }
+                    savedCard = self.currentSuggestion ?? savedCard
+                    self.manualCaptureSuggestion = self.currentSuggestion
                     self.persistSuggestionInBackground(
                         savedCard,
                         chunks: trace.rankedCVChunks + trace.rankedJDChunks,
@@ -5789,11 +6326,6 @@ final class AppState: ObservableObject {
             createdAt: Date()
         )
         
-        self.currentSuggestion = mockCard
-        self.currentSuggestionRetrievedChunks = cvChunks.filter { $0.isIncludedInPrompt } + jdChunks.filter { $0.isIncludedInPrompt }
-        self.manualCaptureSuggestion = mockCard
-        self.manualCaptureState = .suggestionReady
-        
         let mockQuestion = DetectedQuestion(
             id: "mock-question-id",
             sessionID: "mock-session-id",
@@ -5817,6 +6349,18 @@ final class AppState: ObservableObject {
         )
         self.lastDetectedQuestion = mockQuestion
         self.lastDetectedQuestionText = mockQuestion.questionText
+        _ = displaySuggestionIfAligned(
+            mockCard,
+            question: mockQuestion,
+            generationID: nil,
+            triggerPath: .manualGenerate,
+            source: .mock,
+            speaker: .interviewer,
+            allowInactiveGeneration: true
+        )
+        self.currentSuggestionRetrievedChunks = cvChunks.filter { $0.isIncludedInPrompt } + jdChunks.filter { $0.isIncludedInPrompt }
+        self.manualCaptureSuggestion = self.currentSuggestion
+        self.manualCaptureState = .suggestionReady
         
         do {
             try? self.sessionRepository.deleteSession(id: "mock-session-id")

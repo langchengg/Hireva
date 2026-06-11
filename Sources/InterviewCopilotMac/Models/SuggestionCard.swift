@@ -22,6 +22,36 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var rawJSON: String?
     var createdAt: Date
 
+    // Question-answer binding metadata. questionID remains the legacy storage
+    // name; detectedQuestionID is the explicit product term for the same ID.
+    var questionText: String? = nil
+    var transcriptSegmentID: String? = nil
+    var generationID: String? = nil
+    var source: String? = nil
+    var speaker: String? = nil
+    var triggerPath: GenerationTriggerPath? = nil
+    var alignmentScore: Double? = nil
+    var alignmentVerdict: AnswerAlignmentVerdict? = nil
+    var questionIntent: AnswerRelevanceIntent? = nil
+    var answerIntent: AnswerRelevanceIntent? = nil
+    var promptQuestionText: String? = nil
+    var promptPrimaryQuestion: String? = nil
+    var promptContainsPreviousQuestion: Bool? = nil
+    var previousQuestionIncluded: Bool? = nil
+    var previousQuestionText: String? = nil
+    var contextBleedRisk: ContextBleedRisk? = nil
+    var ragChunkIDs: [String] = []
+    var ragChunkIntents: [AnswerRelevanceIntent] = []
+    var firstQuestionSuppressedReason: String? = nil
+    var promptTokenEstimate: Int? = nil
+    var promptContextPreview: String? = nil
+    var mismatchReason: String? = nil
+
+    var detectedQuestionID: String? {
+        get { questionID }
+        set { questionID = newValue }
+    }
+
     // Streaming & Provenance
     var sayFirstSource: String? = nil
     var stageATimedOut: Bool? = nil

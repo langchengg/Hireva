@@ -168,6 +168,7 @@ struct DiagnosticsView: View {
                 diagnosticRow("generationTriggered", trace.generationTriggered ? "true" : "false")
                 diagnosticRow("generationID", trace.generationID ?? "None")
                 diagnosticRow("generationBlockedReason", trace.generationBlockedReason.isEmpty ? "None" : trace.generationBlockedReason)
+                diagnosticRow("firstQuestionSuppressedReason", trace.firstQuestionSuppressedReason.isEmpty ? "None" : trace.firstQuestionSuppressedReason)
                 diagnosticRow("providerStatus", trace.providerStatus.isEmpty ? "None" : trace.providerStatus)
                 diagnosticRow("visibleSuggestionCreated", trace.visibleSuggestionCreated ? "true" : "false")
                 diagnosticRow("currentGenerationState", trace.currentGenerationState.isEmpty ? "None" : trace.currentGenerationState)
@@ -177,6 +178,59 @@ struct DiagnosticsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                }
+            }
+
+            card("Current QA Binding", icon: "link") {
+                let binding = appState.currentQABinding
+                diagnosticRow("currentQuestionID", binding.currentQuestionID ?? "None")
+                diagnosticRow("currentQuestionText", binding.currentQuestionText.isEmpty ? "None" : binding.currentQuestionText)
+                diagnosticRow("currentSuggestionID", binding.currentSuggestionID ?? "None")
+                diagnosticRow("currentSuggestionDetectedQuestionID", binding.currentSuggestionDetectedQuestionID ?? "None")
+                diagnosticRow("currentSuggestionQuestionText", binding.currentSuggestionQuestionText.isEmpty ? "None" : binding.currentSuggestionQuestionText)
+                diagnosticRow("activeGenerationID", binding.activeGenerationID ?? "None")
+                diagnosticRow("activeGenerationQuestionID", binding.activeGenerationQuestionID ?? "None")
+                diagnosticRow("bindingStatus", binding.bindingStatus.rawValue)
+                diagnosticRow("lastAlignmentError", binding.lastAlignmentError.isEmpty ? "None" : binding.lastAlignmentError)
+                diagnosticRow("detectedQuestionID", appState.lastDetectedQuestion?.id ?? "None")
+                diagnosticRow("generationID", appState.activeGenerationID ?? "None")
+                diagnosticRow("questionTextSnapshot", appState.currentPromptPrimaryQuestion.isEmpty ? "None" : appState.currentPromptPrimaryQuestion)
+                diagnosticRow("questionIntent", appState.currentAnswerQuestionIntent?.rawValue ?? "None")
+                diagnosticRow("promptQuestionText", appState.currentPromptQuestionText.isEmpty ? "None" : appState.currentPromptQuestionText)
+                diagnosticRow("promptPrimaryQuestion", appState.currentPromptPrimaryQuestion.isEmpty ? "None" : appState.currentPromptPrimaryQuestion)
+                diagnosticRow("promptContainsPreviousQuestion", appState.currentPromptContainsPreviousQuestion ? "true" : "false")
+                diagnosticRow("previousQuestionIncluded", appState.currentPreviousQuestionIncluded ? "true" : "false")
+                diagnosticRow("previousQuestionText", appState.currentPreviousQuestionText.isEmpty ? "None" : appState.currentPreviousQuestionText)
+                diagnosticRow("contextBleedRisk", appState.currentContextBleedRisk.rawValue)
+                diagnosticRow("ragChunkIDs", appState.currentRAGChunkIDs.isEmpty ? "None" : appState.currentRAGChunkIDs.joined(separator: ", "))
+                diagnosticRow("ragChunkIntents", appState.currentRAGChunkIntents.isEmpty ? "None" : appState.currentRAGChunkIntents.map(\.rawValue).joined(separator: ", "))
+                diagnosticRow("generationBlockedReason", appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason.isEmpty ? "None" : appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason)
+                diagnosticRow("firstQuestionSuppressedReason", appState.currentFirstQuestionSuppressedReason.isEmpty ? "None" : appState.currentFirstQuestionSuppressedReason)
+                diagnosticRow("answerAlignmentVerdict", appState.currentSuggestion?.alignmentVerdict?.rawValue ?? "None")
+                diagnosticRow("mismatchReason", appState.currentSuggestion?.mismatchReason ?? "None")
+                diagnosticRow("promptTokenEstimate", appState.currentPromptTokenEstimate.map(String.init) ?? "None")
+                diagnosticRow("answerIntent", appState.currentAnswerIntent?.rawValue ?? "None")
+                diagnosticRow("expectedThemesMatched", appState.currentExpectedThemesMatched.isEmpty ? "None" : appState.currentExpectedThemesMatched.joined(separator: ", "))
+                diagnosticRow("suspectedMismatchReason", appState.currentSuspectedMismatchReason.isEmpty ? "None" : appState.currentSuspectedMismatchReason)
+                diagnosticRow("promptContextPreviews", appState.currentPromptContextPreviews.isEmpty ? "None" : appState.currentPromptContextPreviews.joined(separator: " | "))
+                diagnosticRow("staleAnswerDiscardCount", "\(appState.staleAnswerDiscardCount)")
+                diagnosticRow("answerQuestionMismatchCount", "\(appState.answerQuestionMismatchCount)")
+                if appState.recentSuggestionAlignments.isEmpty {
+                    diagnosticRow("recentSuggestions", "None")
+                } else {
+                    ForEach(appState.recentSuggestionAlignments) { record in
+                        VStack(alignment: .leading, spacing: 4) {
+                            diagnosticRow("detectedQuestionID", record.detectedQuestionID ?? "None")
+                            diagnosticRow("questionText", record.questionText)
+                            diagnosticRow("sayFirstPreview", record.sayFirstPreview)
+                            diagnosticRow("alignmentScore", String(format: "%.2f", record.alignmentScore))
+                            diagnosticRow("alignmentVerdict", record.alignmentVerdict.rawValue)
+                            diagnosticRow("answerIntent", record.answerIntent.rawValue)
+                            diagnosticRow("expectedThemesMatched", record.expectedThemesMatched.isEmpty ? "None" : record.expectedThemesMatched.joined(separator: ", "))
+                            diagnosticRow("suspectedMismatchReason", record.suspectedMismatchReason.isEmpty ? "None" : record.suspectedMismatchReason)
+                        }
+                        Divider()
+                    }
                 }
             }
 

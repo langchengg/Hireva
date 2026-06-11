@@ -19,6 +19,7 @@ struct TranscriptQuestionGenerationTrace: Equatable {
     var generationTriggered: Bool = false
     var generationID: String?
     var generationBlockedReason: String = ""
+    var firstQuestionSuppressedReason: String = ""
     var providerStatus: String = ""
     var visibleSuggestionCreated: Bool = false
     var currentGenerationState: String = ""

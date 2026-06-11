@@ -360,6 +360,96 @@ final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v11_question_answer_alignment") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+
+            let columns: [(String, String)] = [
+                ("detected_question_id", "TEXT REFERENCES detected_questions(id) ON DELETE SET NULL"),
+                ("question_text", "TEXT"),
+                ("transcript_segment_id", "TEXT"),
+                ("generation_id", "TEXT"),
+                ("source", "TEXT"),
+                ("speaker", "TEXT"),
+                ("trigger_path", "TEXT"),
+                ("alignment_score", "REAL"),
+                ("alignment_verdict", "TEXT")
+            ]
+
+            for (name, type) in columns where !columnNames.contains(name) {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN \(name) \(type)")
+            }
+
+            try db.execute(sql: """
+                UPDATE suggestion_cards
+                SET detected_question_id = question_id
+                WHERE detected_question_id IS NULL
+                  AND question_id IS NOT NULL
+                """)
+
+            try db.execute(sql: """
+                UPDATE suggestion_cards
+                SET question_text = (
+                    SELECT dq.question_text
+                    FROM detected_questions dq
+                    WHERE dq.id = suggestion_cards.detected_question_id
+                )
+                WHERE question_text IS NULL
+                  AND detected_question_id IS NOT NULL
+                """)
+        }
+
+        migrator.registerMigration("v12_answer_relevance_diagnostics") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+
+            let columns: [(String, String)] = [
+                ("question_intent", "TEXT"),
+                ("answer_intent", "TEXT"),
+                ("prompt_question_text", "TEXT"),
+                ("prompt_token_estimate", "INTEGER"),
+                ("prompt_context_preview", "TEXT"),
+                ("mismatch_reason", "TEXT")
+            ]
+
+            for (name, type) in columns where !columnNames.contains(name) {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN \(name) \(type)")
+            }
+
+            try db.execute(sql: """
+                UPDATE suggestion_cards
+                SET prompt_question_text = question_text
+                WHERE prompt_question_text IS NULL
+                  AND question_text IS NOT NULL
+                """)
+        }
+
+        migrator.registerMigration("v13_generation_context_isolation") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+
+            let columns: [(String, String)] = [
+                ("prompt_primary_question", "TEXT"),
+                ("prompt_contains_previous_question", "INTEGER"),
+                ("previous_question_included", "INTEGER"),
+                ("previous_question_text", "TEXT"),
+                ("context_bleed_risk", "TEXT"),
+                ("rag_chunk_ids_json", "TEXT"),
+                ("rag_chunk_intents_json", "TEXT"),
+                ("first_question_suppressed_reason", "TEXT")
+            ]
+
+            for (name, type) in columns where !columnNames.contains(name) {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN \(name) \(type)")
+            }
+
+            try db.execute(sql: """
+                UPDATE suggestion_cards
+                SET prompt_primary_question = COALESCE(prompt_question_text, question_text)
+                WHERE prompt_primary_question IS NULL
+                """)
+        }
+
         return migrator
     }
 }

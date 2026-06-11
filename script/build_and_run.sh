@@ -17,8 +17,8 @@ MODE="${1:-run}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="InterviewCopilotMac"                    # .app bundle name
-EXECUTABLE_NAME="InterviewCopilotMac"             # CFBundleExecutable (binary inside .app)
-LEGACY_EXECUTABLE_NAME="InterviewCopilotMacRunner"
+EXECUTABLE_NAME="InterviewCopilotMacRunner"       # CFBundleExecutable (binary inside .app)
+LEGACY_EXECUTABLE_NAME="InterviewCopilotMac"
 SPM_PRODUCT_NAME="InterviewCopilotMac"            # SPM product name (output of swift build)
 BUNDLE_ID="com.langcheng.InterviewCopilotMac"
 DISPLAY_NAME="Interview Copilot"
@@ -31,8 +31,11 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+APP_ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.icns"
+APP_ICON_BUNDLE="$APP_RESOURCES/AppIcon.icns"
 BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
@@ -109,7 +112,7 @@ fi
 # Always remove the old bundle before assembly so Finder never launches stale code.
 echo "[bundle] Removing stale bundle at $APP_BUNDLE ..."
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 
 # Copy the SPM product binary, renamed to match CFBundleExecutable
 # Clean up any stale binaries from previous builds with different executable names
@@ -123,6 +126,7 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert CFBundleIdentifier         -string "$BUNDLE_ID"           "$INFO_PLIST"
 /usr/bin/plutil -insert CFBundleName               -string "$APP_NAME"            "$INFO_PLIST"
 /usr/bin/plutil -insert CFBundleDisplayName        -string "$DISPLAY_NAME"        "$INFO_PLIST"
+/usr/bin/plutil -insert CFBundleIconFile           -string "AppIcon"             "$INFO_PLIST"
 /usr/bin/plutil -insert CFBundleShortVersionString  -string "$VERSION"            "$INFO_PLIST"
 /usr/bin/plutil -insert CFBundleVersion            -string "$BUILD_NUMBER"        "$INFO_PLIST"
 /usr/bin/plutil -insert CFBundlePackageType        -string "APPL"                 "$INFO_PLIST"
@@ -150,9 +154,18 @@ chmod +x "$APP_BINARY"
     -string "Interview Copilot captures system audio for real-time interviewer question detection." \
     "$INFO_PLIST"
 
+# --- App Icon ---
+if [[ ! -f "$APP_ICON_SOURCE" ]]; then
+    echo "[bundle] ERROR: App icon not found at $APP_ICON_SOURCE" >&2
+    exit 1
+fi
+echo "[bundle] Copying app icon to bundle resources..."
+cp "$APP_ICON_SOURCE" "$APP_ICON_BUNDLE"
+
 # Google Drive/Finder can leave extended attributes or AppleDouble files inside
 # the assembled bundle; codesign rejects those as resource-fork detritus.
 echo "[sign] Clearing bundle extended attributes before signing..."
+touch "$APP_BUNDLE"
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 find "$APP_BUNDLE" -name "._*" -delete 2>/dev/null || true
 
@@ -201,10 +214,11 @@ echo ""
 echo "[verify] Bundle timestamps:"
 stat -f "%Sm  %N" "$APP_BINARY"
 stat -f "%Sm  %N" "$INFO_PLIST"
+stat -f "%Sm  %N" "$APP_ICON_BUNDLE"
 echo ""
 
 echo "[verify] Bundle identity:"
-plutil -p "$INFO_PLIST" | grep -E "CFBundleIdentifier|CFBundleName|NSMicrophoneUsageDescription|NSSpeechRecognitionUsageDescription"
+plutil -p "$INFO_PLIST" | grep -E "CFBundleIdentifier|CFBundleName|CFBundleExecutable|CFBundleIconFile|NSMicrophoneUsageDescription|NSSpeechRecognitionUsageDescription"
 codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier" || true
 echo ""
 

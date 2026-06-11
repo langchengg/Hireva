@@ -54,10 +54,37 @@ final class SuggestionRepository {
 
     private func saveSuggestionCard(_ card: SuggestionCard, retrievedChunks: [RetrievedChunk]?) throws {
         try database.dbQueue.write { db in
+            var card = card
+            if card.detectedQuestionID == nil {
+                card.detectedQuestionID = card.questionID
+            }
+            if let questionID = card.detectedQuestionID,
+               card.questionText == nil || card.transcriptSegmentID == nil || card.source == nil || card.speaker == nil {
+                let bindingRow = try Row.fetchOne(
+                    db,
+                    sql: """
+                    SELECT dq.question_text, dq.transcript_segment_id, ts.source, ts.speaker
+                    FROM detected_questions dq
+                    LEFT JOIN transcript_segments ts ON ts.id = dq.transcript_segment_id
+                    WHERE dq.id = ?
+                    """,
+                    arguments: [questionID]
+                )
+                card.questionText = card.questionText ?? (bindingRow?["question_text"] as String?)
+                card.transcriptSegmentID = card.transcriptSegmentID ?? (bindingRow?["transcript_segment_id"] as String?)
+                card.source = card.source ?? (bindingRow?["source"] as String?)
+                card.speaker = card.speaker ?? (bindingRow?["speaker"] as String?)
+            }
+
             try db.execute(
                 sql: """
                 INSERT INTO suggestion_cards (
-                    id, session_id, question_id, strategy, say_first, key_points_json,
+                    id, session_id, question_id, detected_question_id, question_text,
+                    transcript_segment_id, generation_id, source, speaker, trigger_path,
+                    alignment_score, alignment_verdict,
+                    question_intent, answer_intent, prompt_question_text,
+                    prompt_token_estimate, prompt_context_preview, mismatch_reason,
+                    strategy, say_first, key_points_json,
                     follow_up_ready_json, confidence, caution, evidence_used_json, risk_level,
                     model_name, prompt_version, provider_kind, provider_name, provider_base_url,
                     latency_ms, is_local, raw_json, created_at,
@@ -72,10 +99,25 @@ final class SuggestionRepository {
                     full_card_visible_ms, db_persisted_ms,
                     stage_b_stream_started_ms, stage_b_first_section_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     session_id = excluded.session_id,
                     question_id = excluded.question_id,
+                    detected_question_id = excluded.detected_question_id,
+                    question_text = excluded.question_text,
+                    transcript_segment_id = excluded.transcript_segment_id,
+                    generation_id = excluded.generation_id,
+                    source = excluded.source,
+                    speaker = excluded.speaker,
+                    trigger_path = excluded.trigger_path,
+                    alignment_score = excluded.alignment_score,
+                    alignment_verdict = excluded.alignment_verdict,
+                    question_intent = excluded.question_intent,
+                    answer_intent = excluded.answer_intent,
+                    prompt_question_text = excluded.prompt_question_text,
+                    prompt_token_estimate = excluded.prompt_token_estimate,
+                    prompt_context_preview = excluded.prompt_context_preview,
+                    mismatch_reason = excluded.mismatch_reason,
                     strategy = excluded.strategy,
                     say_first = excluded.say_first,
                     key_points_json = excluded.key_points_json,
@@ -121,6 +163,21 @@ final class SuggestionRepository {
                     card.id,
                     card.sessionID,
                     card.questionID,
+                    card.detectedQuestionID,
+                    card.questionText,
+                    card.transcriptSegmentID,
+                    card.generationID,
+                    card.source,
+                    card.speaker,
+                    card.triggerPath?.rawValue,
+                    card.alignmentScore,
+                    card.alignmentVerdict?.rawValue,
+                    card.questionIntent?.rawValue,
+                    card.answerIntent?.rawValue,
+                    card.promptQuestionText,
+                    card.promptTokenEstimate,
+                    card.promptContextPreview,
+                    card.mismatchReason,
                     card.strategy,
                     card.sayFirst,
                     JSONParsing.jsonString(card.keyPoints),
@@ -162,6 +219,32 @@ final class SuggestionRepository {
                     card.dbPersistedMS,
                     card.stageBStreamStartedMS,
                     card.stageBFirstSectionMS
+                ]
+            )
+
+            try db.execute(
+                sql: """
+                UPDATE suggestion_cards
+                SET prompt_primary_question = ?,
+                    prompt_contains_previous_question = ?,
+                    previous_question_included = ?,
+                    previous_question_text = ?,
+                    context_bleed_risk = ?,
+                    rag_chunk_ids_json = ?,
+                    rag_chunk_intents_json = ?,
+                    first_question_suppressed_reason = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    card.promptPrimaryQuestion ?? card.promptQuestionText ?? card.questionText,
+                    card.promptContainsPreviousQuestion.map { $0 ? 1 : 0 },
+                    card.previousQuestionIncluded.map { $0 ? 1 : 0 },
+                    card.previousQuestionText,
+                    card.contextBleedRisk?.rawValue,
+                    JSONParsing.jsonString(card.ragChunkIDs),
+                    JSONParsing.jsonString(card.ragChunkIntents.map(\.rawValue)),
+                    card.firstQuestionSuppressedReason,
+                    card.id
                 ]
             )
 
@@ -311,8 +394,12 @@ final class SuggestionRepository {
         let stageATimedOutInt: Int? = row["stage_a_timed_out"]
         let stageBCompletedInt: Int? = row["stage_b_completed"]
         let softFallbackUsedInt: Int? = row["soft_fallback_used"]
+        let promptContainsPreviousQuestionInt: Int? = row["prompt_contains_previous_question"]
+        let previousQuestionIncludedInt: Int? = row["previous_question_included"]
+        let contextBleedRiskString: String? = row["context_bleed_risk"]
+        let ragChunkIntentRawValues = JSONParsing.decodeArray(String.self, from: row["rag_chunk_intents_json"] ?? "[]")
         
-        return SuggestionCard(
+            return SuggestionCard(
             id: row["id"],
             sessionID: row["session_id"],
             questionID: row["question_id"],
@@ -333,6 +420,28 @@ final class SuggestionRepository {
             isLocal: row["is_local"],
             rawJSON: row["raw_json"],
             createdAt: DateCoding.date(from: row["created_at"]),
+            questionText: row["question_text"],
+            transcriptSegmentID: row["transcript_segment_id"],
+            generationID: row["generation_id"],
+            source: row["source"],
+            speaker: row["speaker"],
+            triggerPath: (row["trigger_path"] as String?).flatMap(GenerationTriggerPath.init(rawValue:)),
+            alignmentScore: row["alignment_score"],
+            alignmentVerdict: (row["alignment_verdict"] as String?).flatMap(AnswerAlignmentVerdict.init(rawValue:)),
+            questionIntent: (row["question_intent"] as String?).flatMap(AnswerRelevanceIntent.init(rawValue:)),
+            answerIntent: (row["answer_intent"] as String?).flatMap(AnswerRelevanceIntent.init(rawValue:)),
+            promptQuestionText: row["prompt_question_text"],
+            promptPrimaryQuestion: row["prompt_primary_question"],
+            promptContainsPreviousQuestion: promptContainsPreviousQuestionInt.map { $0 == 1 },
+            previousQuestionIncluded: previousQuestionIncludedInt.map { $0 == 1 },
+            previousQuestionText: row["previous_question_text"],
+            contextBleedRisk: contextBleedRiskString.flatMap(ContextBleedRisk.init(rawValue:)),
+            ragChunkIDs: JSONParsing.decodeArray(String.self, from: row["rag_chunk_ids_json"] ?? "[]"),
+            ragChunkIntents: ragChunkIntentRawValues.compactMap(AnswerRelevanceIntent.init(rawValue:)),
+            firstQuestionSuppressedReason: row["first_question_suppressed_reason"],
+            promptTokenEstimate: row["prompt_token_estimate"],
+            promptContextPreview: row["prompt_context_preview"],
+            mismatchReason: row["mismatch_reason"],
             sayFirstSource: row["say_first_source"],
             stageATimedOut: stageATimedOutInt == 1,
             stageBCompleted: stageBCompletedInt == 1,

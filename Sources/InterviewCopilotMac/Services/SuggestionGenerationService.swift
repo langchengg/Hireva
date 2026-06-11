@@ -17,21 +17,15 @@ final class SuggestionGenerationService {
         customProviderConfig: LLMProviderConfiguration? = nil
     ) async throws -> (card: SuggestionCard, response: LLMChatResult) {
         let prompt = PromptLibrary.suggestionGenerator
-        let userPrompt = """
-        Detected question:
-        \(question.questionText)
-
-        Intent: \(question.intent.rawValue)
-        Answer strategy: \(question.answerStrategy.rawValue)
-
-        Local evidence:
-        \(context.promptText.isEmpty ? "No matching CV/JD chunks were found. Say how to answer safely without fabricating." : context.promptText)
-
-        Recent transcript:
-        \(ContextBudgeter.limitWords(transcriptContext, maxWords: 800))
-
-        Generate one concise suggestion card. Use only the evidence above.
-        """
+        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+            question: question,
+            context: context,
+            transcriptContext: transcriptContext,
+            cvSummary: "Use only the selected local evidence below.",
+            jdSummary: "Use only the selected local evidence below.",
+            stage: .jsonCard
+        )
+        let userPrompt = snapshot.prompt + "\n\nGenerate one concise suggestion card. Use only the evidence above."
 
         let response: LLMChatResult
         if let customConfig = customProviderConfig {
@@ -78,7 +72,18 @@ final class SuggestionGenerationService {
             latencyMS: response.latencyMS,
             isLocal: response.isLocal,
             rawJSON: response.content,
-            createdAt: Date()
+            createdAt: Date(),
+            questionIntent: snapshot.questionIntent,
+            promptQuestionText: snapshot.questionTextSnapshot,
+            promptPrimaryQuestion: snapshot.promptPrimaryQuestion,
+            promptContainsPreviousQuestion: snapshot.promptContainsPreviousQuestion,
+            previousQuestionIncluded: snapshot.previousQuestionIncluded,
+            previousQuestionText: snapshot.previousQuestionText,
+            contextBleedRisk: snapshot.contextBleedRisk,
+            ragChunkIDs: snapshot.ragChunkIDs,
+            ragChunkIntents: snapshot.ragChunkIntents,
+            promptTokenEstimate: snapshot.promptTokenEstimate,
+            promptContextPreview: snapshot.ragChunkPreviews.joined(separator: "\n")
         )
         return (card, response)
     }
@@ -100,23 +105,17 @@ final class SuggestionGenerationService {
         - Absolutely no markdown, no JSON, no LaTeX commands (no braces, backslashes).
         - No mention of "CV", "JD", "RAG", "context", or "evidence".
         - Must be natural, directly sayable, and fluid.
+        - The CURRENT QUESTION TO ANSWER in the user prompt is the primary task. Context is subordinate.
         """
-        
-        let userPrompt = """
-        [Candidate CV Summary]
-        \(cvSummary)
-
-        [Job Description Summary]
-        \(jdSummary)
-
-        [Local Evidence Chunks]
-        \(context.promptText.isEmpty ? "No CV/JD context found. Guide the candidate to answer safely without fabricating." : context.promptText)
-
-        [Question]
-        \(question.questionText)
-
-        Generate the single opening sentence now:
-        """
+        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+            question: question,
+            context: context,
+            transcriptContext: "",
+            cvSummary: cvSummary,
+            jdSummary: jdSummary,
+            stage: .firstAnswer
+        )
+        let userPrompt = snapshot.prompt + "\n\nGenerate the single opening answer now:"
         
         let config = try customProviderConfig ?? llmRouter.realtimeConfiguration()
         return try llmRouter.chatStream(
@@ -151,6 +150,7 @@ final class SuggestionGenerationService {
         - Absolutely NO LaTeX commands, braces, or backslashes in any field.
         - Absolutely NO meta-instructions or instructional verbs like "Highlight...", "Emphasize...", "Use...", "Mention...", "focus on..." in say_first, key_points, follow_up_ready, or caution.
         - Do not mention "CV", "JD", "RAG", "evidence", or "context" in visible candidate answer fields.
+        - The CURRENT QUESTION TO ANSWER in the user prompt is the primary task. Context is subordinate.
 
         Answer Policy & Formatting Guidelines:
         Your output MUST be a valid JSON object matching this schema:
@@ -166,24 +166,15 @@ final class SuggestionGenerationService {
         }
         """
         
-        let userPrompt = """
-        [Candidate CV Summary]
-        \(cvSummary)
-
-        [Job Description Summary]
-        \(jdSummary)
-
-        [Local Evidence Chunks]
-        \(context.promptText.isEmpty ? "No CV/JD context found. Guide the candidate to answer safely without fabricating." : context.promptText)
-
-        [Question]
-        \(question.questionText)
-
-        [Recent Transcript (Last 200 words)]
-        \(ContextBudgeter.limitWords(transcriptContext, maxWords: 200))
-
-        Generate the JSON suggestion card now:
-        """
+        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+            question: question,
+            context: context,
+            transcriptContext: transcriptContext,
+            cvSummary: cvSummary,
+            jdSummary: jdSummary,
+            stage: .fullAnswer
+        )
+        let userPrompt = snapshot.prompt + "\n\nGenerate the JSON suggestion card now:"
         
         let config = try customProviderConfig ?? llmRouter.realtimeConfiguration()
         let response = try await llmRouter.chat(
@@ -220,7 +211,18 @@ final class SuggestionGenerationService {
             latencyMS: response.latencyMS,
             isLocal: response.isLocal,
             rawJSON: response.content,
-            createdAt: Date()
+            createdAt: Date(),
+            questionIntent: snapshot.questionIntent,
+            promptQuestionText: snapshot.questionTextSnapshot,
+            promptPrimaryQuestion: snapshot.promptPrimaryQuestion,
+            promptContainsPreviousQuestion: snapshot.promptContainsPreviousQuestion,
+            previousQuestionIncluded: snapshot.previousQuestionIncluded,
+            previousQuestionText: snapshot.previousQuestionText,
+            contextBleedRisk: snapshot.contextBleedRisk,
+            ragChunkIDs: snapshot.ragChunkIDs,
+            ragChunkIntents: snapshot.ragChunkIntents,
+            promptTokenEstimate: snapshot.promptTokenEstimate,
+            promptContextPreview: snapshot.ragChunkPreviews.joined(separator: "\n")
         )
         
         return (card, response)
@@ -265,26 +267,17 @@ final class SuggestionGenerationService {
         - Do not mention "CV", "JD", "RAG", "context", or "evidence" in visible candidate fields.
         - If evidence is missing, say how to answer safely.
         - Absolutely no LaTeX commands, braces, or backslashes.
+        - The CURRENT QUESTION TO ANSWER in the user prompt is the primary task. Context is subordinate.
         """
-
-        let userPrompt = """
-        [Candidate Summary]
-        \(cvSummary)
-
-        [Target Role Summary]
-        \(jdSummary)
-
-        [Relevant Local Evidence]
-        \(context.promptText.isEmpty ? "No matching local chunks were found. Keep the answer safe and non-fabricated." : context.promptText)
-
-        [Question]
-        \(question.questionText)
-
-        [Recent Transcript]
-        \(RealtimePromptBudgeter.limitTranscript(transcriptContext))
-
-        Stream the section response now.
-        """
+        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+            question: question,
+            context: context,
+            transcriptContext: RealtimePromptBudgeter.limitTranscript(transcriptContext),
+            cvSummary: cvSummary,
+            jdSummary: jdSummary,
+            stage: .sectionStream
+        )
+        let userPrompt = snapshot.prompt + "\n\nStream the section response now."
 
         let config = try customProviderConfig ?? llmRouter.realtimeConfiguration()
         return try llmRouter.chatStream(
