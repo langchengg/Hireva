@@ -4,39 +4,6 @@ import Combine
 import Foundation
 import SwiftUI
 
-enum AppSection: String, CaseIterable, Identifiable {
-    case home
-    case documents
-    case sessions
-    case readinessCheck
-    case settings
-    case diagnostics
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .home: return "Home / Interview"
-        case .documents: return "Documents"
-        case .sessions: return "Sessions"
-        case .readinessCheck: return "Readiness Check"
-        case .settings: return "Settings"
-        case .diagnostics: return "Diagnostics"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .home: return "house"
-        case .documents: return "doc.text"
-        case .sessions: return "clock.arrow.circlepath"
-        case .readinessCheck: return "checklist.checked"
-        case .settings: return "gearshape"
-        case .diagnostics: return "stethoscope"
-        }
-    }
-}
-
 @MainActor
 final class AppState: ObservableObject {
     @Published var selectedSection: AppSection = .home
@@ -149,7 +116,8 @@ final class AppState: ObservableObject {
     @Published var lastEmbeddingTestStatus: String = "Not tested"
     @Published var lastEmbeddingError: String?
     private var activeEmbeddingRebuildTask: Task<Void, Never>? = nil
-    private var actionFeedbackDismissTasks: [String: Task<Void, Never>] = [:]
+    // internal for AppState extension access only
+    var actionFeedbackDismissTasks: [String: Task<Void, Never>] = [:]
     @Published var historicalSuggestionChunks: [String: [RetrievedChunk]] = [:]
 
     // MARK: - Manual Capture Push-to-Ask state
@@ -266,39 +234,6 @@ final class AppState: ObservableObject {
     }
     
     @Published public var recent20CaptureEvents: [CaptureEvent] = []
-    
-    public func addCaptureEvent(
-        name: String,
-        stateBefore: String,
-        stateAfter: String,
-        reason: String,
-        file: String = #file,
-        line: Int = #line,
-        function: String = #function
-    ) {
-        let event = CaptureEvent(
-            id: UUID().uuidString,
-            timestamp: Date(),
-            eventName: name,
-            stateBefore: stateBefore,
-            stateAfter: stateAfter,
-            reason: reason,
-            file: file.split(separator: "/").last.map(String.init) ?? file,
-            function: function,
-            line: line,
-            systemCaptureRunning: systemCaptureRunning,
-            micCaptureRunning: micCaptureRunning,
-            lastSystemAudioBufferAt: lastSystemAudioBufferAt
-        )
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.recent20CaptureEvents.append(event)
-            if self.recent20CaptureEvents.count > 20 {
-                self.recent20CaptureEvents.removeFirst()
-            }
-            self.objectWillChange.send()
-        }
-    }
     
     public var systemRecentBufferAlive: Bool {
         guard let last = lastSystemAudioBufferAt else { return false }
@@ -518,19 +453,24 @@ final class AppState: ObservableObject {
 
     private var activeGenerationController: ActiveGenerationController?
     private var pendingIgnoredSystemAudioFallback: (questionID: String, reason: String)?
-    private var mainThreadHeartbeatTask: Task<Void, Never>?
-    private var lastHeartbeatTickAt: Date?
+    // internal for AppState extension access only
+    var mainThreadHeartbeatTask: Task<Void, Never>?
+    // internal for AppState extension access only
+    var lastHeartbeatTickAt: Date?
     
     // Background RAG precompute cache and debounce
-    private struct RAGPrecomputeCacheItem {
+    // internal for AppState extension access only
+    struct RAGPrecomputeCacheItem {
         let context: RetrievedContext
         let trace: RetrievalTrace
         let rawText: String
         let normalizedQuestionText: String
         let questionIntent: AnswerRelevanceIntent
     }
-    private var precomputedRAGCache: [String: RAGPrecomputeCacheItem] = [:]
-    private var precomputeDebounceTask: Task<Void, Never>? = nil
+    // internal for AppState extension access only
+    var precomputedRAGCache: [String: RAGPrecomputeCacheItem] = [:]
+    // internal for AppState extension access only
+    var precomputeDebounceTask: Task<Void, Never>? = nil
 
     let database: AppDatabase
     let documentRepository: DocumentRepository
@@ -544,25 +484,34 @@ final class AppState: ObservableObject {
     let microphoneDiagnostics: MicrophoneDiagnosticsService
     let mockTranscriptionService: MockTranscriptionService
 
-        private let localDataService: LocalDataService
-    private var contextRetrievalService: ContextRetrievalService!
-    private let llmRouter: LLMRouter
-    private let questionDetectionService: QuestionDetectionService
+    // internal for AppState extension access only
+    let localDataService: LocalDataService
+    // internal for AppState extension access only
+    var contextRetrievalService: ContextRetrievalService!
+    // internal for AppState extension access only
+    let llmRouter: LLMRouter
+    // internal for AppState extension access only
+    let questionDetectionService: QuestionDetectionService
     private let suggestionGenerationService: SuggestionGenerationService
-    private let recapGenerationService: RecapGenerationService
+    // internal for AppState extension access only
+    let recapGenerationService: RecapGenerationService
     private var appleSpeechService: AppleSpeechTranscriptionService?
     private var activeTranscriptionProvider: TranscriptionProvider?
     private var ownsSystemAudioCaptureRuntime = false
-    private var transcriptionTask: Task<Void, Never>?
+    // internal for AppState extension access only
+    var transcriptionTask: Task<Void, Never>?
     
-    private struct RecentSystemAudioRecord {
+    // internal for AppState extension access only
+    struct RecentSystemAudioRecord {
         let text: String
         let timestamp: Date
     }
-    private var recentSystemAudioRecords: [RecentSystemAudioRecord] = []
+    // internal for AppState extension access only
+    var recentSystemAudioRecords: [RecentSystemAudioRecord] = []
     private var detectionDebounceTask: Task<Void, Never>?
     private var activeDetectionTask: Task<Void, Never>?
-    private var activeAITask: Task<Void, Never>?
+    // internal for AppState extension access only
+    var activeAITask: Task<Void, Never>?
     private var lastDetectionAt: Date?
     private var lastAutoSuggestionAt: Date?
     private var lastAutoQuestionText: String?
@@ -574,7 +523,8 @@ final class AppState: ObservableObject {
 
     var detectionDebounceSeconds: TimeInterval = 2
     private let autoSuggestionCooldownSeconds: TimeInterval = 5
-    private let autoSuggestionConfidenceThreshold = 0.75
+    // internal for AppState extension access only
+    let autoSuggestionConfidenceThreshold = 0.75
     private let possibleQuestionConfidenceRange = 0.55..<0.75
 
     static func bootstrap() -> AppState {
@@ -767,239 +717,11 @@ final class AppState: ObservableObject {
         mainThreadHeartbeatTask?.cancel()
     }
 
-    func beginAction(_ id: String, title: String, message: String) {
-        actionLoadingStates[id] = true
-        setActionFeedback(
-            ActionFeedback(
-                actionID: id,
-                title: title,
-                message: message,
-                kind: .loading
-            )
-        )
-    }
+    // MARK: - Action Feedback (moved to AppState+Actions.swift)
 
-    func completeAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4.0) {
-        actionLoadingStates[id] = false
-        setActionFeedback(
-            ActionFeedback(
-                actionID: id,
-                title: title,
-                message: message,
-                kind: .success,
-                autoDismissAfter: autoDismissAfter
-            )
-        )
-    }
+    // MARK: - Diagnostics Helpers (moved to AppState+Diagnostics.swift)
 
-    func warnAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 6.0) {
-        actionLoadingStates[id] = false
-        setActionFeedback(
-            ActionFeedback(
-                actionID: id,
-                title: title,
-                message: message,
-                kind: .warning,
-                autoDismissAfter: autoDismissAfter
-            )
-        )
-    }
-
-    func failAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = nil) {
-        actionLoadingStates[id] = false
-        setActionFeedback(
-            ActionFeedback(
-                actionID: id,
-                title: title,
-                message: message,
-                kind: .error,
-                autoDismissAfter: autoDismissAfter
-            )
-        )
-        updateDiagnostics { $0.lastError = message }
-    }
-
-    func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4.0) {
-        actionLoadingStates[id] = false
-        setActionFeedback(
-            ActionFeedback(
-                actionID: id,
-                title: title,
-                message: message,
-                kind: .info,
-                autoDismissAfter: autoDismissAfter
-            )
-        )
-    }
-
-    func clearActionFeedback(_ id: String) {
-        actionLoadingStates[id] = false
-        activeActionFeedbacks.removeAll { $0.actionID == id }
-        actionFeedbackDismissTasks[id]?.cancel()
-        actionFeedbackDismissTasks[id] = nil
-    }
-
-    func isActionLoading(_ id: String) -> Bool {
-        actionLoadingStates[id] == true
-    }
-
-    func latestActionFeedback(for id: String) -> ActionFeedback? {
-        activeActionFeedbacks.last { $0.actionID == id }
-    }
-
-    func latestActionFeedback(matching ids: [String]) -> ActionFeedback? {
-        activeActionFeedbacks.last { ids.contains($0.actionID) }
-    }
-
-    private func setActionFeedback(_ feedback: ActionFeedback) {
-        actionFeedbackDismissTasks[feedback.actionID]?.cancel()
-        activeActionFeedbacks.removeAll { $0.actionID == feedback.actionID }
-        activeActionFeedbacks.append(feedback)
-        if activeActionFeedbacks.count > 8 {
-            activeActionFeedbacks = Array(activeActionFeedbacks.suffix(8))
-        }
-        guard let autoDismissAfter = feedback.autoDismissAfter else { return }
-        actionFeedbackDismissTasks[feedback.actionID] = Task { [weak self, feedbackID = feedback.id, actionID = feedback.actionID] in
-            try? await Task.sleep(for: .seconds(autoDismissAfter))
-            await MainActor.run {
-                guard let self else { return }
-                self.activeActionFeedbacks.removeAll { $0.id == feedbackID }
-                if self.actionFeedbackDismissTasks[actionID]?.isCancelled == false {
-                    self.actionFeedbackDismissTasks[actionID] = nil
-                }
-            }
-        }
-    }
-
-    public func startMainThreadHeartbeat() {
-        mainThreadHeartbeatTask?.cancel()
-        let now = Date()
-        mainThreadHeartbeatAt = now
-        lastHeartbeatTickAt = now
-        mainThreadHeartbeatTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 500_000_000)
-                } catch {
-                    return
-                }
-                guard let self else { return }
-                let tick = Date()
-                let previous = self.lastHeartbeatTickAt ?? tick
-                let delay = max(0, Int((tick.timeIntervalSince(previous) - 0.5) * 1_000))
-                self.mainThreadHeartbeatAt = tick
-                self.mainThreadHeartbeatDelayMs = delay
-                self.lastHeartbeatTickAt = tick
-                if delay > 2_000 {
-                    self.lastLongOperationName = "Main thread appears blocked"
-                    self.lastLongOperationStartedAt = previous
-                    print("[AppState] Main thread appears blocked: \(delay) ms")
-                }
-            }
-        }
-    }
-
-    private func markSQLiteOperation(_ operation: String) {
-        lastSQLiteOperation = operation
-        lastLongOperationName = operation
-        lastLongOperationStartedAt = Date()
-        updateActiveTaskSummary()
-    }
-
-    private func markRAGOperation(_ operation: String) {
-        lastRAGOperation = operation
-        lastLongOperationName = operation
-        lastLongOperationStartedAt = Date()
-        updateActiveTaskSummary()
-    }
-
-    private func markProviderOperation(_ operation: String) {
-        lastProviderOperation = operation
-        lastLongOperationName = operation
-        lastLongOperationStartedAt = Date()
-        updateActiveTaskSummary()
-    }
-
-    private func updateActiveTaskSummary() {
-        guard let activeGenerationID else {
-            activeTaskSummary = "Idle"
-            return
-        }
-        let shortGeneration = String(activeGenerationID.prefix(8))
-        let question = activeQuestionID.map { String($0.prefix(8)) } ?? "none"
-        activeTaskSummary = "generation=\(shortGeneration) question=\(question) state=\(generationUIState.displayName) fallbackWatchdog=\(fallbackWatchdogActive) stageB=\(stageBTaskActive) providerStream=\(providerStreamActive)"
-    }
-
-    private func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment) {
-        let repository = transcriptRepository
-        markSQLiteOperation("Saving transcript segment in background")
-        Task.detached(priority: .utility) { [weak self] in
-            do {
-                try repository.saveSegment(segment)
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved transcript segment"
-                }
-            } catch {
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Transcript save failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    private func saveDetectedQuestionInBackground(_ question: DetectedQuestion) {
-        let repository = suggestionRepository
-        markSQLiteOperation("Saving detected question in background")
-        Task.detached(priority: .utility) { [weak self] in
-            do {
-                try repository.saveDetectedQuestion(question)
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved detected question"
-                }
-            } catch {
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Detected question save failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    private func saveDetectedQuestionsInBackground(_ questions: [DetectedQuestion]) {
-        guard !questions.isEmpty else { return }
-        let repository = suggestionRepository
-        markSQLiteOperation("Saving extracted detected questions in background")
-        Task.detached(priority: .utility) { [weak self] in
-            do {
-                for question in questions {
-                    try repository.saveDetectedQuestion(question)
-                }
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved extracted detected questions"
-                }
-            } catch {
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Extracted detected question save failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    private func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
-        let repository = suggestionRepository
-        markSQLiteOperation("Saving suggestion snapshot in background")
-        Task.detached(priority: .utility) { [weak self] in
-            do {
-                try repository.saveSuggestionCard(card, retrievedChunks: chunks)
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved suggestion snapshot"
-                }
-            } catch {
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Suggestion snapshot save failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
+    // MARK: - Background Persistence (moved to AppState+Transcript.swift)
 
     var onboardingComplete: Bool {
         hasCV && hasJD
@@ -1112,424 +834,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    func selectSection(_ section: AppSection) {
-        selectedSection = section
-    }
+    // MARK: - Documents (moved to AppState+Documents.swift)
 
-    func saveDocument(type: DocumentType, title: String, content: String) {
-        let actionID = ActionID.saveDocument(type)
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Saving \(type.title)", message: "Saving and rebuilding clean context chunks...")
-        do {
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.count >= 80 else {
-                warnAction(actionID, title: "More text needed", message: "Paste at least 80 characters before saving \(type.title).")
-                return
-            }
-            let saved = try documentRepository.saveDocument(type: type, title: title, content: content)
-            refreshAll()
-            triggerEmbeddingGeneration(for: type)
-            if saved.sanitizationWarnings?.isEmpty == false {
-                warnAction(actionID, title: "Saved and cleaned", message: "LaTeX or formatting noise was cleaned for relevant context.")
-            } else {
-                let chunks = (try? documentRepository.chunks(type: type).count) ?? 0
-                completeAction(actionID, title: "Saved and indexed", message: "\(type.title) saved. \(chunks) clean chunks are ready.")
-            }
-        } catch {
-            let message = "Could not save \(type.title): \(error.localizedDescription)"
-            failAction(actionID, title: "Save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func deleteDocument(_ document: DocumentRecord) {
-        let actionID = ActionID.clearDocument(document.type)
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Clearing \(document.type.title)", message: "Removing the saved document and refreshing context status...")
-        do {
-            try documentRepository.deleteDocument(id: document.id)
-            refreshAll()
-            completeAction(actionID, title: "Document cleared", message: "\(document.type.title) was removed.")
-        } catch {
-            let message = "Could not delete document: \(error.localizedDescription)"
-            failAction(actionID, title: "Clear failed", message: message)
-            showError(message)
-        }
-    }
-
-    func saveSettings(_ newSettings: AppSettings) {
-        let actionID = ActionID.saveSettings
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Saving settings", message: "Applying the latest preferences...")
-        var next = newSettings
-        next.compactMode = next.floatingAssistantDisplayMode == .compact
-        if next.highContrastFloatingPanel {
-            next.floatingWindowOpacity = max(next.floatingWindowOpacity, 0.65)
-        }
-        do {
-            settings = next
-            try settingsRepository.saveSettings(next)
-            refreshAll()
-            completeAction(actionID, title: "Settings saved", message: "Your settings were applied.")
-        } catch {
-            let message = "Could not save settings: \(error.localizedDescription)"
-            failAction(actionID, title: "Save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func saveAPIKey(_ apiKey: String) {
-        let actionID = ActionID.providerSaveKey
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Saving securely", message: "Saving the provider key without displaying it.")
-        do {
-            try keychainService.saveAPIKey(apiKey)
-            self.connectionResult = "API key securely saved."
-            self.refreshAll()
-            completeAction(actionID, title: "Saved securely", message: "Provider key saved. Raw key is hidden.")
-        } catch {
-            let message = "Could not save API key: \(error.localizedDescription)"
-            failAction(actionID, title: "Key save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func saveAPIKey(_ apiKey: String, for provider: LLMProviderConfiguration) {
-        let actionID = ActionID.provider(ActionID.providerSaveKey, provider.id)
-        guard !isActionLoading(actionID) else { return }
-        guard let account = provider.apiKeyAccount else {
-            connectionResult = "\(provider.name) does not require an API key."
-            infoAction(actionID, title: "No key needed", message: "\(provider.name) does not require an API key.")
-            return
-        }
-        beginAction(actionID, title: "Saving securely", message: "Saving \(provider.name) key without displaying it.")
-        do {
-            try keychainService.saveAPIKey(apiKey, account: account)
-            self.providerConnectionResults[provider.id] = "API key securely saved."
-            self.refreshAll()
-            completeAction(actionID, title: "Saved securely", message: "\(provider.name) key saved. Raw key is hidden.")
-        } catch {
-            let message = "Could not save API key: \(error.localizedDescription)"
-            failAction(actionID, title: "Key save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func saveEmbeddingAPIKey(_ apiKey: String, account: String) {
-        let actionID = ActionID.saveEmbeddingKey
-        guard !isActionLoading(actionID) else { return }
-        let cleanedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedAccount.isEmpty else {
-            let message = "Embedding API key account is missing."
-            failAction(actionID, title: "Key save failed", message: message)
-            showError(message)
-            return
-        }
-        beginAction(actionID, title: "Saving securely", message: "Saving the embedding provider key without displaying it.")
-        do {
-            try keychainService.saveAPIKey(apiKey, account: cleanedAccount)
-            lastEmbeddingError = nil
-            lastEmbeddingTestStatus = "Embedding API key securely saved."
-            refreshAll()
-            completeAction(actionID, title: "Saved securely", message: "Embedding key saved. Raw key is hidden.")
-        } catch {
-            let message = "Could not save embedding API key: \(error.localizedDescription)"
-            failAction(actionID, title: "Key save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func embeddingKeyStatus(account: String) -> String {
-        let cleanedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedAccount.isEmpty else { return "No account configured" }
-        guard keychainService.hasAPIKey(account: cleanedAccount) else { return "Missing" }
-        do {
-            return KeychainService.maskKey(try keychainService.loadAPIKey(account: cleanedAccount) ?? "")
-        } catch {
-            return "Configured, unreadable"
-        }
-    }
-
-    func testEmbeddingProvider() {
-        let actionID = ActionID.providerTest
-        guard !isActionLoading(actionID) else { return }
-        guard settings.embeddingProviderKind != .disabled else {
-            lastEmbeddingError = nil
-            lastEmbeddingTestStatus = "Keyword RAG ready; vector embeddings not configured."
-            infoAction(actionID, title: "Keyword search ready", message: "Cloud embeddings are not configured.")
-            return
-        }
-        guard let provider = resolveEmbeddingProvider() else {
-            lastEmbeddingTestStatus = "Keyword RAG ready; vector embeddings not configured."
-            warnAction(actionID, title: "Embedding key missing", message: "Keyword search remains ready. Add a cloud embedding key to test embeddings.")
-            return
-        }
-
-        beginAction(actionID, title: "Testing embeddings", message: "Sending a small provider test request...")
-        isTestingConnection = true
-        lastEmbeddingError = nil
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
-            guard let self else { return }
-            let started = Date()
-            do {
-                let vector = try await provider.embed(text: "Embedding provider connection test.")
-                guard !Task.isCancelled else { return }
-                let latency = Int(Date().timeIntervalSince(started) * 1000)
-                self.lastEmbeddingTestStatus = "Connected. Dimension \(vector.count), latency \(latency) ms."
-                self.lastEmbeddingError = nil
-                self.completeAction(actionID, title: "Embedding provider connected", message: "Dimension \(vector.count), latency \(latency) ms.")
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.lastEmbeddingTestStatus = "Embedding provider test failed."
-                self.lastEmbeddingError = self.userFacing(error)
-                self.failAction(actionID, title: "Embedding test failed", message: self.userFacing(error))
-            }
-            self.isTestingConnection = false
-        }
-    }
-
-    func deleteAPIKey() {
-        do {
-            try keychainService.deleteAPIKey()
-            self.connectionResult = "API key removed."
-            self.refreshAll()
-        } catch {
-            showError("Could not remove API key: \(error.localizedDescription)")
-        }
-    }
-
-    func saveProviderConfiguration(_ provider: LLMProviderConfiguration) {
-        let actionID = ActionID.provider(ActionID.providerSave, provider.id)
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Saving provider", message: "Saving \(provider.name) configuration...")
-        do {
-            try settingsRepository.saveProviderConfiguration(provider)
-            refreshAll()
-            completeAction(actionID, title: "Provider saved", message: "\(provider.name) configuration saved.")
-        } catch {
-            let message = "Could not save provider: \(error.localizedDescription)"
-            failAction(actionID, title: "Provider save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func deleteProviderConfiguration(_ provider: LLMProviderConfiguration) {
-        let actionID = ActionID.provider(ActionID.providerDelete, provider.id)
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Deleting provider", message: "Removing \(provider.name)...")
-        do {
-            try settingsRepository.deleteProviderConfiguration(id: provider.id)
-            refreshAll()
-            completeAction(actionID, title: "Provider deleted", message: "\(provider.name) was removed.")
-        } catch {
-            let message = "Could not delete provider: \(error.localizedDescription)"
-            failAction(actionID, title: "Provider delete failed", message: message)
-            showError(message)
-        }
-    }
-
-    func setActiveRealtimeProvider(_ provider: LLMProviderConfiguration) {
-        let actionID = ActionID.providerSwitch
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Switching provider", message: "Setting \(provider.name) for realtime answers...")
-        do {
-            try settingsRepository.setActiveRealtimeProvider(id: provider.id)
-            refreshAll()
-            completeAction(actionID, title: "Provider switched", message: "\(provider.name) is now used for realtime answers.")
-        } catch {
-            let message = "Could not set realtime provider: \(error.localizedDescription)"
-            failAction(actionID, title: "Provider switch failed", message: message)
-            showError(message)
-        }
-    }
-
-    func updateActiveRealtimeProvider(provider: LLMProviderConfiguration, model: String?) {
-        let actionID = ActionID.providerSwitch
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Switching provider", message: "Checking \(provider.name) configuration...")
-        activeAITask?.cancel()
-        errorMessage = nil
-        lastProviderSwitchError = nil
-        lastProviderSwitchTimestamp = Date()
-        
-        var updated = provider
-        if let model = model {
-            updated.model = model
-        }
-        
-        do {
-            if updated.kind == .ollamaLocal {
-                let msg = "Local providers are disabled. Please choose DeepSeek or another API provider."
-                self.lastProviderSwitchError = msg
-                self.errorMessage = "Could not switch provider: \(msg)"
-                failAction(actionID, title: "Provider switch failed", message: msg)
-                return
-            } else if updated.kind == .deepSeek || updated.kind == .openAICompatible {
-                guard let account = updated.apiKeyAccount,
-                      keychainService.hasAPIKey(account: account) else {
-                    let msg = "Missing API Key for \(updated.name)."
-                    self.lastProviderSwitchError = msg
-                    self.errorMessage = "Could not switch provider: \(msg)"
-                    failAction(actionID, title: "Provider switch failed", message: msg)
-                    return
-                }
-                
-                try settingsRepository.saveProviderConfiguration(updated)
-                try settingsRepository.setActiveRealtimeProvider(id: updated.id)
-                refreshAll()
-            } else {
-                try settingsRepository.saveProviderConfiguration(updated)
-                try settingsRepository.setActiveRealtimeProvider(id: updated.id)
-                refreshAll()
-            }
-            completeAction(actionID, title: "Provider switched", message: "\(updated.name) \(updated.model) is active.")
-        } catch {
-            let msg = error.localizedDescription
-            self.lastProviderSwitchError = msg
-            self.errorMessage = "Could not switch provider: \(msg)"
-            failAction(actionID, title: "Provider switch failed", message: msg)
-        }
-    }
-
-    func setActiveRecapProvider(_ provider: LLMProviderConfiguration) {
-        let actionID = ActionID.provider(ActionID.providerSave, provider.id)
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Saving recap provider", message: "Setting \(provider.name) for full answers and recaps...")
-        do {
-            try settingsRepository.setActiveRecapProvider(id: provider.id)
-            refreshAll()
-            completeAction(actionID, title: "Recap provider saved", message: "\(provider.name) is now used for recaps.")
-        } catch {
-            let message = "Could not set recap provider: \(error.localizedDescription)"
-            failAction(actionID, title: "Provider save failed", message: message)
-            showError(message)
-        }
-    }
-
-    func testProviderConnection(_ provider: LLMProviderConfiguration) {
-        let actionID = ActionID.provider(ActionID.providerTest, provider.id)
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Testing \(provider.name)", message: "Testing provider connection...")
-        isTestingConnection = true
-        providerConnectionResults[provider.id] = nil
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let result = try await llmRouter.testProvider(configuration: provider)
-                guard !Task.isCancelled else { return }
-                providerConnectionResults[provider.id] = result.message
-                completeAction(actionID, title: "\(provider.name) connected", message: result.message)
-                updateDiagnostics {
-                    $0.lastAPILatencyMS = result.latencyMS
-                    $0.lastProviderName = provider.name
-                    $0.lastProviderModel = provider.model
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                let message = self.userFacing(error)
-                providerConnectionResults[provider.id] = message
-                self.failAction(actionID, title: "\(provider.name) test failed", message: message)
-                updateDiagnostics { $0.lastError = message }
-            }
-            isTestingConnection = false
-        }
-    }
-
-    func retryLastFailedAITask() {
-        guard let taskType = lastFailedTaskType, let session = currentSession else {
-            return
-        }
-        
-        self.errorMessage = nil
-        
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
-            guard let self else { return }
-            switch taskType {
-            case .questionDetection:
-                let transcript = self.lastFailedTranscriptContext
-                await self.runAutomaticDetection(
-                    session: session,
-                    detectionTranscript: transcript,
-                    suggestionTranscript: transcript,
-                    triggeringSegmentID: nil
-                )
-            case .suggestionGeneration:
-                guard let question = self.lastFailedQuestion else { return }
-                let transcript = self.lastFailedTranscriptContext
-                do {
-                    self.lastFailedTaskType = nil
-                    try await self.generateSuggestion(for: question, session: session, transcript: transcript, autoGenerated: false)
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    let message = self.userFacing(error)
-                    self.liveState = .error(message)
-                    self.showError(message)
-                }
-            }
-        }
-    }
-
-    func switchToDeepSeekFallback() {
-        guard let deepSeekProvider = providerConfigurations.first(where: { $0.kind == .deepSeek }) else {
-            showError("DeepSeek provider not configured. Please configure it in Provider Settings.")
-            return
-        }
-        
-        let alert = NSAlert()
-        alert.messageText = "Confirm Cloud Fallback"
-        alert.informativeText = "Switching to DeepSeek will send your recent transcript and CV/JD context snippets to DeepSeek cloud APIs. Do you want to proceed?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Proceed")
-        alert.addButton(withTitle: "Cancel")
-        
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            setActiveRealtimeProvider(deepSeekProvider)
-            retryLastFailedAITask()
-        }
-    }
-
-    func testDeepSeekConnection() {
-        let actionID = ActionID.testDeepSeek
-        guard !isActionLoading(actionID) else { return }
-        guard let provider = providerConfigurations.first(where: { $0.kind == .deepSeek }) else {
-            connectionResult = "DeepSeek provider is not configured."
-            failAction(actionID, title: "DeepSeek not configured", message: "Add DeepSeek in Settings before testing.")
-            return
-        }
-        guard provider.apiKeyAccount.map({ keychainService.hasAPIKey(account: $0) }) ?? false else {
-            connectionResult = "Add a DeepSeek API key before testing the connection."
-            failAction(actionID, title: "DeepSeek key missing", message: "Save a DeepSeek API key before testing.")
-            return
-        }
-        beginAction(actionID, title: "Testing DeepSeek", message: "Checking the saved key and model endpoint...")
-        isTestingConnection = true
-        connectionResult = nil
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let response = try await llmRouter.testProvider(configuration: provider)
-                guard !Task.isCancelled else { return }
-                connectionResult = response.message
-                completeAction(actionID, title: "DeepSeek connected", message: response.message)
-                updateDiagnostics {
-                    $0.lastAPILatencyMS = response.latencyMS
-                    $0.lastProviderName = provider.name
-                    $0.lastProviderModel = provider.model
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                connectionResult = self.userFacing(error)
-                failAction(actionID, title: "DeepSeek test failed", message: self.userFacing(error))
-                updateDiagnostics { $0.lastError = self.userFacing(error) }
-            }
-            isTestingConnection = false
-        }
-    }
+    // MARK: - Providers & Settings (moved to AppState+Providers.swift)
 
     func startListening(mode: InterviewMode) {
         let actionID = ActionID.startInterview
@@ -2082,570 +1389,13 @@ final class AppState: ObservableObject {
         activeAITask = Task { [weak self] in
             guard let self else { return }
             await self.runManualAnswer(session: session, transcript: transcript)
-        }
+         // MARK: - Sessions & UI Helpers (moved to AppState+Sessions.swift)
+
+    // MARK: - Transcript Pipeline (moved to AppState+Transcript.swift);: "))
     }
 
-    func generateRecap(for session: InterviewSession) {
-        guard !isActionLoading(ActionID.sessionRecap) else { return }
-        beginAction(ActionID.sessionRecap, title: "Generating recap", message: "Summarizing transcript and relevant context...")
-        isGeneratingRecap = true
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let transcript = try transcriptRepository.segments(sessionID: session.id)
-                let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
-                    question: transcript.map(\.text).joined(separator: "\n"),
-                    intent: .unclear,
-                    maxCVWords: 1_500,
-                    maxJDWords: 1_000
-                )
-                self.lastRetrievalTrace = trace
-                let result = try await recapGenerationService.generate(
-                    session: session,
-                    transcript: transcript,
-                    context: context,
-                    model: activeRecapProvider?.model
-                )
-                guard !Task.isCancelled else { return }
-                try recapRepository.saveRecap(result.recap)
-                selectedSessionRecap = result.recap
-                updateDiagnostics {
-                $0.lastAPILatencyMS = result.response.latencyMS
-                $0.apiCallCount += 1
-                }
-                completeAction(ActionID.sessionRecap, title: "Recap ready", message: "Session recap is visible.")
-            } catch {
-                guard !Task.isCancelled else { return }
-                let message = userFacing(error)
-                failAction(ActionID.sessionRecap, title: "Recap failed", message: message)
-                showError(message)
-            }
-            isGeneratingRecap = false
-        }
-    }
-
-    func exportSelectedRecap() {
-        guard let recap = selectedSessionRecap,
-              let session = sessions.first(where: { $0.id == recap.sessionID }) else {
-            warnAction(ActionID.sessionExport, title: "Nothing to export", message: "Generate a recap before exporting.")
-            return
-        }
-        guard !isActionLoading(ActionID.sessionExport) else { return }
-        beginAction(ActionID.sessionExport, title: "Exporting recap", message: "Writing Markdown file...")
-        do {
-            let url = try recapRepository.exportMarkdown(recap: recap, sessionTitle: session.title)
-            connectionResult = "Exported recap to \(url.path)."
-            completeAction(ActionID.sessionExport, title: "Recap exported", message: url.lastPathComponent)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } catch {
-            let message = "Could not export recap: \(error.localizedDescription)"
-            failAction(ActionID.sessionExport, title: "Export failed", message: message)
-            showError(message)
-        }
-    }
-
-    func loadSessionDetails(sessionID: String) {
-        selectedSessionID = sessionID
-        do {
-            selectedSessionTranscript = try transcriptRepository.segments(sessionID: sessionID)
-            selectedSessionSuggestions = try suggestionRepository.suggestions(sessionID: sessionID)
-            selectedSessionRecap = try recapRepository.recap(sessionID: sessionID)
-            
-            var chunksDict: [String: [RetrievedChunk]] = [:]
-            for card in selectedSessionSuggestions {
-                chunksDict[card.id] = (try? suggestionRepository.retrievedChunks(suggestionCardID: card.id)) ?? []
-            }
-            historicalSuggestionChunks = chunksDict
-        } catch {
-            showError("Could not load session: \(error.localizedDescription)")
-        }
-    }
-
-    func deleteSession(_ session: InterviewSession) {
-        guard !isActionLoading(ActionID.sessionDelete) else { return }
-        beginAction(ActionID.sessionDelete, title: "Deleting session", message: "Removing \(session.title)...")
-        do {
-            try sessionRepository.deleteSession(id: session.id)
-            if selectedSessionID == session.id {
-                selectedSessionID = nil
-                selectedSessionTranscript = []
-                selectedSessionSuggestions = []
-                selectedSessionRecap = nil
-            }
-            refreshAll()
-            completeAction(ActionID.sessionDelete, title: "Session deleted", message: "\(session.title) was removed.")
-        } catch {
-            let message = "Could not delete session: \(error.localizedDescription)"
-            failAction(ActionID.sessionDelete, title: "Delete failed", message: message)
-            showError(message)
-        }
-    }
-
-    func deleteAllLocalData(includeAPIKey: Bool) {
-        guard !isActionLoading(ActionID.clearLocalData) else { return }
-        beginAction(ActionID.clearLocalData, title: "Clearing local data", message: "Stopping capture and deleting local app data...")
-        stopListening()
-        do {
-            if includeAPIKey {
-                for account in providerConfigurations.compactMap(\.apiKeyAccount) {
-                    try? keychainService.deleteAPIKey(account: account)
-                }
-            }
-            try localDataService.deleteAllLocalData(includeAPIKey: includeAPIKey)
-            clearLiveSession()
-            refreshAll()
-            completeAction(ActionID.clearLocalData, title: "Local data cleared", message: includeAPIKey ? "Documents, sessions, transcripts, and saved keys were cleared." : "Documents, sessions, and transcripts were cleared.")
-        } catch {
-            let message = "Could not delete local data: \(error.localizedDescription)"
-            failAction(ActionID.clearLocalData, title: "Clear failed", message: message)
-            showError(message)
-        }
-    }
-
-    func requestMicrophonePermission() {
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        if status == .authorized {
-            refreshPermissions()
-            return
-        }
-        if status == .denied || status == .restricted {
-            openMicrophonePrivacySettings()
-            refreshPermissions()
-            return
-        }
-        Task {
-            _ = await permissionService.requestMicrophonePermission()
-            refreshPermissions()
-        }
-    }
-
-    func requestSpeechPermission() {
-        Task {
-            _ = await permissionService.requestSpeechRecognition()
-            refreshPermissions()
-        }
-    }
-
-    func requestScreenRecordingPermission() {
-        permissionService.requestScreenRecording()
-        refreshPermissions()
-    }
-
-    func openSystemPrivacySettings() {
-        permissionService.openSystemPrivacySettings()
-    }
-
-    func openMicrophonePrivacySettings() {
-        permissionService.openPrivacySettings()
-    }
-
-    func openSpeechRecognitionPrivacySettings() {
-        permissionService.openSpeechRecognitionSettings()
-        refreshPermissions()
-    }
-
-    func openScreenRecordingPrivacySettings() {
-        permissionService.openScreenRecordingSettings()
-        refreshPermissions()
-    }
-
-    func handleReadinessPermissionAction(itemID: String?) {
-        switch itemID {
-        case "speech":
-            switch permissionSnapshot.speechRecognition {
-            case .notDetermined, .unknown:
-                requestSpeechPermission()
-            case .denied, .restricted:
-                openSpeechRecognitionPrivacySettings()
-            case .granted:
-                refreshPermissions()
-            }
-        case "microphone":
-            requestMicrophonePermission()
-        case "system-audio":
-            openScreenRecordingPrivacySettings()
-        default:
-            openSystemPrivacySettings()
-        }
-    }
-
-    func refreshPermissions() {
-        microphonePermissionState = permissionService.checkMicrophonePermission()
-        permissionSnapshot = permissionService.refreshPermissions()
-        microphoneDiagnostics.refreshSelectedInputDevice()
-        
-        Task {
-            await refreshScreenSystemAudioProbe()
-        }
-    }
-    
-    func refreshScreenSystemAudioProbe() async {
-        let result = await ScreenSystemAudioPermissionProbe.shared.probe()
-        let state = determineProbeState(result: result)
-        
-        await MainActor.run {
-            self.systemAudioProbeResult = result
-            self.systemAudioPermissionState = state
-            
-            if state == .granted {
-                self.permissionSnapshot.screenRecording = .granted
-                self.permissionSnapshot.systemAudioCapture = .granted
-            } else {
-                self.permissionSnapshot.screenRecording = .denied
-                self.permissionSnapshot.systemAudioCapture = .denied
-            }
-        }
-    }
-    
-    func determineProbeState(result: ScreenSystemAudioPermissionProbeResult) -> ScreenSystemAudioPermissionState {
-        if result.shareableContentProbeSucceeded {
-            if result.likelyIdentityMismatch {
-                return .identityMismatch
-            }
-            if !result.streamAudioProbeSucceeded {
-                return .streamAudioProbeFailed(result.errorDescription ?? "Stream audio timeout")
-            }
-            return .granted
-        } else {
-            if result.preflightGranted {
-                if result.likelyIdentityMismatch {
-                    return .identityMismatch
-                }
-                return .restartLikely
-            } else {
-                if result.likelyIdentityMismatch {
-                    return .identityMismatch
-                }
-                return .permissionMissing
-            }
-        }
-    }
-
-    func showFloatingAssistant() {
-        beginAction(ActionID.showFloatingPanel, title: "Opening floating panel", message: "Bringing the answer card to the front...")
-        FloatingAssistantPanelController.shared.show(appState: self)
-        isFloatingAssistantVisible = true
-        completeAction(ActionID.showFloatingPanel, title: "Floating panel visible", message: "The answer card is ready.")
-    }
-
-    func hideFloatingAssistant() {
-        FloatingAssistantPanelController.shared.hide()
-        isFloatingAssistantVisible = false
-        infoAction(ActionID.showFloatingPanel, title: "Floating panel hidden", message: "Use Show Floating Panel to bring it back.")
-    }
-
-    func openMainWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        for window in NSApp.windows where !(window is NSPanel) {
-            if window.isMiniaturized {
-                window.deminiaturize(nil)
-            }
-            window.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    private func consumeSegments(from provider: TranscriptionProvider) {
-        transcriptionTask = Task { [weak self] in
-            for await segment in provider.segments {
-                guard !Task.isCancelled else { return }
-                await self?.handleTranscriptSegment(segment)
-            }
-        }
-    }
-
-    func handleTranscriptSegment(_ segment: TranscriptSegment) async {
-        let ingestionStartedAt = Date()
-        let previousSegment = transcriptSegments.first(where: { $0.id == segment.id })
-        defer {
-            lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)
-        }
-        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
-        liveState = .transcribing
-        lastTranscriptQuestionGenerationTrace = TranscriptQuestionGenerationTrace(
-            transcriptSegmentID: segment.id,
-            source: segment.source.rawValue,
-            speaker: segment.speaker.rawValue,
-            text: segment.text,
-            isFinal: segment.asrFinalizationReason != "partial",
-            textLength: segment.text.count,
-            normalizedText: normalizeTraceText(segment.text),
-            providerStatus: activeRealtimeProviderBadge,
-            currentGenerationState: generationUIState.displayName,
-            currentSuggestionExists: currentSuggestion != nil
-        )
-        
-        if let index = transcriptSegments.firstIndex(where: { $0.id == segment.id }) {
-            transcriptSegments[index] = segment
-        } else {
-            transcriptSegments.append(segment)
-        }
-        
-        lastTranscriptSnippet = segment.text
-        if segment.source == .systemAudio {
-            lastSystemTranscript = segment.text
-        }
-        if currentSession == nil {
-            let repository = sessionRepository
-            markSQLiteOperation("Loading transcript session in background")
-            Task.detached(priority: .utility) { [weak self] in
-                let session = try? repository.session(id: segment.sessionID)
-                await MainActor.run { [weak self] in
-                    guard let self, self.currentSession == nil else { return }
-                    self.currentSession = session
-                    self.lastSQLiteOperation = session == nil ? "Transcript session not found" : "Loaded transcript session"
-                }
-            }
-        }
-        if settings.saveTranscriptsLocally {
-            saveTranscriptSegmentInBackground(segment)
-        }
-
-        let systemAudioClassification = classifySystemAudioUtteranceIfNeeded(
-            segment,
-            previousSegment: previousSegment
-        )
-        if let systemAudioClassification {
-            lastTranscriptQuestionGenerationTrace.questionCandidate = systemAudioClassification.intent == .answerWorthyQuestion
-            lastTranscriptQuestionGenerationTrace.questionConfidence = systemAudioClassification.confidence
-            lastTranscriptQuestionGenerationTrace.questionIntent = systemAudioClassification.intent.rawValue
-        } else {
-            let localQuestion = questionDetectionService.isLikelyQuestion(segment.text)
-            lastTranscriptQuestionGenerationTrace.questionCandidate = localQuestion.shouldTrigger
-            lastTranscriptQuestionGenerationTrace.questionConfidence = localQuestion.confidence
-            lastTranscriptQuestionGenerationTrace.questionIntent = localQuestion.reason
-        }
-        let extractedSystemAudioQuestions = extractSystemAudioQuestionsIfNeeded(from: segment)
-        if !extractedSystemAudioQuestions.isEmpty {
-            lastTranscriptQuestionGenerationTrace.extractedQuestionCount = extractedSystemAudioQuestions.count
-            lastTranscriptQuestionGenerationTrace.extractedQuestionsPreview = extractedSystemAudioQuestions.map(\.text)
-            lastTranscriptQuestionGenerationTrace.questionCandidate = true
-            lastTranscriptQuestionGenerationTrace.questionConfidence = max(
-                lastTranscriptQuestionGenerationTrace.questionConfidence,
-                extractedSystemAudioQuestions.map(\.confidence).max() ?? 0.0
-            )
-            lastTranscriptQuestionGenerationTrace.questionIntent = extractedSystemAudioQuestions.last?.intent.rawValue ?? lastTranscriptQuestionGenerationTrace.questionIntent
-        }
-
-        // Background debounced RAG precompute
-        if segment.source == .systemAudio,
-           systemAudioCanUseQuestionIntent(segment),
-           systemAudioClassification?.intent == .answerWorthyQuestion {
-            let words = segment.text.split(whereSeparator: \.isWhitespace)
-            if words.count >= 6 { // 5-7 words range
-                precomputeDebounceTask?.cancel()
-                let retrievalService = contextRetrievalService!
-                precomputeDebounceTask = Task { [weak self] in
-                    do {
-                        try await Task.sleep(nanoseconds: 400_000_000) // 300-500ms debounce
-                    } catch {
-                        return
-                    }
-                    guard let self = self, !Task.isCancelled else { return }
-	                    
-                    let precomputeIntent = AnswerRelevancePolicy.intent(for: segment.text)
-                    let key = self.ragPrecomputeCacheKey(
-                        segmentID: segment.id,
-                        questionText: segment.text,
-                        intent: precomputeIntent
-                    )
-                    do {
-                        let (context, trace) = try await Task.detached(priority: .utility) {
-                            try await retrievalService.retrieveContextWithTrace(
-                                question: segment.text,
-                                intent: .unclear,
-                                maxCVWords: 240,
-                                maxJDWords: 120
-                            )
-                        }.value
-                        await MainActor.run {
-                            self.precomputedRAGCache[key] = RAGPrecomputeCacheItem(
-                                context: context,
-                                trace: trace,
-                                rawText: segment.text,
-                                normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(for: segment.text),
-                                questionIntent: precomputeIntent
-                            )
-                            print("[PrecomputeRAG] Cached RAG context for segmentID: \(segment.id) | key: \(key)")
-                        }
-                    } catch {
-                        print("[PrecomputeRAG] Background RAG precompute failed: \(error)")
-                    }
-                }
-            }
-        }
-
-        // Echo/Leakage Protection sliding window update
-        if segment.source == .systemAudio {
-            recentSystemAudioRecords.append(RecentSystemAudioRecord(text: segment.text, timestamp: Date()))
-            recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
-            
-            // Set last system audio transcript
-            self.lastSystemAudioTranscript = segment.text
-        }
-
-        var isEchoLeakage = false
-        if segment.source == .microphone {
-            recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
-            
-            let micWords = Set(segment.text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
-            if !micWords.isEmpty {
-                for record in recentSystemAudioRecords {
-                    let systemWords = Set(record.text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
-                    let intersection = micWords.intersection(systemWords)
-                    let union = micWords.union(systemWords)
-                    if !union.isEmpty {
-                        let similarity = Double(intersection.count) / Double(union.count)
-                        if similarity >= 0.5 { // 50% Jaccard word overlap indicates interviewer echo leak
-                            isEchoLeakage = true
-                            print("[EchoProtection] Detected interviewer leakage in mic stream: \"\(segment.text)\" matches recent system: \"\(record.text)\" with similarity \(String(format: "%.2f", similarity)). Question detection bypassed.")
-                            break
-                        }
-                    }
-                }
-            }
-        }
-
-        var shouldTriggerDetection = false
-        var skipReason = ""
-        
-        if !settings.automaticQuestionDetectionEnabled {
-            skipReason = "automatic question detection disabled in settings"
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "autoDetectDisabled"
-        } else if settings.manualOnlyMode {
-            skipReason = "manual only mode enabled"
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "captureModeDisabled"
-        } else if isEchoLeakage {
-            skipReason = "echo/leakage detected in mic stream"
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-        } else {
-            switch segment.source {
-            case .systemAudio:
-                if settings.audioCaptureMode == .systemAudioOnly,
-                   let systemAudioClassification,
-                   systemAudioClassification.intent == .answerWorthyQuestion,
-                   systemAudioClassification.confidence >= autoSuggestionConfidenceThreshold {
-                    shouldTriggerDetection = true
-                } else if settings.audioCaptureMode == .systemAudioOnly,
-                          systemAudioClassification != nil {
-                    shouldTriggerDetection = true
-                } else if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                } else {
-                    skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                }
-            case .processAudio:
-                if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                } else {
-                    skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                }
-            case .mock:
-                if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                } else {
-                    skipReason = "mock speaker is not interviewer"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                }
-            case .microphone, .mixed:
-                if !settings.allowQuestionDetectionFromMicrophoneOnly {
-                    skipReason = "question detection from microphone is disabled (allowQuestionDetectionFromMicrophoneOnly = false)"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "captureModeDisabled"
-                } else if segment.speaker != .interviewer && segment.speaker != .unknown {
-                    skipReason = "speaker is candidate (speaker: \(segment.speaker.rawValue))"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                } else {
-                    shouldTriggerDetection = true
-                }
-            }
-        }
-
-        // Output verbose gating logs
-        print("[GatingLog] segmentSource: \(segment.source.rawValue) | segmentSpeaker: \(segment.speaker.rawValue) | eligibleForAutoDetection: \(shouldTriggerDetection)\(shouldTriggerDetection ? "" : " | skipReason: \(skipReason)")")
-
-        // Capture attribution diagnostics
-        let diag = SegmentAttributionDiagnostic(
-            id: segment.id,
-            textPreview: segment.text,
-            source: segment.source,
-            speaker: segment.speaker,
-            createdAt: segment.createdAt,
-            inputDeviceName: segment.inputDeviceName,
-            outputDeviceName: segment.outputDeviceName,
-            eligibleForAutoDetection: shouldTriggerDetection,
-            skipReason: skipReason
-        )
-        last10SegmentsDiagnostics.append(diag)
-        if last10SegmentsDiagnostics.count > 10 {
-            last10SegmentsDiagnostics.removeFirst()
-        }
-
-        if shouldTriggerDetection,
-           shouldUseExtractedSystemAudioQuestions(extractedSystemAudioQuestions, classification: systemAudioClassification),
-           let session = currentSession {
-            self.lastDetectionSkipReason = ""
-            processExtractedSystemAudioQuestions(
-                extractedSystemAudioQuestions,
-                segment: segment,
-                session: session,
-                suggestionTranscript: recentTranscriptText()
-            )
-            liveState = .listening
-            return
-        }
-
-        if shouldTriggerDetection,
-           let systemAudioClassification,
-           systemAudioClassification.intent != .answerWorthyQuestion {
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = ignoredReasonCode(for: systemAudioClassification.intent)
-            recordIgnoredSystemAudioUtterance(
-                segment,
-                classification: systemAudioClassification
-            )
-            liveState = .listening
-            return
-        }
-
-        if shouldTriggerDetection {
-            self.lastDetectionSkipReason = ""
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
-            maybeRunAutomaticDetection(triggeringSegment: segment)
-        } else {
-            self.lastDetectionSkipReason = skipReason
-            lastTranscriptQuestionGenerationTrace.ignoredReason = skipReason
-            if segment.source == .microphone,
-               segment.speaker == .candidate,
-               questionDetectionService.isLikelyQuestion(segment.text).shouldTrigger {
-                ignoredCandidateQuestionCount += 1
-            }
-            liveState = .listening
-        }
-
-    }
-
-    private func normalizeTraceText(_ text: String) -> String {
-        text
-            .lowercased()
-            .replacingOccurrences(of: "\n", with: " ")
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func normalizedBindingText(_ text: String) -> String {
-        text
-            .lowercased()
-            .replacingOccurrences(of: "\n", with: " ")
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
-    }
-
-    private func extractSystemAudioQuestionsIfNeeded(from segment: TranscriptSegment) -> [ExtractedTranscriptQuestion] {
+    // internal for AppState extension access only
+    func extractSystemAudioQuestionsIfNeeded(from segment: TranscriptSegment) -> [ExtractedTranscriptQuestion] {
         guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
             return []
         }
@@ -2655,7 +1405,8 @@ final class AppState: ObservableObject {
         return SystemAudioQuestionExtractor.extract(from: segment.text)
     }
 
-    private func shouldUseExtractedSystemAudioQuestions(
+    // internal for AppState extension access only
+    func shouldUseExtractedSystemAudioQuestions(
         _ extractedQuestions: [ExtractedTranscriptQuestion],
         classification: UtteranceIntentClassification?
     ) -> Bool {
@@ -2664,7 +1415,8 @@ final class AppState: ObservableObject {
         return classification?.intent != .answerWorthyQuestion
     }
 
-    private func processExtractedSystemAudioQuestions(
+    // internal for AppState extension access only
+    func processExtractedSystemAudioQuestions(
         _ extractedQuestions: [ExtractedTranscriptQuestion],
         segment: TranscriptSegment,
         session: InterviewSession,
@@ -2810,7 +1562,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func ignoredReasonCode(for intent: UtteranceIntent) -> String {
+    // internal for AppState extension access only
+    func ignoredReasonCode(for intent: UtteranceIntent) -> String {
         switch intent {
         case .answerWorthyQuestion:
             return ""
@@ -2823,7 +1576,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func classifySystemAudioUtteranceIfNeeded(
+    // internal for AppState extension access only
+    func classifySystemAudioUtteranceIfNeeded(
         _ segment: TranscriptSegment,
         previousSegment: TranscriptSegment?
     ) -> UtteranceIntentClassification? {
@@ -2845,14 +1599,16 @@ final class AppState: ObservableObject {
         return classification
     }
 
-    private func systemAudioCanUseQuestionIntent(_ segment: TranscriptSegment) -> Bool {
+    // internal for AppState extension access only
+    func systemAudioCanUseQuestionIntent(_ segment: TranscriptSegment) -> Bool {
         if segment.speaker == .interviewer {
             return true
         }
         return settings.audioCaptureMode == .systemAudioOnly && segment.source == .systemAudio
     }
 
-    private func recordIgnoredSystemAudioUtterance(
+    // internal for AppState extension access only
+    func recordIgnoredSystemAudioUtterance(
         _ segment: TranscriptSegment,
         classification: UtteranceIntentClassification
     ) {
@@ -2965,7 +1721,8 @@ final class AppState: ObservableObject {
         return String(clean.hashValue)
     }
 
-    private func ragPrecomputeCacheKey(
+    // internal for AppState extension access only
+    func ragPrecomputeCacheKey(
         segmentID: String,
         questionText: String,
         intent: AnswerRelevanceIntent
@@ -2974,7 +1731,8 @@ final class AppState: ObservableObject {
         return [segmentID, intent.rawValue, normalizedTextHash(normalized)].joined(separator: "_")
     }
 
-    private func maybeRunAutomaticDetection(triggeringSegment: TranscriptSegment) {
+    // internal for AppState extension access only
+    func maybeRunAutomaticDetection(triggeringSegment: TranscriptSegment) {
         detectionDebounceTask?.cancel()
         detectionDebounceTask = Task { [weak self] in
             guard let self else { return }
@@ -3011,7 +1769,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func runAutomaticDetection(
+    // TODO: Move retry/detection coupling into GenerationCoordinator or QuestionDetectionCoordinator in Phase 2.
+    func runAutomaticDetection(
         session: InterviewSession,
         detectionTranscript: String,
         suggestionTranscript: String,
@@ -5318,7 +4077,8 @@ final class AppState: ObservableObject {
     }
 
 
-    private func recentTranscriptText() -> String {
+    // internal for AppState extension access only
+    func recentTranscriptText() -> String {
         let text = transcriptSegments
             .suffix(18)
             .map { "\(transcriptSpeakerLabel(for: $0)): \($0.text)" }
@@ -5486,25 +4246,6 @@ final class AppState: ObservableObject {
             return true
         }
         return AnswerRelevancePolicy.intent(for: question.questionText) == .generic && isSpecificAnswer(cleaned)
-    }
-
-    private func showError(_ message: String) {
-        errorMessage = message
-        updateDiagnostics { $0.lastError = message }
-    }
-
-    private func userFacing(_ error: Error) -> String {
-        if let localized = error as? LocalizedError,
-           let description = localized.errorDescription {
-            return description
-        }
-        return error.localizedDescription
-    }
-
-    private func updateDiagnostics(_ mutate: (inout DeveloperDiagnostics) -> Void) {
-        var next = diagnostics
-        mutate(&next)
-        diagnostics = next
     }
 
     // MARK: - Audio Signal and Route Recovery monitoring
@@ -6716,50 +5457,5 @@ final class AppState: ObservableObject {
                 }
             }
         }
-    }
-}
-
-private final class StageBTrigger {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var triggered = false
-    private let lock = NSLock()
-    
-    func wait(timeoutMs: Int) async {
-        await withCheckedContinuation { cont in
-            lock.lock()
-            if triggered {
-                lock.unlock()
-                cont.resume()
-                return
-            }
-            continuation = cont
-            lock.unlock()
-            
-            // Set up a timeout fallback
-            Task {
-                try? await Task.sleep(nanoseconds: UInt64(timeoutMs) * 1_000_000)
-                self.trigger()
-            }
-        }
-    }
-    
-    func trigger() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !triggered else { return }
-        triggered = true
-        continuation?.resume()
-        continuation = nil
-    }
-}
-
-public protocol DelayProvider: Sendable {
-    func sleep(nanoseconds: UInt64) async throws
-}
-
-public final class RealDelayProvider: DelayProvider {
-    public init() {}
-    public func sleep(nanoseconds: UInt64) async throws {
-        try await Task.sleep(nanoseconds: nanoseconds)
     }
 }
