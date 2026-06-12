@@ -17,7 +17,7 @@ final class SuggestionGenerationService {
         customProviderConfig: LLMProviderConfiguration? = nil
     ) async throws -> (card: SuggestionCard, response: LLMChatResult) {
         let prompt = PromptLibrary.suggestionGenerator
-        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+        let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: context,
             transcriptContext: transcriptContext,
@@ -107,7 +107,7 @@ final class SuggestionGenerationService {
         - Must be natural, directly sayable, and fluid.
         - The CURRENT QUESTION TO ANSWER in the user prompt is the primary task. Context is subordinate.
         """
-        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+        let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: context,
             transcriptContext: "",
@@ -166,7 +166,7 @@ final class SuggestionGenerationService {
         }
         """
         
-        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+        let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: context,
             transcriptContext: transcriptContext,
@@ -269,7 +269,7 @@ final class SuggestionGenerationService {
         - Absolutely no LaTeX commands, braces, or backslashes.
         - The CURRENT QUESTION TO ANSWER in the user prompt is the primary task. Context is subordinate.
         """
-        let snapshot = AnswerRelevancePolicy.promptSnapshot(
+        let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: context,
             transcriptContext: RealtimePromptBudgeter.limitTranscript(transcriptContext),

@@ -924,6 +924,21 @@ func setGenerationUIState(_ state: GenerationUIState, generationID: String? = ni
 }
 
 // internal for AppState extension access only
+func applyPromptSnapshotDiagnostics(_ promptSnapshot: AnswerPromptSnapshot) {
+    currentAnswerQuestionIntent = promptSnapshot.questionIntent
+    currentPromptQuestionText = promptSnapshot.questionTextSnapshot
+    currentPromptPrimaryQuestion = promptSnapshot.promptPrimaryQuestion
+    currentPromptContainsPreviousQuestion = promptSnapshot.promptContainsPreviousQuestion
+    currentPreviousQuestionIncluded = promptSnapshot.previousQuestionIncluded
+    currentPreviousQuestionText = promptSnapshot.previousQuestionText ?? ""
+    currentContextBleedRisk = promptSnapshot.contextBleedRisk
+    currentRAGChunkIDs = promptSnapshot.ragChunkIDs
+    currentRAGChunkIntents = promptSnapshot.ragChunkIntents
+    currentPromptTokenEstimate = promptSnapshot.promptTokenEstimate
+    currentPromptContextPreviews = promptSnapshot.ragChunkPreviews
+}
+
+// internal for AppState extension access only
 func markFirstVisibleAnswer(generationID: String, fallback: Bool) {
     guard currentGenerationID == generationID else {
         recordStaleGenerationDiscard()

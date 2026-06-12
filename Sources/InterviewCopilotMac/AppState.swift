@@ -1176,7 +1176,7 @@ final class AppState: ObservableObject {
         lastSQLiteOperation = "Loaded document summaries"
         let cvSummary = makeCompactSummary(cvRecord)
         let jdSummary = makeCompactSummary(jdRecord)
-        let generationSnapshot = AnswerRelevancePolicy.generationRequestSnapshot(
+        let generationSnapshot = PromptContextBuilder.generationRequestSnapshot(
             question: localQuestion,
             generationID: generationID,
             triggerPath: triggerPath,
@@ -1190,17 +1190,7 @@ final class AppState: ObservableObject {
             stage: .firstAnswer
         )
         let promptSnapshot = generationSnapshot.promptSnapshot
-        currentAnswerQuestionIntent = promptSnapshot.questionIntent
-        currentPromptQuestionText = promptSnapshot.questionTextSnapshot
-        currentPromptPrimaryQuestion = promptSnapshot.promptPrimaryQuestion
-        currentPromptContainsPreviousQuestion = promptSnapshot.promptContainsPreviousQuestion
-        currentPreviousQuestionIncluded = promptSnapshot.previousQuestionIncluded
-        currentPreviousQuestionText = promptSnapshot.previousQuestionText ?? ""
-        currentContextBleedRisk = promptSnapshot.contextBleedRisk
-        currentRAGChunkIDs = promptSnapshot.ragChunkIDs
-        currentRAGChunkIntents = promptSnapshot.ragChunkIntents
-        currentPromptTokenEstimate = promptSnapshot.promptTokenEstimate
-        currentPromptContextPreviews = promptSnapshot.ragChunkPreviews
+        applyPromptSnapshotDiagnostics(promptSnapshot)
         
         // Create references for background task capture
         let localTrace = trace
