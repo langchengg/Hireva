@@ -270,21 +270,7 @@ private func initialFallbackSayFirst(for question: DetectedQuestion) -> (sayFirs
 
 // internal for AppState extension access only
 func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            try await operation()
-        }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            throw NSError(domain: "TimeoutDomain", code: 1, userInfo: [NSLocalizedDescriptionKey: "Request timed out after \(seconds)s"])
-        }
-        
-        guard let result = try await group.next() else {
-            throw NSError(domain: "TimeoutDomain", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unknown error during race"])
-        }
-        group.cancelAll()
-        return result
-    }
+    try await GenerationCoordinator.withTimeout(seconds: seconds, operation: operation)
 }
 
 func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) async -> SuggestionCard {
@@ -360,7 +346,7 @@ private func providerRewriteAnswer(_ sayFirst: String) async -> String {
 
 // internal for AppState extension access only
 func elapsedMS(since start: Date) -> Int {
-    Int(Date().timeIntervalSince(start) * 1000)
+    GenerationCoordinator.elapsedMS(since: start)
 }
 
 public var activeGenerationElapsedMs: Int? {
@@ -1352,22 +1338,7 @@ func persistSuggestionInBackground(
 }
 
 public func isSpecificAnswer(_ text: String) -> Bool {
-    let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if cleaned.count < 30 {
-        return false
-    }
-    let genericPhrases = [
-        "based on my experience",
-        "i can speak to my background",
-        "focus on explaining",
-        "as a software engineer"
-    ]
-    for phrase in genericPhrases {
-        if cleaned.contains(phrase) && cleaned.count < 80 {
-            return false
-        }
-    }
-    return true
+    GenerationCoordinator.isSpecificAnswer(text)
 }
 
 // internal for AppState extension access only
