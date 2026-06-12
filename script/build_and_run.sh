@@ -14,6 +14,7 @@ set -euo pipefail
 # =============================================================================
 
 MODE="${1:-run}"
+REQUESTED_SIGNING_IDENTITY="${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="InterviewCopilotMac"                    # .app bundle name
@@ -170,10 +171,15 @@ xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 find "$APP_BUNDLE" -name "._*" -delete 2>/dev/null || true
 
 # --- Code Signing ---
-# Try Apple Development certificate for stable signing across rebuilds.
-# Fall back to ad-hoc (--sign -) if none is available.
+# Prefer an explicit local identity so Keychain/TCC can trust the same
+# designated requirement across rebuilds:
+#   INTERVIEW_COPILOT_SIGNING_IDENTITY="Apple Development: Name (TEAMID)" ./script/build_and_run.sh --verify
+# Then try Apple Development automatically. Fall back to ad-hoc (--sign -)
+# only when no stable identity exists.
 SIGNING_IDENTITY=""
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development"; then
+if [[ -n "$REQUESTED_SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="$REQUESTED_SIGNING_IDENTITY"
+elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development"; then
     SIGNING_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
         | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)"/\1/')
 fi
@@ -187,6 +193,9 @@ else
     echo "================================================================================"
     echo "⚠️  WARNING: No Apple Development signing identity found. Falling back to ad-hoc signing."
     echo "⚠️  macOS Screen/System Audio permissions may reset after rebuilds."
+    echo "⚠️  Keychain may ask again after each rebuild because ad-hoc CDHash changes."
+    echo "⚠️  Install/use a stable Apple Development identity and set:"
+    echo "⚠️  INTERVIEW_COPILOT_SIGNING_IDENTITY=\"Apple Development: Name (TEAMID)\""
     echo "================================================================================"
     codesign --force --deep \
         --sign - \

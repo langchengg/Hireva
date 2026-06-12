@@ -10,6 +10,7 @@ enum AnswerRelevanceIntent: String, CaseIterable, Codable, Hashable, Identifiabl
     case whyRole = "why_role"
     case skillComfort = "skill_comfort"
     case candidateQuestions = "candidate_questions"
+    case diffusionPolicy = "diffusion_policy"
     case generic
 
     var id: String { rawValue }
@@ -82,6 +83,15 @@ enum AnswerRelevancePolicy {
 
     static func intent(for questionText: String) -> AnswerRelevanceIntent {
         let text = normalize(questionText)
+        if text.contains("diffusion") && (text.contains("autoregressive") || text.contains("auto regressive")) {
+            return .modelComparison
+        }
+        if text.contains("diffusion") && text.contains("robotic manipulation") {
+            return .diffusionPolicy
+        }
+        if text.contains("action decoder") || text.contains("policy") || text.contains("flow matching") || text.contains("flow-matching") {
+            return .modelComparison
+        }
         if text.contains("diffusion decoder") ||
             text.contains("diffusion-based policy") ||
             text.contains("diffusion policy") ||
@@ -232,7 +242,7 @@ enum AnswerRelevancePolicy {
                 jobDescriptionChunks: [],
                 additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
             )
-        case .modelComparison:
+        case .modelComparison, .diffusionPolicy:
             return RetrievedContext(
                 cvChunks: pick(context.cvChunks, keywords: ["diffusion", "autoregressive", "flow-matching", "flow matching", "mujoco", "continuous action", "seven out of ten", "7 out of 10"], limit: 3),
                 jobDescriptionChunks: [],
@@ -293,7 +303,7 @@ enum AnswerRelevancePolicy {
                 sayFirst: "I handled noisy detections by using filtering, repeated observations, and a stability threshold before acting, then adding recovery behaviour such as retrying, repositioning, or adjusting when localisation was unreliable.",
                 keyPoints: ["Did not trust a single detection.", "Used repeated observations and stability checks.", "Added retry, reposition, and recovery behaviour."]
             )
-        case .modelComparison:
+        case .modelComparison, .diffusionPolicy:
             return IntentFallbackAnswer(
                 sayFirst: "The diffusion decoder performed better because it produced smoother continuous actions and was more robust to small trajectory errors than the autoregressive and flow-matching decoders; in my MuJoCo evaluation it achieved seven out of ten successful grasps.",
                 keyPoints: ["Diffusion handled continuous action distributions better.", "Autoregressive and flow-matching were less robust in the evaluation.", "Result: diffusion reached seven out of ten successful grasping episodes."]
@@ -405,7 +415,7 @@ enum AnswerRelevancePolicy {
             return "challenge -> why it was hard -> action taken -> outcome"
         case .errorHandling:
             return "noisy detections/localisation issue -> filtering/repeated observations/recovery -> robust execution"
-        case .modelComparison:
+        case .modelComparison, .diffusionPolicy:
             return "directly compare diffusion vs autoregressive vs flow-matching -> smoother continuous actions -> robustness -> success rate if available"
         case .improvementPlan:
             return "what to improve first -> why -> concrete next steps"

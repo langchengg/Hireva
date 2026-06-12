@@ -84,6 +84,57 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
         #expect(appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason == "autoDetectDisabled")
     }
 
+    @Test
+    func partialWhyDoYouWantDoesNotRunDetectionOrPersistQuestion() async throws {
+        let (appState, session, client) = try makeAppState()
+
+        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+            id: "partial-why-role",
+            sessionID: session.id,
+            text: "why do you want",
+            asrFinalizationReason: "partial"
+        ))
+
+        try await Task.sleep(nanoseconds: 160_000_000)
+        #expect(client.detectionCallCount == 0)
+        #expect(appState.detectedQuestionsInSessionCount == 0)
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.lastTranscriptQuestionGenerationTrace.isFinal == false)
+        #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered == false)
+    }
+
+    @Test
+    func finalWhyRoleSupersedesPartialPrefixWithSameSegmentID() async throws {
+        let (appState, session, client) = try makeAppState()
+        let segmentID = "partial-to-final-why-role"
+
+        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+            id: segmentID,
+            sessionID: session.id,
+            text: "why do you want",
+            asrFinalizationReason: "partial"
+        ))
+        try await Task.sleep(nanoseconds: 10_000_000)
+        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+            id: segmentID,
+            sessionID: session.id,
+            text: "Why do you want to join our team",
+            asrFinalizationReason: "final_accepted"
+        ))
+
+        try await waitUntil(timeout: 8.0) {
+            appState.detectedQuestionsInSessionCount == 1 &&
+            appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
+            appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
+            appState.visibleAnswerExists
+        }
+
+        #expect(client.detectionCallCount == 1)
+        #expect(appState.lastDetectedQuestion?.questionText == "Why do you want to join our team?")
+        #expect(appState.currentSuggestion?.questionText == "Why do you want to join our team?")
+        #expect(appState.currentSuggestion?.questionText != "why do you want")
+    }
+
     private func makeAppState(autoDetectEnabled: Bool = true) throws -> (AppState, InterviewSession, QuestionOnlyLLMClient) {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "SystemAudioQuestionOnlyAutoGenerationTests")
         let settingsRepository = SettingsRepository(database: database)
@@ -117,7 +168,12 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
         return (appState, session, client)
     }
 
-    private func systemAudioUnknownSegment(id: String, sessionID: String, text: String) -> TranscriptSegment {
+    private func systemAudioUnknownSegment(
+        id: String,
+        sessionID: String,
+        text: String,
+        asrFinalizationReason: String? = nil
+    ) -> TranscriptSegment {
         TranscriptSegment(
             id: id,
             sessionID: sessionID,
@@ -125,7 +181,8 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
             speaker: .unknown,
             text: text,
             createdAt: Date(),
-            confidence: 1.0
+            confidence: 1.0,
+            asrFinalizationReason: asrFinalizationReason
         )
     }
 

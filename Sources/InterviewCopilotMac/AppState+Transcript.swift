@@ -241,6 +241,32 @@ extension AppState {
             last10SegmentsDiagnostics.removeFirst()
         }
 
+        let isSystemLikeDetectionAudio = segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock
+        let isASRPartial = segment.asrFinalizationReason == "partial"
+        let isIncompleteSystemAudioQuestionFragment = isSystemLikeDetectionAudio &&
+            SystemAudioQuestionExtractor.isIncompleteQuestionFragment(segment.text)
+        if shouldTriggerDetection,
+           isSystemLikeDetectionAudio,
+           extractedSystemAudioQuestions.isEmpty,
+           (isASRPartial || isIncompleteSystemAudioQuestionFragment) {
+            let reason = isASRPartial ? "waiting for final ASR transcript" : "incomplete question fragment"
+            self.lastDetectionSkipReason = reason
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = isASRPartial ? "waitingForFinalASR" : "incompleteQuestionFragment"
+            lastTranscriptQuestionGenerationTrace.ignoredReason = reason
+            lastTranscriptQuestionGenerationTrace.generationTriggered = false
+            lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
+            lastQuestionDetectionResult = isASRPartial
+                ? "Waiting for final interviewer transcript before generating an answer."
+                : "Waiting for a complete interviewer question before generating an answer."
+            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | text: \"\(segment.text)\"")
+            liveState = .listening
+            return
+        }
+
+        if shouldTriggerDetection, isASRPartial {
+            lastTranscriptQuestionGenerationTrace.acceptedFromPartial = true
+        }
+
         if shouldTriggerDetection,
            shouldUseExtractedSystemAudioQuestions(extractedSystemAudioQuestions, classification: systemAudioClassification),
            let session = currentSession {
@@ -359,6 +385,10 @@ extension AppState {
     }
 
     func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
+        guard !card.isPartial else {
+            print("[Transcript] Skipping saveSuggestionSnapshotInBackground for partial card.")
+            return
+        }
         let repository = suggestionRepository
         markSQLiteOperation("Saving suggestion snapshot in background")
         Task.detached(priority: .utility) { [weak self] in

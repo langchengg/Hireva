@@ -650,7 +650,7 @@ struct ManualCaptureTests {
                 ```json
                 {
                     "strategy": "Direct Answer",
-                    "say_first": "Corrected text",
+                    "say_first": "I would explain that I offer relevant robotics experience, practical project work, and a clear fit for the role.",
                     "key_points": ["First point", "Second point"],
                     "follow_up_ready": [],
                     "confidence": 0.85,
@@ -696,7 +696,7 @@ struct ManualCaptureTests {
         #expect(appState.manualCaptureState == .suggestionReady)
         let suggestion = try #require(appState.manualCaptureSuggestion)
         #expect(suggestion.strategy == "Direct Answer")
-        #expect(suggestion.sayFirst == "Corrected text")
+        #expect(suggestion.sayFirst == "I would explain that I offer relevant robotics experience, practical project work, and a clear fit for the role.")
         #expect(suggestion.keyPoints.count == 2)
     }
 

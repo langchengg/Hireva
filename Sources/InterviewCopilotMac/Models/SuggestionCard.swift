@@ -83,6 +83,9 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var dbPersistedMS: Int? = nil
     var stageBStreamStartedMS: Int? = nil
     var stageBFirstSectionMS: Int? = nil
+
+    // In-memory flag to prevent persisting partial ASR results to DB
+    var isPartial: Bool = false
 }
 
 struct SuggestionCardPayload: Decodable {

@@ -63,7 +63,46 @@ struct SuggestionAlignmentRecord: Identifiable, Equatable {
 }
 
 enum QuestionAnswerAlignmentEvaluator {
-    static func evaluate(questionText: String, answerText: String) -> AnswerAlignmentResult {
+    static func isAnswerComplete(_ answer: String) -> Bool {
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 20 else { return false }
+
+        let lower = trimmed.lowercased()
+
+        let incompleteWords = ["more", "because", "such as", "including"]
+        for word in incompleteWords {
+            if lower.hasSuffix(word) ||
+               lower.hasSuffix(word + ".") ||
+               lower.hasSuffix(word + ",") ||
+               lower.hasSuffix(word + ":") ||
+               lower.hasSuffix(word + "...") {
+                return false
+            }
+        }
+
+        if let lastChar = trimmed.last {
+            if ",:".contains(lastChar) {
+                return false
+            }
+        }
+
+        let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
+        if words.count >= 2 {
+            let lastTwo = words.suffix(2).joined(separator: " ")
+            if ["tend to", "be more", "such as", "including to", "more stable"].contains(lastTwo) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func evaluate(
+        questionText: String,
+        answerText: String,
+        sayFirst: String = "",
+        stageBCompleted: Bool = true
+    ) -> AnswerAlignmentResult {
         let normalizedQuestion = normalize(questionText)
         let normalizedAnswer = normalize(answerText)
         let questionIntent = AnswerRelevancePolicy.intent(for: questionText)
@@ -93,7 +132,7 @@ enum QuestionAnswerAlignmentEvaluator {
         }.map(\.name)
 
         let score = profile.themes.isEmpty ? 0.0 : Double(matched.count) / Double(profile.themes.count)
-        let verdict: AnswerAlignmentVerdict
+        var verdict: AnswerAlignmentVerdict
         if !wrong.isEmpty && score < 0.35 {
             verdict = .mismatched
         } else if score >= 0.45 {
@@ -106,6 +145,75 @@ enum QuestionAnswerAlignmentEvaluator {
             verdict = .unknown
         }
 
+        var finalReason = ""
+        let isTechnical = questionIntent == .technicalChallenge ||
+                          questionIntent == .modelComparison ||
+                          questionIntent == .diffusionPolicy ||
+                          questionIntent == .errorHandling ||
+                          questionIntent == .skillComfort
+
+        if isTechnical && verdict == .unknown {
+            verdict = .mismatched
+            finalReason += " Rejected unknown verdict for clear technical question."
+        }
+
+        if !sayFirst.isEmpty {
+            let trimmedSayFirst = sayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowerSayFirst = trimmedSayFirst.lowercased()
+            var isIncomplete = false
+            var incompleteReason = ""
+
+            if trimmedSayFirst.count < 15 || trimmedSayFirst.split(whereSeparator: \.isWhitespace).count < 4 {
+                isIncomplete = true
+                incompleteReason = "too short (\(trimmedSayFirst.count) chars)"
+            } else {
+                let incompleteWords = ["more", "because", "such as", "including"]
+                for word in incompleteWords {
+                    if lowerSayFirst.hasSuffix(word) ||
+                       lowerSayFirst.hasSuffix(word + ".") ||
+                       lowerSayFirst.hasSuffix(word + ",") ||
+                       lowerSayFirst.hasSuffix(word + ":") ||
+                       lowerSayFirst.hasSuffix(word + "...") {
+                        isIncomplete = true
+                        incompleteReason = "ends with incomplete word '\(word)'"
+                    }
+                }
+                if let lastChar = trimmedSayFirst.last, ",:".contains(lastChar) {
+                    isIncomplete = true
+                    incompleteReason = "ends with punctuation '\(lastChar)'"
+                }
+                let words = lowerSayFirst.split(whereSeparator: \.isWhitespace).map(String.init)
+                if words.count >= 2 {
+                    let lastTwo = words.suffix(2).joined(separator: " ")
+                    if ["tend to", "be more", "such as", "including to", "more stable"].contains(lastTwo) {
+                        isIncomplete = true
+                        incompleteReason = "ends with incomplete clause '\(lastTwo)'"
+                    }
+                }
+            }
+
+            if isIncomplete {
+                verdict = .mismatched
+                finalReason += " Rejected incomplete sayFirst: \(incompleteReason)."
+            }
+        }
+
+        if !stageBCompleted {
+            if verdict == .aligned || verdict == .weaklyAligned {
+                verdict = .unknown
+                finalReason += " Set to unknown because Stage B is still running."
+            }
+        }
+
+        let evaluatedReason = reason(
+            matchedCount: matched.count,
+            totalCount: profile.themes.count,
+            wrongIndicators: wrong,
+            questionIntent: questionIntent,
+            answerIntent: answerIntent
+        )
+        finalReason = finalReason.isEmpty ? evaluatedReason : evaluatedReason + " " + finalReason
+
         return AnswerAlignmentResult(
             score: score,
             verdict: verdict,
@@ -114,13 +222,7 @@ enum QuestionAnswerAlignmentEvaluator {
             matchedThemes: matched,
             missingThemes: missing,
             wrongAnswerIndicators: wrong,
-            reason: reason(
-                matchedCount: matched.count,
-                totalCount: profile.themes.count,
-                wrongIndicators: wrong,
-                questionIntent: questionIntent,
-                answerIntent: answerIntent
-            )
+            reason: finalReason
         )
     }
 
@@ -198,7 +300,8 @@ enum QuestionAnswerAlignmentEvaluator {
             question.contains("diffusion policy") ||
             question.contains("autoregressive policy") ||
             question.contains("mujoco") ||
-            question.contains("mu jo co") {
+            question.contains("mu jo co") ||
+            (question.contains("diffusion") && question.contains("robotic manipulation")) {
             return Profile(
                 themes: [
                     Theme(name: "smoother actions", alternatives: ["smoother actions", "smooth actions"]),
@@ -330,7 +433,10 @@ enum QuestionAnswerAlignmentEvaluator {
         answerIntent: AnswerRelevanceIntent
     ) -> String {
         var parts = ["Matched \(matchedCount) of \(totalCount) expected themes."]
-        if questionIntent != .generic, answerIntent != .generic, questionIntent != answerIntent {
+        let intentsMatch = questionIntent == answerIntent ||
+            (questionIntent == .diffusionPolicy && answerIntent == .modelComparison) ||
+            (questionIntent == .modelComparison && answerIntent == .diffusionPolicy)
+        if questionIntent != .generic, answerIntent != .generic, !intentsMatch {
             parts.append("Answer intent \(answerIntent.rawValue) differs from question intent \(questionIntent.rawValue).")
         }
         if !wrongIndicators.isEmpty {

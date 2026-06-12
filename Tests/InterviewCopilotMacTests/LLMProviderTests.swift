@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import InterviewCopilotMac
 
@@ -225,6 +226,40 @@ struct LLMProviderTests {
         try keychain.deleteAPIKey(account: "deepseek.default")
         #expect(keychain.hasAPIKey(account: "deepseek.default") == false)
         #expect(keychain.lastWriteStatus == "Deleted")
+    }
+
+    @Test
+    @MainActor
+    func keychainAuthorizationFailureShowsReauthorizationWarning() throws {
+        final class AuthorizationFailingKeychainStore: KeychainStore {
+            func saveGenericPassword(data: Data, service: String, account: String) throws {
+                throw KeychainError.unexpectedStatus(errSecAuthFailed)
+            }
+
+            func loadGenericPassword(service: String, account: String) throws -> String? {
+                throw KeychainError.unexpectedStatus(errSecAuthFailed)
+            }
+
+            func deleteGenericPassword(service: String, account: String) throws {}
+        }
+
+        let keychain = KeychainService(store: AuthorizationFailingKeychainStore())
+        let state = keychain.apiKeyAccessState(account: KeychainConstants.deepSeekAccount)
+        guard case .authorizationRequired(let message) = state else {
+            Issue.record("Expected authorizationRequired but got \(state)")
+            return
+        }
+        #expect(message.contains("signing identity changed"))
+        #expect(keychain.lastReadStatus.contains("re-authorization"))
+
+        let database = try makeTemporaryDatabase()
+        let appState = AppState(database: database, keychainService: keychain)
+
+        #expect(appState.keychainDeepSeekKeyExists == false)
+        #expect(appState.keychainMaskedKey == "Needs re-authorization")
+        #expect(appState.keychainAuthorizationWarning?.contains("signing identity changed") == true)
+        #expect(appState.keychainMismatchStatus.contains("re-authorization"))
+        #expect(appState.hasAPIKey == false)
     }
 
     @Test

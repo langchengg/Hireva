@@ -36,7 +36,7 @@ struct SettingsView: View {
     private var aiProviderCard: some View {
         settingsCard("AI Provider", icon: "brain") {
             HStack {
-                statusLine("DeepSeek key", appState.keychainDeepSeekKeyExists ? "Securely saved" : "Missing")
+                statusLine("DeepSeek key", deepSeekKeyStatusText)
                 Spacer()
                 ActionButton(
                     appState: appState,
@@ -49,6 +49,13 @@ struct SettingsView: View {
                 ) {
                     appState.testDeepSeekConnection()
                 }
+            }
+
+            if let warning = appState.keychainAuthorizationWarning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             statusLine("Realtime model", appState.activeRealtimeProvider?.model ?? settings.realtimeModel.displayName)
@@ -374,6 +381,16 @@ struct SettingsView: View {
             ]
         }
         return appState.latestActionFeedback(matching: [ActionID.testDeepSeek, ActionID.providerSave, ActionID.providerSwitch] + providerIDs)
+    }
+
+    private var deepSeekKeyStatusText: String {
+        if appState.keychainDeepSeekKeyExists {
+            return "Securely saved"
+        }
+        if appState.keychainAuthorizationWarning != nil {
+            return "Needs re-authorization"
+        }
+        return "Missing"
     }
 
     private var relevantContextFeedback: ActionFeedback? {

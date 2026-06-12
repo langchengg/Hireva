@@ -514,7 +514,15 @@ struct StreamingSoftFallbackTests {
         let mockClient = StreamingMockLLMClient()
         // DeepSeek streams fast
 
-        mockClient.streamTokens = ["Fast ", "answer."]
+        mockClient.streamTokens = [
+            "I built ",
+            "a robotics ",
+            "project that ",
+            "combined perception, ",
+            "navigation, and ",
+            "manipulation into ",
+            "a working robot."
+        ]
         mockClient.streamDelayNS = 0
         
         let router = LLMRouter(settingsRepository: settings, clients: [

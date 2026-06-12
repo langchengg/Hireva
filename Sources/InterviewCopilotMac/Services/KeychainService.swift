@@ -13,6 +13,56 @@ enum KeychainError: LocalizedError {
             return "The saved keychain item could not be read."
         }
     }
+
+    var status: OSStatus? {
+        if case .unexpectedStatus(let status) = self {
+            return status
+        }
+        return nil
+    }
+
+    var isAuthorizationOrTrustFailure: Bool {
+        guard let status else { return false }
+        return status == errSecAuthFailed ||
+            status == errSecInteractionNotAllowed ||
+            status == errSecUserCanceled
+    }
+}
+
+enum KeychainAPIKeyAccessState: Equatable {
+    case available(maskedKey: String)
+    case missing
+    case authorizationRequired(String)
+    case unreadable(String)
+
+    var hasReadableKey: Bool {
+        if case .available = self { return true }
+        return false
+    }
+
+    var maskedDisplay: String {
+        switch self {
+        case .available(let maskedKey):
+            return maskedKey
+        case .missing:
+            return "None"
+        case .authorizationRequired:
+            return "Needs re-authorization"
+        case .unreadable:
+            return "Configured, unreadable"
+        }
+    }
+
+    var statusDisplay: String {
+        switch self {
+        case .available:
+            return "Success"
+        case .missing:
+            return "Missing"
+        case .authorizationRequired(let message), .unreadable(let message):
+            return message
+        }
+    }
 }
 
 protocol KeychainStore: AnyObject {
@@ -257,7 +307,7 @@ final class KeychainService {
             self.lastReadStatus = "Success"
             return result
         } catch {
-            self.lastReadStatus = "Error: \(error.localizedDescription)"
+            self.lastReadStatus = KeychainService.keychainReadStatusMessage(for: error)
             throw error
         }
     }
@@ -273,11 +323,48 @@ final class KeychainService {
     }
 
     func hasAPIKey(account: String) -> Bool {
-        ((try? loadAPIKey(account: account)) ?? nil)?.isEmpty == false
+        apiKeyAccessState(account: account).hasReadableKey
     }
 
     func hasAPIKey() -> Bool {
-        ((try? loadAPIKey()) ?? nil)?.isEmpty == false
+        hasAPIKey(account: KeychainConstants.deepSeekAccount)
+    }
+
+    func apiKeyAccessState(account: String) -> KeychainAPIKeyAccessState {
+        do {
+            guard let key = try loadAPIKey(account: account) else {
+                lastReadStatus = "Missing"
+                return .missing
+            }
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                lastReadStatus = "Missing"
+                return .missing
+            }
+            lastReadStatus = "Success"
+            return .available(maskedKey: KeychainService.maskKey(trimmed))
+        } catch {
+            let message = KeychainService.keychainReadStatusMessage(for: error)
+            lastReadStatus = message
+            if KeychainService.isAuthorizationOrTrustFailure(error) {
+                return .authorizationRequired(message)
+            }
+            return .unreadable(message)
+        }
+    }
+
+    static func isAuthorizationOrTrustFailure(_ error: Error) -> Bool {
+        if let keychainError = error as? KeychainError {
+            return keychainError.isAuthorizationOrTrustFailure
+        }
+        return false
+    }
+
+    static func keychainReadStatusMessage(for error: Error) -> String {
+        if isAuthorizationOrTrustFailure(error) {
+            return "Keychain access needs re-authorization because the app signing identity changed."
+        }
+        return "Error: \(error.localizedDescription)"
     }
 }
 

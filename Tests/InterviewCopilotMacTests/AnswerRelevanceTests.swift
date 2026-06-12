@@ -120,6 +120,54 @@ struct AnswerRelevanceTests {
         #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
     }
 
+    @Test
+    func diffusionAutoregressivePolicyIntentIsModelComparison() {
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+
+        #expect(AnswerRelevancePolicy.intent(for: question) == .modelComparison)
+    }
+
+    @Test
+    func semanticGuardRejectsIncompleteSayFirstEvenWhenKeyPointsMatch() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceIncomplete")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion(
+            "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            sessionID: session.id
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        var truncatedCard = SuggestionCard(
+            id: "incomplete-diffusion-card",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "Model comparison",
+            sayFirst: "Diffusion-based policies tend to be more",
+            keyPoints: [
+                "Diffusion produces smoother continuous actions.",
+                "It is more robust than an autoregressive policy.",
+                "The MuJoCo evaluation reached seven out of ten successful grasps."
+            ],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        truncatedCard.questionText = question.questionText
+
+        #expect(appState.applySuggestionIfAlignedForTesting(truncatedCard, question: question, generationID: nil) == false)
+        #expect(appState.currentSuggestion?.sayFirst != "Diffusion-based policies tend to be more")
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
+    }
+
     private struct Fixture {
         var question: String
         var intent: AnswerRelevanceIntent

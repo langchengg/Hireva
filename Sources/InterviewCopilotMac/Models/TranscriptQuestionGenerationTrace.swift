@@ -25,5 +25,10 @@ struct TranscriptQuestionGenerationTrace: Equatable {
     var currentGenerationState: String = ""
     var currentSuggestionExists: Bool = false
 
+    // Diagnostics for partial-to-final ASR question transition
+    var acceptedFromPartial: Bool = false
+    var supersededByFinal: Bool = false
+    var partialToFinalDeltaMs: Int?
+
     static let empty = TranscriptQuestionGenerationTrace()
 }

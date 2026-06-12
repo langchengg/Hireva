@@ -1,79 +1,136 @@
 # AppState Modularization Architecture
 
-This document describes the modular architecture of `AppState` after the Phase 1 refactoring passes.
+This document records the current extension-level modularization of `AppState`.
+The refactor is behavior-preserving: prompt construction, Keychain behavior, DB
+schema, and System Audio capture rules are intentionally unchanged.
 
-## 1. Extracted Files & Component Map
+## Extracted File List
 
-The core `AppState` class has been modularized by extracting self-contained domains into extension files:
+- `Sources/InterviewCopilotMac/AppState.swift`
+  - Root `@MainActor` observable object.
+  - Published state storage, dependency construction, initialization, app active
+    observer setup, test mock injection, and the main `generateSuggestion()`
+    pipeline.
+- `Sources/InterviewCopilotMac/AppState+Actions.swift`
+  - Action feedback, loading states, and user-facing action notifications.
+- `Sources/InterviewCopilotMac/AppState+Audio.swift`
+  - Live listening start/stop, live session reset/clear, audio route restart,
+    audio signal monitoring, and continuous pipeline stopping.
+- `Sources/InterviewCopilotMac/AppState+Diagnostics.swift`
+  - Main-thread heartbeat, active task diagnostics, capture event logging, and
+    SQLite operation summaries.
+- `Sources/InterviewCopilotMac/AppState+Documents.swift`
+  - CV/JD/notes saving and document-related refresh hooks.
+- `Sources/InterviewCopilotMac/AppState+Generation.swift`
+  - Generation lifecycle helpers, active generation guards, fallback cards,
+    watchdog registration, streaming section publishing, alignment display
+    guards, stale callback accounting, and suggestion persistence helpers.
+- `Sources/InterviewCopilotMac/AppState+ManualCapture.swift`
+  - Manual push-to-ask recording, transcription, cleanup, retry, and manual
+    suggestion generation.
+- `Sources/InterviewCopilotMac/AppState+Permissions.swift`
+  - macOS permission status refresh, permission probes, and permission actions.
+- `Sources/InterviewCopilotMac/AppState+Providers.swift`
+  - Provider configuration, provider testing, API key save/delete flow, and
+    provider selection.
+- `Sources/InterviewCopilotMac/AppState+QuestionDetection.swift`
+  - System-audio question extraction, utterance classification, duplicate
+    suppression, automatic detection, and automatic suggestion trigger routing.
+- `Sources/InterviewCopilotMac/AppState+RAG.swift`
+  - RAG cache keys, realtime context trimming, compact document summaries,
+    embedding provider resolution, embedding rebuild/cancel, clean RAG rebuild,
+    and latency refresh.
+- `Sources/InterviewCopilotMac/AppState+Sessions.swift`
+  - Session loading, session details, export/delete, floating panel visibility,
+    and user-facing error helpers.
+- `Sources/InterviewCopilotMac/AppState+Transcript.swift`
+  - Transcript ingestion, transcript persistence, source attribution, and RAG
+    precompute scheduling.
 
-* **[AppState.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState.swift):** Contains the root composition, `@Published` UI properties, dependency injections, initialization, and lifecycle triggers.
-* **[AppState+Actions.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState+Actions.swift):** Standardized action loading states and active user feedback notifications.
-* **[AppState+Diagnostics.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState+Diagnostics.swift):** Heartbeat monitoring, SQLite/RAG/Provider active operations markers, and diagnostic/capture events logging.
-* **[AppState+Permissions.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState+Permissions.swift):** Operating system permissions requesting (microphone, speech recognition, screen capture) and permissions verification probe logic.
-* **[AppState+Documents.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState+Documents.swift):** User resume (CV) and job description (JD) document saving, cleaning, and indexing.
-* **[AppState+Sessions.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState+Sessions.swift):** Loading, deleting, exporting, and clearing local database session state, floating assistant visibility, and error display helper utilities.
-* **[AppState+Providers.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppState+Providers.swift):** Keychain-backed API keys storage (both LLM providers and embeddings providers), provider test connectivity, and fallback routing.
-* **[AppSection.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/AppSection.swift):** The global section enum representing view routing (Home, Documents, Sessions, Readiness Check, Settings, Diagnostics).
-* **[GenerationHelpers.swift](file:///Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My%20Drive/ai_interview/Sources/InterviewCopilotMac/GenerationHelpers.swift):** Helper synchronization primitive (`StageBTrigger`) and delay protocols (`DelayProvider`, `RealDelayProvider`) for streaming watchdogs.
+## Remaining AppState Responsibilities
 
----
+`AppState.swift` remains the storage and orchestration root. Swift extensions
+cannot hold stored properties, so published state, task references, repositories,
+services, and injected dependencies stay in the root type.
 
-## 2. Remaining AppState Responsibilities
+The main method intentionally left in root is:
 
-The root `AppState.swift` file is responsible for:
-1. **State Composition:** Holding all `@Published` properties representing the active UI states.
-2. **ASR Ingestion & Processing:** Segment consumption and processing candidates/interviewers speaking.
-3. **Pipeline Coordination:** Orchestrating automatic question detection and invoking LLM providers to generate suggestion cards.
-4. **Core Suggestion Generation:** Hosting the `generateSuggestion()` pipeline method and watchdogs.
-5. **RAG Orchestration:** Coordinating embeddings rebuilding and hybrid retrieval.
-6. **Audio Input/Signal Lifecycle:** Direct start/stop capture commands.
+- `generateSuggestion(...)`
+  - Current size: roughly 900 lines.
+  - Reason: it coordinates question binding, capture state, prompt snapshot,
+    RAG cache use, provider streaming, Stage A/Stage B tasks, watchdogs,
+    fallback behavior, alignment, UI state, and persistence. Moving it safely
+    should be a Phase 2 coordinator extraction rather than a file move.
 
----
+Other root responsibilities:
 
-## 3. Main Pipeline Data Flow
+- `refreshAll()`
+- `submitMockQuestion(_:)`
+- `injectVerificationMockData()`
+- Stored properties and nested stored-state value types.
+- Initialization, notification observer registration, and dependency wiring.
 
-The core system pipeline flows sequentially through the following stages:
+## Private To Internal Promotions
 
-```mermaid
-graph TD
-    A[Audio Capture] -->|PCM Buffers| B[ASR Engine / Transcript Repository]
-    B -->|Segments Stream| C[Question Detection Service]
-    C -->|Detected Question| D[Generation Coordinator]
-    D -->|Question Text / Context Snapshot| E[RAG Vector/Keyword Search]
-    E -->|Retrieved Context CV/JD| F[LLM Provider Router]
-    F -->|DeepSeek API Streaming| G[Streaming Parser & Alignment Check]
-    G -->|Suggestion Card| H[UI Display & SQLite DB Persistence]
-```
+The following members were promoted only so `AppState` extension files can access
+the same behavior after extraction. Each promotion is marked in source with:
+`// internal for AppState extension access only`.
 
-1. **Audio Capture:** Reads system audio (interviewer) and microphone (candidate) using ScreenCaptureKit and AVFoundation.
-2. **ASR Engine:** Transcribes streams into `TranscriptSegment` structs and saves them asynchronously to SQLite database.
-3. **Question Detection:** Checks interviewer utterances against question heuristics and trigger rules.
-4. **Generation Snapshot:** Halts old generations and captures clean recent transcript context.
-5. **RAG Retrieval:** Pulls most relevant CV/JD chunks via vector cosine similarity and clean keyword matching.
-6. **DeepSeek API:** Sends prompt containing the question, retrieved context, and transcript history to DeepSeek APIs.
-7. **Suggestion Alignment:** Checks incoming streaming tokens and parses them into structured answer cards.
-8. **UI/DB Persistence:** Renders the suggestion card in the Floating Panel and saves the snapshot in SQLite.
+- Generation state setters: `activeGenerationID`, `activeQuestionID`,
+  `activeTriggerPath`, `activeGenerationStartedAt`, `previousGenerationID`,
+  `cancelledGenerationCount`, `staleCallbackDiscardCount`,
+  `staleAnswerDiscardCount`, `answerQuestionMismatchCount`,
+  `lastAlignmentError`, `recentSuggestionAlignments`,
+  `currentAnswerQuestionIntent`, prompt binding fields, RAG binding fields,
+  answer-intent fields, `fallbackWatchdogActive`, `stageBTaskActive`,
+  `providerStreamActive`.
+- Generation storage and types: `ActiveGenerationController`,
+  `activeGenerationController`, `stageBTask`, `softFallbackTask`,
+  `fullCardWatchdogTask`, `suggestionGenerationService`.
+- Audio storage: `appleSpeechService`, `activeTranscriptionProvider`,
+  `ownsSystemAudioCaptureRuntime`, `lastAutoQuestionText`,
+  `recentQuestionsFingerprints`, `audioSignalMonitoringTimer`.
+- RAG storage: `activeEmbeddingRebuildTask`.
+- Detection storage already shared by the question detection extension:
+  `pendingIgnoredSystemAudioFallback`, `detectionDebounceTask`,
+  `activeDetectionTask`, `lastDetectionAt`, `lastAutoSuggestionAt`,
+  `recentQuestionTimestamps`, `autoSuggestionCooldownSeconds`,
+  `possibleQuestionConfidenceRange`.
+- Cross-extension helpers including generation guards, watchdog registration,
+  fallback display, RAG cache keying, realtime context trimming, compact
+  summaries, duplicate suppression, and embedding provider ID resolution.
 
----
+## Remaining Large Methods
 
-## 4. MainActor Rules & Concurrency
+- `generateSuggestion(...)` in `AppState.swift`, about 900 lines.
+- `sendManualCaptureToAI(forceDeepSeek:)` in `AppState+ManualCapture.swift`,
+  about 360 lines.
+- `startListeningAsync(mode:)` in `AppState+Audio.swift`, about 290 lines.
+- `displaySuggestionIfAligned(...)` in `AppState+Generation.swift`, about
+  130 lines.
 
-* **Class Isolation:** The entire `AppState` class is decorated with `@MainActor`. All fields and extension methods are isolated to the main thread automatically.
-* **UI Updates:** All mutations of `@Published` properties must happen on the `@MainActor`.
-* **Async Work:** Network calls (LLM/embedding requests) and file/database persistence run in cooperative detached background tasks (`Task.detached(priority: .utility)`) to keep the main thread fully responsive.
-* **Hop-backs:** Use `await MainActor.run { ... }` or Swift concurrency main actor hops to safely publish state modifications from background threads.
+These methods are large because they currently coordinate multiple side effects.
+They were not rewritten in this pass to avoid changing runtime behavior.
 
----
+## Phase 2 Recommendation
 
-## 5. Architectural Invariants
+Create coordinator types after runtime acceptance is stable:
 
-To keep the application correct, the following invariants must never be broken:
+1. `GenerationCoordinator`
+   - Own active generation controller, task cancellation, watchdog registration,
+     stale callback accounting, and generation UI state transitions.
+2. `SuggestionDisplayCoordinator`
+   - Own `displaySuggestionIfAligned`, semantic fallback, answer relevance
+     checks, and suggestion-card binding diagnostics.
+3. `PromptContextCoordinator`
+   - Own prompt snapshot assembly, current/previous question binding, RAG chunk
+     binding, and context bleed risk calculation.
+4. `ManualCaptureCoordinator`
+   - Own manual capture provider request and persistence flow after the manual
+     UI state machine has separate tests.
+5. `AudioCaptureCoordinator`
+   - Own live capture start/stop orchestration and device/session lifetime once
+     real System Audio smoke tests are passing reliably.
 
-* **System Audio Only must not require microphone:** System audio capture using ScreenCaptureKit must be able to run independently without prompting the user for or requiring access to the physical microphone.
-* **Transcript question must produce answer or visible error:** Any question identified by the transcript must cause the UI to transition to a loading state and produce either a structured suggestion card or transition to a visible error state (e.g. timeout / connectivity error).
-* **Multi-question ASR transcript must be split:** High-volume or rapid-dialogue segments containing multiple questions must be segmented correctly so that the latest question supersedes older ones.
-* **Current prompt primary question must equal active detected question:** The context built for the LLM prompt and the active card rendered on the floating UI must align to prevent answering stale questions.
-* **Old generation must not overwrite new question:** In-flight tasks from previous questions must be cancelled immediately when a new question is detected. Late streaming responses from older questions must be rejected.
-* **No Ollama dependency:** The application must only rely on configured HTTP cloud LLMs and local keyword search, with no hard dependency on local Ollama services.
-* **No raw API keys shown:** Keychain keys must never be logged or displayed raw in the UI. Keys must always be masked using `maskKey` before presentation or diagnostic printouts.
-* **dist app must rebuild after changes:** The code signature must always be verified by running the `./script/build_and_run.sh --verify` task after major source files changes.
+Phase 2 should be test-driven and should not start until full tests and manual
+runtime smoke tests pass against the rebuilt `dist/InterviewCopilotMac.app`.

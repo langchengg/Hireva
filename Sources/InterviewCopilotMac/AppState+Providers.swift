@@ -89,10 +89,14 @@ extension AppState {
     func embeddingKeyStatus(account: String) -> String {
         let cleanedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedAccount.isEmpty else { return "No account configured" }
-        guard keychainService.hasAPIKey(account: cleanedAccount) else { return "Missing" }
-        do {
-            return KeychainService.maskKey(try keychainService.loadAPIKey(account: cleanedAccount) ?? "")
-        } catch {
+        switch keychainService.apiKeyAccessState(account: cleanedAccount) {
+        case .available(let maskedKey):
+            return maskedKey
+        case .missing:
+            return "Missing"
+        case .authorizationRequired:
+            return "Needs re-authorization"
+        case .unreadable:
             return "Configured, unreadable"
         }
     }
@@ -213,9 +217,21 @@ extension AppState {
                 failAction(actionID, title: "Provider switch failed", message: msg)
                 return
             } else if updated.kind == .deepSeek || updated.kind == .openAICompatible {
-                guard let account = updated.apiKeyAccount,
-                      keychainService.hasAPIKey(account: account) else {
-                    let msg = "Missing API Key for \(updated.name)."
+                guard let account = updated.apiKeyAccount else {
+                    let msg = "Missing API key account for \(updated.name)."
+                    self.lastProviderSwitchError = msg
+                    self.errorMessage = "Could not switch provider: \(msg)"
+                    failAction(actionID, title: "Provider switch failed", message: msg)
+                    return
+                }
+                let keyStatus = keychainService.apiKeyAccessState(account: account)
+                guard keyStatus.hasReadableKey else {
+                    let msg: String
+                    if case .authorizationRequired(let message) = keyStatus {
+                        msg = message
+                    } else {
+                        msg = "Missing API Key for \(updated.name)."
+                    }
                     self.lastProviderSwitchError = msg
                     self.errorMessage = "Could not switch provider: \(msg)"
                     failAction(actionID, title: "Provider switch failed", message: msg)
@@ -347,9 +363,20 @@ extension AppState {
             failAction(actionID, title: "DeepSeek not configured", message: "Add DeepSeek in Settings before testing.")
             return
         }
-        guard provider.apiKeyAccount.map({ keychainService.hasAPIKey(account: $0) }) ?? false else {
-            connectionResult = "Add a DeepSeek API key before testing the connection."
+        guard let account = provider.apiKeyAccount else {
+            connectionResult = "DeepSeek key account is not configured."
             failAction(actionID, title: "DeepSeek key missing", message: "Save a DeepSeek API key before testing.")
+            return
+        }
+        let keyStatus = keychainService.apiKeyAccessState(account: account)
+        guard keyStatus.hasReadableKey else {
+            if case .authorizationRequired(let message) = keyStatus {
+                connectionResult = message
+                failAction(actionID, title: "Keychain needs re-authorization", message: message)
+            } else {
+                connectionResult = "Add a DeepSeek API key before testing the connection."
+                failAction(actionID, title: "DeepSeek key missing", message: "Save a DeepSeek API key before testing.")
+            }
             return
         }
         beginAction(actionID, title: "Testing DeepSeek", message: "Checking the saved key and model endpoint...")

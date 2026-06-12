@@ -11,7 +11,25 @@ enum SystemAudioQuestionExtractor {
     private static let maxInputCharacters = 2_400
     private static let maxExtractedQuestions = 12
 
-    static func extract(from text: String) -> [ExtractedTranscriptQuestion] {
+    static func isIncompleteQuestionFragment(_ text: String) -> Bool {
+        let lower = collapse(text).lowercased()
+        let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else { return false }
+
+        if lower.hasPrefix("why do you want") {
+            let completions = ["join our team", "this role", "this company", "to work here", "to join us"]
+            return !completions.contains { lower.contains($0) }
+        }
+
+        let shortStarters = ["what would you", "how would you", "can you tell", "could you explain"]
+        for starter in shortStarters where lower.hasPrefix(starter) {
+            return words.count < 6
+        }
+
+        return false
+    }
+
+    static func extract(from text: String, isFinal: Bool = true) -> [ExtractedTranscriptQuestion] {
         let collapsed = collapse(text)
         guard collapsed.split(whereSeparator: \.isWhitespace).count >= 4 else {
             return []
@@ -34,7 +52,7 @@ enum SystemAudioQuestionExtractor {
 
             let raw = String(bounded[startIndex..<endIndex])
             let questionText = cleanQuestion(raw)
-            guard isCompleteQuestion(questionText),
+            guard isCompleteQuestion(questionText, isFinal: isFinal),
                   !isSmallTalkOnly(questionText) else {
                 continue
             }
@@ -193,10 +211,10 @@ enum SystemAudioQuestionExtractor {
         return String(text[..<firstRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func isCompleteQuestion(_ text: String) -> Bool {
+    private static func isCompleteQuestion(_ text: String, isFinal: Bool) -> Bool {
         let lower = text.lowercased()
-        let words = lower.split(whereSeparator: \.isWhitespace).count
-        guard words >= 4 else { return false }
+        let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count >= 4 else { return false }
 
         let incompleteEndings = [
             " can you", " could you", " would you", " do you",
@@ -207,7 +225,26 @@ enum SystemAudioQuestionExtractor {
             return false
         }
 
-        return questionStarts(in: lower).first == 0
+        // Question starts check
+        guard questionStarts(in: lower).first == 0 else { return false }
+
+        if isIncompleteQuestionFragment(lower) {
+            return false
+        }
+
+        // Rules for common question starters when segment is not final
+        if !isFinal {
+            let otherStarters = ["what would you", "how would you", "can you tell", "could you explain"]
+            for starter in otherStarters {
+                if lower.hasPrefix(starter) {
+                    if words.count < 6 {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
     }
 
     private static func isSmallTalkOnly(_ text: String) -> Bool {
