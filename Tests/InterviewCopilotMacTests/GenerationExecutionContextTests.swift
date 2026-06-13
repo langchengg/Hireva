@@ -145,6 +145,11 @@ struct GenerationExecutionContextTests {
             latencyMS: 123,
             firstTokenMS: 40,
             firstVisibleMS: 80,
+            providerID: "deepseek",
+            providerName: "DeepSeek",
+            providerModel: "deepseek-chat",
+            providerKind: .deepSeek,
+            safeDiagnostics: ["model": "deepseek-chat"],
             providerStatus: .completed,
             errorClassification: nil
         )
@@ -153,8 +158,52 @@ struct GenerationExecutionContextTests {
         #expect(result.keyPoints == ["Point one"])
         #expect(result.followUp == ["Follow-up"])
         #expect(result.latencyMS == 123)
+        #expect(result.providerID == "deepseek")
+        #expect(result.providerName == "DeepSeek")
+        #expect(result.providerModel == "deepseek-chat")
+        #expect(result.providerKind == .deepSeek)
+        #expect(result.safeDiagnostics["model"] == "deepseek-chat")
         #expect(result.providerStatus == .completed)
         #expect(result.errorClassification == nil)
+    }
+
+    @Test
+    func providerResultRedactsSecretsFromDiagnosticsAndVisibleFields() {
+        let rawKey = "sk-abcdefghijklmnopqrstuvwxyz1234567890"
+
+        let result = GenerationProviderResult(
+            sayFirst: "Answer with \(rawKey)",
+            keyPoints: ["Point with \(rawKey)"],
+            followUp: ["Follow-up with \(rawKey)"],
+            parsedSections: StreamingSuggestionSections(
+                strategy: "Strategy with \(rawKey)",
+                sayFirst: "Section answer with \(rawKey)",
+                keyPoints: ["Section point with \(rawKey)"],
+                followUpReady: ["Section follow-up with \(rawKey)"],
+                caution: "Caution with \(rawKey)"
+            ),
+            latencyMS: 10,
+            firstTokenMS: nil,
+            firstVisibleMS: nil,
+            providerID: "provider-\(rawKey)",
+            providerName: "DeepSeek \(rawKey)",
+            providerModel: "model-\(rawKey)",
+            providerKind: .deepSeek,
+            safeDiagnostics: ["apiKey": rawKey],
+            providerStatus: .failed,
+            errorClassification: .provider,
+            errorMessage: "Failed with \(rawKey)"
+        )
+
+        #expect(result.sayFirst.contains(rawKey) == false)
+        #expect(result.keyPoints.joined().contains(rawKey) == false)
+        #expect(result.followUp.joined().contains(rawKey) == false)
+        #expect(result.parsedSections?.sayFirst.contains(rawKey) == false)
+        #expect(result.providerID.contains(rawKey) == false)
+        #expect(result.providerName.contains(rawKey) == false)
+        #expect(result.providerModel.contains(rawKey) == false)
+        #expect(result.safeDiagnostics.values.contains { $0.contains(rawKey) } == false)
+        #expect(result.errorMessage?.contains(rawKey) == false)
     }
 
     private func makeExecutionContext(

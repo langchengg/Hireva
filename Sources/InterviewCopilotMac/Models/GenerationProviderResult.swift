@@ -35,6 +35,70 @@ struct GenerationProviderResult: Equatable {
     let latencyMS: Int?
     let firstTokenMS: Int?
     let firstVisibleMS: Int?
+    let providerID: String
+    let providerName: String
+    let providerModel: String
+    let providerKind: LLMProviderKind?
+    let safeDiagnostics: [String: String]
     let providerStatus: GenerationProviderStatus
     let errorClassification: GenerationProviderErrorClassification?
+    let errorMessage: String?
+
+    init(
+        sayFirst: String,
+        keyPoints: [String],
+        followUp: [String],
+        parsedSections: StreamingSuggestionSections?,
+        latencyMS: Int?,
+        firstTokenMS: Int?,
+        firstVisibleMS: Int?,
+        providerID: String = "",
+        providerName: String = "",
+        providerModel: String = "",
+        providerKind: LLMProviderKind? = nil,
+        safeDiagnostics: [String: String] = [:],
+        providerStatus: GenerationProviderStatus,
+        errorClassification: GenerationProviderErrorClassification?,
+        errorMessage: String? = nil
+    ) {
+        self.sayFirst = Self.redactSecrets(sayFirst)
+        self.keyPoints = keyPoints.map(Self.redactSecrets)
+        self.followUp = followUp.map(Self.redactSecrets)
+        self.parsedSections = parsedSections.map {
+            StreamingSuggestionSections(
+                strategy: Self.redactSecrets($0.strategy),
+                sayFirst: Self.redactSecrets($0.sayFirst),
+                keyPoints: $0.keyPoints.map(Self.redactSecrets),
+                followUpReady: $0.followUpReady.map(Self.redactSecrets),
+                caution: Self.redactSecrets($0.caution)
+            )
+        }
+        self.latencyMS = latencyMS
+        self.firstTokenMS = firstTokenMS
+        self.firstVisibleMS = firstVisibleMS
+        self.providerID = Self.redactSecrets(providerID)
+        self.providerName = Self.redactSecrets(providerName)
+        self.providerModel = Self.redactSecrets(providerModel)
+        self.providerKind = providerKind
+        self.safeDiagnostics = safeDiagnostics.reduce(into: [:]) { result, item in
+            result[Self.redactSecrets(item.key)] = Self.redactSecrets(item.value)
+        }
+        self.providerStatus = providerStatus
+        self.errorClassification = errorClassification
+        self.errorMessage = errorMessage.map(Self.redactSecrets)
+    }
+
+    static func redactSecrets(_ text: String) -> String {
+        text
+            .replacingOccurrences(
+                of: #"sk-[A-Za-z0-9_\-]{20,}"#,
+                with: "[REDACTED_API_KEY]",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"(?i)(api[_ -]?key\s*[:=]\s*)[A-Za-z0-9_\-]{12,}"#,
+                with: "$1[REDACTED_API_KEY]",
+                options: .regularExpression
+            )
+    }
 }

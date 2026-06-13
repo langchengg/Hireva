@@ -132,6 +132,12 @@ enum QuestionIntentPromptPolicy {
         }
     }
 
+    /// Returns a complete local fallback answer for the active question.
+    ///
+    /// These answers may become the first visible response when DeepSeek is late
+    /// or Stage B times out, so they must be speakable answers rather than
+    /// instructions. Model-comparison fallbacks must directly compare diffusion
+    /// and autoregressive behavior.
     static func fallbackAnswer(for question: DetectedQuestion) -> IntentFallbackAnswer {
         switch intent(for: question.questionText) {
         case .tellMeAboutYourself:

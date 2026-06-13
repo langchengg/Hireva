@@ -3,6 +3,9 @@
 // checks, streaming UI publication, and generation diagnostics.
 // It must not perform audio capture, question extraction, provider key storage,
 // or RAG scoring decisions.
+// Known limitation: Stage B can time out under provider latency. If the visible
+// first answer is complete and aligned, preserving that fallback is acceptable;
+// timeout optimization belongs in a later generation phase.
 
 import Foundation
 

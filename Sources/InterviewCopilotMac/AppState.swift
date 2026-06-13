@@ -551,6 +551,8 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     let suggestionGenerationService: SuggestionGenerationService
     // internal for AppState extension access only
+    let generationCoordinator: GenerationCoordinator
+    // internal for AppState extension access only
     let recapGenerationService: RecapGenerationService
     // internal for AppState extension access only
     var appleSpeechService: AppleSpeechTranscriptionService?
@@ -657,8 +659,14 @@ final class AppState: ObservableObject {
             keychainService: keychain
         )
         self.llmRouter = router
+        let suggestionService = SuggestionGenerationService(llmRouter: router)
         self.questionDetectionService = QuestionDetectionService(llmRouter: router)
-        self.suggestionGenerationService = SuggestionGenerationService(llmRouter: router)
+        self.suggestionGenerationService = suggestionService
+        self.generationCoordinator = GenerationCoordinator(
+            dependencies: GenerationCoordinator.Dependencies(
+                suggestionGenerationService: suggestionService
+            )
+        )
         self.recapGenerationService = RecapGenerationService(llmRouter: router)
         
         self.contextRetrievalService = contextRetrievalService ?? HybridContextRetrievalService(
@@ -964,11 +972,15 @@ final class AppState: ObservableObject {
     /// Coordinates one suggestion-generation attempt from accepted question to
     /// visible first answer, Stage B expansion, persistence, and diagnostics.
     ///
-    /// This method still owns the task lifecycle in Phase 2C. It assumes the
+    /// This method still owns the task lifecycle in Phase 2D. It assumes the
     /// caller has already accepted exactly one clean question. All async paths
     /// must guard `generationID` against the active generation before mutating
     /// current UI state, because older Stage A/Stage B/provider callbacks may
     /// finish after a newer interviewer question starts.
+    ///
+    /// Stage B timeout is not automatically a product failure: an aligned,
+    /// complete first answer or local fallback may remain the correct visible
+    /// result while full-card expansion is retried or optimized later.
     func generateSuggestion(
         for question: DetectedQuestion,
         session: InterviewSession,
@@ -1405,8 +1417,28 @@ final class AppState: ObservableObject {
 
                 if !sawStreamingSections {
                     self.markProviderOperation("Stage B full-card fallback started")
-                    let result = try await self.withTimeout(seconds: 15.0) {
-                        try await self.suggestionGenerationService.generateFullCard(
+                    let fullAnswerContext = GenerationExecutionContext.make(
+                        session: localSession,
+                        question: localQuestion,
+                        generationID: generationID,
+                        triggerPath: triggerPath,
+                        provider: self.activeRealtimeProvider,
+                        retrievedContext: optimizedContext,
+                        transcriptSnapshot: localTranscript,
+                        cvSummary: cvSummary,
+                        jdSummary: jdSummary,
+                        startedAt: requestStart,
+                        source: telemetrySource,
+                        speaker: telemetrySpeaker,
+                        stage: .fullAnswer
+                    )
+                    let fullAnswerProviderRequest = GenerationProviderRequest(
+                        context: fullAnswerContext,
+                        streamingEnabled: false
+                    )
+                    let providerResult = try await self.withTimeout(seconds: 15.0) {
+                        await self.generationCoordinator.executeProviderRequest(
+                            fullAnswerProviderRequest,
                             question: localQuestion,
                             context: optimizedContext,
                             transcriptContext: localTranscript,
@@ -1419,17 +1451,20 @@ final class AppState: ObservableObject {
                         self.recordStaleGenerationDiscard()
                         return
                     }
-                    if let caution = result.card.caution,
+                    guard providerResult.providerStatus == .completed else {
+                        throw GenerationCoordinator.ProviderExecutionFailure(result: providerResult)
+                    }
+                    if let caution = providerResult.safeDiagnostics["caution"],
                        caution.localizedCaseInsensitiveContains("non-JSON") ||
                         caution.localizedCaseInsensitiveContains("JSON") {
                         self.currentGenerationTelemetry.jsonParseError = caution
                     }
-                    latestSections = StreamingSuggestionSections(
-                        strategy: result.card.strategy,
-                        sayFirst: result.card.sayFirst,
-                        keyPoints: result.card.keyPoints,
-                        followUpReady: result.card.followUpReady,
-                        caution: result.card.caution ?? ""
+                    latestSections = providerResult.parsedSections ?? StreamingSuggestionSections(
+                        strategy: "Direct Answer",
+                        sayFirst: providerResult.sayFirst,
+                        keyPoints: providerResult.keyPoints,
+                        followUpReady: providerResult.followUp,
+                        caution: providerResult.safeDiagnostics["caution"] ?? ""
                     )
                 }
 

@@ -92,10 +92,15 @@ Diagnostics.
 - Old Stage B/provider callbacks must not update the current UI after a newer
   generation becomes active.
 - Visible `say_first` must be independently relevant and complete.
+- For model-comparison questions, visible `say_first` must directly compare
+  diffusion and autoregressive behavior rather than saying what the candidate
+  would explain.
 - Clear technical/model-comparison questions should not accept
   `alignment_verdict = unknown`.
 - Fallback answers must directly answer the current question, not describe what
   to say.
+- RAG fallback is acceptable when provider output is missing, late, or invalid,
+  but it still has to pass answer-quality and alignment checks.
 - Raw API keys must never be logged or shown.
 - Keychain service/account names are persisted identifiers and should only
   change with an explicit migration.
@@ -131,3 +136,16 @@ Diagnostics.
 - Do not add raw key logs for debugging.
 - Do not change DB schema in documentation/comment-only work.
 - Do not use Accessibility automation for GUI verification.
+
+## Current Known Limitations
+
+- The app is currently ad-hoc signed unless an Apple Development identity is
+  configured. Because the CDHash changes after each rebuild, macOS may ask for
+  Keychain or Screen/System Audio permission again.
+- Stage B full-card expansion can time out. This is acceptable when the visible
+  first answer or RAG template fallback is complete, aligned, and directly
+  answers the current question. Do not optimize Stage B timeout in
+  documentation-only work.
+- `generateSuggestion(...)` still remains in `AppState.swift`. Moving lifecycle
+  ownership into `GenerationCoordinator` should be Phase 2D/2E work and must be
+  done one responsibility at a time with consecutive-question regression tests.
