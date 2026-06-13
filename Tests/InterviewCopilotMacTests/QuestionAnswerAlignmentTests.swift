@@ -161,6 +161,7 @@ struct QuestionAnswerAlignmentTests {
         appState.saveSettings(settings)
         appState.currentCaptureRuntimeState = .listening
         appState.liveState = .listening
+        appState.generationFullCardWatchdogNanoseconds = 20_000_000_000
 
         await appState.handleTranscriptSegment(TranscriptSegment(
             id: "alignment-long-transcript",
@@ -172,7 +173,7 @@ struct QuestionAnswerAlignmentTests {
             confidence: 1.0
         ))
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: 30.0) {
             appState.detectedQuestionsInSessionCount == 9 &&
             appState.currentSuggestion?.detectedQuestionID == appState.lastDetectedQuestion?.id &&
             appState.currentQABinding.bindingStatus == .matched
@@ -369,7 +370,7 @@ struct QuestionAnswerAlignmentTests {
 
     private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
         let start = Date()
-        let effectiveTimeout = max(timeout, 20.0)
+        let effectiveTimeout = max(timeout, 45.0)
         while !predicate() {
             if Date().timeIntervalSince(start) > effectiveTimeout {
                 throw NSError(

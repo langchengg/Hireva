@@ -152,6 +152,430 @@ struct GenerationCoordinatorTests {
         #expect(result.errorMessage?.contains("timed out") == true)
     }
 
+    @Test
+    func stageBFullCardResultReturnsApplyFullCardWithoutAppState() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let sections = makeAlignedStageBSections()
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-2e",
+            detectedQuestionID: "question-2e",
+            activeGenerationID: "generation-2e",
+            questionText: question,
+            providerResult: providerResult,
+            sections: sections,
+            sawStreamingSections: true,
+            visibleSayFirst: nil,
+            visibleAnswerExists: false
+        )
+
+        #expect(result.decision == .applyFullCard)
+        #expect(result.classification == .usableFullCard)
+        #expect(result.alignmentResult?.verdict == .aligned)
+        #expect(result.safeDiagnostics["stageBDecision"] == "applyFullCard")
+    }
+
+    @Test
+    func fullCardStageBResultCreatesApplyFullCardApplicationPlan() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let sections = makeAlignedStageBSections()
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-apply",
+            detectedQuestionID: "question-apply",
+            activeGenerationID: "generation-apply",
+            questionText: question,
+            providerResult: providerResult,
+            sections: sections,
+            sawStreamingSections: true,
+            visibleSayFirst: nil,
+            visibleAnswerExists: false
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: nil,
+            activeGenerationID: "generation-apply",
+            activeQuestionID: "question-apply"
+        )
+
+        #expect(plan.action == .applyFullCard)
+        #expect(plan.shouldPersist)
+        #expect(plan.shouldUpdateVisibleCard)
+        #expect(plan.safeDiagnostics["stageBApplicationAction"] == "applyFullCard")
+    }
+
+    @Test
+    func stageBTimeoutWithAlignedVisibleAnswerKeepsFirstVisibleAnswer() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let visibleAnswer = "I would say diffusion is more stable because it denoises a continuous action trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust in manipulation."
+        let providerResult = makeStageBProviderResult(
+            status: .timedOut,
+            sections: nil,
+            errorClassification: .timeout,
+            errorMessage: "Request timed out after 15.0s"
+        )
+
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-timeout",
+            detectedQuestionID: "question-timeout",
+            activeGenerationID: "generation-timeout",
+            questionText: question,
+            providerResult: providerResult,
+            sections: nil,
+            sawStreamingSections: false,
+            visibleSayFirst: visibleAnswer,
+            visibleAnswerExists: true
+        )
+
+        #expect(result.decision == .keepFirstVisibleAnswer)
+        #expect(result.classification == .timedOut)
+        #expect(result.fallbackReason == nil)
+    }
+
+    @Test
+    func timeoutWithAlignedVisibleAnswerCreatesKeepVisibleApplicationPlan() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let visibleAnswer = "I would say diffusion is more stable because it denoises a continuous action trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust in manipulation."
+        let providerResult = makeStageBProviderResult(
+            status: .timedOut,
+            sections: nil,
+            errorClassification: .timeout,
+            errorMessage: "Request timed out after 15.0s"
+        )
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-timeout-plan",
+            detectedQuestionID: "question-timeout-plan",
+            activeGenerationID: "generation-timeout-plan",
+            questionText: question,
+            providerResult: providerResult,
+            sections: nil,
+            sawStreamingSections: false,
+            visibleSayFirst: visibleAnswer,
+            visibleAnswerExists: true
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: makeVisibleSuggestion(id: "visible-timeout", questionID: "question-timeout-plan", sayFirst: visibleAnswer),
+            activeGenerationID: "generation-timeout-plan",
+            activeQuestionID: "question-timeout-plan"
+        )
+
+        #expect(plan.action == .keepVisibleFirstAnswer)
+        #expect(plan.shouldPersist)
+        #expect(plan.shouldUpdateVisibleCard == false)
+        #expect(plan.fallbackReason == nil)
+    }
+
+    @Test
+    func timeoutWithoutValidVisibleAnswerCreatesSemanticFallbackApplicationPlan() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let providerResult = makeStageBProviderResult(
+            status: .timedOut,
+            sections: nil,
+            errorClassification: .timeout,
+            errorMessage: "Request timed out after 15.0s"
+        )
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-timeout-fallback",
+            detectedQuestionID: "question-timeout-fallback",
+            activeGenerationID: "generation-timeout-fallback",
+            questionText: question,
+            providerResult: providerResult,
+            sections: nil,
+            sawStreamingSections: false,
+            visibleSayFirst: "I would discuss my background.",
+            visibleAnswerExists: true
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: makeVisibleSuggestion(id: "generic-visible", questionID: "question-timeout-fallback", sayFirst: "I would discuss my background."),
+            activeGenerationID: "generation-timeout-fallback",
+            activeQuestionID: "question-timeout-fallback"
+        )
+
+        #expect(plan.action == .useSemanticFallback)
+        #expect(plan.shouldPersist)
+        #expect(plan.shouldUpdateVisibleCard)
+        #expect(plan.fallbackReason?.contains("timed out") == true)
+    }
+
+    @Test
+    func stageBProviderFailureReturnsFallbackDecisionWithoutAppState() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let providerResult = makeStageBProviderResult(
+            status: .failed,
+            sections: nil,
+            errorClassification: .network,
+            errorMessage: "offline"
+        )
+
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-failure",
+            detectedQuestionID: "question-failure",
+            activeGenerationID: "generation-failure",
+            questionText: question,
+            providerResult: providerResult,
+            sections: nil,
+            sawStreamingSections: false,
+            visibleSayFirst: nil,
+            visibleAnswerExists: false
+        )
+
+        #expect(result.decision == .useSemanticFallback)
+        #expect(result.classification == .providerFailure)
+        #expect(result.fallbackReason?.contains("provider failed") == true)
+    }
+
+    @Test
+    func providerFailureCreatesFallbackApplicationPlanWithoutAppState() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let providerResult = makeStageBProviderResult(
+            status: .failed,
+            sections: nil,
+            errorClassification: .network,
+            errorMessage: "offline"
+        )
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-provider-failure",
+            detectedQuestionID: "question-provider-failure",
+            activeGenerationID: "generation-provider-failure",
+            questionText: question,
+            providerResult: providerResult,
+            sections: nil,
+            sawStreamingSections: false,
+            visibleSayFirst: nil,
+            visibleAnswerExists: false
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: nil,
+            activeGenerationID: "generation-provider-failure",
+            activeQuestionID: "question-provider-failure"
+        )
+
+        #expect(plan.action == .useSemanticFallback)
+        #expect(plan.shouldPersist)
+        #expect(plan.shouldUpdateVisibleCard)
+        #expect(plan.safeDiagnostics["stageBClassification"] == "providerFailure")
+    }
+
+    @Test
+    func staleStageBGenerationReturnsDiscardStaleResult() {
+        let coordinator = GenerationCoordinator()
+        let sections = makeAlignedStageBSections()
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+
+        let result = coordinator.interpretStageBResult(
+            generationID: "old-generation",
+            detectedQuestionID: "old-question",
+            activeGenerationID: "new-generation",
+            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            providerResult: providerResult,
+            sections: sections,
+            sawStreamingSections: true,
+            visibleSayFirst: nil,
+            visibleAnswerExists: false
+        )
+
+        #expect(result.decision == .discardStaleResult)
+        #expect(result.classification == .staleResult)
+        #expect(result.alignmentResult == nil)
+    }
+
+    @Test
+    func staleGenerationCreatesDiscardApplicationPlan() {
+        let coordinator = GenerationCoordinator()
+        let sections = makeAlignedStageBSections()
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+        let result = coordinator.interpretStageBResult(
+            generationID: "old-generation",
+            detectedQuestionID: "old-question",
+            activeGenerationID: "new-generation",
+            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            providerResult: providerResult,
+            sections: sections,
+            sawStreamingSections: true,
+            visibleSayFirst: nil,
+            visibleAnswerExists: false
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: nil,
+            activeGenerationID: "new-generation",
+            activeQuestionID: "new-question"
+        )
+
+        #expect(plan.action == .discardStaleResult)
+        #expect(plan.shouldPersist == false)
+        #expect(plan.shouldUpdateVisibleCard == false)
+    }
+
+    @Test
+    func modelComparisonGenericVisibleAnswerRequiresFallbackDecision() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let sections = StreamingSuggestionSections(
+            strategy: "General response",
+            sayFirst: "I would focus on explaining the project clearly and connect it to my background.",
+            keyPoints: [
+                "I can describe my experience in robotics.",
+                "I would keep the answer concise and practical."
+            ],
+            followUpReady: [],
+            caution: ""
+        )
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-generic",
+            detectedQuestionID: "question-generic",
+            activeGenerationID: "generation-generic",
+            questionText: question,
+            providerResult: providerResult,
+            sections: sections,
+            sawStreamingSections: true,
+            visibleSayFirst: sections.sayFirst,
+            visibleAnswerExists: true
+        )
+
+        #expect(result.decision == .useSemanticFallback)
+        #expect(result.classification == .fallbackRequired)
+        #expect(result.alignmentResult?.verdict == .mismatched)
+    }
+
+    @Test
+    func genericModelComparisonVisibleAnswerCreatesFallbackApplicationPlan() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let sections = StreamingSuggestionSections(
+            strategy: "General response",
+            sayFirst: "I would focus on explaining the project clearly and connect it to my background.",
+            keyPoints: [
+                "I can describe my experience in robotics.",
+                "I would keep the answer concise and practical."
+            ],
+            followUpReady: [],
+            caution: ""
+        )
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-generic-plan",
+            detectedQuestionID: "question-generic-plan",
+            activeGenerationID: "generation-generic-plan",
+            questionText: question,
+            providerResult: providerResult,
+            sections: sections,
+            sawStreamingSections: true,
+            visibleSayFirst: sections.sayFirst,
+            visibleAnswerExists: true
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: makeVisibleSuggestion(id: "visible-generic", questionID: "question-generic-plan", sayFirst: sections.sayFirst),
+            activeGenerationID: "generation-generic-plan",
+            activeQuestionID: "question-generic-plan"
+        )
+
+        #expect(plan.action == .useSemanticFallback)
+        #expect(plan.shouldPersist)
+        #expect(plan.shouldUpdateVisibleCard)
+        #expect(plan.safeDiagnostics["alignmentVerdict"] == "mismatched")
+    }
+
+    @Test
+    func applicationPlanDiagnosticsRedactRawAPIKey() {
+        let rawKey = "sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        let coordinator = GenerationCoordinator()
+        let result = GenerationStageBResult(
+            generationID: "generation-\(rawKey)",
+            detectedQuestionID: "question-\(rawKey)",
+            providerResult: nil,
+            decision: .applyFullCard,
+            classification: .usableFullCard,
+            fallbackReason: nil,
+            safeDiagnostics: [
+                "provider": "DeepSeek \(rawKey)",
+                "model": "deepseek-\(rawKey)"
+            ],
+            alignmentResult: nil
+        )
+
+        let plan = coordinator.makeStageBApplicationPlan(
+            from: result,
+            visibleSuggestion: nil,
+            activeGenerationID: "generation-\(rawKey)",
+            activeQuestionID: "question-\(rawKey)"
+        )
+
+        #expect(plan.safeDiagnostics.keys.contains { $0.contains(rawKey) } == false)
+        #expect(plan.safeDiagnostics.values.contains { $0.contains(rawKey) } == false)
+        #expect(plan.generationID.contains(rawKey))
+    }
+
+    @Test
+    func generationCoordinatorHasNoApplicationSideEffectOwnershipReferences() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot.appendingPathComponent("Sources/InterviewCopilotMac/Services/GenerationCoordinator.swift")
+        let source = try String(contentsOf: sourceURL)
+        let forbiddenReferences = [
+            "currentSuggestion",
+            "currentQuestion",
+            "@Published",
+            "activeGenerationController",
+            "saveSuggestion",
+            "SQLite",
+            "GRDB",
+            "stageBTask",
+            "fallbackWatchdog",
+            "fullCardWatchdog"
+        ]
+
+        for forbidden in forbiddenReferences {
+            #expect(source.contains(forbidden) == false)
+        }
+    }
+
+    @Test
+    func stageBNoSectionsKeepsAlignedVisibleAnswer() {
+        let coordinator = GenerationCoordinator()
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let visibleAnswer = "I would say diffusion is more stable because it denoises a continuous action trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust in manipulation."
+        let providerResult = makeStageBProviderResult(status: .completed, sections: nil)
+
+        let result = coordinator.interpretStageBResult(
+            generationID: "generation-empty",
+            detectedQuestionID: "question-empty",
+            activeGenerationID: "generation-empty",
+            questionText: question,
+            providerResult: providerResult,
+            sections: nil,
+            sawStreamingSections: false,
+            visibleSayFirst: visibleAnswer,
+            visibleAnswerExists: true
+        )
+
+        #expect(result.decision == .keepFirstVisibleAnswer)
+        #expect(result.classification == .noSections)
+    }
+
     private static let successfulProviderJSON = """
     {
       "strategy": "Direct comparison",
@@ -267,6 +691,69 @@ struct GenerationCoordinatorTests {
             cvSummary,
             jdSummary,
             providerConfiguration
+        )
+    }
+
+    private func makeAlignedStageBSections() -> StreamingSuggestionSections {
+        StreamingSuggestionSections(
+            strategy: "Direct comparison",
+            sayFirst: "I would say diffusion is more stable because it denoises a whole continuous action trajectory, while autoregressive prediction can accumulate errors step by step.",
+            keyPoints: [
+                "Diffusion models smooth continuous actions.",
+                "Autoregressive models can accumulate sequential errors.",
+                "That makes diffusion more robust during robotic manipulation."
+            ],
+            followUpReady: ["I would validate this across more object starts."],
+            caution: ""
+        )
+    }
+
+    private func makeStageBProviderResult(
+        status: GenerationProviderStatus,
+        sections: StreamingSuggestionSections?,
+        errorClassification: GenerationProviderErrorClassification? = nil,
+        errorMessage: String? = nil
+    ) -> GenerationProviderResult {
+        GenerationProviderResult(
+            sayFirst: sections?.sayFirst ?? "",
+            keyPoints: sections?.keyPoints ?? [],
+            followUp: sections?.followUpReady ?? [],
+            parsedSections: sections,
+            latencyMS: status == .completed ? 42 : nil,
+            firstTokenMS: nil,
+            firstVisibleMS: nil,
+            providerID: "deepseek",
+            providerName: "DeepSeek",
+            providerModel: "mock-model",
+            providerKind: .deepSeek,
+            safeDiagnostics: ["providerStatus": status.rawValue],
+            providerStatus: status,
+            errorClassification: errorClassification,
+            errorMessage: errorMessage
+        )
+    }
+
+    private func makeVisibleSuggestion(
+        id: String,
+        questionID: String,
+        sayFirst: String
+    ) -> SuggestionCard {
+        SuggestionCard(
+            id: id,
+            sessionID: "coordinator-session",
+            questionID: questionID,
+            strategy: "Visible first answer",
+            sayFirst: sayFirst,
+            keyPoints: [],
+            followUpReady: [],
+            confidence: 0.8,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "mock",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
         )
     }
 }

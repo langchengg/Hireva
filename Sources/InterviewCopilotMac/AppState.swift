@@ -381,6 +381,8 @@ final class AppState: ObservableObject {
     // Delay Provider for mock time unit testing
     public var delayProvider: DelayProvider = RealDelayProvider()
     public var generationFullCardWatchdogNanoseconds: UInt64 = 8_000_000_000
+    var stageATimeoutSeconds: TimeInterval = 6.0
+    var lateDeepSeekReplacementWindowSeconds: TimeInterval = 6.0
 
     // Soft Fallback & Advanced Provenance
     @Published public var softFallbackUsed: Bool = false
@@ -584,6 +586,8 @@ final class AppState: ObservableObject {
     var lastAutoQuestionText: String?
     // internal for AppState extension access only
     var recentQuestionTimestamps = [String: Date]()
+    // internal for AppState extension access only
+    let autoQuestionDuplicateCooldownSeconds: TimeInterval = 60
 
     private var activeObserverToken: NSObjectProtocol?
     // internal for AppState extension access only
@@ -1451,6 +1455,27 @@ final class AppState: ObservableObject {
                         self.recordStaleGenerationDiscard()
                         return
                     }
+                    let stageBDecision = self.generationCoordinator.interpretStageBResult(
+                        generationID: generationID,
+                        detectedQuestionID: localQuestion.id,
+                        activeGenerationID: self.currentGenerationID,
+                        questionText: localQuestion.questionText,
+                        providerResult: providerResult,
+                        sections: providerResult.parsedSections,
+                        sawStreamingSections: false,
+                        visibleSayFirst: self.currentSuggestion?.sayFirst,
+                        visibleAnswerExists: self.visibleAnswerExists
+                    )
+                    let stageBApplicationPlan = self.generationCoordinator.makeStageBApplicationPlan(
+                        from: stageBDecision,
+                        visibleSuggestion: self.currentSuggestion,
+                        activeGenerationID: self.currentGenerationID,
+                        activeQuestionID: self.activeQuestionID
+                    )
+                    if stageBApplicationPlan.action == .discardStaleResult {
+                        self.recordStaleGenerationDiscard()
+                        return
+                    }
                     guard providerResult.providerStatus == .completed else {
                         throw GenerationCoordinator.ProviderExecutionFailure(result: providerResult)
                     }
@@ -1469,6 +1494,27 @@ final class AppState: ObservableObject {
                 }
 
                 guard self.isActiveGeneration(generationID), !Task.isCancelled else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
+                let finalStageBDecision = self.generationCoordinator.interpretStageBResult(
+                    generationID: generationID,
+                    detectedQuestionID: localQuestion.id,
+                    activeGenerationID: self.currentGenerationID,
+                    questionText: localQuestion.questionText,
+                    providerResult: nil,
+                    sections: latestSections,
+                    sawStreamingSections: sawStreamingSections,
+                    visibleSayFirst: self.currentSuggestion?.sayFirst,
+                    visibleAnswerExists: self.visibleAnswerExists
+                )
+                let finalStageBApplicationPlan = self.generationCoordinator.makeStageBApplicationPlan(
+                    from: finalStageBDecision,
+                    visibleSuggestion: self.currentSuggestion,
+                    activeGenerationID: self.currentGenerationID,
+                    activeQuestionID: self.activeQuestionID
+                )
+                if finalStageBApplicationPlan.action == .discardStaleResult {
                     self.recordStaleGenerationDiscard()
                     return
                 }
@@ -1700,7 +1746,7 @@ final class AppState: ObservableObject {
         // Race Stage A with 6.0s timeout
         var fastSayFirst = ""
         do {
-            fastSayFirst = try await withTimeout(seconds: 6.0) {
+            fastSayFirst = try await withTimeout(seconds: stageATimeoutSeconds) {
                 try await fastSayFirstTask.value
             }
             clearStageATask(generationID: generationID)
@@ -1718,7 +1764,9 @@ final class AppState: ObservableObject {
             
             if isSoft {
                 // Apply conservative late DeepSeek replacement checks
-                let replace = !self.userInteractedWithCard && elapsed < 6.0 && self.isSpecificAnswer(fastSayFirst)
+                let replace = !self.userInteractedWithCard &&
+                    elapsed < self.lateDeepSeekReplacementWindowSeconds &&
+                    self.isSpecificAnswer(fastSayFirst)
                 if replace {
                     if var current = self.currentSuggestion, current.stageBCompleted == true {
                         current.sayFirst = fastSayFirst

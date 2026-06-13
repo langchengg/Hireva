@@ -559,13 +559,13 @@ extension AppState {
         let now = Date()
         pruneRecentQuestionTimestamps(now: now)
 
-        // Check if there is a match in recent questions within 20 seconds
-        if let lastTime = recentQuestionTimestamps[normalized], now.timeIntervalSince(lastTime) <= 20.0 {
+        if let lastTime = recentQuestionTimestamps[normalized],
+           now.timeIntervalSince(lastTime) <= autoQuestionDuplicateCooldownSeconds {
             return true
         }
 
         for (fingerprint, timestamp) in recentQuestionTimestamps {
-            if now.timeIntervalSince(timestamp) <= 20.0 {
+            if now.timeIntervalSince(timestamp) <= autoQuestionDuplicateCooldownSeconds {
                 if isNearDuplicateQuestion(normalized, fingerprint) {
                     return true
                 }
@@ -626,17 +626,13 @@ extension AppState {
 
     private func pruneRecentQuestionTimestamps(now: Date) {
         for (fingerprint, timestamp) in recentQuestionTimestamps {
-            if now.timeIntervalSince(timestamp) > 20.0 {
+            if now.timeIntervalSince(timestamp) > autoQuestionDuplicateCooldownSeconds {
                 recentQuestionTimestamps.removeValue(forKey: fingerprint)
             }
         }
     }
 
     private func normalizedQuestion(_ text: String) -> String {
-        text
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        SystemAudioQuestionExtractor.duplicateKey(for: text)
     }
 }

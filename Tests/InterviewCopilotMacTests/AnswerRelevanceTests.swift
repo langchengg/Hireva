@@ -228,6 +228,77 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func runtimeNaturalDiffusionAnswerAlignsWithoutCannedSuccessMetric() {
+        let question = "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy"
+        let sayFirst = "I find diffusion-based policies more stable because they denoise the whole action trajectory at once, producing smooth motions instead of step-by-step predictions that tend to accumulate errors and cause jittery behavior in precise tasks."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: sayFirst,
+            sayFirst: sayFirst,
+            stageBCompleted: false
+        )
+
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.matchedThemes.contains("continuous action distribution"))
+        #expect(alignment.matchedThemes.contains("autoregressive / flow-matching comparison"))
+    }
+
+    @Test
+    func runtimeLeoRoverProjectAnswerAlignsWithProjectWalkthroughQuestion() {
+        let question = "could you explain your LeoRover project from end to end"
+        let answer = "My LeoRover project was an autonomous object retrieval robot. I built the ROS2 perception pipeline around YOLOv8 object detection, used the output for navigation and localisation, and connected it to manipulation so the real robot could approach and pick up the target object."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.questionIntent == .projectWalkthrough)
+        #expect(alignment.answerIntent == .projectWalkthrough)
+    }
+
+    @Test
+    func runtimeFragilePipelineAnswerAlignsWithTechnicalChallengeQuestion() {
+        let question = "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?"
+        let answer = "The hardest part was dealing with sensor noise and timing mismatches—in a clean demo everything runs perfectly, but on the real robot, small drifts in camera and IMU data would throw off the entire pipeline. I had to recalibrate the sensors, add robust filtering, and rework the coordination between perception, navigation, and manipulation modules, which finally stabilized the system and got our retrieval success rate up to 70%."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.questionIntent == .technicalChallenge)
+        #expect(alignment.answerIntent == .technicalChallenge)
+    }
+
+    @Test
+    func runtimeDexoryWhyRoleAnswerAlignsWithJoinTeamQuestion() {
+        let question = "why do you want to join our team"
+        let answer = "I’m drawn to Dexory because my work in embodied AI and ROS2 robotics aligns perfectly with your mission to break out of academia and deploy intelligent robots into real logistics environments—I want to help build world-changing solutions that bridge foundation models with practical, scalable behaviour."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.questionIntent == .whyRole)
+        #expect(alignment.answerIntent == .whyRole)
+        #expect(alignment.matchedThemes.contains("role / team interest"))
+        #expect(alignment.matchedThemes.contains("mission / company direction"))
+        #expect(alignment.matchedThemes.contains("real-world deployment"))
+    }
+
+    @Test
     func semanticGuardRejectsIncompleteSayFirstEvenWhenKeyPointsMatch() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceIncomplete")
         let appState = AppState(database: database)

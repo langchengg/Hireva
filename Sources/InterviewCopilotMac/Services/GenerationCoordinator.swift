@@ -117,6 +117,172 @@ final class GenerationCoordinator {
         }
     }
 
+    /// Interprets one Stage B result without applying it.
+    ///
+    /// AppState still owns active generation checks, UI mutation, task cleanup,
+    /// fallback application, and persistence. This method only turns provider
+    /// output plus the currently visible answer into a typed decision.
+    func interpretStageBResult(
+        generationID: String,
+        detectedQuestionID: String?,
+        activeGenerationID: String?,
+        questionText: String,
+        providerResult: GenerationProviderResult?,
+        sections: StreamingSuggestionSections?,
+        sawStreamingSections: Bool,
+        visibleSayFirst: String?,
+        visibleAnswerExists: Bool
+    ) -> GenerationStageBResult {
+        if activeGenerationID != generationID {
+            return makeStageBDecision(
+                generationID: generationID,
+                detectedQuestionID: detectedQuestionID,
+                providerResult: providerResult,
+                decision: .discardStaleResult,
+                classification: .staleResult,
+                fallbackReason: "Stage B result belongs to an inactive generation.",
+                questionText: questionText,
+                alignmentResult: nil
+            )
+        }
+
+        let providerStatus = providerResult?.providerStatus
+        let visibleAnswerIsUsable = Self.isVisibleAnswerUsable(
+            visibleSayFirst,
+            questionText: questionText,
+            visibleAnswerExists: visibleAnswerExists
+        )
+
+        if providerStatus == .timedOut {
+            return makeStageBDecision(
+                generationID: generationID,
+                detectedQuestionID: detectedQuestionID,
+                providerResult: providerResult,
+                decision: visibleAnswerIsUsable ? .keepFirstVisibleAnswer : .useSemanticFallback,
+                classification: .timedOut,
+                fallbackReason: visibleAnswerIsUsable ? nil : "Stage B timed out before producing an aligned visible answer.",
+                questionText: questionText,
+                alignmentResult: nil
+            )
+        }
+
+        if providerStatus == .failed || providerStatus == .cancelled {
+            return makeStageBDecision(
+                generationID: generationID,
+                detectedQuestionID: detectedQuestionID,
+                providerResult: providerResult,
+                decision: visibleAnswerIsUsable ? .keepFirstVisibleAnswer : .useSemanticFallback,
+                classification: .providerFailure,
+                fallbackReason: visibleAnswerIsUsable ? nil : "Stage B provider failed before producing an aligned visible answer.",
+                questionText: questionText,
+                alignmentResult: nil
+            )
+        }
+
+        let hasSections = sawStreamingSections || sections?.hasVisibleContent == true
+        guard hasSections, let sections else {
+            return makeStageBDecision(
+                generationID: generationID,
+                detectedQuestionID: detectedQuestionID,
+                providerResult: providerResult,
+                decision: visibleAnswerIsUsable ? .keepFirstVisibleAnswer : .useSemanticFallback,
+                classification: .noSections,
+                fallbackReason: visibleAnswerIsUsable ? nil : "Stage B completed without usable sections.",
+                questionText: questionText,
+                alignmentResult: nil
+            )
+        }
+
+        let alignment = Self.evaluateStageBSections(sections, questionText: questionText)
+        if alignment.verdict == .mismatched {
+            return makeStageBDecision(
+                generationID: generationID,
+                detectedQuestionID: detectedQuestionID,
+                providerResult: providerResult,
+                decision: .useSemanticFallback,
+                classification: .fallbackRequired,
+                fallbackReason: alignment.reason,
+                questionText: questionText,
+                alignmentResult: alignment
+            )
+        }
+
+        return makeStageBDecision(
+            generationID: generationID,
+            detectedQuestionID: detectedQuestionID,
+            providerResult: providerResult,
+            decision: .applyFullCard,
+            classification: .usableFullCard,
+            fallbackReason: nil,
+            questionText: questionText,
+            alignmentResult: alignment
+        )
+    }
+
+    /// Converts an interpreted Stage B result into an application plan.
+    ///
+    /// This is a pure planning boundary. It does not mutate UI, persist cards,
+    /// register/cancel tasks, start provider work, read Keychain, or inspect
+    /// audio/transcript state.
+    func makeStageBApplicationPlan(
+        from result: GenerationStageBResult,
+        visibleSuggestion: SuggestionCard?,
+        activeGenerationID: String?,
+        activeQuestionID: String?
+    ) -> StageBApplicationPlan {
+        let isStale = result.generationID != activeGenerationID ||
+            (result.detectedQuestionID != nil &&
+             activeQuestionID != nil &&
+             result.detectedQuestionID != activeQuestionID)
+
+        var diagnostics = result.safeDiagnostics.reduce(into: [String: String]()) { output, item in
+            output[GenerationProviderResult.redactSecrets(item.key)] = GenerationProviderResult.redactSecrets(item.value)
+        }
+        diagnostics["applicationPlanSource"] = "GenerationCoordinator"
+        diagnostics["generationID"] = GenerationProviderResult.redactSecrets(result.generationID)
+        diagnostics["detectedQuestionID"] = GenerationProviderResult.redactSecrets(result.detectedQuestionID ?? "")
+        diagnostics["activeGenerationMatches"] = isStale ? "false" : "true"
+        diagnostics["visibleAnswerExists"] = visibleSuggestion == nil ? "false" : "true"
+
+        if isStale || result.decision == .discardStaleResult {
+            diagnostics["stageBApplicationAction"] = StageBApplicationAction.discardStaleResult.rawValue
+            return StageBApplicationPlan(
+                generationID: result.generationID,
+                detectedQuestionID: result.detectedQuestionID,
+                action: .discardStaleResult,
+                fallbackReason: result.fallbackReason ?? "Stage B result belongs to an inactive generation.",
+                shouldPersist: false,
+                shouldUpdateVisibleCard: false,
+                safeDiagnostics: diagnostics
+            )
+        }
+
+        let action: StageBApplicationAction
+        switch result.decision {
+        case .applyFullCard:
+            action = .applyFullCard
+        case .keepFirstVisibleAnswer:
+            action = .keepVisibleFirstAnswer
+        case .useSemanticFallback:
+            action = .useSemanticFallback
+        case .discardStaleResult:
+            action = .discardStaleResult
+        case .providerFailed:
+            action = .markProviderFailed
+        }
+        diagnostics["stageBApplicationAction"] = action.rawValue
+
+        return StageBApplicationPlan(
+            generationID: result.generationID,
+            detectedQuestionID: result.detectedQuestionID,
+            action: action,
+            fallbackReason: result.fallbackReason,
+            shouldPersist: Self.shouldPersistStageBPlan(action: action, visibleSuggestion: visibleSuggestion),
+            shouldUpdateVisibleCard: Self.shouldUpdateVisibleCard(action: action),
+            safeDiagnostics: diagnostics
+        )
+    }
+
     static func elapsedMS(since start: Date, now: Date = Date()) -> Int {
         Int(now.timeIntervalSince(start) * 1000)
     }
@@ -185,6 +351,100 @@ final class GenerationCoordinator {
             errorClassification: classification,
             errorMessage: error.localizedDescription
         )
+    }
+
+    private func makeStageBDecision(
+        generationID: String,
+        detectedQuestionID: String?,
+        providerResult: GenerationProviderResult?,
+        decision: StageBDecision,
+        classification: StageBResultClassification,
+        fallbackReason: String?,
+        questionText: String,
+        alignmentResult: AnswerAlignmentResult?
+    ) -> GenerationStageBResult {
+        var diagnostics = providerResult?.safeDiagnostics ?? [:]
+        diagnostics["stageBDecision"] = decision.rawValue
+        diagnostics["stageBClassification"] = classification.rawValue
+        diagnostics["providerStatus"] = providerResult?.providerStatus.rawValue ?? "streaming"
+        diagnostics["questionIntent"] = AnswerRelevancePolicy.intent(for: questionText).rawValue
+        if let fallbackReason, !fallbackReason.isEmpty {
+            diagnostics["fallbackReason"] = fallbackReason
+        }
+        if let alignmentResult {
+            diagnostics["alignmentVerdict"] = alignmentResult.verdict.rawValue
+            diagnostics["alignmentReason"] = alignmentResult.reason
+        }
+
+        return GenerationStageBResult(
+            generationID: generationID,
+            detectedQuestionID: detectedQuestionID,
+            providerResult: providerResult,
+            decision: decision,
+            classification: classification,
+            fallbackReason: fallbackReason,
+            safeDiagnostics: diagnostics,
+            alignmentResult: alignmentResult
+        )
+    }
+
+    private static func isVisibleAnswerUsable(
+        _ visibleSayFirst: String?,
+        questionText: String,
+        visibleAnswerExists: Bool
+    ) -> Bool {
+        guard visibleAnswerExists,
+              let visibleSayFirst,
+              !visibleSayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return false
+        }
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: visibleSayFirst,
+            sayFirst: visibleSayFirst,
+            stageBCompleted: false
+        )
+        return alignment.verdict == .aligned || alignment.verdict == .weaklyAligned
+    }
+
+    private static func evaluateStageBSections(
+        _ sections: StreamingSuggestionSections,
+        questionText: String
+    ) -> AnswerAlignmentResult {
+        let answerText = ([sections.sayFirst] + sections.keyPoints + sections.followUpReady)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: answerText,
+            sayFirst: sections.sayFirst,
+            stageBCompleted: true
+        )
+    }
+
+    private static func shouldPersistStageBPlan(
+        action: StageBApplicationAction,
+        visibleSuggestion: SuggestionCard?
+    ) -> Bool {
+        switch action {
+        case .applyFullCard, .useSemanticFallback:
+            return true
+        case .keepVisibleFirstAnswer, .markProviderFailed:
+            return visibleSuggestion != nil
+        case .discardStaleResult:
+            return false
+        }
+    }
+
+    private static func shouldUpdateVisibleCard(action: StageBApplicationAction) -> Bool {
+        switch action {
+        case .applyFullCard, .useSemanticFallback, .markProviderFailed:
+            return true
+        case .keepVisibleFirstAnswer, .discardStaleResult:
+            return false
+        }
     }
 
     static func classifyProviderError(_ error: Error) -> GenerationProviderErrorClassification {

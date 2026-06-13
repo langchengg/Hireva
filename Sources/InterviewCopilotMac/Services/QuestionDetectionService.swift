@@ -161,12 +161,28 @@ final class QuestionDetectionService {
         transcriptContext: String,
         heuristic: LocalQuestionHeuristicResult
     ) -> QuestionDetectionPayload {
+        let providerQuestionText = SystemAudioQuestionExtractor.canonicalizeQuestionText(
+            payload.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        if SystemAudioQuestionExtractor.isIncompleteQuestionFragment(providerQuestionText) {
+            var rejected = payload
+            rejected.shouldTrigger = false
+            rejected.questionComplete = false
+            rejected.questionText = providerQuestionText
+            rejected.answerStrategy = .wait
+            rejected.confidence = min(payload.confidence, 0.5)
+            rejected.reason = "\(payload.reason) Local guardrail rejected this as an incomplete question fragment."
+            return rejected
+        }
+
         let candidate = fallbackQuestionCandidate(from: transcriptContext)
         guard heuristic.shouldTrigger,
               heuristic.confidence >= 0.8,
               candidate.isComplete,
               isStrongCompleteQuestion(candidate.text) else {
-            return payload
+            var canonicalPayload = payload
+            canonicalPayload.questionText = providerQuestionText
+            return canonicalPayload
         }
 
         let providerSuppressedAnswer = !payload.shouldTrigger
@@ -179,7 +195,6 @@ final class QuestionDetectionService {
 
         let classified = classifyFallbackQuestion(candidate.text)
         var normalized = payload
-        let providerQuestionText = payload.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
         normalized.shouldTrigger = true
         normalized.questionComplete = true
         normalized.questionText = providerQuestionText.isEmpty ? candidate.text : providerQuestionText
@@ -201,10 +216,13 @@ final class QuestionDetectionService {
         guard lower.split(whereSeparator: \.isWhitespace).count >= 4 else {
             return false
         }
+        if SystemAudioQuestionExtractor.isIncompleteQuestionFragment(lower) {
+            return false
+        }
 
         let incompleteEndings = [
             " can you", " could you", " would you", " do you", " are you",
-            " and", " or", " but", " so", " because", " with", " to", " for", " about"
+            " and", " or", " but", " so", " because", " with", " to", " for", " about", " from"
         ]
         if incompleteEndings.contains(where: { lower.hasSuffix($0) }) {
             return false
@@ -296,7 +314,7 @@ final class QuestionDetectionService {
     }
 
     private func sanitizeFallbackQuestion(_ text: String) -> (text: String, isComplete: Bool) {
-        var cleaned = cleanSpeakerPrefix(text)
+        var cleaned = SystemAudioQuestionExtractor.canonicalizeQuestionText(cleanSpeakerPrefix(text))
         while cleaned.hasSuffix(".") || cleaned.hasSuffix(",") || cleaned.hasSuffix(";") || cleaned.hasSuffix(":") {
             cleaned.removeLast()
             cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -316,13 +334,16 @@ final class QuestionDetectionService {
         }
 
         let wordCount = cleaned.split(whereSeparator: \.isWhitespace).count
-        let isComplete = wordCount >= 4 && (!cleaned.isEmpty || !removedIncompleteTail)
+        let isComplete = wordCount >= 4 &&
+            (!cleaned.isEmpty || !removedIncompleteTail) &&
+            !SystemAudioQuestionExtractor.isIncompleteQuestionFragment(cleaned) &&
+            isStrongCompleteQuestion(cleaned)
         return (cleaned.isEmpty ? cleanSpeakerPrefix(text) : cleaned, isComplete)
     }
 
     private func classifyFallbackQuestion(_ text: String) -> (intent: QuestionIntent, strategy: AnswerStrategy) {
-        let lower = text.lowercased()
-        if lower.contains("project") || lower.contains("built") || lower.contains("worked on") {
+        let lower = SystemAudioQuestionExtractor.canonicalizeQuestionText(text).lowercased()
+        if lower.contains("leorover") || lower.contains("project") || lower.contains("built") || lower.contains("worked on") {
             return (.projectDeepDive, .projectWalkthrough)
         }
         if lower.contains("technical") || lower.contains("architecture") || lower.contains("algorithm") || lower.contains("system design") {

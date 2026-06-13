@@ -343,8 +343,13 @@ final class StreamingMockLLMClient: LLMClientProtocol {
     var streamTokens: [String] = []
     var streamTokenBatches: [[String]] = []
     var streamDelayNS: UInt64 = 0
+    private let lock = NSLock()
     private var streamCallCount = 0
-    var completedStreamCount = 0
+    private var completedStreamCountStorage = 0
+
+    var completedStreamCount: Int {
+        lock.withLock { completedStreamCountStorage }
+    }
     
     var chatResultContent: String = "{}"
     var chatResultDelayNS: UInt64 = 0
@@ -384,25 +389,54 @@ final class StreamingMockLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
-        let tokens: [String]
-        if streamCallCount < streamTokenBatches.count {
-            tokens = streamTokenBatches[streamCallCount]
-        } else {
-            tokens = streamTokens
-        }
-        streamCallCount += 1
+        let tokens = selectTokens(for: messages)
         let delay = streamDelayNS
         return AsyncThrowingStream { continuation in
-            Task {
+            guard delay > 0 else {
                 for token in tokens {
-                    if delay > 0 {
-                        try? await Task.sleep(nanoseconds: delay)
-                    }
                     continuation.yield(token)
                 }
-                self.completedStreamCount += 1
+                self.lock.withLock {
+                    self.completedStreamCountStorage += 1
+                }
+                continuation.finish()
+                return
+            }
+
+            Task {
+                for token in tokens {
+                    try? await Task.sleep(nanoseconds: delay)
+                    continuation.yield(token)
+                }
+                self.lock.withLock {
+                    self.completedStreamCountStorage += 1
+                }
                 continuation.finish()
             }
+        }
+    }
+
+    private func selectTokens(for messages: [LLMChatMessage]) -> [String] {
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        return lock.withLock {
+            defer { streamCallCount += 1 }
+
+            // Stage A and Stage B streams are launched concurrently in
+            // production. Tests that need distinct batches must route by prompt
+            // type, not by scheduler-dependent call order.
+            if streamTokenBatches.count >= 2 {
+                if prompt.contains("Generate the single opening answer now:") {
+                    return streamTokenBatches[0]
+                }
+                if prompt.contains("Stream the section response now.") {
+                    return streamTokenBatches[1]
+                }
+            }
+
+            if streamCallCount < streamTokenBatches.count {
+                return streamTokenBatches[streamCallCount]
+            }
+            return streamTokens
         }
     }
 }
@@ -472,6 +506,8 @@ struct StreamingSoftFallbackTests {
         let mockDelay = MockDelayProvider()
         mockDelay.sleepDuration = 5_000_000 // 5ms sleep
         appState.delayProvider = mockDelay
+        appState.stageATimeoutSeconds = 60.0
+        appState.lateDeepSeekReplacementWindowSeconds = 60.0
         
         let session = InterviewSession(id: "sess-1", title: "Test", company: "C", role: "R", startedAt: Date(), endedAt: nil, mode: .microphone, createdAt: Date())
         try await database.dbQueue.write { db in

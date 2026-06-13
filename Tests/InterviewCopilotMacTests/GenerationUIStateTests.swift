@@ -171,8 +171,8 @@ struct GenerationUIStateTests {
         }
         try await waitUntil(timeout: 8.0) {
             appState.currentSuggestion?.questionID == firstQuestion.id &&
-            appState.generationUIState.isTerminal &&
-            appState.visibleAnswerExists
+            appState.visibleAnswerExists &&
+            !appState.shouldShowBlockingAnswerSpinner
         }
 
         let secondTask = Task {

@@ -286,12 +286,13 @@ enum QuestionAnswerAlignmentEvaluator {
         if question.contains("leorover") || question.contains("leo rover") || question.contains("walk me through") {
             return Profile(
                 themes: [
-                    Theme(name: "autonomous object retrieval robot", alternatives: ["autonomous object retrieval", "object retrieval robot"]),
+                    Theme(name: "LeoRover / rover project", alternatives: ["leorover", "leo rover", "rover project"]),
+                    Theme(name: "autonomous object retrieval robot", alternatives: ["autonomous object retrieval", "object retrieval robot", "object retrieval"]),
                     Theme(name: "ROS2", alternatives: ["ros2", "rose two"]),
-                    Theme(name: "YOLOv8", alternatives: ["yolov8", "yolo"]),
-                    Theme(name: "navigation", alternatives: ["navigation", "navigate"]),
-                    Theme(name: "manipulation", alternatives: ["manipulation", "manipulator"]),
-                    Theme(name: "target localisation", alternatives: ["target localisation", "target localization", "localisation", "localization"])
+                    Theme(name: "YOLOv8 / perception", alternatives: ["yolov8", "yolo", "perception", "object detection"]),
+                    Theme(name: "navigation / localisation", alternatives: ["navigation", "navigate", "localisation", "localization"]),
+                    Theme(name: "manipulation / pick-up", alternatives: ["manipulation", "manipulator", "pick up", "pick-up", "pickup"]),
+                    Theme(name: "real robot execution", alternatives: ["real robot", "physical robot", "real-world", "real world", "deployment"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
             )
@@ -305,11 +306,12 @@ enum QuestionAnswerAlignmentEvaluator {
             question.contains("clean demo") {
             return Profile(
                 themes: [
-                    Theme(name: "module integration", alternatives: ["module integration", "integrating modules", "modules work"]),
-                    Theme(name: "noisy perception", alternatives: ["noisy perception", "noisy detections"]),
-                    Theme(name: "localisation instability", alternatives: ["localisation instability", "localization instability", "localisation was not stable", "localization was not stable"]),
-                    Theme(name: "timing mismatch", alternatives: ["timing mismatch", "timing between"]),
-                    Theme(name: "real robot unpredictability", alternatives: ["real robot", "unpredictable", "less predictable"])
+                    Theme(name: "module integration", alternatives: ["module integration", "integrating modules", "modules work", "coordination between perception", "coordination between"]),
+                    Theme(name: "sensor / perception noise", alternatives: ["sensor noise", "noisy perception", "noisy detections", "perception"]),
+                    Theme(name: "localisation / drift / calibration", alternatives: ["localisation instability", "localization instability", "localisation was not stable", "localization was not stable", "camera", "imu", "drift", "calibration", "recalibrate"]),
+                    Theme(name: "timing mismatch", alternatives: ["timing mismatch", "timing mismatches", "timing between"]),
+                    Theme(name: "real robot unpredictability", alternatives: ["real robot", "unpredictable", "less predictable", "simulation vs real world", "clean demo"]),
+                    Theme(name: "navigation / manipulation coordination", alternatives: ["navigation", "manipulation", "filtering", "stabilized", "stabilised"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
             )
@@ -338,10 +340,10 @@ enum QuestionAnswerAlignmentEvaluator {
             return Profile(
                 themes: [
                     Theme(name: "smoother actions", alternatives: ["smoother actions", "smooth actions", "smoother", "jerky motions"]),
-                    Theme(name: "continuous action distribution", alternatives: ["continuous action", "action distribution", "action sequence", "action sequences", "trajectory distribution", "full trajectory", "continuous manipulation"]),
-                    Theme(name: "robustness", alternatives: ["robust", "robustness"]),
+                    Theme(name: "continuous action distribution", alternatives: ["continuous action", "action distribution", "action sequence", "action sequences", "action trajectory", "whole action trajectory", "trajectory distribution", "full trajectory", "continuous manipulation"]),
+                    Theme(name: "robustness / stability", alternatives: ["robust", "robustness", "stable", "stability", "jitter", "instability"]),
                     Theme(name: "7/10 success", alternatives: ["seven out of ten", "7 out of 10", "7/10", "higher success rate", "higher success rates"]),
-                    Theme(name: "autoregressive / flow-matching comparison", alternatives: ["autoregressive", "flow matching", "flow-matching", "compounding error", "compound errors", "step-by-step", "step by step"])
+                    Theme(name: "autoregressive / flow-matching comparison", alternatives: ["autoregressive", "auto regressive", "flow matching", "flow-matching", "compounding error", "compound errors", "accumulate errors", "error accumulation", "step-by-step", "step by step"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
             )
@@ -363,11 +365,13 @@ enum QuestionAnswerAlignmentEvaluator {
         if question.contains("why do you want") || question.contains("join our team") || question.contains("this role") {
             return Profile(
                 themes: [
-                    Theme(name: "role alignment", alternatives: ["role connects", "role alignment", "lines up", "want this role"]),
-                    Theme(name: "robotics / AI / perception", alternatives: ["robotics", " ai ", "perception"]),
-                    Theme(name: "real robot deployment", alternatives: ["real robot", "deployment", "deployed"]),
-                    Theme(name: "engineering growth", alternatives: ["engineering growth", "engineering ability", "growth"]),
-                    Theme(name: "deployed systems", alternatives: ["deployed systems", "deployed robotic systems"])
+                    Theme(name: "role / team interest", alternatives: ["drawn to", "interested in your team", "interested in this role", "role connects", "join your team", "join the team", "want this role", "want to join"]),
+                    Theme(name: "mission / company direction", alternatives: ["mission", "company direction", "product direction", "your focus", "your work"]),
+                    Theme(name: "robotics / AI / perception", alternatives: ["robotics", " ai ", "embodied ai", "perception", "vla", "foundation models"]),
+                    Theme(name: "real-world deployment", alternatives: ["real robot", "real-world robotics", "real world robotics", "deployment", "deployed", "practical robotics", "practical", "real environments"]),
+                    Theme(name: "logistics / warehouse domain", alternatives: ["logistics", "warehouse"]),
+                    Theme(name: "experience alignment", alternatives: ["aligns perfectly", "aligns with", "matches my work", "connects with my work", "my experience"]),
+                    Theme(name: "contribution / growth", alternatives: ["contribute", "help build", "build world", "grow with the team", "engineering growth", "engineering ability", "growth"])
                 ],
                 wrongIndicators: [
                     Theme(name: "technical challenge answer", alternatives: ["hardest technical challenge", "noisy localisation", "noisy localization", "timing mismatch", "module integration"]),
@@ -435,6 +439,7 @@ enum QuestionAnswerAlignmentEvaluator {
             [
                 "autoregressive",
                 "auto regressive",
+                "step-by-step",
                 "step by step",
                 "one step at a time",
                 "token by token"
@@ -505,6 +510,15 @@ enum QuestionAnswerAlignmentEvaluator {
             .lowercased()
             .replacingOccurrences(of: "c++", with: "c plus plus")
             .replacingOccurrences(of: "ros 2", with: "ros2")
+            .replacingOccurrences(of: "leader rover", with: "leorover")
+            .replacingOccurrences(of: "leah rover", with: "leorover")
+            .replacingOccurrences(of: "leo rover", with: "leorover")
+            .replacingOccurrences(of: "lero", with: "leorover")
+            .replacingOccurrences(of: "auto rig progressive", with: "autoregressive")
+            .replacingOccurrences(of: "auto regressive", with: "autoregressive")
+            .replacingOccurrences(of: "diffusion-based policy", with: "diffusion policy")
+            .replacingOccurrences(of: "diffusion based policy", with: "diffusion policy")
+            .replacingOccurrences(of: "from n to end", with: "from end to end")
             .replacingOccurrences(of: "\n", with: " ")
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
@@ -518,9 +532,6 @@ enum QuestionAnswerAlignmentEvaluator {
         if answer.contains("diffusion") || answer.contains("autoregressive") || answer.contains("flow matching") {
             return .modelComparison
         }
-        if answer.contains("python") || answer.contains("c plus plus") || answer.contains("ros2") || answer.contains("rose two") {
-            return .skillComfort
-        }
         if answer.contains("another month") || answer.contains("evaluation pipeline") || answer.contains("failure cases") || answer.contains("reranking") {
             return .improvementPlan
         }
@@ -530,11 +541,21 @@ enum QuestionAnswerAlignmentEvaluator {
         if answer.contains("hardest technical challenge") || answer.contains("module integration") || answer.contains("timing mismatch") {
             return .technicalChallenge
         }
-        if answer.contains("leorover") || answer.contains("yolov8") || answer.contains("object retrieval robot") {
+        if answer.contains("leorover") || answer.contains("yolov8") || answer.contains("object retrieval robot") || answer.contains("object retrieval") {
             return .projectWalkthrough
         }
-        if answer.contains("want this role") || answer.contains("interested in this role") || answer.contains("join") && answer.contains("team") {
+        if answer.contains("want this role") ||
+            answer.contains("interested in this role") ||
+            answer.contains("drawn to") ||
+            answer.contains("mission") ||
+            answer.contains("aligns with") ||
+            answer.contains("aligns perfectly") ||
+            answer.contains("join") && answer.contains("team") ||
+            answer.contains("help build") && (answer.contains("robot") || answer.contains("logistics") || answer.contains("team")) {
             return .whyRole
+        }
+        if answer.contains("python") || answer.contains("c plus plus") || answer.contains("ros2") || answer.contains("rose two") {
+            return .skillComfort
         }
         if answer.contains("msc robotics") || answer.contains("university of manchester") || answer.contains("computer science background") {
             return .tellMeAboutYourself
