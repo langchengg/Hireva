@@ -1,5 +1,12 @@
+// Compatibility facade for answer intent, prompt snapshots, context filtering,
+// and fallback answers.
+// New prompt/intention logic should usually live in PromptContextBuilder or
+// QuestionIntentPromptPolicy; this facade keeps older call sites stable.
+
 import Foundation
 
+/// Canonical product intents used for prompt policy, context filtering, and
+/// alignment diagnostics.
 enum AnswerRelevanceIntent: String, CaseIterable, Codable, Hashable, Identifiable {
     case tellMeAboutYourself = "tell_me_about_yourself"
     case projectWalkthrough = "project_walkthrough"
@@ -16,6 +23,11 @@ enum AnswerRelevanceIntent: String, CaseIterable, Codable, Hashable, Identifiabl
     var id: String { rawValue }
 }
 
+/// Stable facade for relevance-related helpers used across generation and RAG.
+///
+/// Keep this type side-effect free. It must not read AppState or perform
+/// provider calls, because relevance decisions need to be deterministic in tests
+/// and safe to reuse from background work.
 enum AnswerRelevancePolicy {
     static func normalizedQuestionText(for text: String) -> String {
         QuestionIntentPromptPolicy.normalizedQuestionText(for: text)

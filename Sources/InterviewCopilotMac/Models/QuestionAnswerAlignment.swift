@@ -1,5 +1,11 @@
+// Validates that a visible answer belongs to the current detected question.
+// Alignment checks are intentionally conservative for clear technical questions
+// because a fluent but wrong answer is worse than a local fallback during an
+// interview.
+
 import Foundation
 
+/// UI/diagnostic binding status between the current question and suggestion.
 enum QABindingStatus: String, CaseIterable, Codable, Hashable {
     case matched
     case mismatched
@@ -8,6 +14,8 @@ enum QABindingStatus: String, CaseIterable, Codable, Hashable {
     case staleDiscarded
 }
 
+/// Snapshot of the current question-answer binding used by UI diagnostics and
+/// tests to catch stale-generation overwrites.
 struct QABindingSnapshot: Equatable {
     var currentQuestionID: String?
     var currentQuestionText: String
@@ -32,6 +40,7 @@ struct QABindingSnapshot: Equatable {
     )
 }
 
+/// Coarse semantic alignment verdict between a question and generated answer.
 enum AnswerAlignmentVerdict: String, CaseIterable, Codable, Hashable {
     case aligned
     case weaklyAligned
@@ -39,6 +48,7 @@ enum AnswerAlignmentVerdict: String, CaseIterable, Codable, Hashable {
     case unknown
 }
 
+/// Full alignment result with themes used for diagnostics and persistence.
 struct AnswerAlignmentResult: Equatable {
     var score: Double
     var verdict: AnswerAlignmentVerdict
@@ -50,6 +60,7 @@ struct AnswerAlignmentResult: Equatable {
     var reason: String
 }
 
+/// Persisted/debuggable alignment row for generated suggestions.
 struct SuggestionAlignmentRecord: Identifiable, Equatable {
     var id: String
     var detectedQuestionID: String?
@@ -62,6 +73,11 @@ struct SuggestionAlignmentRecord: Identifiable, Equatable {
     var suspectedMismatchReason: String
 }
 
+/// Heuristic evaluator for answer relevance and completeness.
+///
+/// This is not a ranking model. It is a safety guard before UI display and DB
+/// persistence, with stricter handling for technical/model-comparison questions
+/// where `unknown` should not be accepted as good enough.
 enum QuestionAnswerAlignmentEvaluator {
     static func isAnswerComplete(_ answer: String) -> Bool {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -97,6 +113,11 @@ enum QuestionAnswerAlignmentEvaluator {
         return true
     }
 
+    /// Scores whether the generated answer directly addresses the question.
+    ///
+    /// `sayFirst` is checked independently because it can become visible before
+    /// Stage B completes. If Stage B is still running, weak evidence should not
+    /// be over-promoted to aligned.
     static func evaluate(
         questionText: String,
         answerText: String,
@@ -153,6 +174,9 @@ enum QuestionAnswerAlignmentEvaluator {
                           questionIntent == .skillComfort
 
         if isTechnical && verdict == .unknown {
+            // Clear technical questions should either match expected themes or
+            // fall back. Accepting "unknown" here reintroduces the no-answer or
+            // wrong-answer behavior seen in real runtime testing.
             verdict = .mismatched
             finalReason += " Rejected unknown verdict for clear technical question."
         }
@@ -196,12 +220,21 @@ enum QuestionAnswerAlignmentEvaluator {
                 verdict = .mismatched
                 finalReason += " Rejected incomplete sayFirst: \(incompleteReason)."
             }
+
+            if let visibleIssue = modelComparisonVisibleSayFirstIssue(
+                normalizedQuestion: normalizedQuestion,
+                normalizedSayFirst: normalize(trimmedSayFirst),
+                questionIntent: questionIntent
+            ) {
+                verdict = .mismatched
+                finalReason += " Rejected generic model-comparison sayFirst: \(visibleIssue)."
+            }
         }
 
         if !stageBCompleted {
-            if verdict == .aligned || verdict == .weaklyAligned {
+            if verdict == .weaklyAligned {
                 verdict = .unknown
-                finalReason += " Set to unknown because Stage B is still running."
+                finalReason += " Set weak alignment to unknown because Stage B is still running."
             }
         }
 
@@ -304,11 +337,11 @@ enum QuestionAnswerAlignmentEvaluator {
             (question.contains("diffusion") && question.contains("robotic manipulation")) {
             return Profile(
                 themes: [
-                    Theme(name: "smoother actions", alternatives: ["smoother actions", "smooth actions"]),
-                    Theme(name: "continuous action distribution", alternatives: ["continuous action", "action distribution"]),
+                    Theme(name: "smoother actions", alternatives: ["smoother actions", "smooth actions", "smoother", "jerky motions"]),
+                    Theme(name: "continuous action distribution", alternatives: ["continuous action", "action distribution", "action sequence", "action sequences", "trajectory distribution", "full trajectory", "continuous manipulation"]),
                     Theme(name: "robustness", alternatives: ["robust", "robustness"]),
-                    Theme(name: "7/10 success", alternatives: ["seven out of ten", "7 out of 10", "7/10"]),
-                    Theme(name: "autoregressive / flow-matching comparison", alternatives: ["autoregressive", "flow matching", "flow-matching"])
+                    Theme(name: "7/10 success", alternatives: ["seven out of ten", "7 out of 10", "7/10", "higher success rate", "higher success rates"]),
+                    Theme(name: "autoregressive / flow-matching comparison", alternatives: ["autoregressive", "flow matching", "flow-matching", "compounding error", "compound errors", "step-by-step", "step by step"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
             )
@@ -375,6 +408,90 @@ enum QuestionAnswerAlignmentEvaluator {
         [
             Theme(name: "role motivation answer", alternatives: ["i want this role", "join your team", "engineering growth", "deployed systems"])
         ]
+    }
+
+    private static func modelComparisonVisibleSayFirstIssue(
+        normalizedQuestion: String,
+        normalizedSayFirst: String,
+        questionIntent: AnswerRelevanceIntent
+    ) -> String? {
+        let isModelComparisonQuestion = questionIntent == .modelComparison ||
+            questionIntent == .diffusionPolicy ||
+            (normalizedQuestion.contains("diffusion") &&
+             (normalizedQuestion.contains("autoregressive") || normalizedQuestion.contains("auto regressive")))
+        guard isModelComparisonQuestion else { return nil }
+
+        let wordCount = normalizedSayFirst.split(whereSeparator: \.isWhitespace).count
+        var missing: [String] = []
+        if wordCount < 14 {
+            missing.append("complete first-person explanation")
+        }
+        if !normalizedSayFirst.contains("diffusion") {
+            missing.append("diffusion")
+        }
+
+        let comparesAutoregressive = containsAny(
+            normalizedSayFirst,
+            [
+                "autoregressive",
+                "auto regressive",
+                "step by step",
+                "one step at a time",
+                "token by token"
+            ]
+        )
+        if !comparesAutoregressive {
+            missing.append("autoregressive comparison")
+        }
+
+        let explainsActionMechanism = containsAny(
+            normalizedSayFirst,
+            [
+                "continuous action",
+                "action distribution",
+                "action sequence",
+                "trajectory",
+                "denois",
+                "refin",
+                "full action"
+            ]
+        )
+        let explainsStabilityOutcome = containsAny(
+            normalizedSayFirst,
+            [
+                "smooth",
+                "stable",
+                "stability",
+                "robust",
+                "error accumulation",
+                "errors accumulate",
+                "small errors",
+                "reliable"
+            ]
+        )
+        if !explainsActionMechanism {
+            missing.append("continuous action or trajectory mechanism")
+        }
+        if !explainsStabilityOutcome {
+            missing.append("stability or robustness outcome")
+        }
+
+        let genericPhrases = [
+            "i generally work with",
+            "i have experience with",
+            "i can talk about",
+            "i would explain"
+        ]
+        if genericPhrases.contains(where: { normalizedSayFirst.contains($0) }) {
+            missing.append("specific technical comparison")
+        }
+
+        guard !missing.isEmpty else { return nil }
+        return "visible answer missing \(missing.joined(separator: ", "))."
+    }
+
+    private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
+        needles.contains { text.contains($0) }
     }
 
     private static func projectOrChallengeIndicators() -> [Theme] {

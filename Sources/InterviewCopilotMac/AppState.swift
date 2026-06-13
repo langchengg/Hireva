@@ -1,9 +1,22 @@
+// Central MainActor state container for the macOS interview workflow.
+// AppState owns UI-observable state and coordinates repositories/services, but
+// feature-specific behavior should live in focused AppState extensions.
+// Invariants: UI mutation stays on MainActor, capture/generation IDs bind async
+// callbacks to the current question, and technical diagnostics must not become
+// the default product flow.
+
 import AppKit
 import AVFoundation
 import Combine
 import Foundation
 import SwiftUI
 
+/// MainActor source of truth for live interview UI, capture state, detected
+/// questions, generation state, provider settings, and diagnostics.
+///
+/// AppState deliberately keeps observable UI mutation centralized while the
+/// modular extensions own domain-specific workflows. Async callbacks must check
+/// the active generation/question identity before changing visible answer state.
 @MainActor
 final class AppState: ObservableObject {
     @Published var selectedSection: AppSection = .home
@@ -463,6 +476,11 @@ final class AppState: ObservableObject {
     public var simulatedSuggestionPersistenceDelayNanoseconds: UInt64 = 0
 
     // internal for AppState extension access only
+    /// Tracks the single generation attempt that is allowed to control the
+    /// current answer UI.
+    ///
+    /// When a newer interviewer question is accepted, all tasks in this
+    /// controller are cancelled and late callbacks must be treated as stale.
     struct ActiveGenerationController {
         let generationID: String
         let questionID: String?
@@ -943,6 +961,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Coordinates one suggestion-generation attempt from accepted question to
+    /// visible first answer, Stage B expansion, persistence, and diagnostics.
+    ///
+    /// This method still owns the task lifecycle in Phase 2C. It assumes the
+    /// caller has already accepted exactly one clean question. All async paths
+    /// must guard `generationID` against the active generation before mutating
+    /// current UI state, because older Stage A/Stage B/provider callbacks may
+    /// finish after a newer interviewer question starts.
     func generateSuggestion(
         for question: DetectedQuestion,
         session: InterviewSession,
@@ -1176,21 +1202,31 @@ final class AppState: ObservableObject {
         lastSQLiteOperation = "Loaded document summaries"
         let cvSummary = makeCompactSummary(cvRecord)
         let jdSummary = makeCompactSummary(jdRecord)
-        let generationSnapshot = PromptContextBuilder.generationRequestSnapshot(
+        // Freeze the prompt inputs after RAG retrieval and before provider
+        // streaming. From here on, transcript changes and later questions must
+        // not alter the current prompt: question_text must stay equal to
+        // prompt_primary_question for this generation.
+        let generationContext = GenerationExecutionContext.make(
+            session: localSession,
             question: localQuestion,
             generationID: generationID,
             triggerPath: triggerPath,
-            source: telemetrySource,
-            speaker: telemetrySpeaker,
-            acceptedAt: requestStart,
-            context: optimizedContext,
-            transcriptContext: localTranscript,
+            provider: activeRealtimeProvider,
+            retrievedContext: optimizedContext,
+            transcriptSnapshot: localTranscript,
             cvSummary: cvSummary,
             jdSummary: jdSummary,
+            startedAt: requestStart,
+            source: telemetrySource,
+            speaker: telemetrySpeaker,
             stage: .firstAnswer
         )
-        let promptSnapshot = generationSnapshot.promptSnapshot
-        applyPromptSnapshotDiagnostics(promptSnapshot)
+        let firstAnswerProviderRequest = GenerationProviderRequest(
+            context: generationContext,
+            streamingEnabled: true
+        )
+        let promptSnapshot = generationContext.promptSnapshot
+        applyPromptSnapshotDiagnostics(promptSnapshot, providerRequest: firstAnswerProviderRequest)
         
         // Create references for background task capture
         let localTrace = trace

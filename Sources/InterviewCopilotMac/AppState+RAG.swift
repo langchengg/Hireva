@@ -1,6 +1,13 @@
+// Handles document-context retrieval setup, RAG cache keys, and embedding
+// provider resolution.
+// RAG here is supporting evidence only: it must never override the current
+// detected question or change generation ownership.
+
 import Foundation
 
 extension AppState {
+    // MARK: - Realtime Context Selection
+
     private func normalizedTextHash(_ text: String) -> String {
         let clean = text.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
         return String(clean.hashValue)
@@ -18,6 +25,9 @@ extension AppState {
 
     // internal for AppState extension access only
     func trimContextForRealtime(_ context: RetrievedContext, question: DetectedQuestion) -> RetrievedContext {
+        // Intent-specific trimming keeps high-signal project chunks near the
+        // prompt while preserving the invariant that the current question, not
+        // retrieved text, defines what must be answered.
         let budgeted = RealtimePromptBudgeter.trim(
             context,
             question: question.questionText,
@@ -38,6 +48,8 @@ extension AppState {
         let excerpt = cleanContent.prefix(250)
         return "Title: \(title) | Excerpt: \(excerpt)..."
     }
+
+    // MARK: - Embedding Providers
 
     func resolveEmbeddingProvider() -> EmbeddingProvider? {
         let kind = settings.embeddingProviderKind

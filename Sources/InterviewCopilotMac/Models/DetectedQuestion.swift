@@ -1,5 +1,7 @@
 import Foundation
 
+/// Coarse provider/question-detection intent used before answer-specific
+/// relevance intent is derived.
 enum QuestionIntent: String, CaseIterable, Identifiable, Codable {
     case behavioral
     case technical
@@ -20,6 +22,7 @@ enum QuestionIntent: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Generation strategy requested by question detection.
 enum AnswerStrategy: String, CaseIterable, Identifiable, Codable {
     case directAnswer = "direct_answer"
     case starStory = "star_story"
@@ -37,6 +40,10 @@ enum AnswerStrategy: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Accepted or candidate interviewer question extracted from transcript.
+///
+/// `questionText` should be one clean question, not a merged transcript.
+/// Generation and DB alignment rely on this ID/text staying stable.
 struct DetectedQuestion: Identifiable, Hashable, Codable {
     var id: String
     var sessionID: String
@@ -59,6 +66,10 @@ struct DetectedQuestion: Identifiable, Hashable, Codable {
     var createdAt: Date
 }
 
+/// Decoded provider response for question detection.
+///
+/// The payload can classify incomplete questions; downstream gating decides
+/// whether it is safe to trigger generation.
 struct QuestionDetectionPayload: Decodable {
     var shouldTrigger: Bool
     var questionComplete: Bool

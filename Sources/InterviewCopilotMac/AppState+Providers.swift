@@ -1,9 +1,16 @@
+// Handles provider/settings persistence and connection tests.
+// This extension may save preferences and API keys through KeychainService, but
+// it must not own generation flow, prompt construction, audio capture, or raw
+// API-key display/logging.
+
 import Foundation
 import Combine
 import SwiftUI
 import AppKit
 
 extension AppState {
+    // MARK: - Settings Persistence
+
     func saveSettings(_ newSettings: AppSettings) {
         let actionID = ActionID.saveSettings
         guard !isActionLoading(actionID) else { return }
@@ -25,6 +32,12 @@ extension AppState {
         }
     }
 
+    // MARK: - API Key Storage
+
+    /// Saves the default DeepSeek API key through KeychainService.
+    ///
+    /// Never log or expose the raw key. UI copy should describe this as
+    /// "securely saved" rather than mentioning Keychain internals.
     func saveAPIKey(_ apiKey: String) {
         let actionID = ActionID.providerSaveKey
         guard !isActionLoading(actionID) else { return }
@@ -41,6 +54,11 @@ extension AppState {
         }
     }
 
+    /// Saves a provider-specific API key under the provider's stable keychain
+    /// account name.
+    ///
+    /// Account names are part of the migration contract and should not change
+    /// without an explicit migration.
     func saveAPIKey(_ apiKey: String, for provider: LLMProviderConfiguration) {
         let actionID = ActionID.provider(ActionID.providerSaveKey, provider.id)
         guard !isActionLoading(actionID) else { return }

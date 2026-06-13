@@ -1,6 +1,18 @@
+// Handles live audio capture lifecycle for an interview session.
+// This extension owns start/stop/restart behavior and audio diagnostics only.
+// It must not perform question detection or suggestion generation directly;
+// captured transcript segments flow into AppState+Transcript instead.
+
 import Foundation
 
 extension AppState {
+    // MARK: - Public Entry Points
+
+    /// Starts the selected live capture path and prepares cancellation of any
+    /// stale detection or generation work from a previous run.
+    ///
+    /// The mode passed here is the interview runtime mode; the microphone/system
+    /// routing decision is still taken from `settings.audioCaptureMode`.
     func startListening(mode: InterviewMode) {
         let actionID = ActionID.startInterview
         guard !isActionLoading(actionID) else { return }
@@ -28,6 +40,14 @@ extension AppState {
         }
     }
 
+    // MARK: - Capture Startup
+
+    /// Coordinates permissions, session creation, Apple Speech startup, and
+    /// capture diagnostics on MainActor.
+    ///
+    /// System Audio Only must not request microphone or speech-recognition
+    /// permission. Microphone Only must not start system audio capture. Mic +
+    /// System starts both streams through AppleSpeechTranscriptionService.
     private func startListeningAsync(mode: InterviewMode) async {
         currentCaptureRuntimeState = .starting
         self.stopReason = nil
@@ -41,6 +61,10 @@ extension AppState {
             }
             if mode == .microphone {
                 let captureMode = settings.audioCaptureMode
+                // Permission gating is capture-mode specific. Do not collapse
+                // this into a generic "live transcription requires mic" check:
+                // System Audio Only is the user escape hatch when mic access is
+                // denied or unnecessary.
                 let microphoneRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
                 let speechRecognitionRequired = microphoneRequired
                 let systemAudioRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
@@ -214,6 +238,9 @@ extension AppState {
                 print("[DualAudio] mode = \(captureMode.rawValue)")
 
                 if captureMode == .systemAudioOnly {
+                    // Keep System Audio Only isolated from microphone metering.
+                    // This prevents stale mic diagnostics from implying that
+                    // microphone permission or capture is required.
                     self.lastSystemAudioASRPartialTranscript = ""
                     self.microphoneDiagnostics.stopMicTest()
                     print("[DualAudio] Cleaned up buffers & diagnostics for System Audio Only mode")
@@ -233,6 +260,9 @@ extension AppState {
                 self.lastSystemAudioASRPartialTranscript = ""
                 self.lastSystemAudioASRFinalTranscript = ""
 
+                // The speech service owns stream startup for the selected
+                // capture mode. It is responsible for not creating disabled
+                // streams for System Audio Only or Microphone Only.
                 try await speechService.start(sessionID: session.id, captureMode: captureMode)
                 ownsSystemAudioCaptureRuntime = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
 
@@ -268,6 +298,8 @@ extension AppState {
             showError(message)
         }
     }
+
+    // MARK: - Session Reset
 
     private func resetLiveContextForFreshSession() {
         precomputeDebounceTask?.cancel()
@@ -318,6 +350,15 @@ extension AppState {
         generationUIState = .idle
     }
 
+    // MARK: - Stop And Cleanup
+
+    /// Stops continuous capture and cancels in-flight detection/generation tasks
+    /// that should not survive a user stop.
+    ///
+    /// The visible suggestion is intentionally preserved so the user can still
+    /// read the latest answer after stopping. Stop must safely tear down both
+    /// system and microphone runtime paths without requiring another permission
+    /// prompt.
     func stopListening(
         reason: StopReason = .userRequested,
         file: String = #file,
@@ -348,6 +389,9 @@ extension AppState {
         )
 
         if reason == .userRequested {
+            // User stop owns the lifetime of the full-answer expansion task.
+            // This prevents background Stage B work from reviving capture state
+            // after the user has explicitly stopped listening.
             cancelStageBTask()
         }
         activeDetectionTask?.cancel()
@@ -435,6 +479,8 @@ extension AppState {
         }
     }
 
+    /// Clears the current live workspace after capture has been stopped or when
+    /// the user intentionally resets the interview view.
     func clearLiveSession() {
         beginAction(ActionID.clearLiveSession, title: "Clearing session", message: "Removing current transcript, question, and answer from the live workspace...")
         let stateBefore = currentCaptureRuntimeState.displayName
@@ -479,6 +525,8 @@ extension AppState {
         AudioEngineManager.shared.restartForRouteChange(reason: "Manual restart requested by user")
         completeAction(ActionID.restartAudioInput, title: "Audio input restarted", message: "Watch the audio status and retry listening if needed.")
     }
+
+    // MARK: - Diagnostics
 
     private func startAudioSignalMonitoring() {
         audioSignalMonitoringTimer?.invalidate()

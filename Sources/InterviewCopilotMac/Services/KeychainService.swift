@@ -1,6 +1,12 @@
+// Stores provider API keys in the macOS Keychain behind stable service/account
+// names.
+// Never log raw API keys. Repeated authorization prompts are expected with
+// ad-hoc signing because each rebuilt binary has a different CDHash.
+
 import Foundation
 import Security
 
+/// Normalized Keychain failures surfaced to provider/settings UI.
 enum KeychainError: LocalizedError {
     case unexpectedStatus(OSStatus)
     case invalidData
@@ -29,6 +35,7 @@ enum KeychainError: LocalizedError {
     }
 }
 
+/// User-facing state for an API key without exposing the raw key.
 enum KeychainAPIKeyAccessState: Equatable {
     case available(maskedKey: String)
     case missing
@@ -71,6 +78,7 @@ protocol KeychainStore: AnyObject {
     func deleteGenericPassword(service: String, account: String) throws
 }
 
+/// Real SecItem-backed Keychain adapter.
 final class RealKeychainStore: KeychainStore {
     func saveGenericPassword(data: Data, service: String, account: String) throws {
         let query: [String: Any] = [
@@ -164,12 +172,21 @@ final class InMemoryMockKeychainStore: KeychainStore {
     }
 }
 
+/// Stable Keychain identifiers.
+///
+/// Treat service/account names as persisted data. Changing them without an
+/// explicit migration can make existing saved keys appear missing.
 enum KeychainConstants {
     static let service = "com.langcheng.InterviewCopilotMac.LLMProviderKeys"
     static let deepSeekAccount = "deepseek.default"
     static let defaultEmbeddingAccount = "openai.embedding.default"
 }
 
+/// High-level API-key store used by settings, provider tests, and diagnostics.
+///
+/// This type may return masked key display strings, but it must never log or
+/// expose raw key values. Ad-hoc signing can legitimately cause macOS to ask
+/// for access again after rebuilds because the code signature identity changes.
 final class KeychainService {
     let store: KeychainStore
 
@@ -197,7 +214,9 @@ final class KeychainService {
     }
 
     func performMigrationIfNeeded() {
-        // Always search legacy combinations to keep diagnostics accurate
+        // Always search legacy combinations to keep diagnostics accurate. The
+        // legacy raw key is copied only into the stable service/account pair and
+        // logs use the masked form.
         let legacyServices = [
             "InterviewCopilotMac",
             "InterviewCopilotMac.LLMProviderKeys",

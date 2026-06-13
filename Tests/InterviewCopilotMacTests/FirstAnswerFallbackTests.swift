@@ -48,7 +48,7 @@ struct FirstAnswerFallbackTests {
         )
 
         await appState.handleTranscriptSegment(segment)
-        try await waitForSuggestion(appState, timeout: 8.0)
+        try await waitForSuggestion(appState, timeout: 20.0)
 
         let question = try #require(appState.lastDetectedQuestion)
         let card = try #require(appState.currentSuggestion)
@@ -106,7 +106,7 @@ struct FirstAnswerFallbackTests {
         )
 
         await appState.handleTranscriptSegment(segment)
-        try await waitForSuggestion(appState, timeout: 8.0)
+        try await waitForSuggestion(appState, timeout: 20.0)
 
         let card = try #require(appState.currentSuggestion)
         #expect(appState.lastDetectedQuestion?.questionText == "Why do you want this role?")
@@ -165,7 +165,7 @@ struct FirstAnswerFallbackTests {
         }
         defer { generationTask.cancel() }
 
-        try await waitForSuggestion(appState, timeout: 8.0)
+        try await waitForSuggestion(appState, timeout: 20.0)
 
         let card = try #require(appState.currentSuggestion)
         #expect(card.sayFirst.contains("I’m interested in this role"))

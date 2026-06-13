@@ -1,5 +1,6 @@
 import Foundation
 
+/// User or system path that initiated a generation attempt.
 enum GenerationTriggerPath: String, CaseIterable, Codable, Hashable {
     case autoDetect = "auto_detect"
     case manualGenerate = "manual_generate"
@@ -7,6 +8,11 @@ enum GenerationTriggerPath: String, CaseIterable, Codable, Hashable {
     case regenerate = "regenerate"
 }
 
+/// Product-facing generation state for the current answer card.
+///
+/// The spinner should only be shown for loading states before any visible
+/// answer exists. Once fallback or first provider text is visible, the UI should
+/// show expansion status instead of blocking the answer behind a spinner.
 enum GenerationUIState: Equatable {
     case idle
     case preparing(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)

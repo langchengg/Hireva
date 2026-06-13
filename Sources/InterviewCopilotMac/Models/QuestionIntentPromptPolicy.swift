@@ -1,5 +1,15 @@
+// Maps interviewer question text to answer intent, filtered context, and local
+// fallback wording.
+// This file should stay deterministic and side-effect free; it must not call
+// providers, read AppState, or mutate RAG scoring.
+
 import Foundation
 
+/// Deterministic policy for question intent, context filtering, and fallback
+/// answer selection.
+///
+/// Intent-specific retrieval should prioritize relevant project chunks, but it
+/// must not reinterpret or replace the current question text.
 enum QuestionIntentPromptPolicy {
     static func normalizedQuestionText(for text: String) -> String {
         normalize(text).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -146,8 +156,8 @@ enum QuestionIntentPromptPolicy {
             )
         case .modelComparison, .diffusionPolicy:
             return IntentFallbackAnswer(
-                sayFirst: "The diffusion decoder performed better because it produced smoother continuous actions and was more robust to small trajectory errors than the autoregressive and flow-matching decoders; in my MuJoCo evaluation it achieved seven out of ten successful grasps.",
-                keyPoints: ["Diffusion handled continuous action distributions better.", "Autoregressive and flow-matching were less robust in the evaluation.", "Result: diffusion reached seven out of ten successful grasping episodes."]
+                sayFirst: "My interpretation is that a diffusion-based policy can be more stable because it refines a continuous action trajectory through denoising, which tends to produce smoother and more robust motions. An autoregressive policy predicts step by step, so small errors can accumulate during manipulation.",
+                keyPoints: ["Diffusion models the full continuous action distribution or trajectory.", "Autoregressive and flow-matching variants were less robust in the evaluation.", "In MuJoCo, diffusion reached seven out of ten successful grasps, helped by smoother action generation."]
             )
         case .improvementPlan:
             return IntentFallbackAnswer(

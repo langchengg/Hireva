@@ -1,6 +1,14 @@
+// Owns automatic interviewer-question detection and local system-audio
+// segmentation.
+// This extension may create DetectedQuestion records and decide whether to
+// trigger generation. It must not own the generation lifecycle, provider calls,
+// RAG scoring, or UI answer mutation.
+
 import Foundation
 
 extension AppState {
+    // MARK: - Local System-Audio Extraction
+
     // internal for AppState extension access only
     func extractSystemAudioQuestionsIfNeeded(from segment: TranscriptSegment) -> [ExtractedTranscriptQuestion] {
         guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
@@ -32,6 +40,9 @@ extension AppState {
         session: InterviewSession,
         suggestionTranscript: String
     ) {
+        // One ASR segment can contain several interviewer questions. Persist all
+        // accepted questions for session history, but bind the visible answer to
+        // the latest clean question only.
         let baseDate = Date()
         let acceptedQuestions = extractedQuestions.enumerated().map { index, extracted in
             makeDetectedQuestion(
@@ -82,6 +93,10 @@ extension AppState {
         lastTranscriptQuestionGenerationTrace.firstQuestionSuppressedReason = ""
         currentFirstQuestionSuppressedReason = ""
 
+        // Duplicate suppression is intentionally per accepted question. The
+        // first answer-worthy question must never be suppressed by stale memory,
+        // and a suppressed duplicate must show a terminal state instead of a
+        // spinner.
         let duplicateQuestion = !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(latestQuestion.questionText)
         if duplicateQuestion {
             recordDuplicateSuppression()
@@ -254,7 +269,15 @@ extension AppState {
         }
     }
 
+    // MARK: - Provider Detection
+
     // TODO: Move retry/detection coupling into GenerationCoordinator or QuestionDetectionCoordinator in Phase 2.
+    /// Runs provider-backed question detection for one transcript snapshot.
+    ///
+    /// `detectionTranscript` may include recent context for classification, but
+    /// any question accepted for generation must become a single current
+    /// question. Previous questions are background only and must not replace the
+    /// primary question sent to generation.
     func runAutomaticDetection(
         session: InterviewSession,
         detectionTranscript: String,
@@ -323,6 +346,9 @@ extension AppState {
             self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Confidence: \(Int(question.confidence * 100))%"
 
             let isFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
+            // Duplicate suppression must not become a global "generation is
+            // already busy" state. If a question is suppressed, the UI must end
+            // in a visible duplicate notice or listening state, not loading.
             let duplicateQuestion = !isFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(question.questionText)
 
             if question.shouldTrigger,
@@ -407,6 +433,8 @@ extension AppState {
         }
     }
 
+    // MARK: - Split Provider Output
+
     private func processLocallySplitProviderQuestionIfNeeded(
         _ question: DetectedQuestion,
         segment: TranscriptSegment,
@@ -450,6 +478,13 @@ extension AppState {
         return "unknown"
     }
 
+    // MARK: - Generation Trigger
+
+    /// Starts suggestion generation for an accepted interviewer question.
+    ///
+    /// This method is only the bridge from detection into generation. Task
+    /// ownership, active generation guards, fallback watchdogs, and visible
+    /// answer mutation remain in AppState+Generation/AppState.generateSuggestion.
     private func startAutoSuggestionGeneration(
         for question: DetectedQuestion,
         session: InterviewSession,

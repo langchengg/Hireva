@@ -1,6 +1,18 @@
+// Skeleton service boundary for future generation orchestration.
+// In Phase 2B/2C it contains dependencies and pure helpers only.
+// It must not mutate AppState, own generation tasks, stream provider output, or
+// persist suggestions until ownership is moved deliberately in a later phase.
+
 import Foundation
 
+/// Future home for generation orchestration that currently exposes only pure,
+/// testable helpers and dependency wiring.
+///
+/// AppState remains the caller and lifecycle owner. Adding UI mutation,
+/// cancellation, or task ownership here would be a behavior change.
 final class GenerationCoordinator {
+    /// Dependencies that can be passed to future coordinator operations without
+    /// requiring an AppState instance.
     struct Dependencies {
         var suggestionGenerationService: SuggestionGenerationService?
         var delayProvider: DelayProvider

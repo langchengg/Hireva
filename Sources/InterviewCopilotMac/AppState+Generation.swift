@@ -1,6 +1,14 @@
+// Contains generation lifecycle helpers used by AppState.generateSuggestion.
+// This extension owns active-generation guards, fallback cards, alignment
+// checks, streaming UI publication, and generation diagnostics.
+// It must not perform audio capture, question extraction, provider key storage,
+// or RAG scoring decisions.
+
 import Foundation
 
 extension AppState {
+// MARK: - Manual Entry Points
+
 func manualAnswerNow() {
     guard !isActionLoading(ActionID.generateAnswer) else { return }
     guard liveState.canAnswerNow else {
@@ -35,6 +43,8 @@ func manualAnswerNow() {
         await self.runManualAnswer(session: session, transcript: transcript)
     }
 }
+
+// MARK: - Visible Fallbacks
 
 // internal for AppState extension access only
 func showDuplicateQuestionNotice(for question: DetectedQuestion, session: InterviewSession) {
@@ -273,6 +283,14 @@ func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws 
     try await GenerationCoordinator.withTimeout(seconds: seconds, operation: operation)
 }
 
+// MARK: - Quality Guards
+
+/// Applies local answer cleanup synchronously and, if needed, starts a guarded
+/// provider rewrite in the background.
+///
+/// The immediate return value preserves the current generation flow. The
+/// background rewrite may update the UI only if the same generation is still
+/// active, so a late cleanup for question 1 cannot overwrite question 2.
 func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) async -> SuggestionCard {
     var updated = card
     
@@ -374,7 +392,9 @@ public var shouldShowAnswerExpansionStatus: Bool {
     visibleAnswerExists && (generationUIState.isExpandingAfterVisibleAnswer || isExpandingSuggestionCard)
 }
 
-private func cancelActiveGenerationForReplacement() {
+    // MARK: - Active Generation Lifecycle
+
+    private func cancelActiveGenerationForReplacement() {
     guard var controller = activeGenerationController else {
         cancelLegacyGenerationTaskReferences()
         return
@@ -440,6 +460,9 @@ func activateGeneration(
     source: AudioSourceType?,
     speaker: SpeakerRole?
 ) {
+    // A new accepted question replaces the entire previous generation
+    // controller. This is the main invariant that prevents consecutive
+    // questions from sharing watchdogs, streams, or Stage B callbacks.
     cancelActiveGenerationForReplacement()
     currentGenerationID = generationID
     activeGenerationController = ActiveGenerationController(
@@ -514,6 +537,13 @@ func setActiveQuestionForTesting(_ question: DetectedQuestion) {
 
 @discardableResult
 // internal for AppState extension access only
+/// Validates and binds a generated card before it is allowed to become the
+/// current visible answer.
+///
+/// This is the last defense against stale async callbacks and context bleed:
+/// the card's detected question and question text must match the current
+/// question, and the visible say-first answer must be semantically relevant.
+/// Clear technical questions should not end with an `unknown` alignment verdict.
 func displaySuggestionIfAligned(
     _ card: SuggestionCard,
     question: DetectedQuestion,
@@ -551,6 +581,9 @@ func displaySuggestionIfAligned(
         return false
     }
 
+    // Persist the question snapshot that actually controlled this answer.
+    // Runtime acceptance relies on question_text == prompt_primary_question for
+    // generated cards so later DB queries can detect context bleed.
     boundCard.questionText = question.questionText
     boundCard.transcriptSegmentID = boundCard.transcriptSegmentID ?? question.transcriptSegmentID
     boundCard.generationID = boundCard.generationID ?? generationID
@@ -572,6 +605,9 @@ func displaySuggestionIfAligned(
     }
     boundCard.firstQuestionSuppressedReason = boundCard.firstQuestionSuppressedReason ?? (currentFirstQuestionSuppressedReason.isEmpty ? nil : currentFirstQuestionSuppressedReason)
 
+    // `say_first` is visible before Stage B completes, so it must be relevant
+    // on its own. This is especially important for model-comparison questions
+    // where generic "I would explain..." output is not usable in an interview.
     let answerText = ([boundCard.sayFirst] + boundCard.keyPoints + boundCard.followUpReady).joined(separator: " ")
     let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
         questionText: question.questionText,
@@ -611,7 +647,7 @@ func displaySuggestionIfAligned(
             questionText: question.questionText,
             answerText: fallbackText,
             sayFirst: fallbackCard.sayFirst,
-            stageBCompleted: fallbackCard.stageBCompleted ?? true
+            stageBCompleted: true
         )
         fallbackCard.alignmentScore = fallbackAlignment.score
         fallbackCard.alignmentVerdict = fallbackAlignment.verdict
@@ -649,6 +685,11 @@ func displaySuggestionIfAligned(
     return true
 }
 
+/// Builds a complete local answer when provider output is mismatched,
+/// incomplete, or too generic for the current question.
+///
+/// Fallbacks must directly answer the current question and preserve binding
+/// metadata so the DB and UI can show why provider output was rejected.
 private func makeSemanticFallbackCard(
     replacing card: SuggestionCard,
     question: DetectedQuestion,
@@ -910,10 +951,13 @@ func setGenerationUIState(_ state: GenerationUIState, generationID: String? = ni
 }
 
 // internal for AppState extension access only
-func applyPromptSnapshotDiagnostics(_ promptSnapshot: AnswerPromptSnapshot) {
+func applyPromptSnapshotDiagnostics(
+    _ promptSnapshot: AnswerPromptSnapshot,
+    providerRequest: GenerationProviderRequest? = nil
+) {
     currentAnswerQuestionIntent = promptSnapshot.questionIntent
     currentPromptQuestionText = promptSnapshot.questionTextSnapshot
-    currentPromptPrimaryQuestion = promptSnapshot.promptPrimaryQuestion
+    currentPromptPrimaryQuestion = providerRequest?.promptPrimaryQuestion ?? promptSnapshot.promptPrimaryQuestion
     currentPromptContainsPreviousQuestion = promptSnapshot.promptContainsPreviousQuestion
     currentPreviousQuestionIncluded = promptSnapshot.previousQuestionIncluded
     currentPreviousQuestionText = promptSnapshot.previousQuestionText ?? ""

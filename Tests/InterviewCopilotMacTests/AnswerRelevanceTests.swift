@@ -128,6 +128,100 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func modelComparisonRejectsGenericVisibleSayFirstEvenWhenKeyPointsMatch() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceGenericSayFirst")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion(
+            "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            sessionID: session.id
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        var genericSayFirstCard = SuggestionCard(
+            id: "generic-diffusion-card",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "Model comparison",
+            sayFirst: "I generally work with diffusion-based policies.",
+            keyPoints: [
+                "Autoregressive policies can suffer from error accumulation over time.",
+                "Diffusion models refine the full action sequence, producing smoother continuous actions.",
+                "That can make diffusion more robust for robotic manipulation."
+            ],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        genericSayFirstCard.questionText = question.questionText
+        genericSayFirstCard.sayFirstSource = "deepseek_section_stream"
+        genericSayFirstCard.stageBCompleted = false
+
+        #expect(appState.applySuggestionIfAlignedForTesting(genericSayFirstCard, question: question, generationID: nil) == false)
+        #expect(appState.currentSuggestion?.sayFirst != "I generally work with diffusion-based policies.")
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("autoregressive") == true)
+        #expect(appState.currentSuggestion?.alignmentVerdict == .aligned)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
+    }
+
+    @Test
+    func diffusionModelComparisonFallbackExplainsContinuousActionsAndAutoregressiveErrorAccumulation() {
+        let question = makeQuestion("Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("diffusion"))
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("autoregressive"))
+        #expect(combined.localizedCaseInsensitiveContains("continuous"))
+        #expect(combined.localizedCaseInsensitiveContains("error"))
+        #expect(combined.localizedCaseInsensitiveContains("robust"))
+        #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(fallback.sayFirst))
+    }
+
+    @Test
+    func completeVisibleModelComparisonAnswerRemainsAlignedWhenFullCardIsStillExpanding() {
+        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let sayFirst = "From my experience, diffusion-based policies produce smoother and more robust continuous action sequences through iterative denoising, unlike autoregressive policies which can compound errors step-by-step."
+        let combined = """
+        \(sayFirst)
+        Diffusion models the full continuous action distribution or trajectory.
+        Autoregressive and flow-matching variants were less robust in the evaluation.
+        """
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: combined,
+            sayFirst: sayFirst,
+            stageBCompleted: false
+        )
+
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func runtimeDiffusionAnswerWithASRNoisyAutoregressiveWordingStillAligns() {
+        let question = "Why might a diffusion based policy be more stable for robotic manipulation than an auto rig progressive policy"
+        let sayFirst = "I'd say diffusion-based policies produce smoother, more robust action sequences by denoising from a full trajectory distribution, which avoids the compounding error and jerky motions you often see with autoregressive policies, leading to higher success rates in continuous manipulation tasks."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: sayFirst,
+            sayFirst: sayFirst,
+            stageBCompleted: false
+        )
+
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
     func semanticGuardRejectsIncompleteSayFirstEvenWhenKeyPointsMatch() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceIncomplete")
         let appState = AppState(database: database)

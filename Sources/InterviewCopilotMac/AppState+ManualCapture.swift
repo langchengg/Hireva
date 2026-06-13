@@ -1,8 +1,18 @@
+// Owns the push-to-ask/manual capture workflow.
+// Manual capture intentionally stops continuous pipelines before recording a
+// focused question. It must not change continuous audio mode routing, automatic
+// detection rules, or provider/keychain behavior.
+
 import Foundation
 
 extension AppState {
 // MARK: - Manual Capture Push-to-Ask Controls
 
+/// Starts a bounded manual recording session for one question.
+///
+/// This path is separate from live interview listening: it explicitly stops
+/// continuous capture first, then records and transcribes a single prompt before
+/// handing it to generation.
 @MainActor
 func startManualCapture() {
     guard !isActionLoading(ActionID.manualRecord) else { return }

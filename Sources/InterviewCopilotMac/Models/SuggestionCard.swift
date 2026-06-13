@@ -1,5 +1,10 @@
 import Foundation
 
+/// Visible answer card persisted to the session database.
+///
+/// The binding metadata is as important as the text: `detectedQuestionID`,
+/// `questionText`, `generationID`, and `promptPrimaryQuestion` let runtime and
+/// tests prove the answer belongs to the current interviewer question.
 struct SuggestionCard: Identifiable, Hashable, Codable {
     var id: String
     var sessionID: String
@@ -52,7 +57,8 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
         set { questionID = newValue }
     }
 
-    // Streaming & Provenance
+    // Streaming and provenance metadata. These fields tell the UI whether the
+    // visible answer came from local fallback, DeepSeek streaming, or Stage B.
     var sayFirstSource: String? = nil
     var stageATimedOut: Bool? = nil
     var stageBCompleted: Bool? = nil
@@ -88,6 +94,7 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var isPartial: Bool = false
 }
 
+/// JSON payload expected from full-card provider generation.
 struct SuggestionCardPayload: Decodable {
     var strategy: String
     var sayFirst: String
@@ -110,6 +117,7 @@ struct SuggestionCardPayload: Decodable {
     }
 }
 
+/// User-visible caution level for a suggestion card.
 enum RiskLevel: String, CaseIterable, Identifiable, Codable {
     case low
     case medium

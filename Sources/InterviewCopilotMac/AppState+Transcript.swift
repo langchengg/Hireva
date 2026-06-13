@@ -1,9 +1,17 @@
+// Ingests transcript segments from live ASR and routes them toward persistence,
+// attribution diagnostics, question detection, and RAG precompute.
+// This extension decides whether a segment is eligible for detection; it must
+// not generate answers directly except by handing accepted questions to the
+// question-detection/generation extensions.
+
 import Foundation
 import Combine
 import SwiftUI
 import AppKit
 
 extension AppState {
+    // MARK: - Segment Ingestion
+
     func consumeSegments(from provider: TranscriptionProvider) {
         transcriptionTask = Task { [weak self] in
             for await segment in provider.segments {
@@ -13,6 +21,13 @@ extension AppState {
         }
     }
 
+    /// Handles one ASR segment on MainActor.
+    ///
+    /// Partial ASR may update live transcript UI and diagnostics, but final ASR
+    /// is preferred for answer generation. Candidate microphone speech is not
+    /// allowed to auto-trigger answers unless explicitly enabled in settings.
+    /// Short fragments such as "why do you want" are deferred so a later final
+    /// segment can become the single clean current question.
     func handleTranscriptSegment(_ segment: TranscriptSegment) async {
         let ingestionStartedAt = Date()
         let previousSegment = transcriptSegments.first(where: { $0.id == segment.id })
@@ -86,7 +101,9 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.questionIntent = extractedSystemAudioQuestions.last?.intent.rawValue ?? lastTranscriptQuestionGenerationTrace.questionIntent
         }
 
-        // Background debounced RAG precompute
+        // Background debounced RAG precompute. This is speculative support work
+        // only: retrieved context must remain subordinate to the final current
+        // question selected by detection.
         if segment.source == .systemAudio,
            systemAudioCanUseQuestionIntent(segment),
            systemAudioClassification?.intent == .answerWorthyQuestion {
@@ -134,7 +151,8 @@ extension AppState {
             }
         }
 
-        // Echo/Leakage Protection sliding window update
+        // Echo/leakage protection keeps interviewer audio that bleeds into the
+        // microphone from being treated as candidate speech or as a new question.
         if segment.source == .systemAudio {
             recentSystemAudioRecords.append(RecentSystemAudioRecord(text: segment.text, timestamp: Date()))
             recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
@@ -249,6 +267,8 @@ extension AppState {
            isSystemLikeDetectionAudio,
            extractedSystemAudioQuestions.isEmpty,
            (isASRPartial || isIncompleteSystemAudioQuestionFragment) {
+            // Do not generate from partial or obviously truncated interviewer
+            // fragments. A later final segment with the full question must win.
             let reason = isASRPartial ? "waiting for final ASR transcript" : "incomplete question fragment"
             self.lastDetectionSkipReason = reason
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = isASRPartial ? "waitingForFinalASR" : "incompleteQuestionFragment"
@@ -270,6 +290,9 @@ extension AppState {
         if shouldTriggerDetection,
            shouldUseExtractedSystemAudioQuestions(extractedSystemAudioQuestions, classification: systemAudioClassification),
            let session = currentSession {
+            // Multi-question transcripts are split before generation so the
+            // current answer is bound to one clean latest interviewer question,
+            // not to a merged monologue.
             self.lastDetectionSkipReason = ""
             processExtractedSystemAudioQuestions(
                 extractedSystemAudioQuestions,
@@ -310,6 +333,8 @@ extension AppState {
 
     }
 
+    // MARK: - Normalization
+
     func normalizeTraceText(_ text: String) -> String {
         text
             .lowercased()
@@ -329,6 +354,8 @@ extension AppState {
             .joined(separator: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
     }
+
+    // MARK: - Background Persistence
 
     func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment) {
         let repository = transcriptRepository

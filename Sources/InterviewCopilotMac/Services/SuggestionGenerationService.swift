@@ -1,5 +1,14 @@
+// Provider-facing suggestion generation service.
+// This service builds prompts, calls the active LLM router, and parses provider
+// output into SuggestionCard values. It must not own AppState UI mutation,
+// capture lifecycle, active-generation cancellation, or key storage.
+
 import Foundation
 
+/// Thin service for LLM suggestion calls and response parsing.
+///
+/// AppState owns when a generation starts and whether its result is still
+/// current. This service should remain unaware of live UI state.
 final class SuggestionGenerationService {
     private let llmRouter: LLMRouter
 
@@ -7,6 +16,11 @@ final class SuggestionGenerationService {
         self.llmRouter = llmRouter
     }
 
+    /// Generates a full JSON-backed suggestion card for one frozen question.
+    ///
+    /// The question snapshot and prompt metadata are copied onto the card so
+    /// alignment checks and DB queries can verify that the visible answer was
+    /// produced for the same primary question.
     func generate(
         question: DetectedQuestion,
         context: RetrievedContext,
@@ -48,7 +62,9 @@ final class SuggestionGenerationService {
         do {
             payload = try JSONParsing.decodeObject(SuggestionCardPayload.self, from: response.content)
         } catch {
-            // Build fallback payload
+            // Build a parse fallback from provider text. This preserves a
+            // visible answer path while downstream alignment still decides
+            // whether it can be shown for the current question.
             payload = makeFallbackPayload(from: response.content, error: error)
         }
 

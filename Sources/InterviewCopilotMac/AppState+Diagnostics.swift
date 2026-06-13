@@ -1,8 +1,15 @@
+// Maintains developer diagnostics for capture, generation, latency, and
+// runtime health.
+// Diagnostics may expose raw technical state such as generation IDs and ASR
+// health, but normal product screens should translate those into human states.
+
 import Foundation
 import Combine
 import SwiftUI
 
 extension AppState {
+    // MARK: - Main Thread Health
+
     public func startMainThreadHeartbeat() {
         mainThreadHeartbeatTask?.cancel()
         let now = Date()
@@ -30,6 +37,8 @@ extension AppState {
             }
         }
     }
+
+    // MARK: - Active Operation Labels
 
     func markSQLiteOperation(_ operation: String) {
         lastSQLiteOperation = operation
@@ -67,6 +76,8 @@ extension AppState {
         mutate(&next)
         diagnostics = next
     }
+
+    // MARK: - Capture Events
 
     public func addCaptureEvent(
         name: String,

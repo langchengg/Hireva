@@ -1,6 +1,21 @@
+// Builds immutable prompt snapshots for answer generation.
+// The current detected question must dominate the prompt; transcript and RAG
+// context are supporting background only and must not become the primary task.
+
 import Foundation
 
+/// Constructs prompt snapshots that freeze the current question, filtered
+/// context, and background transcript at generation start.
+///
+/// The builder is intentionally stateless. It should not read AppState directly
+/// because late transcript updates or newer questions must not alter an
+/// in-flight generation prompt.
 enum PromptContextBuilder {
+    /// Builds the provider-facing prompt and diagnostic snapshot for one
+    /// question.
+    ///
+    /// The returned `promptPrimaryQuestion` must equal the detected question
+    /// snapshot. Previous transcript may be included only as labeled background.
     static func promptSnapshot(
         question: DetectedQuestion,
         context: RetrievedContext,
@@ -88,6 +103,10 @@ enum PromptContextBuilder {
         max(1, Int(Double(text.split(whereSeparator: \.isWhitespace).count) * 1.35))
     }
 
+    /// Composes the actual user prompt from frozen inputs.
+    ///
+    /// Keep current-question placement ahead of context. Do not add instructions
+    /// that let RAG chunks or previous transcript override the primary question.
     private static func buildPrompt(
         questionTextSnapshot: String,
         intent: AnswerRelevanceIntent,

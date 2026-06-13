@@ -1,5 +1,9 @@
 import Foundation
 
+/// Origin of an ASR transcript segment.
+///
+/// Source attribution drives auto-detection safety: interviewer/system audio can
+/// trigger answers, while candidate microphone speech is normally ignored.
 enum AudioSourceType: String, Codable, CaseIterable {
     case microphone
     case systemAudio
@@ -8,6 +12,7 @@ enum AudioSourceType: String, Codable, CaseIterable {
     case mixed
 }
 
+/// Speaker attribution attached to a transcript segment.
 enum SpeakerRole: String, Codable, CaseIterable {
     case candidate
     case interviewer
@@ -36,6 +41,7 @@ enum SpeakerRole: String, Codable, CaseIterable {
     }
 }
 
+/// Lightweight audio-device snapshot used by settings and diagnostics.
 public struct AudioDeviceInfo: Codable, Equatable, Identifiable {
     public let id: String
     public let name: String
@@ -64,6 +70,11 @@ public struct AudioDeviceInfo: Codable, Equatable, Identifiable {
     }
 }
 
+/// One ASR transcript segment with source, speaker, device, and latency
+/// metadata.
+///
+/// Partial segments may update live UI, but final segments are preferred for
+/// answer generation so truncated fragments do not become primary questions.
 struct TranscriptSegment: Identifiable, Hashable, Codable {
     var id: String
     var sessionID: String

@@ -1,5 +1,9 @@
 import Foundation
 
+/// RAG context selected from CV, job description, and notes.
+///
+/// Retrieved context is supporting evidence only. Prompt builders and alignment
+/// guards must keep the detected question as the primary task.
 struct RetrievedContext: Hashable {
     var cvChunks: [DocumentChunk]
     var jobDescriptionChunks: [DocumentChunk]

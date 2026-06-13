@@ -1,5 +1,10 @@
 import Foundation
 
+/// Diagnostic trace connecting one transcript segment to question detection and
+/// generation decisions.
+///
+/// This is for readiness/diagnostics only; product UI should translate these
+/// fields into simple states such as Ready, Listening, or Needs Attention.
 struct TranscriptQuestionGenerationTrace: Equatable {
     var transcriptSegmentID: String = ""
     var source: String = ""
