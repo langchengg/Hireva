@@ -162,8 +162,8 @@ enum QuestionIntentPromptPolicy {
             )
         case .modelComparison, .diffusionPolicy:
             return IntentFallbackAnswer(
-                sayFirst: "My interpretation is that a diffusion-based policy can be more stable because it refines a continuous action trajectory through denoising, which tends to produce smoother and more robust motions. An autoregressive policy predicts step by step, so small errors can accumulate during manipulation.",
-                keyPoints: ["Diffusion models the full continuous action distribution or trajectory.", "Autoregressive and flow-matching variants were less robust in the evaluation.", "In MuJoCo, diffusion reached seven out of ten successful grasps, helped by smoother action generation."]
+                sayFirst: "My interpretation is that a diffusion-based policy can be more stable because it denoises a whole continuous action sequence or trajectory, which tends to produce smoother and more robust manipulation motions. An autoregressive policy predicts actions step by step, so small mistakes can compound and accumulate over the sequence.",
+                keyPoints: ["Diffusion refines a full continuous action trajectory through denoising.", "Autoregressive and flow-matching variants were less robust, and autoregressive prediction can accumulate compounding errors step by step.", "In MuJoCo, diffusion reached seven out of ten successful grasps, helped by smoother action generation."]
             )
         case .improvementPlan:
             return IntentFallbackAnswer(

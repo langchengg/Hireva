@@ -180,9 +180,15 @@ struct AnswerRelevanceTests {
 
         #expect(fallback.sayFirst.localizedCaseInsensitiveContains("diffusion"))
         #expect(fallback.sayFirst.localizedCaseInsensitiveContains("autoregressive"))
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("denois"))
         #expect(combined.localizedCaseInsensitiveContains("continuous"))
+        #expect(combined.localizedCaseInsensitiveContains("trajectory") || combined.localizedCaseInsensitiveContains("sequence"))
+        #expect(combined.localizedCaseInsensitiveContains("step by step"))
+        #expect(combined.localizedCaseInsensitiveContains("compound"))
         #expect(combined.localizedCaseInsensitiveContains("error"))
+        #expect(combined.localizedCaseInsensitiveContains("smoother"))
         #expect(combined.localizedCaseInsensitiveContains("robust"))
+        #expect(combined.localizedCaseInsensitiveContains("manipulation"))
         #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(fallback.sayFirst))
     }
 

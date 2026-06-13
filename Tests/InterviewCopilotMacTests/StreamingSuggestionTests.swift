@@ -427,9 +427,14 @@ struct StreamingSoftFallbackTests {
         try settings.ensureDefaultProviderConfigurations()
         
         let mockClient = StreamingMockLLMClient()
-        // DeepSeek stream is slow: delay 10ms per token, yields 10 specific tokens
-        mockClient.streamTokens = ["This ", "is ", "my ", "specific ", "candidate ", "answer ", "about ", "my ", "robotics ", "project."]
+        // Keep Stage A and Stage B streams distinct so the assertion verifies
+        // late Stage A replacement, not scheduler-dependent section streaming.
+        mockClient.streamTokenBatches = [
+            ["This ", "is ", "my ", "specific ", "candidate ", "answer ", "about ", "my ", "robotics ", "project."],
+            []
+        ]
         mockClient.streamDelayNS = 0
+        mockClient.chatResultDelayNS = 100_000_000
         
         // Detailed Stage B suggestion card returned as JSON
         mockClient.chatResultContent = """
@@ -491,7 +496,9 @@ struct StreamingSoftFallbackTests {
         
         try await waitUntil(timeout: 12.0) {
             appState.currentSuggestion?.stageBCompleted == true &&
-            appState.currentSuggestion?.keyPoints.contains("First point") == true
+            appState.currentSuggestion?.keyPoints.contains("First point") == true &&
+            appState.currentSuggestion?.sayFirstSource == "deepseek_stream" &&
+            appState.currentSuggestion?.finalVisibleSource == "deepseek_stream"
         }
         
         // Assertions
