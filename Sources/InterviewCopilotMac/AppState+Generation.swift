@@ -1331,6 +1331,133 @@ func publishStreamingSections(
 }
 
 // internal for AppState extension access only
+/// Applies a previously planned Stage B result to AppState-owned UI, task, and
+/// persistence state.
+///
+/// `GenerationCoordinator` decides only what should happen; this method remains
+/// the side-effect boundary for visible cards, alignment guards, persistence,
+/// and capture-state restoration.
+func applyStageBApplicationPlan(
+    _ plan: StageBApplicationPlan,
+    sections: StreamingSuggestionSections,
+    cardID: String,
+    generationID: String,
+    question: DetectedQuestion,
+    session: InterviewSession,
+    requestStart: Date,
+    stageBStreamStartedMS: Int?,
+    retrievedChunks: [RetrievedChunk],
+    triggerPath: GenerationTriggerPath,
+    source: AudioSourceType?,
+    speaker: SpeakerRole?,
+    preserveFallbackSayFirst: Bool
+) async throws {
+    if plan.action == .discardStaleResult {
+        recordStaleGenerationDiscard()
+        return
+    }
+
+    publishStreamingSections(
+        sections,
+        cardID: cardID,
+        generationID: generationID,
+        question: question,
+        session: session,
+        requestStart: requestStart,
+        stageBStreamStartedMS: stageBStreamStartedMS,
+        preserveExistingSayFirst: preserveFallbackSayFirst,
+        markFullCardVisible: true
+    )
+
+    guard var finalCard = currentSuggestion else {
+        throw LLMProviderError.emptyResponse(providerName: activeRealtimeProvider?.name ?? "Realtime provider")
+    }
+
+    finalCard.id = cardID
+    finalCard.stageATimedOut = finalCard.stageATimedOut ?? false
+    finalCard.stageBCompleted = true
+    finalCard.stageBStatus = "completed"
+    finalCard.latencyFirstTokenMS = deepseekFirstTokenMS
+    finalCard.latencyFirstVisibleMS = finalCard.latencyFirstVisibleMS ?? deepseekFirstVisibleMS
+    finalCard.firstVisibleAnswerMS = finalCard.firstVisibleAnswerMS ?? finalCard.latencyFirstVisibleMS
+    finalCard.softFallbackUsed = softFallbackUsed
+    finalCard.softFallbackLatencyMS = softFallbackLatencyMS
+    finalCard.deepseekFirstTokenMS = deepseekFirstTokenMS
+    finalCard.deepseekFirstVisibleMS = deepseekFirstVisibleMS
+    finalCard.finalVisibleSource = finalVisibleSource ?? finalCard.finalVisibleSource ?? (softFallbackUsed ? "rag_template_soft_fallback" : "deepseek_section_stream")
+    finalCard.ragRetrievalLatencyMS = ragRetrievalLatencyMS
+
+    if let segmentID = question.transcriptSegmentID {
+        let transcriptRepository = transcriptRepository
+        markSQLiteOperation("Loading transcript timing in background")
+        let timing = await Task.detached(priority: .utility) {
+            guard let segment = try? transcriptRepository.segmentByID(segmentID) else {
+                return (firstPartial: Optional<Int>.none, final: Optional<Int>.none, best: Optional<Int>.none)
+            }
+            return (
+                firstPartial: segment.asrFirstPartialMS,
+                final: segment.asrFinalMS,
+                best: segment.asrBestSelectedMS
+            )
+        }.value
+        guard isActiveGeneration(generationID), !Task.isCancelled else {
+            recordStaleGenerationDiscard()
+            return
+        }
+        lastSQLiteOperation = "Loaded transcript timing"
+        finalCard.questionASRFirstPartialMS = timing.firstPartial
+        finalCard.questionASRFinalMS = timing.final
+        finalCard.questionASRBestSelectedMS = timing.best
+    }
+
+    let validatedCard = await validateAndRewriteIfNeeded(finalCard, generationID: generationID)
+    guard isActiveGeneration(generationID), !Task.isCancelled else {
+        recordStaleGenerationDiscard()
+        return
+    }
+    guard displaySuggestionIfAligned(
+        validatedCard,
+        question: question,
+        generationID: generationID,
+        triggerPath: triggerPath,
+        source: source,
+        speaker: speaker
+    ) else { return }
+
+    currentSuggestionRetrievedChunks = retrievedChunks
+    isExpandingSuggestionCard = false
+    suggestionGenerationStarted = false
+    persistSuggestionInBackground(
+        validatedCard,
+        chunks: retrievedChunks,
+        generationID: generationID,
+        requestStart: requestStart
+    )
+    completeAction(ActionID.generateAnswer, title: "Answer ready", message: "First answer and key points are visible.")
+
+    // Preserve the exact post-success capture-state rules from the inline Stage B
+    // branch so this refactor does not alter listening/ready transitions.
+    if currentSession?.id == session.id &&
+       currentCaptureRuntimeState == .generating &&
+       stopReason == nil &&
+       currentGenerationID == generationID &&
+       anyCaptureRunning {
+        liveState = .listening
+        currentCaptureRuntimeState = .listening
+        addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: "generationSuccess")
+    } else if currentGenerationID == generationID && !anyCaptureRunning {
+        liveState = .ready
+        currentCaptureRuntimeState = .stopped(reason: stopReason)
+    } else {
+        print("[CaptureState] Bypassed restoring listening: sessionID=\(currentSession?.id ?? "nil"), state=\(currentCaptureRuntimeState), stopReason=\(String(describing: stopReason)), generationID=\(String(describing: currentGenerationID)), anyCaptureRunning=\(anyCaptureRunning)")
+    }
+
+    refreshLatencyAverages()
+
+    print("[StreamingASR] Stage B Full SuggestionCard completed and merged successfully!")
+}
+
+// internal for AppState extension access only
 func persistSuggestionInBackground(
     _ card: SuggestionCard,
     chunks: [RetrievedChunk],

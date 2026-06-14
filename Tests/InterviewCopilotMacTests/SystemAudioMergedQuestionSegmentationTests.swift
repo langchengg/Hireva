@@ -5,6 +5,9 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SystemAudioMergedQuestionSegmentationTests {
+    // Full `swift test` runs other MainActor-heavy runtime suites concurrently.
+    // This is not a latency assertion; the card/content assertions below remain strict.
+    private static let runtimeWaitTimeout: TimeInterval = 240.0
     private static let runtimeMergedTranscript = "Hi La IL ask these questions in a mixed order so please treat each one independently first why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy when you moved from a clean demo to real robot execution which part of the pipeline was most fragile"
 
     private static let expectedQuestions = [
@@ -57,9 +60,15 @@ struct SystemAudioMergedQuestionSegmentationTests {
             text: Self.runtimeMergedTranscript
         ))
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 3 &&
-            appState.lastDetectedQuestion?.questionText == Self.expectedQuestions.last &&
+            appState.lastDetectedQuestion?.questionText == Self.expectedQuestions.last
+        }
+
+        let generationTask = appState.activeAITask
+        await generationTask?.value
+
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.currentSuggestion?.detectedQuestionID == appState.lastDetectedQuestion?.id &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
@@ -77,7 +86,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(client.detectionCallCount == 0)
         #expect(client.answerCallCount <= 2)
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
         }
         let persisted = try await database.dbQueue.read { db in
@@ -107,7 +116,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
             text: Self.fourQuestionRuntimeTranscript
         ))
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 4 &&
             appState.lastDetectedQuestion?.questionText == Self.expectedFourQuestions.last &&
             appState.currentSuggestion?.questionText == Self.expectedFourQuestions.last &&
@@ -121,7 +130,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("diffusion") }.count == 1)
         #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("LeoRover") }.count == 1)
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
         }
         let persisted = try await database.dbQueue.read { db in
@@ -155,7 +164,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 sessionID: session.id,
                 text: text
             ))
-            try await waitUntil(timeout: 8.0) {
+            try await waitUntil(timeout: Self.runtimeWaitTimeout) {
                 (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == index + 1
             }
         }
@@ -181,7 +190,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
             text: transcript
         ))
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 2 &&
             appState.currentSuggestion?.questionText == "why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy" &&
             appState.visibleAnswerExists &&
@@ -207,7 +216,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
             text: transcript
         ))
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 1 &&
             appState.currentSuggestion?.questionText == expectedCleanQuestion &&
             appState.visibleAnswerExists &&
@@ -266,17 +275,20 @@ struct SystemAudioMergedQuestionSegmentationTests {
         )
     }
 
-    private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
-        let start = Date()
-        while !predicate() {
-            if Date().timeIntervalSince(start) > timeout {
+    nonisolated private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
+        let pollIntervalNanoseconds: UInt64 = 25_000_000
+        let maxAttempts = max(1, Int(timeout / 0.025))
+        var attempts = 0
+        while !(await predicate()) {
+            attempts += 1
+            if attempts > maxAttempts {
                 throw NSError(
                     domain: "SystemAudioMergedQuestionSegmentationTests",
                     code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for merged question segmentation state."]
                 )
             }
-            try await Task.sleep(nanoseconds: 25_000_000)
+            try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
     }
 
@@ -384,13 +396,10 @@ private final class MergedQuestionLLMClient: LLMClientProtocol, @unchecked Senda
             : sayFirst(for: question).split(separator: " ").map { String($0) + " " }
 
         return AsyncThrowingStream { continuation in
-            Task {
-                for token in tokens {
-                    if Task.isCancelled { break }
-                    continuation.yield(token)
-                }
-                continuation.finish()
+            for token in tokens {
+                continuation.yield(token)
             }
+            continuation.finish()
         }
     }
 
@@ -439,13 +448,13 @@ private final class MergedQuestionLLMClient: LLMClientProtocol, @unchecked Senda
     private func sayFirst(for question: String) -> String {
         let lower = question.lowercased()
         if lower.contains("diffusion") || lower.contains("autoregressive") || lower.contains("auto regressive") {
-            return "The diffusion policy was more robust than the autoregressive policy because it modelled continuous action distributions more smoothly and recovered better from small trajectory errors."
+            return "I would say the diffusion policy was more robust than the autoregressive policy because it modelled continuous action distributions more smoothly and recovered better from small trajectory errors."
         }
         if lower.contains("leorover") || lower.contains("leo rover") || lower.contains("project") {
             return "My LeoRover project was an autonomous object retrieval robot where I built the ROS2 perception pipeline around YOLOv8, connected localisation to navigation, and coordinated the manipulation step so the real robot could pick up the target object."
         }
         if lower.contains("fragile") || lower.contains("real robot execution") || lower.contains("pipeline") {
-            return "The most fragile part was the integration around noisy perception, localisation stability, and timing between navigation and manipulation during real robot execution."
+            return "I found the most fragile part was the integration around noisy perception, localisation stability, and timing between navigation and manipulation during real robot execution."
         }
         if lower.contains("join our team") {
             return "I’m drawn to Dexory because my work in embodied AI and ROS2 robotics aligns perfectly with your mission to deploy intelligent robots in real logistics environments, and I want to help build practical, scalable robotics systems with the team."

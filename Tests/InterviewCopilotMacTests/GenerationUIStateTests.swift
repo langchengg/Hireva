@@ -516,8 +516,9 @@ struct GenerationUIStateTests {
 
     private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
         let start = Date()
+        let effectiveTimeout = max(timeout, 90.0)
         while !predicate() {
-            if Date().timeIntervalSince(start) > timeout {
+            if Date().timeIntervalSince(start) > effectiveTimeout {
                 throw NSError(
                     domain: "GenerationUIStateTests",
                     code: 1,

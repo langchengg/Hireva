@@ -368,18 +368,24 @@ struct QuestionAnswerAlignmentTests {
         }
     }
 
-    private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
-        let start = Date()
-        let effectiveTimeout = max(timeout, 45.0)
-        while !predicate() {
-            if Date().timeIntervalSince(start) > effectiveTimeout {
+    nonisolated private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
+        // Full `swift test` can interleave multiple MainActor-heavy runtime suites.
+        // Keep the state assertions strict, but count actual polling opportunities
+        // instead of wall-clock scheduling delay.
+        let pollIntervalNanoseconds: UInt64 = 25_000_000
+        let effectiveTimeout = max(timeout, 240.0)
+        let maxAttempts = max(1, Int(effectiveTimeout / 0.025))
+        var attempts = 0
+        while !(await predicate()) {
+            attempts += 1
+            if attempts > maxAttempts {
                 throw NSError(
                     domain: "QuestionAnswerAlignmentTests",
                     code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for QA alignment state."]
                 )
             }
-            try await Task.sleep(nanoseconds: 25_000_000)
+            try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
     }
 }

@@ -590,6 +590,8 @@ final class AppState: ObservableObject {
     let autoQuestionDuplicateCooldownSeconds: TimeInterval = 60
 
     private var activeObserverToken: NSObjectProtocol?
+    private let verificationMocksEnabledOverride: Bool?
+    private let defaultAppSectionOverride: AppSection?
     // internal for AppState extension access only
     var recentQuestionsFingerprints = [String]()
     private var cancellables = Set<AnyCancellable>()
@@ -629,7 +631,9 @@ final class AppState: ObservableObject {
         llmRouter: LLMRouter? = nil,
         permissionService: PermissionService? = nil,
         keychainService: KeychainService = KeychainService(),
-        contextRetrievalService: ContextRetrievalService? = nil
+        contextRetrievalService: ContextRetrievalService? = nil,
+        verificationMocksEnabled: Bool? = nil,
+        defaultAppSection: AppSection? = nil
     ) {
         let documents = DocumentRepository(database: database)
         let sessions = SessionRepository(database: database)
@@ -651,6 +655,8 @@ final class AppState: ObservableObject {
         self.settingsRepository = settings
         self.keychainService = keychain
         self.permissionService = permissionService ?? PermissionService()
+        self.verificationMocksEnabledOverride = verificationMocksEnabled
+        self.defaultAppSectionOverride = defaultAppSection
         self.microphoneDiagnostics = MicrophoneDiagnosticsService()
         self.mockTranscriptionService = MockTranscriptionService()
         self.localDataService = LocalDataService(
@@ -911,11 +917,16 @@ final class AppState: ObservableObject {
             if let cov = try? documentRepository.embeddingCoverage(currentProvider: currentProvStr, currentModel: currentModelStr) {
                 self.embeddingCoverage = cov
             }
-            injectVerificationMockData()
-            if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1",
-               let sectionStr = ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"],
-               let sec = AppSection(rawValue: sectionStr) {
-                self.selectedSection = sec
+            let verificationMocksEnabled = verificationMocksEnabledOverride ??
+                (ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1")
+            injectVerificationMockData(enabled: verificationMocksEnabled)
+            if verificationMocksEnabled {
+                if let defaultAppSectionOverride {
+                    self.selectedSection = defaultAppSectionOverride
+                } else if let sectionStr = ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"],
+                          let sec = AppSection(rawValue: sectionStr) {
+                    self.selectedSection = sec
+                }
             }
             refreshLatencyAverages()
         } catch {
@@ -1514,109 +1525,23 @@ final class AppState: ObservableObject {
                     activeGenerationID: self.currentGenerationID,
                     activeQuestionID: self.activeQuestionID
                 )
-                if finalStageBApplicationPlan.action == .discardStaleResult {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
                 let preserveFallbackSayFirst = self.softFallbackUsed &&
                     (self.userInteractedWithCard || (!latestSections.sayFirst.isEmpty && !self.isSpecificAnswer(latestSections.sayFirst)))
-                self.publishStreamingSections(
-                    latestSections,
+                try await self.applyStageBApplicationPlan(
+                    finalStageBApplicationPlan,
+                    sections: latestSections,
                     cardID: cardID,
                     generationID: generationID,
                     question: localQuestion,
                     session: localSession,
                     requestStart: requestStart,
                     stageBStreamStartedMS: streamStartedMS,
-                    preserveExistingSayFirst: preserveFallbackSayFirst,
-                    markFullCardVisible: true
-                )
-
-                guard var finalCard = self.currentSuggestion else {
-                    throw LLMProviderError.emptyResponse(providerName: self.activeRealtimeProvider?.name ?? "Realtime provider")
-                }
-
-                finalCard.id = cardID
-                finalCard.stageATimedOut = finalCard.stageATimedOut ?? false
-                finalCard.stageBCompleted = true
-                finalCard.stageBStatus = "completed"
-                finalCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
-                finalCard.latencyFirstVisibleMS = finalCard.latencyFirstVisibleMS ?? self.deepseekFirstVisibleMS
-                finalCard.firstVisibleAnswerMS = finalCard.firstVisibleAnswerMS ?? finalCard.latencyFirstVisibleMS
-                finalCard.softFallbackUsed = self.softFallbackUsed
-                finalCard.softFallbackLatencyMS = self.softFallbackLatencyMS
-                finalCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
-                finalCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
-                finalCard.finalVisibleSource = self.finalVisibleSource ?? finalCard.finalVisibleSource ?? (self.softFallbackUsed ? "rag_template_soft_fallback" : "deepseek_section_stream")
-                finalCard.ragRetrievalLatencyMS = self.ragRetrievalLatencyMS
-
-                if let segmentID = localQuestion.transcriptSegmentID {
-                    let transcriptRepository = self.transcriptRepository
-                    self.markSQLiteOperation("Loading transcript timing in background")
-                    let timing = await Task.detached(priority: .utility) {
-                        guard let segment = try? transcriptRepository.segmentByID(segmentID) else {
-                            return (firstPartial: Optional<Int>.none, final: Optional<Int>.none, best: Optional<Int>.none)
-                        }
-                        return (
-                            firstPartial: segment.asrFirstPartialMS,
-                            final: segment.asrFinalMS,
-                            best: segment.asrBestSelectedMS
-                        )
-                    }.value
-                    guard self.isActiveGeneration(generationID), !Task.isCancelled else {
-                        self.recordStaleGenerationDiscard()
-                        return
-                    }
-                    self.lastSQLiteOperation = "Loaded transcript timing"
-                    finalCard.questionASRFirstPartialMS = timing.firstPartial
-                    finalCard.questionASRFinalMS = timing.final
-                    finalCard.questionASRBestSelectedMS = timing.best
-                }
-
-                let validatedCard = await self.validateAndRewriteIfNeeded(finalCard, generationID: generationID)
-                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                guard self.displaySuggestionIfAligned(
-                    validatedCard,
-                    question: localQuestion,
-                    generationID: generationID,
+                    retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
                     triggerPath: triggerPath,
                     source: telemetrySource,
-                    speaker: telemetrySpeaker
-                ) else { return }
-                self.currentSuggestionRetrievedChunks = localTrace.rankedCVChunks + localTrace.rankedJDChunks
-                self.isExpandingSuggestionCard = false
-                self.suggestionGenerationStarted = false
-                self.persistSuggestionInBackground(
-                    validatedCard,
-                    chunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
-                    generationID: generationID,
-                    requestStart: requestStart
+                    speaker: telemetrySpeaker,
+                    preserveFallbackSayFirst: preserveFallbackSayFirst
                 )
-                self.completeAction(ActionID.generateAnswer, title: "Answer ready", message: "First answer and key points are visible.")
-
-                // Only restore .listening if safety conditions are met
-                if self.currentSession?.id == localSession.id &&
-                   self.currentCaptureRuntimeState == .generating &&
-                   self.stopReason == nil &&
-                   self.currentGenerationID == generationID &&
-                   self.anyCaptureRunning {
-                    self.liveState = .listening
-                    self.currentCaptureRuntimeState = .listening
-                    self.addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: "generationSuccess")
-                } else if self.currentGenerationID == generationID && !self.anyCaptureRunning {
-                    self.liveState = .ready
-                    self.currentCaptureRuntimeState = .stopped(reason: self.stopReason)
-                } else {
-                    print("[CaptureState] Bypassed restoring listening: sessionID=\(self.currentSession?.id ?? "nil"), state=\(self.currentCaptureRuntimeState), stopReason=\(String(describing: self.stopReason)), generationID=\(String(describing: self.currentGenerationID)), anyCaptureRunning=\(self.anyCaptureRunning)")
-                }
-                
-                // Refresh historical latency averages
-                self.refreshLatencyAverages()
-                
-                print("[StreamingASR] Stage B Full SuggestionCard completed and merged successfully!")
             } catch {
                 self.clearStageBTask(generationID: generationID)
                 guard self.currentGenerationID == generationID else {
@@ -1956,8 +1881,9 @@ final class AppState: ObservableObject {
 
 
     @MainActor
-    func injectVerificationMockData() {
-        guard ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" else { return }
+    func injectVerificationMockData(enabled: Bool? = nil) {
+        let enabled = enabled ?? (ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1")
+        guard enabled else { return }
         
         let cvChunks = [
             RetrievedChunk(
@@ -2167,7 +2093,8 @@ final class AppState: ObservableObject {
             try self.transcriptRepository.saveSegment(mockSegment)
             try self.suggestionRepository.saveSuggestionCard(mockCard, retrievedChunks: cvChunks + jdChunks)
             
-            if ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"] == "sessions" {
+            if defaultAppSectionOverride == .sessions ||
+                ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"] == "sessions" {
                 self.selectedSessionID = "mock-session-id"
                 loadSessionDetails(sessionID: "mock-session-id")
             } else if ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"] == "floating" {

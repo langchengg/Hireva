@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import InterviewCopilotMac
 
-@Suite
+@Suite(.serialized)
 @MainActor
 struct AppStateVerificationMocksTests {
     
@@ -32,22 +32,6 @@ struct AppStateVerificationMocksTests {
 
     @Test
     func testNormalStartupDoesNotInjectMockData() throws {
-        // Ensure environment variable is NOT "1" for this normal startup check
-        let originalEnvVal = ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
-        
-        // Temporarily clear it to simulate standard production run
-        setenv("ENABLE_VERIFICATION_MOCKS", "", 1)
-        unsetenv("ENABLE_VERIFICATION_MOCKS")
-        
-        defer {
-            // Restore original state
-            if let val = originalEnvVal {
-                setenv("ENABLE_VERIFICATION_MOCKS", val, 1)
-            } else {
-                unsetenv("ENABLE_VERIFICATION_MOCKS")
-            }
-        }
-        
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         let keychain = InMemoryAPIKeyStore()
@@ -57,7 +41,8 @@ struct AppStateVerificationMocksTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            permissionService: permissionService
+            permissionService: permissionService,
+            verificationMocksEnabled: false
         )
         
         // Assertions: no mocks should be injected during normal production startup
@@ -69,20 +54,6 @@ struct AppStateVerificationMocksTests {
 
     @Test
     func testMockInjectionIsActiveOnlyWhenVariableIsOne() throws {
-        let originalEnvVal = ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
-        
-        // Explicitly set it to "1" to enable injection
-        setenv("ENABLE_VERIFICATION_MOCKS", "1", 1)
-        
-        defer {
-            // Restore original state
-            if let val = originalEnvVal {
-                setenv("ENABLE_VERIFICATION_MOCKS", val, 1)
-            } else {
-                unsetenv("ENABLE_VERIFICATION_MOCKS")
-            }
-        }
-        
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         let keychain = InMemoryAPIKeyStore()
@@ -92,7 +63,8 @@ struct AppStateVerificationMocksTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            permissionService: permissionService
+            permissionService: permissionService,
+            verificationMocksEnabled: true
         )
         
         // Assertions: mocks MUST be successfully injected
@@ -108,25 +80,6 @@ struct AppStateVerificationMocksTests {
 
     @Test
     func testDefaultAppSectionIgnoredWhenVerificationMocksNotOne() throws {
-        let originalEnvMocks = ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
-        let originalEnvSection = ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"]
-        
-        unsetenv("ENABLE_VERIFICATION_MOCKS")
-        setenv("DEFAULT_APP_SECTION", "sessions", 1)
-        
-        defer {
-            if let val = originalEnvMocks {
-                setenv("ENABLE_VERIFICATION_MOCKS", val, 1)
-            } else {
-                unsetenv("ENABLE_VERIFICATION_MOCKS")
-            }
-            if let val = originalEnvSection {
-                setenv("DEFAULT_APP_SECTION", val, 1)
-            } else {
-                unsetenv("DEFAULT_APP_SECTION")
-            }
-        }
-        
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         let keychain = InMemoryAPIKeyStore()
@@ -136,7 +89,9 @@ struct AppStateVerificationMocksTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            permissionService: permissionService
+            permissionService: permissionService,
+            verificationMocksEnabled: false,
+            defaultAppSection: .sessions
         )
         
         // Assert selectedSection is still default (.home), ignoring DEFAULT_APP_SECTION
@@ -145,25 +100,6 @@ struct AppStateVerificationMocksTests {
 
     @Test
     func testDefaultAppSectionEffectiveWhenVerificationMocksIsOne() throws {
-        let originalEnvMocks = ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
-        let originalEnvSection = ProcessInfo.processInfo.environment["DEFAULT_APP_SECTION"]
-        
-        setenv("ENABLE_VERIFICATION_MOCKS", "1", 1)
-        setenv("DEFAULT_APP_SECTION", "sessions", 1)
-        
-        defer {
-            if let val = originalEnvMocks {
-                setenv("ENABLE_VERIFICATION_MOCKS", val, 1)
-            } else {
-                unsetenv("ENABLE_VERIFICATION_MOCKS")
-            }
-            if let val = originalEnvSection {
-                setenv("DEFAULT_APP_SECTION", val, 1)
-            } else {
-                unsetenv("DEFAULT_APP_SECTION")
-            }
-        }
-        
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         let keychain = InMemoryAPIKeyStore()
@@ -173,7 +109,9 @@ struct AppStateVerificationMocksTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            permissionService: permissionService
+            permissionService: permissionService,
+            verificationMocksEnabled: true,
+            defaultAppSection: .sessions
         )
         
         // Assert selectedSection matches DEFAULT_APP_SECTION value (.sessions)
