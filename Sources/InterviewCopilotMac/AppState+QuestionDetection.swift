@@ -29,8 +29,12 @@ extension AppState {
         classification: UtteranceIntentClassification?
     ) -> Bool {
         guard !extractedQuestions.isEmpty else { return false }
-        if extractedQuestions.count > 1 { return true }
-        return classification?.intent != .answerWorthyQuestion
+        // Local extraction is the runtime source of truth once it has produced
+        // a complete accepted system-audio candidate. Provider detection may
+        // still run when local extraction finds nothing, but it must not shrink
+        // a conditional question such as "If ..., how would you debug it?" into
+        // a tail-only candidate like "would you debug it".
+        return true
     }
 
     // internal for AppState extension access only
@@ -40,28 +44,69 @@ extension AppState {
         session: InterviewSession,
         suggestionTranscript: String
     ) {
-        // One ASR segment can contain several interviewer questions. Persist all
-        // accepted questions for session history, but bind the visible answer to
-        // the latest clean question only.
+        // One ASR segment can contain several interviewer questions. Generate
+        // answers for accepted questions in order; later questions wait in the
+        // same queue used for consecutive ASR segments.
         let baseDate = Date()
-        let acceptedQuestions = extractedQuestions.enumerated().map { index, extracted in
-            makeDetectedQuestion(
+        let acceptedQuestions = extractedQuestions.enumerated().compactMap { index, extracted in
+            let detected = makeDetectedQuestion(
                 from: extracted,
                 sessionID: session.id,
                 transcriptSegmentID: segment.id,
                 createdAt: baseDate.addingTimeInterval(Double(index) / 1_000.0)
             )
+            return runtimeAcceptedQuestionForGeneration(
+                detected,
+                triggeringSegmentID: segment.id
+            )
         }
-        guard let latestQuestion = acceptedQuestions.last else {
+        guard !acceptedQuestions.isEmpty else {
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = "lowConfidence"
-            lastTranscriptQuestionGenerationTrace.ignoredReason = "No extracted question passed local completeness checks"
+            lastTranscriptQuestionGenerationTrace.ignoredReason = "No extracted question passed runtime acceptance checks"
             return
         }
 
         let wasFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
-        saveDetectedQuestionsInBackground(acceptedQuestions)
+        var freshQuestions: [DetectedQuestion] = []
+        var duplicateQuestions: [DetectedQuestion] = []
+        for question in acceptedQuestions {
+            if !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(question.questionText) {
+                duplicateQuestions.append(question)
+            } else {
+                freshQuestions.append(question)
+            }
+        }
 
-        detectedQuestionsInSessionCount += acceptedQuestions.count
+        for duplicate in duplicateQuestions {
+            recordTranscriptRuntimeEvent(.generationRejected(
+                sessionID: session.id,
+                question: duplicate.questionText,
+                reason: .duplicateSuppressed,
+                timestamp: Date()
+            ))
+            recordTranscriptRuntimeEvent(.duplicatePartialSuppressed(
+                sessionID: session.id,
+                question: duplicate.questionText,
+                reason: .duplicateSuppressed,
+                timestamp: Date()
+            ))
+        }
+
+        guard let firstQuestion = freshQuestions.first else {
+            recordDuplicateSuppression()
+            lastTranscriptQuestionGenerationTrace.duplicateSuppressed = true
+            lastTranscriptQuestionGenerationTrace.generationTriggered = false
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "duplicateSuppressed"
+            if let duplicate = duplicateQuestions.last, !visibleAnswerExists {
+                showDuplicateQuestionNotice(for: duplicate, session: session)
+            }
+            return
+        }
+
+        saveDetectedQuestionsInBackground(freshQuestions)
+
+        let latestQuestion = freshQuestions.last ?? firstQuestion
+        detectedQuestionsInSessionCount += freshQuestions.count
         lastDetectedQuestion = latestQuestion
         lastDetectedQuestionSource = segment.source.rawValue
         lastDetectedQuestionSpeaker = segment.speaker.rawValue
@@ -78,7 +123,7 @@ extension AppState {
         lastDetectionRawJSON = latestQuestion.rawJSON ?? ""
         lastDetectionQuestionComplete = true
         lastDetectionAnswerStrategy = latestQuestion.answerStrategy.displayName
-        lastQuestionDetectionResult = "Extracted \(acceptedQuestions.count) questions from one transcript. Latest: \"\(latestQuestion.questionText)\""
+        lastQuestionDetectionResult = "Extracted \(freshQuestions.count) new question(s) from one transcript. Latest: \"\(latestQuestion.questionText)\""
 
         updateDiagnostics {
             $0.lastDetectedQuestionJSON = latestQuestion.rawJSON
@@ -93,27 +138,104 @@ extension AppState {
         lastTranscriptQuestionGenerationTrace.firstQuestionSuppressedReason = ""
         currentFirstQuestionSuppressedReason = ""
 
-        // Duplicate suppression is intentionally per accepted question. The
-        // first answer-worthy question must never be suppressed by stale memory,
-        // and a suppressed duplicate must show a terminal state instead of a
-        // spinner.
-        let duplicateQuestion = !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(latestQuestion.questionText)
-        if duplicateQuestion {
-            recordDuplicateSuppression()
-            lastTranscriptQuestionGenerationTrace.duplicateSuppressed = true
-            lastTranscriptQuestionGenerationTrace.generationTriggered = false
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "duplicateSuppressed"
-            if !visibleAnswerExists {
-                showDuplicateQuestionNotice(for: latestQuestion, session: session)
-            }
-            return
+        for question in freshQuestions {
+            rememberAutoQuestion(question.questionText)
         }
-
-        rememberAutoQuestion(latestQuestion.questionText)
         lastAutoSuggestionAt = Date()
         lastTranscriptQuestionGenerationTrace.generationTriggered = true
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
-        startAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
+        if shouldQueueAutoSuggestionGeneration(for: firstQuestion) {
+            for queuedQuestion in freshQuestions {
+                queueAcceptedAutoQuestion(queuedQuestion, session: session, transcript: suggestionTranscript)
+            }
+        } else {
+            for queuedQuestion in freshQuestions.dropFirst() {
+                queueAcceptedAutoQuestion(queuedQuestion, session: session, transcript: suggestionTranscript)
+            }
+            launchAutoSuggestionGeneration(for: firstQuestion, session: session, transcript: suggestionTranscript)
+        }
+    }
+
+    private func persistMergedTranscriptSnapshot(
+        for question: DetectedQuestion,
+        session: InterviewSession,
+        segment: TranscriptSegment
+    ) {
+        let requestStart = Date()
+        let generationID = UUID().uuidString
+        recordTranscriptRuntimeEvent(.generationStarted(
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: generationID,
+            question: question.questionText,
+            timestamp: requestStart
+        ))
+        var card = makeInitialFirstAnswerFallbackCard(
+            cardID: UUID().uuidString,
+            question: question,
+            session: session,
+            requestStart: requestStart
+        )
+        card.modelName = "local-merged-question-snapshot"
+        card.promptVersion = "merged-transcript-snapshot-v1"
+        card.providerName = "Local Question Snapshot"
+        card.confidence = max(card.confidence ?? 0.45, 0.72)
+        card.caution = "Saved from an earlier complete question in a merged transcript."
+        card.questionText = question.questionText
+        card.transcriptSegmentID = question.transcriptSegmentID
+        card.generationID = generationID
+        card.source = segment.source.rawValue
+        card.speaker = segment.speaker.rawValue
+        card.triggerPath = .autoDetect
+        card.questionIntent = AnswerRelevancePolicy.intent(for: question.questionText)
+        card.promptQuestionText = question.questionText
+        card.promptPrimaryQuestion = question.questionText
+        card.promptContainsPreviousQuestion = false
+        card.previousQuestionIncluded = false
+        card.previousQuestionText = nil
+        card.contextBleedRisk = .low
+        card.ragChunkIDs = []
+        card.ragChunkIntents = []
+        card.firstQuestionSuppressedReason = nil
+        card.promptTokenEstimate = AnswerRelevancePolicy.estimateTokens(question.questionText)
+        card.mismatchReason = nil
+        card.sayFirstSource = "local_merged_question_snapshot"
+        card.stageATimedOut = false
+        card.stageBCompleted = true
+        card.stageBStatus = "local_snapshot"
+        card.latencyFirstVisibleMS = 0
+        card.latencyFullCardMS = 0
+        card.softFallbackUsed = true
+        card.softFallbackLatencyMS = 0
+        card.finalVisibleSource = "local_merged_question_snapshot"
+        card.firstVisibleAnswerMS = 0
+        card.firstKeyPointVisibleMS = card.keyPoints.isEmpty ? nil : 0
+        card.allKeyPointsVisibleMS = card.keyPoints.isEmpty ? nil : 0
+        card.followUpVisibleMS = card.followUpReady.isEmpty ? nil : 0
+        card.fullCardVisibleMS = 0
+
+        let answerText = ([card.sayFirst] + card.keyPoints + card.followUpReady).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question.questionText,
+            answerText: answerText,
+            sayFirst: card.sayFirst,
+            stageBCompleted: true
+        )
+        card.alignmentScore = alignment.score
+        card.alignmentVerdict = alignment.verdict
+        card.answerIntent = alignment.answerIntent
+        card.mismatchReason = alignment.verdict == .mismatched ? alignment.reason : nil
+
+        guard alignment.verdict == .aligned else {
+            recordTranscriptRuntimeEvent(.generationRejected(
+                sessionID: session.id,
+                question: question.questionText,
+                reason: alignment.verdict == .weaklyAligned ? .weakAlignment : .mismatchedAlignment,
+                timestamp: Date()
+            ))
+            return
+        }
+        saveSuggestionSnapshotInBackground(card, chunks: [])
     }
 
     private func makeDetectedQuestion(
@@ -313,7 +435,7 @@ extension AppState {
                 $0.apiCallCount += 1
             }
 
-            let question = detection.question
+            var question = detection.question
             if let triggeringSegment,
                processLocallySplitProviderQuestionIfNeeded(
                    question,
@@ -322,6 +444,20 @@ extension AppState {
                    suggestionTranscript: suggestionTranscript
                ) {
                 return
+            }
+
+            if question.shouldTrigger {
+                guard let guarded = runtimeAcceptedQuestionForGeneration(
+                    question,
+                    triggeringSegmentID: triggeringSegmentID
+                ) else {
+                    if self.stopReason == nil && self.anyCaptureRunning {
+                        liveState = .listening
+                        currentCaptureRuntimeState = .listening
+                    }
+                    return
+                }
+                question = guarded
             }
 
             saveDetectedQuestionInBackground(question)
@@ -376,6 +512,12 @@ extension AppState {
                 } else if duplicateQuestion {
                     skipMsg = "Duplicate of recently answered question"
                     recordDuplicateSuppression()
+                    recordTranscriptRuntimeEvent(.duplicatePartialSuppressed(
+                        sessionID: session.id,
+                        question: question.questionText,
+                        reason: .duplicateSuppressed,
+                        timestamp: Date()
+                    ))
                     if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
                         lastTranscriptQuestionGenerationTrace.duplicateSuppressed = true
                     }
@@ -490,11 +632,254 @@ extension AppState {
         session: InterviewSession,
         transcript: String
     ) {
+        guard let acceptedQuestion = runtimeAcceptedQuestionForGeneration(
+            question,
+            triggeringSegmentID: question.transcriptSegmentID
+        ) else {
+            return
+        }
+        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion) {
+            queueAcceptedAutoQuestion(acceptedQuestion, session: session, transcript: transcript)
+            return
+        }
+        launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
+    }
+
+    // internal for AppState extension access only
+    func processNextQueuedAutoQuestionIfIdle() {
+        let sessionID = currentSession?.id ?? pendingAcceptedQuestions.first?.session.id ?? ""
+        recordTranscriptRuntimeEvent(.queueDrainRequested(
+            sessionID: sessionID,
+            depth: pendingAcceptedQuestions.count,
+            reason: "process_next_if_idle",
+            timestamp: Date()
+        ))
+        if let blockReason = queueDrainBlockReasonForCurrentState() {
+            recordTranscriptRuntimeEvent(.queueDrainBlocked(
+                sessionID: sessionID,
+                depth: pendingAcceptedQuestions.count,
+                reason: blockReason,
+                timestamp: Date()
+            ))
+            return
+        }
+        guard !pendingAcceptedQuestions.isEmpty else {
+            recordTranscriptRuntimeEvent(.queueDrainBlocked(
+                sessionID: sessionID,
+                depth: 0,
+                reason: "blocked_empty_queue",
+                timestamp: Date()
+            ))
+            return
+        }
+        let pending = pendingAcceptedQuestions.removeFirst()
+        recordTranscriptRuntimeEvent(.queueDepthChanged(
+            sessionID: pending.session.id,
+            depth: pendingAcceptedQuestions.count,
+            reason: "dequeued",
+            timestamp: Date()
+        ))
+        recordTranscriptRuntimeEvent(.questionDequeued(
+            sessionID: pending.session.id,
+            questionID: pending.question.id,
+            question: pending.question.questionText,
+            duplicateKey: pending.duplicateKey,
+            timestamp: Date()
+        ))
+        lastDetectedQuestion = pending.question
+        lastDetectedQuestionText = pending.question.questionText
+        lastAutoSuggestionAt = Date()
+        launchAutoSuggestionGeneration(for: pending.question, session: pending.session, transcript: pending.transcript)
+    }
+
+    private func shouldQueueAutoSuggestionGeneration(for question: DetectedQuestion) -> Bool {
+        guard shouldQueueAutoSuggestionGenerationForCurrentState() else { return false }
+        return activeQuestionID != question.id
+    }
+
+    private func shouldQueueAutoSuggestionGenerationForCurrentState() -> Bool {
+        queueDrainBlockReasonForCurrentState() != nil
+    }
+
+    private func queueDrainBlockReasonForCurrentState() -> String? {
+        if autoSuggestionLaunchPending {
+            return "blocked_pending_generation_launch"
+        }
+        if suggestionGenerationStarted || isStreamingSayFirst || providerStreamActive || fallbackWatchdogActive {
+            return "blocked_active_generation"
+        }
+        if isExpandingSuggestionCard || stageBTaskActive {
+            return visibleAnswerExists ? "blocked_stage_b_pending" : "blocked_no_safe_visible_answer"
+        }
+        guard activeGenerationController != nil else { return nil }
+        if let activeGenerationID,
+           generationUIState.generationID == activeGenerationID,
+           !generationUIState.isTerminal {
+            return visibleAnswerExists ? "blocked_stage_b_pending" : "blocked_no_safe_visible_answer"
+        }
+        return nil
+    }
+
+    private func queueAcceptedAutoQuestion(
+        _ question: DetectedQuestion,
+        session: InterviewSession,
+        transcript: String
+    ) {
+        let duplicateKey = SemanticDuplicateKeyBuilder.key(for: question.questionText)
+        if pendingAcceptedQuestions.contains(where: { $0.duplicateKey == duplicateKey }) {
+            recordDuplicateSuppression()
+            recordTranscriptRuntimeEvent(.generationRejected(
+                sessionID: session.id,
+                question: question.questionText,
+                reason: .duplicateSuppressed,
+                timestamp: Date()
+            ))
+            recordTranscriptRuntimeEvent(.duplicatePartialSuppressed(
+                sessionID: session.id,
+                question: question.questionText,
+                reason: .duplicateSuppressed,
+                timestamp: Date()
+            ))
+            return
+        }
+        let pending = PendingAcceptedQuestion(
+            question: question,
+            session: session,
+            transcript: transcript,
+            canonicalQuestion: QuestionCanonicalizer.canonicalize(question.questionText),
+            intent: AnswerRelevancePolicy.intent(for: question.questionText),
+            promptPrimaryQuestion: question.questionText,
+            duplicateKey: duplicateKey,
+            queuedAt: Date()
+        )
+        pendingAcceptedQuestions.append(pending)
+        recordTranscriptRuntimeEvent(.questionQueued(
+            sessionID: session.id,
+            questionID: question.id,
+            question: question.questionText,
+            duplicateKey: duplicateKey,
+            timestamp: pending.queuedAt
+        ))
+        recordTranscriptRuntimeEvent(.queueDepthChanged(
+            sessionID: session.id,
+            depth: pendingAcceptedQuestions.count,
+            reason: "queued",
+            timestamp: Date()
+        ))
+        recordTranscriptRuntimeEvent(.generationSkippedBecauseActive(
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: activeGenerationID,
+            question: question.questionText,
+            timestamp: Date()
+        ))
+        lastTranscriptQuestionGenerationTrace.generationTriggered = false
+        lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
+        finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
+    }
+
+    private func finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: InterviewSession) {
+        recordTranscriptRuntimeEvent(.queueDrainRequested(
+            sessionID: session.id,
+            depth: pendingAcceptedQuestions.count,
+            reason: "visible_answer_queue_check",
+            timestamp: Date()
+        ))
+        guard !pendingAcceptedQuestions.isEmpty,
+              let controller = activeGenerationController,
+              visibleAnswerExists,
+              let current = currentSuggestion else {
+            let reason: String
+            if pendingAcceptedQuestions.isEmpty {
+                reason = "blocked_empty_queue"
+            } else if autoSuggestionLaunchPending {
+                reason = "blocked_pending_generation_launch"
+            } else if activeGenerationController == nil {
+                reason = currentGenerationID == nil ? "blocked_no_safe_visible_answer" : "blocked_stale_generation_flags"
+            } else if !visibleAnswerExists {
+                reason = "blocked_no_safe_visible_answer"
+            } else {
+                reason = "blocked_active_generation"
+            }
+            recordTranscriptRuntimeEvent(.queueDrainBlocked(
+                sessionID: session.id,
+                depth: pendingAcceptedQuestions.count,
+                reason: reason,
+                timestamp: Date()
+            ))
+            return
+        }
+        let activeQuestionText = current.questionText ??
+            current.promptPrimaryQuestion ??
+            current.promptQuestionText ??
+            controller.questionTextSnapshot
+        guard visibleCardMatchesGeneration(
+            card: current,
+            generationID: controller.generationID,
+            detectedQuestionID: controller.questionID,
+            promptPrimaryQuestion: activeQuestionText
+        ) else {
+            recordTranscriptRuntimeEvent(.queueDrainBlocked(
+                sessionID: session.id,
+                depth: pendingAcceptedQuestions.count,
+                reason: "blocked_stale_generation_flags",
+                timestamp: Date()
+            ))
+            return
+        }
+        let acceptance = QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: activeQuestionText, isFinal: true)
+        guard let candidate = acceptance.candidate else {
+            recordTranscriptRuntimeEvent(.queueDrainBlocked(
+                sessionID: session.id,
+                depth: pendingAcceptedQuestions.count,
+                reason: "blocked_no_safe_visible_answer",
+                timestamp: Date()
+            ))
+            return
+        }
+
+        let activeQuestion = DetectedQuestion(
+            id: controller.questionID ?? current.questionID ?? UUID().uuidString,
+            sessionID: current.sessionID,
+            transcriptSegmentID: current.transcriptSegmentID,
+            questionText: candidate.text,
+            intent: candidate.intent,
+            answerStrategy: candidate.answerStrategy,
+            confidence: candidate.confidence,
+            reason: "Visible first answer completed before queued question.",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: current.modelName,
+            promptVersion: current.promptVersion,
+            providerKind: current.providerKind,
+            providerName: current.providerName,
+            providerBaseURL: current.providerBaseURL,
+            latencyMS: current.latencyMS,
+            isLocal: current.isLocal,
+            rawJSON: current.rawJSON,
+            createdAt: current.createdAt
+        )
+        _ = finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
+            generationID: controller.generationID,
+            question: activeQuestion,
+            session: session,
+            requestStart: controller.startedAt,
+            triggerPath: controller.triggerPath
+        )
+    }
+
+    private func launchAutoSuggestionGeneration(
+        for acceptedQuestion: DetectedQuestion,
+        session: InterviewSession,
+        transcript: String
+    ) {
         activeAITask?.cancel()
+        autoSuggestionLaunchPending = true
         activeAITask = Task { [weak self] in
             guard let self else { return }
+            defer { self.autoSuggestionLaunchPending = false }
             do {
-                try await self.generateSuggestion(for: question, session: session, transcript: transcript, autoGenerated: true)
+                try await self.generateSuggestion(for: acceptedQuestion, session: session, transcript: transcript, autoGenerated: true)
             } catch {
                 guard !Task.isCancelled else { return }
                 let message = self.userFacing(error)
@@ -503,13 +888,89 @@ extension AppState {
                     self.currentCaptureRuntimeState = .listening
                 }
                 self.lastFailedTaskType = .suggestionGeneration
-                self.lastFailedQuestion = question
+                self.lastFailedQuestion = acceptedQuestion
                 self.lastFailedTranscriptContext = transcript
                 self.lastFailedCVJDContext = nil
                 self.lastFailedProviderConfig = self.activeRealtimeProvider
                 self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(message)")
                 self.showError(message)
             }
+        }
+    }
+
+    private func runtimeAcceptedQuestionForGeneration(
+        _ question: DetectedQuestion,
+        triggeringSegmentID: String?
+    ) -> DetectedQuestion? {
+        guard let accepted = question.runtimeAcceptedForGeneration() else {
+            let result = QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(question)
+            recordRuntimeQuestionRejected(question, result: result, triggeringSegmentID: triggeringSegmentID)
+            if isRecentDuplicateAutoQuestion(question.questionText) ||
+                result.reason == .incompleteFragment,
+               SemanticDuplicateKeyBuilder.areDuplicates(lastAcceptedQuestionText, question.questionText) {
+                recordDuplicateSuppression()
+                recordTranscriptRuntimeEvent(.duplicatePartialSuppressed(
+                    sessionID: question.sessionID,
+                    question: question.questionText,
+                    reason: result.reason ?? .duplicateSuppressed,
+                    timestamp: Date()
+                ))
+            }
+            return nil
+        }
+        if let candidate = accepted.result.candidate {
+            recordTranscriptRuntimeEvent(.questionAccepted(
+                sessionID: question.sessionID,
+                candidate: candidate,
+                timestamp: Date()
+            ))
+            recordTranscriptRuntimeEvent(.utteranceBufferConsumed(
+                sessionID: question.sessionID,
+                questionID: accepted.question.id,
+                question: candidate.text,
+                timestamp: Date()
+            ))
+            recordTranscriptRuntimeEvent(.utteranceBufferReset(
+                sessionID: question.sessionID,
+                questionID: accepted.question.id,
+                question: candidate.text,
+                timestamp: Date()
+            ))
+        }
+        return accepted.question
+    }
+
+    private func recordRuntimeQuestionRejected(
+        _ question: DetectedQuestion,
+        result: QuestionRuntimeAcceptanceResult,
+        triggeringSegmentID: String?
+    ) {
+        let reason = result.reason?.rawValue ?? "rejected_by_question_candidate_pipeline"
+        lastDetectedQuestionText = question.questionText
+        lastDetectionConfidence = min(question.confidence, 0.5)
+        lastQuestionConfidence = min(question.confidence, 0.5)
+        lastDetectionShouldTrigger = false
+        lastDetectionReason = reason
+        lastDetectionSkipReason = reason
+        lastDetectionQuestionComplete = false
+        lastDetectionAnswerStrategy = AnswerStrategy.wait.displayName
+        lastQuestionDetectionResult = "Runtime question guard rejected: \(result.diagnostic)"
+        lastTranscriptQuestionGenerationTrace.generationTriggered = false
+        lastTranscriptQuestionGenerationTrace.generationBlockedReason = reason
+        lastTranscriptQuestionGenerationTrace.ignoredReason = result.diagnostic
+        recordTranscriptRuntimeEvent(.questionRejected(
+            sessionID: question.sessionID,
+            text: question.questionText,
+            reason: result.reason ?? .pipelineRejected,
+            timestamp: Date()
+        ))
+        if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+            lastTranscriptQuestionGenerationTrace.detectedQuestionID = question.id
+            lastTranscriptQuestionGenerationTrace.questionConfidence = min(question.confidence, 0.5)
+            lastTranscriptQuestionGenerationTrace.questionIntent = question.intent.rawValue
+        }
+        updateDiagnostics {
+            $0.lastDetectedQuestionJSON = question.rawJSON
         }
     }
 

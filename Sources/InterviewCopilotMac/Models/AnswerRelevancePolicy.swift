@@ -13,10 +13,18 @@ enum AnswerRelevanceIntent: String, CaseIterable, Codable, Hashable, Identifiabl
     case technicalChallenge = "technical_challenge"
     case errorHandling = "error_handling"
     case modelComparison = "model_comparison"
+    case decoderComparison = "decoder_comparison"
+    case perceptionDebugging = "perception_debugging"
+    case technicalTradeoff = "technical_tradeoff"
+    case datasetAdaptation = "dataset_adaptation"
+    case simToRealDebugging = "sim_to_real_debugging"
+    case projectComparison = "project_comparison"
+    case systemIntegrationDebugging = "system_integration_debugging"
     case improvementPlan = "improvement_plan"
     case whyRole = "why_role"
     case skillComfort = "skill_comfort"
     case candidateQuestions = "candidate_questions"
+    case interviewerQuestions = "interviewer_questions"
     case diffusionPolicy = "diffusion_policy"
     case generic
 

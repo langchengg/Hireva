@@ -40,7 +40,7 @@ struct SystemAudioMixedDialogueTests {
                 }
                 detectedQuestions.append(try #require(appState.lastDetectedQuestion?.questionText))
                 #expect(appState.lastDetectedQuestion?.questionText == expectedQuestion)
-                #expect(client.detectionCallCount == beforeDetectorCalls + 1)
+                #expect(client.detectionCallCount == beforeDetectorCalls)
             } else {
                 try await waitUntil(timeout: 2.2) {
                     !appState.shouldShowBlockingAnswerSpinner

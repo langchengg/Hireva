@@ -62,7 +62,7 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
 
         #expect(detectedQuestionIDs.count == questions.count)
         #expect(appState.detectedQuestionsInSessionCount == questions.count)
-        #expect(client.detectionCallCount == questions.count)
+        #expect(client.detectionCallCount == 0)
     }
 
     @Test
@@ -129,9 +129,9 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
             appState.visibleAnswerExists
         }
 
-        #expect(client.detectionCallCount == 1)
-        #expect(appState.lastDetectedQuestion?.questionText == "Why do you want to join our team?")
-        #expect(appState.currentSuggestion?.questionText == "Why do you want to join our team?")
+        #expect(client.detectionCallCount == 0)
+        #expect(appState.lastDetectedQuestion?.questionText == "Why do you want to join our team")
+        #expect(appState.currentSuggestion?.questionText == "Why do you want to join our team")
         #expect(appState.currentSuggestion?.questionText != "why do you want")
     }
 

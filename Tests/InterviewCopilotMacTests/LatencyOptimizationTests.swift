@@ -93,12 +93,12 @@ struct LatencyOptimizationTests {
 
         let mockClient = StreamingMockLLMClient()
         mockClient.streamTokenBatches = [
-            ["I ", "want ", "this ", "role."],
+            ["I ", "want ", "this ", "role ", "because ", "it ", "connects ", "robotics ", "AI ", "perception ", "and ", "real-world ", "deployment."],
             [
-                "SAY_FIRST:\nI want this role because it connects my robotics work to the team goals.\n\n",
-                "KEY_POINTS:\n- The role matches my ROS2 and robotics project work",
-                "\n- I can contribute production engineering practices",
-                "\n\nFOLLOW_UP_READY:\n- How did you evaluate the pipeline?",
+                "SAY_FIRST:\nI want this role because it connects my robotics, AI, perception, and real-world deployment experience with the team's product direction, and I can contribute while growing as an engineer.\n\n",
+                "KEY_POINTS:\n- The role matches my robotics, AI, and perception project work",
+                "\n- I can contribute to deployed real-world robotics and production engineering practices",
+                "\n\nFOLLOW_UP_READY:\n- How does the team evaluate deployment success?",
                 "\n- What tradeoffs did you make?",
                 "\n\nCAUTION:\nKeep it concise."
             ]

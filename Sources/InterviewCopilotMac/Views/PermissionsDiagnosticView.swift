@@ -106,7 +106,7 @@ struct PermissionsDiagnosticView: View {
             diagnosticRow("Microphone permission", appState.microphonePermissionState.displayName)
             diagnosticRow("Speech recognition", appState.permissionSnapshot.speechRecognition.displayName)
             diagnosticRow("Selected input", micDiagnostics.selectedInputDeviceName)
-            diagnosticRow("Last transcription", appState.lastTranscriptSnippet.isEmpty ? "None" : appState.lastTranscriptSnippet)
+            diagnosticRow("Last transcription", appState.displayTranscriptText.isEmpty ? "None" : appState.displayTranscriptText)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {

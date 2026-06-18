@@ -276,8 +276,8 @@ extension AppState {
             ReadinessCheckItem(
                 id: "transcript-test",
                 title: "Last test transcript received",
-                detail: lastTranscriptSnippet.isEmpty && transcriptSegments.isEmpty ? "No test transcript yet." : "A transcript has been received.",
-                status: lastTranscriptSnippet.isEmpty && transcriptSegments.isEmpty ? .warning : .passed,
+                detail: displayTranscriptText.isEmpty && transcriptSegments.isEmpty ? "No test transcript yet." : "A transcript has been received.",
+                status: displayTranscriptText.isEmpty && transcriptSegments.isEmpty ? .warning : .passed,
                 actionTitle: "Open Interview",
                 action: .openHome
             ),

@@ -14,6 +14,10 @@ enum AppPaths {
         applicationSupportDirectory.appendingPathComponent("interview_copilot.sqlite")
     }
 
+    static var runtimeTranscriptTraceURL: URL {
+        applicationSupportDirectory.appendingPathComponent("runtime_transcript_trace.jsonl")
+    }
+
     static var exportsDirectory: URL {
         applicationSupportDirectory.appendingPathComponent("Exports", isDirectory: true)
     }

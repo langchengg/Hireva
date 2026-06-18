@@ -114,6 +114,12 @@ enum GenerationUIState: Equatable {
     }
 
     var isExpandingAfterVisibleAnswer: Bool {
+        if case .showingFallback = self {
+            return true
+        }
+        if case .streamingAnswer = self {
+            return true
+        }
         if case .expandingFullAnswer = self {
             return true
         }

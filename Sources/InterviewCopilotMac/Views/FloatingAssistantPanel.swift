@@ -15,6 +15,12 @@ final class FloatingAssistantPanelController: NSObject, NSWindowDelegate {
     func show(appState: AppState) {
         self.appState = appState
 
+        guard !Self.isRunningInTestBundle else {
+            panel?.orderOut(nil)
+            appState.isFloatingAssistantVisible = true
+            return
+        }
+
         let panel = panel ?? makePanel()
         panel.contentView = NSHostingView(rootView: FloatingAssistantView(appState: appState))
         self.panel = panel
@@ -56,5 +62,10 @@ final class FloatingAssistantPanelController: NSObject, NSWindowDelegate {
         panel.hasShadow = true
         
         return panel
+    }
+
+    private static var isRunningInTestBundle: Bool {
+        let bundlePath = Bundle.main.bundlePath
+        return bundlePath.hasSuffix(".xctest") || bundlePath.contains("PackageTests.xctest")
     }
 }

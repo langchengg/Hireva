@@ -36,6 +36,11 @@ extension AppState {
         }
         print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
         liveState = .transcribing
+        recordASRTranscriptRuntimeEvent(for: segment)
+        if segment.asrFinalizationReason != "partial" {
+            partialUtteranceFinalizationTasks[segment.id]?.cancel()
+            partialUtteranceFinalizationTasks[segment.id] = nil
+        }
         lastTranscriptQuestionGenerationTrace = TranscriptQuestionGenerationTrace(
             transcriptSegmentID: segment.id,
             source: segment.source.rawValue,
@@ -263,21 +268,51 @@ extension AppState {
         let isASRPartial = segment.asrFinalizationReason == "partial"
         let isIncompleteSystemAudioQuestionFragment = isSystemLikeDetectionAudio &&
             SystemAudioQuestionExtractor.isIncompleteQuestionFragment(segment.text)
+
         if shouldTriggerDetection,
            isSystemLikeDetectionAudio,
-           extractedSystemAudioQuestions.isEmpty,
-           (isASRPartial || isIncompleteSystemAudioQuestionFragment) {
-            // Do not generate from partial or obviously truncated interviewer
-            // fragments. A later final segment with the full question must win.
-            let reason = isASRPartial ? "waiting for final ASR transcript" : "incomplete question fragment"
+           isASRPartial {
+            scheduleStablePartialUtteranceCandidateIfNeeded(segment)
+            let reason = "waiting for final ASR transcript"
             self.lastDetectionSkipReason = reason
-            lastTranscriptQuestionGenerationTrace.generationBlockedReason = isASRPartial ? "waitingForFinalASR" : "incompleteQuestionFragment"
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "waitingForFinalASR"
             lastTranscriptQuestionGenerationTrace.ignoredReason = reason
             lastTranscriptQuestionGenerationTrace.generationTriggered = false
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
-            lastQuestionDetectionResult = isASRPartial
-                ? "Waiting for final interviewer transcript before generating an answer."
-                : "Waiting for a complete interviewer question before generating an answer."
+            lastQuestionDetectionResult = "Waiting for final interviewer transcript before generating an answer."
+            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | text: \"\(segment.text)\"")
+            liveState = .listening
+            return
+        }
+
+        if shouldTriggerDetection,
+           isSystemLikeDetectionAudio,
+           extractedSystemAudioQuestions.isEmpty,
+           isIncompleteSystemAudioQuestionFragment {
+            // Do not generate from partial or obviously truncated interviewer
+            // fragments. A later final segment with the full question must win.
+            let reason = "incomplete question fragment"
+            recordTranscriptRuntimeEvent(.questionRejected(
+                sessionID: segment.sessionID,
+                text: segment.text,
+                reason: .incompleteFragment,
+                timestamp: Date()
+            ))
+            if SemanticDuplicateKeyBuilder.areDuplicates(lastAcceptedQuestionText, segment.text) {
+                recordDuplicateSuppression()
+                recordTranscriptRuntimeEvent(.duplicatePartialSuppressed(
+                    sessionID: segment.sessionID,
+                    question: segment.text,
+                    reason: .incompleteFragment,
+                    timestamp: Date()
+                ))
+            }
+            self.lastDetectionSkipReason = reason
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "incompleteQuestionFragment"
+            lastTranscriptQuestionGenerationTrace.ignoredReason = reason
+            lastTranscriptQuestionGenerationTrace.generationTriggered = false
+            lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
+            lastQuestionDetectionResult = "Waiting for a complete interviewer question before generating an answer."
             print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | text: \"\(segment.text)\"")
             liveState = .listening
             return
@@ -290,6 +325,11 @@ extension AppState {
         if shouldTriggerDetection,
            shouldUseExtractedSystemAudioQuestions(extractedSystemAudioQuestions, classification: systemAudioClassification),
            let session = currentSession {
+            recordTranscriptRuntimeEvent(.utteranceCandidate(
+                sessionID: segment.sessionID,
+                text: segment.text,
+                timestamp: Date()
+            ))
             // Multi-question transcripts are split before generation so the
             // current answer is bound to one clean latest interviewer question,
             // not to a merged monologue.
@@ -319,6 +359,11 @@ extension AppState {
         if shouldTriggerDetection {
             self.lastDetectionSkipReason = ""
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
+            recordTranscriptRuntimeEvent(.utteranceCandidate(
+                sessionID: segment.sessionID,
+                text: segment.text,
+                timestamp: Date()
+            ))
             maybeRunAutomaticDetection(triggeringSegment: segment)
         } else {
             self.lastDetectionSkipReason = skipReason
@@ -353,6 +398,76 @@ extension AppState {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+    }
+
+    // MARK: - Runtime Event Routing
+
+    // internal for AppState extension access only
+    func recordASRTranscriptRuntimeEvent(for segment: TranscriptSegment) {
+        guard segment.speaker != .system else { return }
+        if segment.asrFinalizationReason == "partial" {
+            recordTranscriptRuntimeEvent(.asrPartial(
+                sessionID: segment.sessionID,
+                text: segment.text,
+                timestamp: segment.createdAt
+            ))
+        } else {
+            recordTranscriptRuntimeEvent(.asrFinal(
+                sessionID: segment.sessionID,
+                text: segment.text,
+                timestamp: segment.createdAt
+            ))
+        }
+    }
+
+    // internal for AppState extension access only
+    func scheduleStablePartialUtteranceCandidateIfNeeded(_ segment: TranscriptSegment) {
+        let tokenCount = segment.text.split(whereSeparator: \.isWhitespace).count
+        guard tokenCount >= minimumQuestionTokenCount else { return }
+        partialUtteranceFinalizationTasks[segment.id]?.cancel()
+
+        let segmentID = segment.id
+        let textSnapshot = segment.text
+        let delayNanoseconds = UInt64(max(900, min(partialStabilityWindowMS, 1_500))) * 1_000_000
+        partialUtteranceFinalizationTasks[segmentID] = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delayNanoseconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            let stableSegment: TranscriptSegment? = await MainActor.run { [weak self] in
+                guard let self else { return nil }
+                defer { self.partialUtteranceFinalizationTasks[segmentID] = nil }
+                guard let current = self.transcriptSegments.first(where: { $0.id == segmentID }),
+                      current.asrFinalizationReason == "partial",
+                      current.text == textSnapshot else {
+                    return nil
+                }
+                return TranscriptSegment(
+                    id: current.id,
+                    sessionID: current.sessionID,
+                    source: current.source,
+                    speaker: current.speaker,
+                    text: current.text,
+                    startTime: current.startTime,
+                    endTime: current.endTime,
+                    createdAt: Date(),
+                    inputDeviceName: current.inputDeviceName,
+                    outputDeviceName: current.outputDeviceName,
+                    deviceID: current.deviceID,
+                    confidence: current.confidence,
+                    asrFirstPartialMS: current.asrFirstPartialMS,
+                    asrFinalMS: current.asrFinalMS,
+                    asrBestSelectedMS: current.asrBestSelectedMS,
+                    asrFinalizationReason: "stable_partial"
+                )
+            }
+
+            guard let stableSegment else { return }
+            await self?.handleTranscriptSegment(stableSegment)
+        }
     }
 
     // MARK: - Background Persistence
@@ -414,21 +529,130 @@ extension AppState {
     func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
         guard !card.isPartial else {
             print("[Transcript] Skipping saveSuggestionSnapshotInBackground for partial card.")
+            recordTranscriptRuntimeEvent(.persistenceRejected(
+                sessionID: card.sessionID,
+                questionID: card.detectedQuestionID ?? card.questionID,
+                generationID: card.generationID,
+                question: card.questionText ?? card.promptPrimaryQuestion ?? "",
+                reason: "persistence_skipped_no_aligned_answer",
+                timestamp: Date()
+            ))
             return
         }
+        let persistenceGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card)
+        guard persistenceGuard.accepted else {
+            lastSQLiteOperation = "Suggestion snapshot save blocked: \(persistenceGuard.reason?.rawValue ?? "rejected_pre_persistence_guard")"
+            lastAlignmentError = persistenceGuard.diagnostic
+            recordTranscriptRuntimeEvent(.persistenceRejected(
+                sessionID: card.sessionID,
+                questionID: card.detectedQuestionID ?? card.questionID,
+                generationID: card.generationID,
+                question: card.questionText ?? card.promptPrimaryQuestion ?? "",
+                reason: snapshotPersistenceTraceReason(for: persistenceGuard),
+                timestamp: Date()
+            ))
+            if persistenceGuard.diagnostic.localizedCaseInsensitiveContains("wrong project grounding") {
+                recordTranscriptRuntimeEvent(.answerRejectedWrongProjectGrounding(
+                    sessionID: card.sessionID,
+                    questionID: card.detectedQuestionID ?? card.questionID,
+                    generationID: card.generationID,
+                    question: card.questionText ?? card.promptPrimaryQuestion ?? "",
+                    reason: persistenceGuard.diagnostic,
+                    timestamp: Date()
+                ))
+            }
+            return
+        }
+        let sanitizedCard = QuestionRuntimeAcceptanceGuard.sanitizedSuggestionCardForPersistence(
+            card,
+            result: persistenceGuard
+        )
         let repository = suggestionRepository
+        recordTranscriptRuntimeEvent(.persistenceStarted(
+            sessionID: sanitizedCard.sessionID,
+            questionID: sanitizedCard.detectedQuestionID,
+            generationID: sanitizedCard.generationID,
+            question: sanitizedCard.questionText ?? sanitizedCard.promptPrimaryQuestion ?? "",
+            timestamp: Date()
+        ))
         markSQLiteOperation("Saving suggestion snapshot in background")
-        Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .utility) { [weak self, sanitizedCard] in
             do {
-                try repository.saveSuggestionCard(card, retrievedChunks: chunks)
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved suggestion snapshot"
+                let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(sanitizedCard)
+                guard detachedGuard.accepted else {
+                    await MainActor.run { [weak self] in
+                        self?.lastSQLiteOperation = "Suggestion snapshot save blocked: \(detachedGuard.reason?.rawValue ?? "rejected_pre_persistence_guard")"
+                        self?.lastAlignmentError = detachedGuard.diagnostic
+                        self?.recordTranscriptRuntimeEvent(.persistenceRejected(
+                            sessionID: sanitizedCard.sessionID,
+                            questionID: sanitizedCard.detectedQuestionID ?? sanitizedCard.questionID,
+                            generationID: sanitizedCard.generationID,
+                            question: sanitizedCard.questionText ?? sanitizedCard.promptPrimaryQuestion ?? "",
+                            reason: self?.snapshotPersistenceTraceReason(for: detachedGuard) ?? "persistence_rejected_unknown",
+                            timestamp: Date()
+                        ))
+                        if detachedGuard.diagnostic.localizedCaseInsensitiveContains("wrong project grounding") {
+                            self?.recordTranscriptRuntimeEvent(.answerRejectedWrongProjectGrounding(
+                                sessionID: sanitizedCard.sessionID,
+                                questionID: sanitizedCard.detectedQuestionID ?? sanitizedCard.questionID,
+                                generationID: sanitizedCard.generationID,
+                                question: sanitizedCard.questionText ?? sanitizedCard.promptPrimaryQuestion ?? "",
+                                reason: detachedGuard.diagnostic,
+                                timestamp: Date()
+                            ))
+                        }
+                    }
+                    return
+                }
+                let detachedCard = QuestionRuntimeAcceptanceGuard.sanitizedSuggestionCardForPersistence(
+                    sanitizedCard,
+                    result: detachedGuard
+                )
+                try repository.saveSuggestionCard(detachedCard, retrievedChunks: chunks)
+                await MainActor.run { [weak self, detachedCard] in
+                    guard let self else { return }
+                    self.lastSQLiteOperation = "Saved suggestion snapshot"
+                    self.refreshLiveSuggestionHistory(
+                        sessionID: detachedCard.sessionID,
+                        latestQuestion: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? ""
+                    )
+                    self.recordTranscriptRuntimeEvent(.persistenceSucceeded(
+                        sessionID: detachedCard.sessionID,
+                        questionID: detachedCard.detectedQuestionID ?? detachedCard.questionID,
+                        generationID: detachedCard.generationID,
+                        question: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? "",
+                        timestamp: Date()
+                    ))
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Suggestion snapshot save failed: \(error.localizedDescription)"
+                    guard let self else { return }
+                    self.lastSQLiteOperation = "Suggestion snapshot save failed: \(error.localizedDescription)"
+                    self.recordTranscriptRuntimeEvent(.persistenceRejected(
+                        sessionID: sanitizedCard.sessionID,
+                        questionID: sanitizedCard.detectedQuestionID ?? sanitizedCard.questionID,
+                        generationID: sanitizedCard.generationID,
+                        question: sanitizedCard.questionText ?? sanitizedCard.promptPrimaryQuestion ?? "",
+                        reason: "persistence_failed_sqlite_error",
+                        timestamp: Date()
+                    ))
                 }
             }
+        }
+    }
+
+    private func snapshotPersistenceTraceReason(for result: QuestionPersistenceGuardResult) -> String {
+        switch result.reason {
+        case .some(.incompleteAnswer):
+            return "persistence_rejected_incomplete_answer"
+        case .some(.emptyQuestion), .some(.incompleteFragment), .some(.vagueFollowup), .some(.genericKnownPattern),
+             .some(.pipelineRejected), .some(.multipleQuestionsNeedSegmentation), .some(.promptQuestionMismatch):
+            return "persistence_rejected_bad_question"
+        case .some(.emptyAnswer), .some(.partialCard), .some(.weakAlignment), .some(.unknownAlignment), .some(.mismatchedAlignment),
+             .some(.interviewerQuestionsIncomplete), .some(.unrelatedTechnicalTradeoff), .some(.duplicateSuppressed):
+            return "persistence_skipped_no_aligned_answer"
+        case nil:
+            return "persistence_rejected_unknown"
         }
     }
 }

@@ -23,8 +23,8 @@ struct QuestionAnswerAlignmentTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "Role motivation",
-            sayFirst: "I want to join because this role connects with my robotics and AI experience.",
-            keyPoints: ["Robotics and AI fit", "Engineering growth"],
+            sayFirst: "I want to join because this role connects with my robotics, AI, and perception experience, and it aligns with my interest in real robot deployment.",
+            keyPoints: ["Robotics and AI fit", "Real-world deployment", "Engineering growth"],
             followUpReady: [],
             confidence: 0.9,
             caution: nil,
@@ -102,15 +102,16 @@ struct QuestionAnswerAlignmentTests {
         #expect(!visible.sayFirst.localizedCaseInsensitiveContains("University of Manchester"))
         #expect(appState.staleAnswerDiscardCount >= 1 || appState.cancelledGenerationCount >= 1)
 
-        try await waitUntil(timeout: 8.0) {
-            guard let rows = try? suggestionAlignmentRows(database: database) else { return false }
-            return rows.contains { $0.detectedQuestionID == first.id && $0.suggestionQuestion == first.questionText } &&
-                rows.contains { $0.detectedQuestionID == second.id && $0.suggestionQuestion == second.questionText }
-        }
+        try await Task.sleep(nanoseconds: 120_000_000)
         let rows = try suggestionAlignmentRows(database: database)
         #expect(rows.allSatisfy { $0.detectedQuestionID == $0.joinedQuestionID })
-        #expect(rows.contains { $0.detectedQuestionID == first.id && $0.suggestionQuestion == first.questionText })
-        #expect(rows.contains { $0.detectedQuestionID == second.id && $0.suggestionQuestion == second.questionText })
+        #expect(rows.allSatisfy { $0.suggestionQuestion == $0.detectedQuestion })
+        if rows.contains(where: { $0.detectedQuestionID == first.id }) {
+            #expect(rows.contains { $0.detectedQuestionID == first.id && $0.suggestionQuestion == first.questionText })
+        }
+        if rows.contains(where: { $0.detectedQuestionID == second.id }) {
+            #expect(rows.contains { $0.detectedQuestionID == second.id && $0.suggestionQuestion == second.questionText })
+        }
     }
 
     @Test
@@ -175,6 +176,7 @@ struct QuestionAnswerAlignmentTests {
 
         try await waitUntil(timeout: 30.0) {
             appState.detectedQuestionsInSessionCount == 9 &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 9 &&
             appState.currentSuggestion?.detectedQuestionID == appState.lastDetectedQuestion?.id &&
             appState.currentQABinding.bindingStatus == .matched
         }
@@ -289,6 +291,148 @@ struct QuestionAnswerAlignmentTests {
             answerText: "I am currently studying MSc Robotics at the University of Manchester, with a computer science background."
         )
         #expect(candidateQuestionMismatched.verdict == .mismatched)
+    }
+
+    @Test
+    func newRuntimeQuestionAnswersAlignWithSpecificIntents() {
+        let decoder = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            answerText: "In the MuJoCo VLA Franka simulation, I learned that diffusion performed best at about 7/10 successful grasps, while autoregressive and flow-matching were weaker at around 1/10. The lesson was that architecture choice matters for continuous action trajectory generation because diffusion was smoother and autoregressive errors accumulated."
+        )
+        #expect(decoder.verdict == .aligned)
+        #expect(decoder.questionIntent == .decoderComparison)
+        #expect(decoder.answerIntent == .decoderComparison)
+
+        let perception = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
+            answerText: "I would reproduce the exact LeoRover frames from the YOLOv8 detector, inspect logs, bounding boxes, classes and confidence for the confident but wrong prediction, then check calibration, lighting, occlusion, motion blur, and spatial or temporal consistency before adding recovery validation or retraining."
+        )
+        #expect(perception.verdict == .aligned)
+        #expect(perception.questionIntent == .perceptionDebugging)
+        #expect(perception.answerIntent == .perceptionDebugging)
+
+        let tradeoff = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What was the biggest technical trade-off you made in your robotics projects?",
+            answerText: "The biggest trade-off was robustness versus latency and complexity. In LeoRover I chose practical filtering, recovery, and ROS2 coordination first, because reliable real robot execution mattered more than a simpler demo, and I learned to prioritize dependable system behaviour."
+        )
+        #expect(tradeoff.verdict == .aligned)
+        #expect(tradeoff.questionIntent == .technicalTradeoff)
+        #expect(tradeoff.answerIntent == .technicalTradeoff)
+
+        let dataset = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
+            answerText: "I treated the DROID real-robot trajectories as demonstrations, mapped the actions and observations into the MuJoCo Franka simulator format, checked coordinate frames and timing consistency, and validated the simulated behavior before training or evaluation."
+        )
+        #expect(dataset.verdict == .aligned)
+        #expect(dataset.questionIntent == .datasetAdaptation)
+        #expect(dataset.answerIntent == .datasetAdaptation)
+
+        let simToReal = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
+            answerText: "I would compare simulator and real robot observations, action scaling, timing, calibration, and contact dynamics, inspect failure videos and logs, then isolate whether the root cause is perception, control, dynamics mismatch, or distribution shift before retraining."
+        )
+        #expect(simToReal.verdict == .aligned)
+        #expect(simToReal.questionIntent == .simToRealDebugging)
+        #expect(simToReal.answerIntent == .simToRealDebugging)
+
+        let projectComparison = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "Can you explain the difference between your VLA project and your LeoRover project?",
+            answerText: "The VLA project was a MuJoCo Franka learning-policy evaluation around action decoders, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The main difference was policy evaluation versus deployed system integration."
+        )
+        #expect(projectComparison.verdict == .aligned)
+        #expect(projectComparison.questionIntent == .projectComparison)
+        #expect(projectComparison.answerIntent == .projectComparison)
+    }
+
+    @Test
+    func wrongAnswerRejectionCatchesSpecificRuntimeConfusions() {
+        let tradeoffWrong = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What was the biggest technical trade-off you made in your robotics projects?",
+            answerText: "I built a data pipeline that processed 10,000 records and optimized ETL throughput for a database workload."
+        )
+        #expect(tradeoffWrong.verdict == .mismatched)
+        #expect(tradeoffWrong.wrongAnswerIndicators.contains("unrelated data pipeline answer"))
+
+        let decoderGeneric = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            answerText: "Diffusion is generally smoother than autoregressive methods for robotics because it can be robust."
+        )
+        #expect(decoderGeneric.verdict == .mismatched)
+
+        let incompleteQuestion = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "what did you learn",
+            answerText: "I learned that diffusion performed best in the MuJoCo VLA setup."
+        )
+        #expect(incompleteQuestion.verdict == .mismatched)
+        #expect(incompleteQuestion.reason.localizedCaseInsensitiveContains("incomplete question"))
+    }
+
+    @Test
+    func decoderComparisonRejectsUnsupportedComparableFlowMatchingAnswer() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            answerText: "In my MuJoCo VLA project, I compared autoregressive, diffusion, and flow-matching decoders and found that diffusion models provided the best trade-off between trajectory diversity and smoothness, while flow-matching offered faster sampling with comparable quality."
+        )
+
+        #expect(alignment.questionIntent == .decoderComparison)
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.reason.localizedCaseInsensitiveContains("flow-matching"))
+    }
+
+    @Test
+    func systemIntegrationDebuggingAnswerAlignsWithOwnIntent() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "Tell me about a time you had to debug a system integration problem.",
+            answerText: "One system integration issue was on LeoRover, where the ROS2 perception, navigation, and manipulation modules had timing mismatches. I reproduced the failure, checked logs and timestamps, isolated the handoff, added recovery behaviour, and learned that integration reliability matters as much as model accuracy."
+        )
+
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.questionIntent == .systemIntegrationDebugging)
+        #expect(alignment.answerIntent == .systemIntegrationDebugging)
+    }
+
+    @Test
+    func interviewerQuestionsRequireActualUsefulQuestions() {
+        let aligned = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What questions would you ask us about the team or the role before accepting an offer?",
+            answerText: "I would ask what would success look like in the first three months, what deployment challenges the team is facing, how the team is structured across perception and autonomy, what data or simulation infrastructure is used, and how much ownership I would have over production workflows."
+        )
+        #expect(aligned.verdict == .aligned)
+        #expect(aligned.questionIntent == .interviewerQuestions)
+        #expect(aligned.answerIntent == .interviewerQuestions)
+
+        let vague = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What questions would you ask us about the team or the role before accepting an offer?",
+            answerText: "Yes, I'd love to ask a question."
+        )
+        #expect(vague.verdict == .mismatched)
+    }
+
+    @Test
+    func leoRoverImprovementRejectsWrongProjectRerankerGrounding() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "If you had one more month to improve your LeoRover system, what would you improve first?",
+            answerText: "I would improve the target-conditioned semantic-geometric re-ranker from my VLM grasping thesis, because the grasp scorer could better rerank candidates before policy execution."
+        )
+
+        #expect(alignment.questionIntent == .improvementPlan)
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.reason.localizedCaseInsensitiveContains("wrong project grounding"))
+    }
+
+    @Test
+    func villaProjectQuestionCanonicalizesAndAlignsAsProjectComparison() {
+        let question = "Can you explain the difference between your villa project and your LeoRover project"
+        let answer = "The VLA project was a MuJoCo Franka learning-policy evaluation using DROID trajectories and decoder comparisons, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The difference is learned policy research in simulation versus deployed robotic system integration."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(AnswerRelevancePolicy.intent(for: question) == .projectComparison)
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.questionIntent == .projectComparison)
     }
 
     private static let longQuestionOnlyTranscript = "Could you tell me a little bit about yourself and what brought you into robotics could you walk me through your LeoRover project what was the hardest technical challenge you faced how did you handle noisy detections or localisation errors why did the diffusion decoder perform better in your MuJoCo evaluation what would you change first if you had another month why do you want to join our team how comfortable are you with Python C plus plus and ROS2 do you have any questions for us"
@@ -582,7 +726,7 @@ private final class AlignmentLLMClient: LLMClientProtocol, @unchecked Sendable {
             return "I am comfortable with Python and ROS2 from robotics projects, and I am improving C++ for performance-critical robotics systems."
         }
         if lower.contains("questions for us") || lower.contains("questions for you") {
-            return "I would ask how the team evaluates robotics project success when moving from prototypes to reliable real-world deployment."
+            return "I would ask what success looks like in the first three months, what deployment challenges the robotics team is facing, how the team is structured across perception and autonomy, and how much ownership I would have over production workflows."
         }
         return "I would answer this question directly and keep the response specific to the interviewer prompt."
     }

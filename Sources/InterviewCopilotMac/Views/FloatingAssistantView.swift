@@ -407,6 +407,9 @@ struct FloatingAssistantView: View {
         if let detected = appState.lastDetectedQuestion {
             return detected.questionText
         }
+        if !appState.displayTranscriptText.isEmpty {
+            return appState.displayTranscriptText
+        }
         if !appState.lastTranscriptSnippet.isEmpty {
             return appState.lastTranscriptSnippet
         }

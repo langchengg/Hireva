@@ -75,6 +75,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
     
     private let onEmit: (TranscriptSegment) -> Void
     private let onStateChange: () -> Void
+    private let onRuntimeEvent: ((TranscriptRuntimeEvent) -> Void)?
     
     // Test simulation hooks
     var simulatedTaskActive = false
@@ -90,12 +91,14 @@ final class AppleSpeechTranscriptionSession: NSObject {
         sessionID: AudioTranscriptionSessionID,
         parentSessionID: String,
         onEmit: @escaping (TranscriptSegment) -> Void,
-        onStateChange: @escaping () -> Void
+        onStateChange: @escaping () -> Void,
+        onRuntimeEvent: ((TranscriptRuntimeEvent) -> Void)? = nil
     ) {
         self.sessionID = sessionID
         self.parentSessionID = parentSessionID
         self.onEmit = onEmit
         self.onStateChange = onStateChange
+        self.onRuntimeEvent = onRuntimeEvent
         // Initialize isolated SFSpeechRecognizer for this session
         self.recognizer = SFSpeechRecognizer()
         super.init()
@@ -140,6 +143,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
             self.serviceState = .running
             self.simulatedTaskActive = true
             self.request = SFSpeechAudioBufferRecognitionRequest()
+            self.onRuntimeEvent?(.audioStarted(sessionID: parentSessionID, timestamp: Date()))
             print("[DualAudio] [TestMock] \(sessionID.source == .microphone ? "mic" : "system") ASR session created successfully.")
             return
         }
@@ -174,6 +178,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
         print("[DualAudio] \(sessionID.source == .microphone ? "mic" : "system") ASR session created: \(sessionID.source.rawValue)")
         
         self.serviceState = .running
+        self.onRuntimeEvent?(.audioStarted(sessionID: parentSessionID, timestamp: Date()))
         
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -278,7 +283,9 @@ final class AppleSpeechTranscriptionSession: NSObject {
         #if DEBUG
         if simulatedTaskActive {
             totalBuffersAppended += 1
-            lastBufferReceivedAt = Date()
+            let now = Date()
+            lastBufferReceivedAt = now
+            onRuntimeEvent?(.audioBufferReceived(sessionID: parentSessionID, frameCount: Int(buffer.frameLength), timestamp: now))
             onSimulatedAppend?(buffer)
             onStateChange()
             return
@@ -287,7 +294,9 @@ final class AppleSpeechTranscriptionSession: NSObject {
         
         request?.append(buffer)
         totalBuffersAppended += 1
-        lastBufferReceivedAt = Date()
+        let now = Date()
+        lastBufferReceivedAt = now
+        onRuntimeEvent?(.audioBufferReceived(sessionID: parentSessionID, frameCount: Int(buffer.frameLength), timestamp: now))
         if totalBuffersAppended % 100 == 0 || totalBuffersAppended == 1 {
             print("[DualAudio] \(sessionID.source == .microphone ? "mic" : "system") buffer appended count = \(totalBuffersAppended)")
         }
@@ -379,7 +388,8 @@ final class AppleSpeechTranscriptionSession: NSObject {
             inputDeviceName: deviceName,
             outputDeviceName: outputDeviceName,
             deviceID: deviceID,
-            confidence: 1.0
+            confidence: 1.0,
+            asrFinalizationReason: "partial"
         )
         onEmit(segment)
     }
@@ -448,6 +458,7 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
     
     // Callback to let AppState know that session parameters changed (useful for diagnostics update triggers)
     var onSessionStateChanged: (() -> Void)?
+    var onRuntimeEvent: ((TranscriptRuntimeEvent) -> Void)?
     
     lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { continuation in
         self.continuation = continuation
@@ -492,6 +503,9 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
                 },
                 onStateChange: { [weak self] in
                     self?.onSessionStateChanged?()
+                },
+                onRuntimeEvent: { [weak self] event in
+                    self?.onRuntimeEvent?(event)
                 }
             )
             self.microphoneSession = session
@@ -514,6 +528,9 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
                 },
                 onStateChange: { [weak self] in
                     self?.onSessionStateChanged?()
+                },
+                onRuntimeEvent: { [weak self] event in
+                    self?.onRuntimeEvent?(event)
                 }
             )
             self.systemAudioSession = session
@@ -585,6 +602,9 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
             },
             onStateChange: { [weak self] in
                 self?.onSessionStateChanged?()
+            },
+            onRuntimeEvent: { [weak self] event in
+                self?.onRuntimeEvent?(event)
             }
         )
         self.microphoneSession = session

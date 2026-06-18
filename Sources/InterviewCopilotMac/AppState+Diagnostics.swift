@@ -77,6 +77,32 @@ extension AppState {
         diagnostics = next
     }
 
+    public var activeDatabasePath: String {
+        database.databaseURL?.path ?? "In-memory database"
+    }
+
+    public var diagnosticSuggestionRowCount: Int {
+        (try? suggestionRepository.suggestionCount()) ?? 0
+    }
+
+    public var diagnosticLatestSuggestionCreatedAt: String {
+        guard let latest = try? suggestionRepository.latestSuggestion() else {
+            return "None"
+        }
+        return ISO8601DateFormatter().string(from: latest.createdAt)
+    }
+
+    public var diagnosticLatestSuggestionQuestionText: String {
+        guard let latest = try? suggestionRepository.latestSuggestion() else {
+            return "None"
+        }
+        return latest.questionText ?? latest.promptPrimaryQuestion ?? latest.promptQuestionText ?? "None"
+    }
+
+    public var diagnosticPersistenceState: String {
+        database.databaseURL == nil ? "temporary" : "enabled"
+    }
+
     // MARK: - Capture Events
 
     public func addCaptureEvent(

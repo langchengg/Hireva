@@ -464,7 +464,7 @@ struct StreamingSoftFallbackTests {
         // Keep Stage A and Stage B streams distinct so the assertion verifies
         // late Stage A replacement, not scheduler-dependent section streaming.
         mockClient.streamTokenBatches = [
-            ["This ", "is ", "my ", "specific ", "candidate ", "answer ", "about ", "my ", "robotics ", "project."],
+            ["My ", "LeoRover ", "project ", "was ", "an ", "autonomous ", "object ", "retrieval ", "robot ", "using ", "ROS2, ", "YOLOv8, ", "navigation, ", "localisation, ", "and ", "manipulation ", "on ", "a ", "real ", "robot."],
             []
         ]
         mockClient.streamDelayNS = 0
@@ -474,8 +474,8 @@ struct StreamingSoftFallbackTests {
         mockClient.chatResultContent = """
         {
             "strategy": "Detailed Strategy",
-            "say_first": "This is my candidate answer about my robotics project.",
-            "key_points": ["First point", "Second point"],
+            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
+            "key_points": ["ROS2, YOLOv8, navigation and localisation", "Manipulation on a real robot"],
             "follow_up_ready": ["What is next?"],
             "confidence": 0.9,
             "caution": "None",
@@ -519,7 +519,7 @@ struct StreamingSoftFallbackTests {
         
         let question = DetectedQuestion(
             id: "q-1", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "Can you tell me about your robotics project?", intent: .technical,
+            questionText: "Could you walk me through your LeoRover project?", intent: .projectDeepDive,
             answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
             questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
         )
@@ -532,7 +532,7 @@ struct StreamingSoftFallbackTests {
         
         try await waitUntil(timeout: 12.0) {
             appState.currentSuggestion?.stageBCompleted == true &&
-            appState.currentSuggestion?.keyPoints.contains("First point") == true &&
+            appState.currentSuggestion?.keyPoints.contains("ROS2, YOLOv8, navigation and localisation") == true &&
             appState.currentSuggestion?.sayFirstSource == "deepseek_stream" &&
             appState.currentSuggestion?.finalVisibleSource == "deepseek_stream"
         }
@@ -547,7 +547,7 @@ struct StreamingSoftFallbackTests {
         #expect(finalCard.sayFirstSource == "deepseek_stream") // Replaced because the late stream is still inside the conservative window and answer is specific.
         #expect(finalCard.finalVisibleSource == "deepseek_stream")
         #expect(finalCard.stageBCompleted == true)
-        #expect(finalCard.keyPoints.contains("First point"))
+        #expect(finalCard.keyPoints.contains("ROS2, YOLOv8, navigation and localisation"))
     }
     
     @MainActor
@@ -561,15 +561,30 @@ struct StreamingSoftFallbackTests {
         // DeepSeek streams fast
 
         mockClient.streamTokens = [
-            "I built ",
-            "a robotics ",
-            "project that ",
-            "combined perception, ",
-            "navigation, and ",
-            "manipulation into ",
-            "a working robot."
+            "My LeoRover ",
+            "project was ",
+            "an autonomous ",
+            "object retrieval ",
+            "robot using ",
+            "ROS2, YOLOv8 ",
+            "perception, navigation, ",
+            "localisation, and ",
+            "manipulation on ",
+            "a real robot."
         ]
         mockClient.streamDelayNS = 0
+        mockClient.chatResultContent = """
+        {
+            "strategy": "Project walkthrough",
+            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
+            "key_points": ["Autonomous object retrieval robot", "ROS2, YOLOv8, navigation, localisation, and manipulation"],
+            "follow_up_ready": ["I can describe how the modules handed off to each other."],
+            "confidence": 0.9,
+            "caution": "None",
+            "evidence_used": [],
+            "risk_level": "low"
+        }
+        """
         
         let router = LLMRouter(settingsRepository: settings, clients: [
             .deepSeek: mockClient
@@ -600,7 +615,7 @@ struct StreamingSoftFallbackTests {
         
         let question = DetectedQuestion(
             id: "q-2", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "What is your project?", intent: .technical,
+            questionText: "Could you walk me through your LeoRover project?", intent: .technical,
             answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
             questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
         )
@@ -661,7 +676,7 @@ struct StreamingSoftFallbackTests {
         
         let question = DetectedQuestion(
             id: "q-3", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "What is your project?", intent: .technical,
+            questionText: "Could you walk me through your LeoRover project?", intent: .technical,
             answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
             questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
         )

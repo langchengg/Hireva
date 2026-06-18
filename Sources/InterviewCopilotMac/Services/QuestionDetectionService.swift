@@ -164,24 +164,29 @@ final class QuestionDetectionService {
         let providerQuestionText = SystemAudioQuestionExtractor.canonicalizeQuestionText(
             payload.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-        if SystemAudioQuestionExtractor.isIncompleteQuestionFragment(providerQuestionText) {
+        let providerGuard = QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: providerQuestionText)
+        if payload.shouldTrigger,
+           !providerQuestionText.isEmpty,
+           let rejectedReason = providerGuard.reason {
             var rejected = payload
             rejected.shouldTrigger = false
             rejected.questionComplete = false
             rejected.questionText = providerQuestionText
             rejected.answerStrategy = .wait
             rejected.confidence = min(payload.confidence, 0.5)
-            rejected.reason = "\(payload.reason) Local guardrail rejected this as an incomplete question fragment."
+            rejected.reason = "\(payload.reason) Runtime question guard rejected this before generation: \(rejectedReason.rawValue). \(providerGuard.diagnostic)"
             return rejected
         }
 
         let candidate = fallbackQuestionCandidate(from: transcriptContext)
+        let fallbackGuard = QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: candidate.text)
         guard heuristic.shouldTrigger,
               heuristic.confidence >= 0.8,
               candidate.isComplete,
-              isStrongCompleteQuestion(candidate.text) else {
+              isStrongCompleteQuestion(candidate.text),
+              fallbackGuard.candidate != nil else {
             var canonicalPayload = payload
-            canonicalPayload.questionText = providerQuestionText
+            canonicalPayload.questionText = providerGuard.candidate?.text ?? providerQuestionText
             return canonicalPayload
         }
 
@@ -197,7 +202,7 @@ final class QuestionDetectionService {
         var normalized = payload
         normalized.shouldTrigger = true
         normalized.questionComplete = true
-        normalized.questionText = providerQuestionText.isEmpty ? candidate.text : providerQuestionText
+        normalized.questionText = providerGuard.candidate?.text ?? fallbackGuard.candidate?.text ?? (providerQuestionText.isEmpty ? candidate.text : providerQuestionText)
         if normalized.intent == .unclear {
             normalized.intent = classified.intent
         }
@@ -247,21 +252,26 @@ final class QuestionDetectionService {
     ) -> (question: DetectedQuestion, response: LLMChatResult) {
         let candidate = fallbackQuestionCandidate(from: transcriptContext)
         let classified = classifyFallbackQuestion(candidate.text)
+        let guardResult = QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: candidate.text)
+        let acceptedCandidate = guardResult.candidate
+        let shouldTrigger = candidate.isComplete && acceptedCandidate != nil
+        let questionText = acceptedCandidate?.text ?? candidate.text
+        let confidence = shouldTrigger ? heuristic.confidence : min(heuristic.confidence, 0.5)
         let reason = "Local fallback used after question detector failed: \(error.localizedDescription). \(heuristic.reason)"
         let rawJSON = """
-        {"should_trigger":true,"question_complete":\(candidate.isComplete),"question_text":\(jsonString(candidate.text)),"intent":"\(classified.intent.rawValue)","answer_strategy":"\(classified.strategy.rawValue)","confidence":\(candidate.isComplete ? heuristic.confidence : 0.6),"reason":\(jsonString(reason))}
+        {"should_trigger":\(shouldTrigger),"question_complete":\(shouldTrigger),"question_text":\(jsonString(questionText)),"intent":"\(classified.intent.rawValue)","answer_strategy":"\(shouldTrigger ? classified.strategy.rawValue : AnswerStrategy.wait.rawValue)","confidence":\(confidence),"reason":\(jsonString(shouldTrigger ? reason : "\(reason) Runtime question guard rejected fallback question: \(guardResult.reason?.rawValue ?? "unknown"). \(guardResult.diagnostic)"))}
         """
         let question = DetectedQuestion(
             id: UUID().uuidString,
             sessionID: sessionID,
             transcriptSegmentID: transcriptSegmentID,
-            questionText: candidate.text,
+            questionText: questionText,
             intent: classified.intent,
-            answerStrategy: classified.strategy,
-            confidence: candidate.isComplete ? heuristic.confidence : 0.6,
-            reason: reason,
-            shouldTrigger: true,
-            questionComplete: candidate.isComplete,
+            answerStrategy: shouldTrigger ? classified.strategy : .wait,
+            confidence: confidence,
+            reason: shouldTrigger ? reason : "\(reason) Runtime question guard rejected fallback question: \(guardResult.reason?.rawValue ?? "unknown"). \(guardResult.diagnostic)",
+            shouldTrigger: shouldTrigger,
+            questionComplete: shouldTrigger,
             modelName: "local-question-fallback",
             promptVersion: "local-fallback-v1",
             providerKind: .openAICompatible,

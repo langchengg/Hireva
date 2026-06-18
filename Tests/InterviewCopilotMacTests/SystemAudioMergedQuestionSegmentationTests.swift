@@ -7,12 +7,12 @@ import Testing
 struct SystemAudioMergedQuestionSegmentationTests {
     // Full `swift test` runs other MainActor-heavy runtime suites concurrently.
     // This is not a latency assertion; the card/content assertions below remain strict.
-    private static let runtimeWaitTimeout: TimeInterval = 240.0
+    private static let runtimeWaitTimeout: TimeInterval = 30.0
     private static let runtimeMergedTranscript = "Hi La IL ask these questions in a mixed order so please treat each one independently first why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy when you moved from a clean demo to real robot execution which part of the pipeline was most fragile"
 
     private static let expectedQuestions = [
-        "why do you want to join our team",
-        "why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy",
+        "Why do you want to join our team",
+        "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy",
         "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?"
     ]
     private static let fourQuestionRuntimeTranscript = [
@@ -25,9 +25,9 @@ struct SystemAudioMergedQuestionSegmentationTests {
     ].joined(separator: " ")
     private static let expectedFourQuestions = [
         "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy",
-        "could you explain your LeoRover project from end to end",
+        "Could you explain your LeoRover project from end to end",
         "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?",
-        "why do you want to join our team"
+        "Why do you want to join our team"
     ]
 
     @Test
@@ -37,6 +37,20 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(questions.map(\.text) == Self.expectedQuestions)
         #expect(Set(questions.map(\.text)).count == 3)
         #expect(questions.last?.intent == .technical)
+    }
+
+    @Test
+    func alsoIfBoundarySplitsDecoderComparisonAndDetectorDebugging() {
+        let transcript = "What did you learn from comparing autoregressive diffusion and flow matching decoders in your Muja Cove project? Also, if your detector gives a confident but wrong prediction, how would you debug it?"
+
+        let questions = SystemAudioQuestionExtractor.extract(from: transcript)
+
+        #expect(questions.map(\.text) == [
+            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+        ])
+        #expect(Set(questions.map(\.text)).count == 2)
+        #expect(questions.allSatisfy { !$0.text.localizedCaseInsensitiveContains("also") })
     }
 
     @Test
@@ -51,7 +65,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
     }
 
     @Test
-    func mergedTranscriptCreatesRowsForAllQuestionsButGeneratesForLatestOnly() async throws {
+    func mergedTranscriptQueuesAndPersistsRowsForAllQuestionsInOrder() async throws {
         let (appState, database, session, client) = try makeAppState()
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -60,16 +74,22 @@ struct SystemAudioMergedQuestionSegmentationTests {
             text: Self.runtimeMergedTranscript
         ))
 
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
+        try await waitUntil(
+            timeout: Self.runtimeWaitTimeout,
+            label: "local extraction of all merged transcript questions",
+            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+        ) {
             appState.detectedQuestionsInSessionCount == 3 &&
-            appState.lastDetectedQuestion?.questionText == Self.expectedQuestions.last
+            appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 3
         }
 
-        let generationTask = appState.activeAITask
-        await generationTask?.value
-
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
-            appState.currentSuggestion?.detectedQuestionID == appState.lastDetectedQuestion?.id &&
+        try await waitUntil(
+            timeout: Self.runtimeWaitTimeout,
+            label: "persisted rows for queued split questions",
+            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+        ) {
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == Self.expectedQuestions.count &&
+            appState.currentSuggestion?.questionText == Self.expectedQuestions.last &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
         }
@@ -84,11 +104,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timing") == true)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("join our team") == false)
         #expect(client.detectionCallCount == 0)
-        #expect(client.answerCallCount <= 2)
 
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
-        }
         let persisted = try await database.dbQueue.read { db in
             try String.fetchAll(
                 db,
@@ -101,14 +117,13 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 arguments: [session.id]
             )
         }
-        #expect(persisted.count == 1)
-        #expect(persisted.last == Self.expectedQuestions.last)
-        #expect(persisted.joined(separator: " ").localizedCaseInsensitiveContains("why do you want to join our team now let us switch") == false)
+        #expect(persisted == Self.expectedQuestions)
+        #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("why do you want to join our team now let us switch") })
     }
 
     @Test
     func fourQuestionRuntimeTranscriptDedupesASRVariantsAndBoundaryContamination() async throws {
-        let (appState, database, session, _) = try makeAppState()
+        let (appState, database, session, client) = try makeAppState()
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "four-question-runtime-segment",
@@ -116,12 +131,13 @@ struct SystemAudioMergedQuestionSegmentationTests {
             text: Self.fourQuestionRuntimeTranscript
         ))
 
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
+        try await waitUntil(
+            timeout: Self.runtimeWaitTimeout,
+            label: "four split detected questions",
+            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+        ) {
             appState.detectedQuestionsInSessionCount == 4 &&
-            appState.lastDetectedQuestion?.questionText == Self.expectedFourQuestions.last &&
-            appState.currentSuggestion?.questionText == Self.expectedFourQuestions.last &&
-            appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible
+            appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 4
         }
 
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
@@ -130,9 +146,17 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("diffusion") }.count == 1)
         #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("LeoRover") }.count == 1)
 
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+        try await waitUntil(
+            timeout: Self.runtimeWaitTimeout,
+            label: "persisted rows for four split questions",
+            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+        ) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == Self.expectedFourQuestions.count &&
+            appState.currentSuggestion?.questionText == Self.expectedFourQuestions.last &&
+            appState.visibleAnswerExists &&
+            !appState.currentSpinnerVisible
         }
+
         let persisted = try await database.dbQueue.read { db in
             try String.fetchAll(
                 db,
@@ -145,7 +169,9 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 arguments: [session.id]
             )
         }
-        #expect(persisted == [Self.expectedFourQuestions.last])
+        #expect(persisted == Self.expectedFourQuestions)
+        #expect(persisted.count == Self.expectedFourQuestions.count)
+        #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
     }
 
     @Test
@@ -192,7 +218,8 @@ struct SystemAudioMergedQuestionSegmentationTests {
 
         try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 2 &&
-            appState.currentSuggestion?.questionText == "why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy" &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
+            appState.currentSuggestion?.questionText == "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy" &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
         }
@@ -227,7 +254,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(detected.map(\.questionText) == [expectedCleanQuestion])
         #expect(appState.currentSuggestion?.promptPrimaryQuestion == expectedCleanQuestion)
         #expect(appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("now let us switch") == false)
-        #expect(client.detectionCallCount == 1)
+        #expect(client.detectionCallCount == 0)
     }
 
     private func makeAppState() throws -> (AppState, AppDatabase, InterviewSession, MergedQuestionLLMClient) {
@@ -275,21 +302,54 @@ struct SystemAudioMergedQuestionSegmentationTests {
         )
     }
 
-    nonisolated private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
+    nonisolated private func waitUntil(
+        timeout: TimeInterval,
+        label: String = "merged question segmentation state",
+        stateSnapshot: (@MainActor () -> String)? = nil,
+        predicate: @escaping @MainActor () -> Bool
+    ) async throws {
         let pollIntervalNanoseconds: UInt64 = 25_000_000
         let maxAttempts = max(1, Int(timeout / 0.025))
         var attempts = 0
         while !(await predicate()) {
             attempts += 1
             if attempts > maxAttempts {
+                let snapshot = await stateSnapshot?() ?? ""
+                let suffix = snapshot.isEmpty ? "" : " State: \(snapshot)"
                 throw NSError(
                     domain: "SystemAudioMergedQuestionSegmentationTests",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for merged question segmentation state."]
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(label).\(suffix)"]
                 )
             }
             try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
+    }
+
+    private func stateSnapshot(
+        appState: AppState,
+        session: InterviewSession,
+        client: MergedQuestionLLMClient
+    ) -> String {
+        let questionRows = (try? appState.suggestionRepository.questions(sessionID: session.id).count) ?? -1
+        let suggestionRows = (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? -1
+        return [
+            "detectedCount=\(appState.detectedQuestionsInSessionCount)",
+            "repoQuestions=\(questionRows)",
+            "repoSuggestions=\(suggestionRows)",
+            "lastQuestion=\(appState.lastDetectedQuestion?.questionText ?? "nil")",
+            "currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil")",
+            "currentDetectedID=\(appState.currentSuggestion?.detectedQuestionID ?? "nil")",
+            "lastDetectedID=\(appState.lastDetectedQuestion?.id ?? "nil")",
+            "visibleAnswerExists=\(appState.visibleAnswerExists)",
+            "spinner=\(appState.currentSpinnerVisible)",
+            "generationState=\(appState.generationUIState.displayName)",
+            "activeGenerationID=\(appState.currentGenerationID ?? "nil")",
+            "activeQuestionID=\(appState.activeQuestionID ?? "nil")",
+            "activeTaskNil=\(appState.activeAITask == nil)",
+            "answerCalls=\(client.answerCallCount)",
+            "detectionCalls=\(client.detectionCallCount)"
+        ].joined(separator: " | ")
     }
 
     private static func latestRuntimeMergedTranscript() -> String? {

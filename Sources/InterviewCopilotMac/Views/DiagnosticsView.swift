@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct DiagnosticsView: View {
@@ -285,6 +286,63 @@ struct DiagnosticsView: View {
                 health("systemRecentBufferAlive", appState.systemRecentBufferAlive)
                 health("micRecentBufferAlive", appState.micRecentBufferAlive)
             }
+
+            card("Runtime Transcript Chain", icon: "point.3.connected.trianglepath.dotted") {
+                let runtime = appState.transcriptRuntimeDiagnostics
+                diagnosticRow("chainStatus", appState.runtimeTranscriptChainStatus)
+                diagnosticRow("audio_session_id", runtime.audioSessionID.isEmpty ? "None" : runtime.audioSessionID)
+                diagnosticRow("audio_is_running", runtime.audioIsRunning ? "true" : "false")
+                diagnosticRow("last_audio_buffer_at", diagnosticTime(runtime.lastAudioBufferAt))
+                diagnosticRow("audio_buffer_count", "\(runtime.audioBufferCount)")
+                diagnosticRow("last_asr_partial_at", diagnosticTime(runtime.lastASRPartialAt))
+                diagnosticRow("last_asr_final_at", diagnosticTime(runtime.lastASRFinalAt))
+                diagnosticRow("partial_transcript_count", "\(runtime.partialTranscriptCount)")
+                diagnosticRow("final_transcript_count", "\(runtime.finalTranscriptCount)")
+                diagnosticRow("last_question_candidate_at", diagnosticTime(runtime.lastQuestionCandidateAt))
+                diagnosticRow("last_question_accepted_at", diagnosticTime(runtime.lastQuestionAcceptedAt))
+                diagnosticRow("last_question_rejected_at", diagnosticTime(runtime.lastQuestionRejectedAt))
+                diagnosticRow("last_generation_started_at", diagnosticTime(runtime.lastGenerationStartedAt))
+                diagnosticRow("last_generation_rejected_reason", runtime.lastGenerationRejectedReason.isEmpty ? "None" : runtime.lastGenerationRejectedReason)
+                diagnosticRow("rawTranscriptText", appState.rawTranscriptText.isEmpty ? "None" : appState.rawTranscriptText)
+                diagnosticRow("partialTranscriptText", appState.partialTranscriptText.isEmpty ? "None" : appState.partialTranscriptText)
+                diagnosticRow("finalTranscriptText", appState.finalTranscriptText.isEmpty ? "None" : appState.finalTranscriptText)
+                diagnosticRow("displayTranscriptText", appState.displayTranscriptText.isEmpty ? "None" : appState.displayTranscriptText)
+                diagnosticRow("lastAcceptedQuestionText", appState.lastAcceptedQuestionText.isEmpty ? "None" : appState.lastAcceptedQuestionText)
+                diagnosticRow("traceLogPath", appState.runtimeTranscriptTraceLogURL.path)
+                ActionButton(
+                    appState: appState,
+                    actionID: ActionID.diagnosticsCopy,
+                    title: "Copy Runtime Transcript Trace",
+                    loadingTitle: "Copying...",
+                    successTitle: "Trace Copied",
+                    systemImage: "doc.on.doc"
+                ) {
+                    copyRuntimeTranscriptTrace()
+                }
+                InlineStatusBanner(appState.latestActionFeedback(for: ActionID.diagnosticsCopy))
+                if appState.recentTranscriptRuntimeEvents.isEmpty {
+                    diagnosticRow("recentEvents", "None")
+                } else {
+                    ForEach(Array(appState.recentTranscriptRuntimeEvents.suffix(8).reversed())) { event in
+                        VStack(alignment: .leading, spacing: 4) {
+                            diagnosticRow(event.name, event.text.isEmpty ? (event.reason.isEmpty ? "event" : event.reason) : event.text)
+                            if let frameCount = event.frameCount {
+                                diagnosticRow("frameCount", "\(frameCount)")
+                            }
+                            Divider()
+                        }
+                    }
+                }
+            }
+
+            card("Runtime Persistence", icon: "externaldrive.badge.checkmark") {
+                diagnosticRow("activeDatabasePath", appState.activeDatabasePath)
+                diagnosticRow("persistenceState", appState.diagnosticPersistenceState)
+                diagnosticRow("suggestionRowCount", "\(appState.diagnosticSuggestionRowCount)")
+                diagnosticRow("latestSuggestionCreatedAt", appState.diagnosticLatestSuggestionCreatedAt)
+                diagnosticRow("latestSuggestionQuestion", appState.diagnosticLatestSuggestionQuestionText)
+                diagnosticRow("lastSQLiteOperation", appState.lastSQLiteOperation)
+            }
         }
     }
 
@@ -382,6 +440,21 @@ struct DiagnosticsView: View {
     private func diagnosticTime(_ date: Date?) -> String {
         guard let date else { return "None" }
         return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .medium)
+    }
+
+    private func copyRuntimeTranscriptTrace() {
+        appState.beginAction(ActionID.diagnosticsCopy, title: "Copying trace", message: "Copying recent runtime transcript trace as JSONL...")
+        let trace = appState.runtimeTranscriptTraceExportText()
+        guard !trace.isEmpty else {
+            appState.warnAction(ActionID.diagnosticsCopy, title: "No trace yet", message: "Start listening or run a smoke test first.")
+            return
+        }
+        NSPasteboard.general.clearContents()
+        if NSPasteboard.general.setString(trace, forType: .string) {
+            appState.completeAction(ActionID.diagnosticsCopy, title: "Trace copied", message: "Recent runtime transcript trace copied as JSONL.")
+        } else {
+            appState.failAction(ActionID.diagnosticsCopy, title: "Copy failed", message: "The clipboard did not accept the trace text.")
+        }
     }
 
     private func health(_ title: String, _ active: Bool) -> some View {

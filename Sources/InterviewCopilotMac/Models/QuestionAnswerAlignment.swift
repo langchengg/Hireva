@@ -80,37 +80,82 @@ struct SuggestionAlignmentRecord: Identifiable, Equatable {
 /// where `unknown` should not be accepted as good enough.
 enum QuestionAnswerAlignmentEvaluator {
     static func isAnswerComplete(_ answer: String) -> Bool {
+        incompleteAnswerReason(answer) == nil
+    }
+
+    static func incompleteAnswerReason(_ answer: String) -> String? {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 20 else { return false }
+        guard trimmed.count >= 20 else { return "too short" }
 
         let lower = trimmed.lowercased()
+        let lowerWithoutTrailingPunctuation = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+        let incompleteExactPhrases = [
+            "if i had one more month to improve",
+            "if i had another month to improve"
+        ]
+        if incompleteExactPhrases.contains(lowerWithoutTrailingPunctuation) {
+            return "ends before naming the improvement target"
+        }
 
-        let incompleteWords = ["more", "because", "such as", "including"]
+        let incompleteWords = ["more", "because", "such as", "including", "whether", "while"]
         for word in incompleteWords {
             if lower.hasSuffix(word) ||
                lower.hasSuffix(word + ".") ||
                lower.hasSuffix(word + ",") ||
                lower.hasSuffix(word + ":") ||
                lower.hasSuffix(word + "...") {
-                return false
+                return "ends with incomplete word '\(word)'"
             }
         }
 
         if let lastChar = trimmed.last {
             if ",:".contains(lastChar) {
-                return false
+                return "ends with punctuation '\(lastChar)'"
             }
         }
 
         let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
         if words.count >= 2 {
             let lastTwo = words.suffix(2).joined(separator: " ")
-            if ["tend to", "be more", "such as", "including to", "more stable"].contains(lastTwo) {
-                return false
+            let incompleteTails = [
+                "tend to",
+                "be more",
+                "such as",
+                "including to",
+                "more stable",
+                "how they",
+                "how it",
+                "how we",
+                "how the",
+                "what the",
+                "whether the",
+                "why the",
+                "if the"
+            ]
+            if incompleteTails.contains(lastTwo) {
+                return "ends with incomplete clause '\(lastTwo)'"
             }
         }
 
-        return true
+        guard let lastChar = trimmed.last, ".?!".contains(lastChar) else {
+            return "missing terminal punctuation"
+        }
+
+        return nil
+    }
+
+    static func usefulInterviewerQuestionCount(in answer: String) -> Int {
+        let questionMarkCount = answer.reduce(into: 0) { count, character in
+            if character == "?" { count += 1 }
+        }
+        let words = normalize(answer)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        let clauseOpeners: Set<String> = ["what", "how", "which", "who", "where", "when"]
+        let distinctClauseCount = words.reduce(into: 0) { count, word in
+            if clauseOpeners.contains(word) { count += 1 }
+        }
+        return questionMarkCount > 0 ? questionMarkCount : distinctClauseCount
     }
 
     /// Scores whether the generated answer directly addresses the question.
@@ -138,6 +183,18 @@ enum QuestionAnswerAlignmentEvaluator {
                 missingThemes: [],
                 wrongAnswerIndicators: [],
                 reason: "Question or answer text is empty."
+            )
+        }
+        if QuestionCompletenessGate.isIncompleteFragment(questionText) {
+            return AnswerAlignmentResult(
+                score: 0,
+                verdict: .mismatched,
+                questionIntent: questionIntent,
+                answerIntent: answerIntent,
+                matchedThemes: [],
+                missingThemes: [],
+                wrongAnswerIndicators: ["incomplete question fragment"],
+                reason: "Rejected alignment for incomplete question fragment."
             )
         }
 
@@ -169,6 +226,13 @@ enum QuestionAnswerAlignmentEvaluator {
         var finalReason = ""
         let isTechnical = questionIntent == .technicalChallenge ||
                           questionIntent == .modelComparison ||
+                          questionIntent == .decoderComparison ||
+                          questionIntent == .perceptionDebugging ||
+                          questionIntent == .technicalTradeoff ||
+                          questionIntent == .datasetAdaptation ||
+                          questionIntent == .simToRealDebugging ||
+                          questionIntent == .projectComparison ||
+                          questionIntent == .systemIntegrationDebugging ||
                           questionIntent == .diffusionPolicy ||
                           questionIntent == .errorHandling ||
                           questionIntent == .skillComfort
@@ -181,42 +245,75 @@ enum QuestionAnswerAlignmentEvaluator {
             finalReason += " Rejected unknown verdict for clear technical question."
         }
 
+        if questionIntent == .decoderComparison {
+            let hasProjectGrounding = containsAny(normalizedAnswer, ["mujoco", "vla", "franka"])
+            let hasAllDecoderFamilies = containsAny(normalizedAnswer, ["autoregressive", "auto regressive"]) &&
+                normalizedAnswer.contains("diffusion") &&
+                containsAny(normalizedAnswer, ["flow-matching", "flow matching"])
+            let hasDiffusionRate = containsAny(
+                normalizedAnswer,
+                ["7/10", "7 out of 10", "seven out of ten"]
+            )
+            let hasWeakerDecoderRate = containsAny(
+                normalizedAnswer,
+                ["1/10", "1 out of 10", "one out of ten"]
+            )
+            if !hasProjectGrounding || !hasAllDecoderFamilies || !hasDiffusionRate || !hasWeakerDecoderRate {
+                verdict = .mismatched
+                finalReason += " Rejected decoder-comparison answer without MuJoCo/VLA grounding, all three decoder families, and the 7/10 vs 1/10 result."
+            }
+            if wrong.contains("unsupported flow-matching comparable result") {
+                verdict = .mismatched
+                finalReason += " Rejected unsupported claim that flow-matching had comparable quality."
+            }
+        }
+
+        if questionIntent == .systemIntegrationDebugging {
+            let hasConcreteProject = containsAny(normalizedAnswer, ["leorover", "leo rover"]) &&
+                normalizedAnswer.contains("ros2")
+            let hasIntegrationWork = containsAny(normalizedAnswer, ["perception", "navigation", "manipulation", "handoff", "module", "pipeline"])
+            let hasStarEvidence = containsAny(normalizedAnswer, ["situation", "task", "action", "result", "reproduced", "isolated", "added validation", "recovery"])
+            if !hasConcreteProject || !hasIntegrationWork || !hasStarEvidence {
+                verdict = .mismatched
+                finalReason += " Rejected system-integration debugging answer without concrete LeoRover/ROS2 STAR-style evidence."
+            }
+        }
+
+        if questionIntent == .improvementPlan,
+           normalizedQuestion.contains("leorover"),
+           containsWrongLeoRoverImprovementGrounding(normalizedAnswer) {
+            verdict = .mismatched
+            finalReason += " Rejected wrong project grounding for LeoRover improvement answer."
+        }
+
+        if questionIntent == .interviewerQuestions {
+            let visibleInterviewerAnswer = sayFirst.isEmpty ? answerText : sayFirst
+            if usefulInterviewerQuestionCount(in: visibleInterviewerAnswer) < 2 {
+                verdict = .mismatched
+                finalReason += " Rejected interviewer-questions answer without at least two distinct useful questions."
+            }
+        }
+
+        if questionIntent == .projectComparison {
+            let hasVLAPlatform = containsAny(normalizedAnswer, ["mujoco", "franka"])
+            let hasVLALearningDetail = containsAny(normalizedAnswer, [
+                "droid", "decoder", "autoregressive", "diffusion", "flow-matching", "vla policy", "visuomotor"
+            ])
+            let hasLeoStack = containsAny(normalizedAnswer, ["ros2", "yolov8"])
+            let hasLeoExecutionDetail = containsAny(normalizedAnswer, [
+                "navigation", "manipulation", "localisation", "localization", "recovery"
+            ])
+            let hasConcreteContrast = containsAny(normalizedAnswer, ["simulation", "mujoco"]) &&
+                containsAny(normalizedAnswer, ["real robot", "real-robot", "physical hardware"])
+            if !hasVLAPlatform || !hasVLALearningDetail || !hasLeoStack || !hasLeoExecutionDetail || !hasConcreteContrast {
+                verdict = .mismatched
+                finalReason += " Rejected project-comparison answer without concrete VLA learning/simulation and LeoRover real-robot integration details."
+            }
+        }
+
         if !sayFirst.isEmpty {
             let trimmedSayFirst = sayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lowerSayFirst = trimmedSayFirst.lowercased()
-            var isIncomplete = false
-            var incompleteReason = ""
-
-            if trimmedSayFirst.count < 15 || trimmedSayFirst.split(whereSeparator: \.isWhitespace).count < 4 {
-                isIncomplete = true
-                incompleteReason = "too short (\(trimmedSayFirst.count) chars)"
-            } else {
-                let incompleteWords = ["more", "because", "such as", "including"]
-                for word in incompleteWords {
-                    if lowerSayFirst.hasSuffix(word) ||
-                       lowerSayFirst.hasSuffix(word + ".") ||
-                       lowerSayFirst.hasSuffix(word + ",") ||
-                       lowerSayFirst.hasSuffix(word + ":") ||
-                       lowerSayFirst.hasSuffix(word + "...") {
-                        isIncomplete = true
-                        incompleteReason = "ends with incomplete word '\(word)'"
-                    }
-                }
-                if let lastChar = trimmedSayFirst.last, ",:".contains(lastChar) {
-                    isIncomplete = true
-                    incompleteReason = "ends with punctuation '\(lastChar)'"
-                }
-                let words = lowerSayFirst.split(whereSeparator: \.isWhitespace).map(String.init)
-                if words.count >= 2 {
-                    let lastTwo = words.suffix(2).joined(separator: " ")
-                    if ["tend to", "be more", "such as", "including to", "more stable"].contains(lastTwo) {
-                        isIncomplete = true
-                        incompleteReason = "ends with incomplete clause '\(lastTwo)'"
-                    }
-                }
-            }
-
-            if isIncomplete {
+            if let incompleteReason = incompleteAnswerReason(trimmedSayFirst) {
                 verdict = .mismatched
                 finalReason += " Rejected incomplete sayFirst: \(incompleteReason)."
             }
@@ -280,6 +377,137 @@ enum QuestionAnswerAlignmentEvaluator {
                     Theme(name: "perception / manipulation / AI", alternatives: ["perception", "manipulation", " ai ", "artificial intelligence"])
                 ],
                 wrongIndicators: projectOrChallengeIndicators()
+            )
+        }
+
+        if isDecoderComparisonQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "MuJoCo / VLA / Franka setup", alternatives: ["mujoco", "vla", "franka"]),
+                    Theme(name: "autoregressive decoder", alternatives: ["autoregressive", "auto regressive"]),
+                    Theme(name: "diffusion decoder", alternatives: ["diffusion"]),
+                    Theme(name: "flow-matching decoder", alternatives: ["flow-matching", "flow matching"]),
+                    Theme(name: "success or performance comparison", alternatives: ["7/10", "seven out of ten", "1/10", "one out of ten", "performed best", "weaker", "success"]),
+                    Theme(name: "lesson about trajectory generation", alternatives: ["learned", "lesson", "architecture choice", "trajectory", "continuous action", "action sequence", "action generation"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "unsupported flow-matching comparable result", alternatives: ["flow-matching offered faster sampling with comparable quality", "flow matching offered faster sampling with comparable quality", "comparable quality"])
+                ]
+            )
+        }
+
+        if isPerceptionDebuggingQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "YOLOv8 / detector", alternatives: ["yolov8", "yolo", "detector", "detection"]),
+                    Theme(name: "wrong confident prediction", alternatives: ["wrong prediction", "confident but wrong", "false positive", "class confusion"]),
+                    Theme(name: "inspect frames/logs", alternatives: ["inspect", "frame", "frames", "logs", "reproduce"]),
+                    Theme(name: "boxes/classes/confidence", alternatives: ["bounding box", "bounding boxes", "classes", "class", "confidence"]),
+                    Theme(name: "calibration/lighting/occlusion", alternatives: ["calibration", "lighting", "glare", "occlusion", "motion blur"]),
+                    Theme(name: "spatial/temporal consistency", alternatives: ["spatial", "temporal", "depth", "localisation", "localization", "consistency"]),
+                    Theme(name: "validate/recover before retraining", alternatives: ["recovery", "recover", "validation", "validate", "before retraining", "before deciding whether retraining", "retrain only"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if question.contains("technical trade-off") ||
+            question.contains("technical tradeoff") ||
+            question.contains("trade off") && question.contains("robotics") {
+            return Profile(
+                themes: [
+                    Theme(name: "trade-off", alternatives: ["trade-off", "tradeoff", "trade off"]),
+                    Theme(name: "robustness / reliability", alternatives: ["robustness", "robust", "reliability", "reliable"]),
+                    Theme(name: "latency / complexity", alternatives: ["latency", "complexity", "complex"]),
+                    Theme(name: "concrete robotics project", alternatives: ["leorover", "vla", "mujoco", "robotics project", "real robot"]),
+                    Theme(name: "decision made", alternatives: ["chose", "choice", "decision", "prioritized", "prioritised", "practical filtering", "recovery"]),
+                    Theme(name: "lesson learned", alternatives: ["learned", "lesson", "mattered", "reliable execution"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "unrelated data pipeline answer", alternatives: ["data pipeline", "10,000 records", "10000 records", "database pipeline", "etl"])
+                ]
+            )
+        }
+
+        if question.contains("droid") && (question.contains("mujoco") || question.contains("franka") || question.contains("trajector")) {
+            return Profile(
+                themes: [
+                    Theme(name: "DROID demonstrations", alternatives: ["droid", "demonstrations", "real-robot trajectories", "real robot trajectories"]),
+                    Theme(name: "MuJoCo / Franka simulation", alternatives: ["mujoco", "franka", "simulator", "simulation"]),
+                    Theme(name: "mapping actions/observations", alternatives: ["mapped", "mapping", "actions", "observations", "simulator format"]),
+                    Theme(name: "coordinate/timing consistency", alternatives: ["coordinate", "timing", "frames", "consistency"]),
+                    Theme(name: "validation", alternatives: ["validated", "validation", "matched the manipulation objective", "before training", "before evaluation"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if question.contains("sim-to-real") ||
+            question.contains("sim to real") ||
+            question.contains("policy works in mujoco") ||
+            question.contains("fails on a real robot") {
+            return Profile(
+                themes: [
+                    Theme(name: "compare sim and real", alternatives: ["compare", "sim and real", "simulator and real", "mujoco", "real-robot", "real robot"]),
+                    Theme(name: "observations/actions/timing", alternatives: ["observations", "action scaling", "actions", "timing", "latency"]),
+                    Theme(name: "calibration/dynamics", alternatives: ["calibration", "contact dynamics", "dynamics mismatch"]),
+                    Theme(name: "failure inspection", alternatives: ["failure videos", "inspect", "failure", "logs"]),
+                    Theme(name: "isolate root cause", alternatives: ["isolate", "perception", "control", "distribution shift", "before changing", "before retraining"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if question.contains("difference between") && question.contains("vla") && question.contains("leorover") {
+            return Profile(
+                themes: [
+                    Theme(name: "VLA project", alternatives: ["vla", "learning-policy", "policy", "action decoder", "action decoders"]),
+                    Theme(name: "MuJoCo / Franka evaluation", alternatives: ["mujoco", "franka", "simulation evaluation"]),
+                    Theme(name: "LeoRover project", alternatives: ["leorover", "real-robot", "real robot"]),
+                    Theme(name: "ROS2 / YOLOv8 / navigation", alternatives: ["ros2", "yolov8", "perception", "navigation", "localisation", "localization"]),
+                    Theme(name: "core difference", alternatives: ["difference", "while", "versus", "whereas", "learning-policy evaluation", "system integration"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if question.contains("system integration problem") ||
+            question.contains("debug a system integration") {
+            return Profile(
+                themes: [
+                    Theme(name: "system integration", alternatives: ["system integration", "work together", "full system", "module boundaries"]),
+                    Theme(name: "module logs/timestamps", alternatives: ["logs", "timestamps", "module logs"]),
+                    Theme(name: "reproduce/isolate", alternatives: ["reproduced", "reproduce", "isolated", "isolate"]),
+                    Theme(name: "perception/navigation/manipulation handoff", alternatives: ["perception", "navigation", "manipulation", "handoff", "handoffs"]),
+                    Theme(name: "recovery/reliability", alternatives: ["recovery", "validation", "reliable", "reliably"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if question.contains("another month") || question.contains("change first") || question.contains("improve first") {
+            return Profile(
+                themes: [
+                    Theme(name: "LeoRover grounding", alternatives: ["leorover", "leo rover"]),
+                    Theme(name: "improve evaluation", alternatives: ["improve the evaluation", "strengthen the evaluation", "make the evaluation", "evaluation pipeline"]),
+                    Theme(name: "more objects / positions / failure cases", alternatives: ["more objects", "initial positions", "failure cases"]),
+                    Theme(name: "robust perception", alternatives: ["robust perception", "perception robustness"]),
+                    Theme(name: "confidence / spatial consistency", alternatives: ["confidence", "spatial consistency", "calibration", "latency"]),
+                    Theme(name: "closed-loop recovery", alternatives: ["closed-loop", "closed loop", "recovery", "missed detections", "failed grasps"])
+                ],
+                wrongIndicators: [
+                    Theme(name: "wrong project grounding", alternatives: [
+                        "semantic-geometric",
+                        "semantic geometric",
+                        "re-ranker",
+                        "reranker",
+                        "vlm grasping",
+                        "target-conditioned",
+                        "target conditioned",
+                        "grasp scorer",
+                        "thesis"
+                    ])
+                ]
             )
         }
 
@@ -349,16 +577,25 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
-        if question.contains("another month") || question.contains("change first") {
+        if question.contains("questions for us") ||
+            question.contains("questions for you") ||
+            question.contains("what questions would you ask us") ||
+            question.contains("what would you ask the engineering team") ||
+            (question.contains("ask the engineering team") && question.contains("good fit")) ||
+            question.contains("before accepting an offer") {
             return Profile(
                 themes: [
-                    Theme(name: "improve evaluation", alternatives: ["improve the evaluation", "evaluation pipeline"]),
-                    Theme(name: "more objects / positions / failure cases", alternatives: ["more objects", "initial positions", "failure cases"]),
-                    Theme(name: "robust perception", alternatives: ["robust perception", "perception robustness"]),
-                    Theme(name: "visual grounding", alternatives: ["visual grounding"]),
-                    Theme(name: "grasp reranking", alternatives: ["reranking", "grasp candidates"])
+                    Theme(name: "success criteria", alternatives: ["success criteria", "what success looks like", "what would success", "first three months", "first 3 months"]),
+                    Theme(name: "deployment challenges", alternatives: ["deployment challenges", "deploy", "real-world deployment", "reliable real-world"]),
+                    Theme(name: "team structure", alternatives: ["team structure", "team is structured", "robotics team is structured", "responsibilities are split", "perception", "autonomy", "product engineering"]),
+                    Theme(name: "data/simulation infrastructure", alternatives: ["data", "simulation", "infrastructure"]),
+                    Theme(name: "ownership", alternatives: ["ownership", "own", "responsibilities", "ownership expectations", "production workflows"])
                 ],
-                wrongIndicators: projectOrChallengeIndicators()
+                wrongIndicators: [
+                    Theme(name: "self-introduction answer", alternatives: ["i am currently studying", "msc robotics", "computer science background", "my background"]),
+                    Theme(name: "project walkthrough answer", alternatives: ["object retrieval robot", "ros2 pipeline"]),
+                    Theme(name: "vague meta-answer", alternatives: ["yes, i'd love to ask a question", "yes i would love to ask a question", "i'd love to ask a question"])
+                ]
             )
         }
 
@@ -393,18 +630,6 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
-        if question.contains("questions for us") || question.contains("questions for you") {
-            return Profile(
-                themes: [
-                    Theme(name: "asks about team / evaluation / deployment / success criteria", alternatives: ["ask how", "team", "evaluates", "evaluation", "deployment", "success criteria", "reliable real-world"])
-                ],
-                wrongIndicators: [
-                    Theme(name: "self-introduction answer", alternatives: ["i am currently studying", "msc robotics", "computer science background", "my background"]),
-                    Theme(name: "project walkthrough answer", alternatives: ["leorover", "object retrieval robot", "yolov8", "ros2 pipeline"])
-                ]
-            )
-        }
-
         return Profile(themes: [], wrongIndicators: [])
     }
 
@@ -420,6 +645,7 @@ enum QuestionAnswerAlignmentEvaluator {
         questionIntent: AnswerRelevanceIntent
     ) -> String? {
         let isModelComparisonQuestion = questionIntent == .modelComparison ||
+            questionIntent == .decoderComparison ||
             questionIntent == .diffusionPolicy ||
             (normalizedQuestion.contains("diffusion") &&
              (normalizedQuestion.contains("autoregressive") || normalizedQuestion.contains("auto regressive")))
@@ -499,6 +725,20 @@ enum QuestionAnswerAlignmentEvaluator {
         needles.contains { text.contains($0) }
     }
 
+    private static func containsWrongLeoRoverImprovementGrounding(_ text: String) -> Bool {
+        containsAny(text, [
+            "semantic-geometric",
+            "semantic geometric",
+            "re-ranker",
+            "reranker",
+            "vlm grasping",
+            "target-conditioned",
+            "target conditioned",
+            "grasp scorer",
+            "thesis"
+        ])
+    }
+
     private static func projectOrChallengeIndicators() -> [Theme] {
         [
             Theme(name: "project/challenge answer", alternatives: ["leorover", "hardest technical challenge", "noisy perception", "target localisation"])
@@ -506,19 +746,11 @@ enum QuestionAnswerAlignmentEvaluator {
     }
 
     private static func normalize(_ text: String) -> String {
-        " " + text
+        " " + ASRCanonicalizer.canonicalizeTerms(text)
             .lowercased()
             .replacingOccurrences(of: "c++", with: "c plus plus")
             .replacingOccurrences(of: "ros 2", with: "ros2")
-            .replacingOccurrences(of: "leader rover", with: "leorover")
-            .replacingOccurrences(of: "leah rover", with: "leorover")
-            .replacingOccurrences(of: "leo rover", with: "leorover")
-            .replacingOccurrences(of: "lero", with: "leorover")
-            .replacingOccurrences(of: "auto rig progressive", with: "autoregressive")
-            .replacingOccurrences(of: "auto regressive", with: "autoregressive")
-            .replacingOccurrences(of: "diffusion-based policy", with: "diffusion policy")
-            .replacingOccurrences(of: "diffusion based policy", with: "diffusion policy")
-            .replacingOccurrences(of: "from n to end", with: "from end to end")
+            .replacingOccurrences(of: "flow matching", with: "flow-matching")
             .replacingOccurrences(of: "\n", with: " ")
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
@@ -526,6 +758,50 @@ enum QuestionAnswerAlignmentEvaluator {
     }
 
     private static func inferredAnswerIntent(for answer: String) -> AnswerRelevanceIntent {
+        if answer.contains("what would success") ||
+            answer.contains("first three months") ||
+            answer.contains("first 3 months") ||
+            answer.contains("team is structured") ||
+            answer.contains("deployment challenges") ||
+            answer.contains("production workflows") {
+            return .interviewerQuestions
+        }
+        if answer.contains("droid") &&
+            (answer.contains("mujoco") || answer.contains("franka") || answer.contains("demonstration") || answer.contains("trajectory")) {
+            return .datasetAdaptation
+        }
+        if answer.contains("sim-to-real") ||
+            answer.contains("sim and real") ||
+            answer.contains("simulator and real") ||
+            answer.contains("contact dynamics") ||
+            answer.contains("dynamics mismatch") ||
+            answer.contains("distribution shift") {
+            return .simToRealDebugging
+        }
+        if answer.contains("vla") &&
+            answer.contains("leorover") &&
+            (answer.contains("difference") || answer.contains("while") || answer.contains("versus") || answer.contains("whereas")) {
+            return .projectComparison
+        }
+        if answer.contains("mujoco") &&
+            (answer.contains("vla") || answer.contains("franka")) &&
+            answer.contains("diffusion") &&
+            answer.contains("autoregressive") &&
+            (answer.contains("flow-matching") || answer.contains("flow matching")) {
+            return .decoderComparison
+        }
+        if (answer.contains("yolov8") || answer.contains("detector")) &&
+            (answer.contains("wrong prediction") || answer.contains("false positive") || answer.contains("confident but wrong") || answer.contains("debug")) {
+            return .perceptionDebugging
+        }
+        if (answer.contains("trade-off") || answer.contains("tradeoff") || answer.contains("trade off")) &&
+            (answer.contains("robustness") || answer.contains("latency") || answer.contains("complexity") || answer.contains("reliability")) {
+            return .technicalTradeoff
+        }
+        if (answer.contains("system integration") || answer.contains("work together") || answer.contains("module boundaries") || answer.contains("handoff")) &&
+            (answer.contains("logs") || answer.contains("timestamps") || answer.contains("reproduced") || answer.contains("isolated") || answer.contains("recovery")) {
+            return .systemIntegrationDebugging
+        }
         if answer.contains("i’d like to ask") || answer.contains("i would ask") || answer.contains("how your team") || answer.contains("success criteria") {
             return .candidateQuestions
         }
@@ -573,7 +849,11 @@ enum QuestionAnswerAlignmentEvaluator {
         var parts = ["Matched \(matchedCount) of \(totalCount) expected themes."]
         let intentsMatch = questionIntent == answerIntent ||
             (questionIntent == .diffusionPolicy && answerIntent == .modelComparison) ||
-            (questionIntent == .modelComparison && answerIntent == .diffusionPolicy)
+            (questionIntent == .modelComparison && answerIntent == .diffusionPolicy) ||
+            (questionIntent == .decoderComparison && answerIntent == .modelComparison) ||
+            (questionIntent == .modelComparison && answerIntent == .decoderComparison) ||
+            (questionIntent == .candidateQuestions && answerIntent == .interviewerQuestions) ||
+            (questionIntent == .interviewerQuestions && answerIntent == .candidateQuestions)
         if questionIntent != .generic, answerIntent != .generic, !intentsMatch {
             parts.append("Answer intent \(answerIntent.rawValue) differs from question intent \(questionIntent.rawValue).")
         }
@@ -581,5 +861,23 @@ enum QuestionAnswerAlignmentEvaluator {
             parts.append("Wrong-answer indicators: \(wrongIndicators.joined(separator: ", ")).")
         }
         return parts.joined(separator: " ")
+    }
+
+    private static func isDecoderComparisonQuestion(_ question: String) -> Bool {
+        let modelTerms = ["autoregressive", "diffusion", "flow-matching"].filter { question.contains($0) }.count
+        return modelTerms >= 2 &&
+            (question.contains("mujoco") || question.contains("vla") || question.contains("franka") || question.contains("decoder")) &&
+            (question.contains("what did you learn") || question.contains("comparing") || question.contains("compared"))
+    }
+
+    private static func isPerceptionDebuggingQuestion(_ question: String) -> Bool {
+        let mentionsDetector = question.contains("yolov8") ||
+            question.contains("detector") ||
+            question.contains("prediction")
+        let mentionsDebugging = question.contains("debug") ||
+            question.contains("confident but wrong") ||
+            question.contains("wrong prediction") ||
+            question.contains("false positive")
+        return mentionsDetector && mentionsDebugging
     }
 }

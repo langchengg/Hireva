@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct SystemAudioTranscriptToAnswerRuntimeTests {
     @Test
-    func oneLongSystemAudioTranscriptExtractsAllQuestionsAndGeneratesLatestAnswer() async throws {
+    func oneLongSystemAudioTranscriptExtractsAllQuestionsAndQueuesAnswersInOrder() async throws {
         let (appState, database, session, client) = try makeAppState()
         let transcript = Self.realRuntimeLongTranscriptFixture
 
@@ -21,7 +21,8 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         try await waitUntil(timeout: 10.0) {
             appState.detectedQuestionsInSessionCount == 9 &&
             appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 9 &&
-            appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
+            appState.currentSuggestion != nil &&
+            appState.pendingAcceptedQuestions.count >= 1 &&
             appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated
         }
 
@@ -37,8 +38,11 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         #expect(detectedQuestions[7].localizedCaseInsensitiveContains("how comfortable are you with python"))
         #expect(detectedQuestions[8].localizedCaseInsensitiveContains("do you have any questions for us"))
 
-        let latestQuestion = try #require(appState.lastDetectedQuestion)
-        #expect(latestQuestion.questionText.localizedCaseInsensitiveContains("do you have any questions for us"))
+        let currentQuestion = try #require(appState.currentSuggestion?.questionText)
+        #expect(currentQuestion.localizedCaseInsensitiveContains("could you tell me a little bit about yourself"))
+        #expect(appState.pendingAcceptedQuestions.contains {
+            $0.question.questionText.localizedCaseInsensitiveContains("do you have any questions for us")
+        })
         #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered)
         #expect(appState.lastTranscriptQuestionGenerationTrace.currentSuggestionExists)
         #expect(client.answerCallCount <= 2)
@@ -58,7 +62,8 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         try await waitUntil(timeout: 10.0) {
             appState.detectedQuestionsInSessionCount == 9 &&
             appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 9 &&
-            appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id
+            appState.currentSuggestion != nil &&
+            appState.pendingAcceptedQuestions.count >= 1
         }
 
         #expect(try detectedQuestionTexts(database: database).count == 9)

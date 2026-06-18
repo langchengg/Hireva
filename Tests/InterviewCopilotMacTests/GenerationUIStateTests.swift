@@ -85,7 +85,7 @@ struct GenerationUIStateTests {
         let question = DetectedQuestion(
             id: UUID().uuidString,
             sessionID: UUID().uuidString,
-            questionText: "What is your project?",
+            questionText: "Could you walk me through your first project, the LeoRover navigation pipeline?",
             intent: .projectDeepDive,
             answerStrategy: .projectWalkthrough,
             confidence: 0.95,
@@ -115,9 +115,9 @@ struct GenerationUIStateTests {
         client.fullCardContent = """
         {
           "strategy": "Project Walkthrough",
-          "say_first": "I can walk through the project by explaining the problem, my implementation choices, and the result.",
-          "key_points": ["Problem and constraints", "Implementation choices", "Result and learning"],
-          "follow_up_ready": ["I can go deeper on tradeoffs if helpful."],
+          "say_first": "I can walk through the LeoRover project as an autonomous object retrieval robot, covering the ROS2 pipeline, YOLOv8 perception, navigation, manipulation, and what I learned from real robot execution.",
+          "key_points": ["LeoRover autonomous object retrieval", "ROS2, YOLOv8 perception, navigation, and manipulation", "Real robot execution and reliability learning"],
+          "follow_up_ready": ["I can go deeper on ROS2 navigation and manipulation tradeoffs if helpful."],
           "confidence": 0.82,
           "caution": "None",
           "evidence_used": [],
@@ -153,7 +153,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "What is your second project?",
+            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
             suffix: "second-after-db-delay"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -242,7 +242,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "What is your second project?",
+            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
             suffix: "second"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -299,7 +299,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "What is your second project?",
+            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
             suffix: "second-stage-b"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -352,7 +352,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "What is your second project?",
+            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
             suffix: "second-hang"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -408,6 +408,182 @@ struct GenerationUIStateTests {
     }
 
     @Test
+    func streamingUpdateForNewQuestionReplacesMismatchedVisibleCardAtomically() throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let secondQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "Why do you want this role?",
+            suffix: "atomic-second"
+        )
+        let generationID = "generation-atomic-second"
+        appState.activateGeneration(
+            question: secondQuestion,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = secondQuestion
+
+        var staleCard = SuggestionCard(
+            id: "stale-first-card",
+            sessionID: session.id,
+            questionID: firstQuestion.id,
+            strategy: "Project Walkthrough",
+            sayFirst: "I can describe my first project clearly.",
+            keyPoints: ["First project"],
+            followUpReady: [],
+            confidence: 0.8,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "mock",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        staleCard.questionText = firstQuestion.questionText
+        staleCard.promptPrimaryQuestion = firstQuestion.questionText
+        staleCard.generationID = "generation-first"
+        appState.currentSuggestion = staleCard
+
+        let sections = StreamingSuggestionSections(
+            strategy: "Role motivation",
+            sayFirst: "I want this role because it connects my robotics, AI, perception, and real-world deployment experience with a team where I can contribute and grow.",
+            keyPoints: ["Robotics and AI fit", "Real-world deployment interest"],
+            followUpReady: [],
+            caution: ""
+        )
+        appState.publishStreamingSections(
+            sections,
+            cardID: "second-card",
+            generationID: generationID,
+            question: secondQuestion,
+            session: session,
+            requestStart: Date(),
+            stageBStreamStartedMS: nil
+        )
+
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.detectedQuestionID == secondQuestion.id)
+        #expect(visible.questionText == secondQuestion.questionText)
+        #expect(visible.promptPrimaryQuestion == secondQuestion.questionText)
+        #expect(visible.generationID == generationID)
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("this role"))
+        #expect(!visible.sayFirst.localizedCaseInsensitiveContains("first project"))
+        #expect(appState.currentQABinding.bindingStatus == .matched)
+    }
+
+    @Test
+    func stageBStalePlanCannotOverwriteCurrentQuestionCard() async throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let secondQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "Why do you want this role?",
+            suffix: "stage-b-atomic-second"
+        )
+        let generationID = "generation-stage-b-second"
+        appState.activateGeneration(
+            question: secondQuestion,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = secondQuestion
+        var secondCard = SuggestionCard(
+            id: "second-visible-card",
+            sessionID: session.id,
+            questionID: secondQuestion.id,
+            strategy: "Role motivation",
+            sayFirst: "I want this role because it connects with my robotics and deployed AI systems experience.",
+            keyPoints: ["Robotics fit"],
+            followUpReady: [],
+            confidence: 0.8,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "mock",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        secondCard.questionText = secondQuestion.questionText
+        secondCard.promptPrimaryQuestion = secondQuestion.questionText
+        secondCard.generationID = generationID
+        appState.currentSuggestion = secondCard
+
+        let stalePlan = StageBApplicationPlan(
+            generationID: "generation-stage-b-first",
+            detectedQuestionID: firstQuestion.id,
+            action: .applyFullCard,
+            fallbackReason: nil,
+            shouldPersist: true,
+            shouldUpdateVisibleCard: true,
+            safeDiagnostics: [:]
+        )
+        let staleSections = StreamingSuggestionSections(
+            strategy: "Project Walkthrough",
+            sayFirst: "I can explain my first project by covering the problem, choices, and result.",
+            keyPoints: ["First project details"],
+            followUpReady: [],
+            caution: ""
+        )
+
+        try await appState.applyStageBApplicationPlan(
+            stalePlan,
+            sections: staleSections,
+            cardID: "stale-stage-b-card",
+            generationID: stalePlan.generationID,
+            question: firstQuestion,
+            session: session,
+            requestStart: Date(),
+            stageBStreamStartedMS: nil,
+            retrievedChunks: [],
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            preserveFallbackSayFirst: false
+        )
+
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.detectedQuestionID == secondQuestion.id)
+        #expect(visible.questionText == secondQuestion.questionText)
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("first project") == false)
+        #expect(appState.staleAnswerDiscardCount >= 1)
+    }
+
+    @Test
+    func activeGenerationFallbackCarriesCurrentQuestionSnapshot() throws {
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let thirdQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "What was the biggest technical trade-off you made in your robotics projects?",
+            suffix: "fallback-third"
+        )
+        let generationID = "generation-fallback-third"
+        appState.activateGeneration(
+            question: thirdQuestion,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = thirdQuestion
+
+        #expect(appState.showImmediateFallbackForActiveGenerationIfNeeded(reason: "test-timeout"))
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.detectedQuestionID == thirdQuestion.id)
+        #expect(visible.questionText == thirdQuestion.questionText)
+        #expect(visible.promptPrimaryQuestion == thirdQuestion.questionText)
+        #expect(visible.generationID == generationID)
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("trade-off"))
+    }
+
+    @Test
     func rapidThreeQuestionSequenceLeavesOnlyLatestQuestionActive() async throws {
         let client = ConsecutiveQuestionLLMClient()
         client.stageADelayByQuestion = [
@@ -416,8 +592,8 @@ struct GenerationUIStateTests {
             "third project": 1_000_000_000
         ]
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
-        let secondQuestion = try makeQuestion(sessionID: session.id, text: "What is your second project?", suffix: "second-rapid")
-        let thirdQuestion = try makeQuestion(sessionID: session.id, text: "What is your third project?", suffix: "third-rapid")
+        let secondQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your second project, the LeoRover navigation pipeline?", suffix: "second-rapid")
+        let thirdQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your third project, the LeoRover navigation pipeline?", suffix: "third-rapid")
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
         try appState.suggestionRepository.saveDetectedQuestion(thirdQuestion)
         delayProvider.sleepDuration = 0
@@ -481,7 +657,7 @@ struct GenerationUIStateTests {
             id: UUID().uuidString,
             sessionID: session.id,
             transcriptSegmentID: nil,
-            questionText: "What is your project?",
+            questionText: "Could you walk me through your first project, the LeoRover navigation pipeline?",
             intent: .projectDeepDive,
             answerStrategy: .projectWalkthrough,
             confidence: 0.95,
@@ -535,9 +711,9 @@ private final class DeterministicGenerationLLMClient: LLMClientProtocol {
     var fullCardContent = """
     {
       "strategy": "Project Walkthrough",
-      "say_first": "I can explain the project by describing the problem, the implementation choices, and the result.",
-      "key_points": ["Problem and constraints", "Implementation choices", "Result and learning"],
-      "follow_up_ready": ["I can explain the tradeoffs if useful."],
+      "say_first": "I can explain the LeoRover project by describing the autonomous object retrieval goal, the ROS2 and YOLOv8 perception pipeline, navigation and manipulation choices, and the real robot result.",
+      "key_points": ["LeoRover object retrieval goal", "ROS2 and YOLOv8 perception pipeline", "Navigation, manipulation, and real robot learning"],
+      "follow_up_ready": ["I can explain the ROS2 navigation tradeoffs if useful."],
       "confidence": 0.8,
       "caution": "None",
       "evidence_used": [],
@@ -590,7 +766,7 @@ private final class DeterministicGenerationLLMClient: LLMClientProtocol {
                     continuation.finish()
                     return
                 }
-                for token in ["I ", "built ", "a ", "robotics ", "project."] {
+                for token in ["I ", "built ", "a ", "LeoRover ", "robotics ", "project ", "with ", "ROS2 ", "perception ", "and ", "navigation."] {
                     continuation.yield(token)
                 }
                 continuation.finish()
@@ -705,9 +881,9 @@ private final class ConsecutiveQuestionLLMClient: LLMClientProtocol, @unchecked 
         """
         {
           "strategy": "Project Walkthrough",
-          "say_first": "I can explain my \(questionKey) by covering the problem, my implementation choices, and the result.",
-          "key_points": ["Problem for \(questionKey)", "Implementation choices", "Result and learning"],
-          "follow_up_ready": ["I can go deeper on tradeoffs if helpful."],
+          "say_first": "I can explain my \(questionKey) in the LeoRover work by covering the autonomous object retrieval goal, ROS2 and YOLOv8 perception, navigation, manipulation, and the real robot result.",
+          "key_points": ["LeoRover goal for \(questionKey)", "ROS2, YOLOv8, navigation, and manipulation", "Real robot result and learning"],
+          "follow_up_ready": ["I can go deeper on robotics tradeoffs if helpful."],
           "confidence": 0.82,
           "caution": "None",
           "evidence_used": [],
@@ -719,11 +895,11 @@ private final class ConsecutiveQuestionLLMClient: LLMClientProtocol, @unchecked 
     private func stageBSections(for questionKey: String) -> [String] {
         [
             "Strategy: Project Walkthrough\n",
-            "Say First: I can explain my \(questionKey) by covering the problem, my implementation choices, and the result.\n",
+            "Say First: I can explain my \(questionKey) in the LeoRover work by covering the autonomous object retrieval goal, ROS2 and YOLOv8 perception, navigation, manipulation, and the real robot result.\n",
             "Key Points:\n",
-            "- Problem for \(questionKey)\n",
-            "- Implementation choices\n",
-            "- Result and learning\n",
+            "- LeoRover goal for \(questionKey)\n",
+            "- ROS2, YOLOv8, navigation, and manipulation\n",
+            "- Real robot result and learning\n",
             "Follow-up Ready:\n",
             "- I can go deeper on tradeoffs if helpful.\n",
             "Caution: None\n"

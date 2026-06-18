@@ -255,6 +255,11 @@ extension AppState {
                         self?.objectWillChange.send()
                     }
                 }
+                speechService.onRuntimeEvent = { [weak self] event in
+                    Task { @MainActor in
+                        self?.recordTranscriptRuntimeEvent(event)
+                    }
+                }
 
                 self.lastSystemAudioASRError = nil
                 self.lastSystemAudioASRPartialTranscript = ""
@@ -310,7 +315,9 @@ extension AppState {
         fullCardWatchdogTask = nil
 
         transcriptSegments = []
+        resetRuntimeTranscriptState(clearEvents: true)
         currentSuggestion = nil
+        liveSuggestionHistory = []
         currentSuggestionRetrievedChunks = []
         lastDetectedQuestion = nil
         possibleQuestion = nil
@@ -398,6 +405,7 @@ extension AppState {
         activeAITask?.cancel()
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
+        markRuntimeAudioStopped()
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
@@ -505,7 +513,9 @@ extension AppState {
 
         currentSession = nil
         transcriptSegments = []
+        resetRuntimeTranscriptState(clearEvents: true)
         currentSuggestion = nil
+        liveSuggestionHistory = []
         lastDetectedQuestion = nil
         possibleQuestion = nil
         currentGenerationID = nil

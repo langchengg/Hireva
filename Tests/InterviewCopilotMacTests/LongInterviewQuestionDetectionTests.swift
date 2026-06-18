@@ -143,8 +143,8 @@ struct LongInterviewQuestionDetectionTests {
         let (appState, session, _) = try makeAppState()
         let questions = [
             "What was the hardest technical challenge in your LeoRover project?",
-            "And how did you solve it?",
-            "If the same issue happened again, what would you do differently?"
+            "How did you solve the noisy perception and navigation timing issue in your LeoRover project?",
+            "If the same issue happened again in the LeoRover timing and localisation pipeline, what would you do differently?"
         ]
 
         var activeQuestionIDs: [String] = []
@@ -161,7 +161,7 @@ struct LongInterviewQuestionDetectionTests {
 
         #expect(appState.detectedQuestionsInSessionCount == 3)
         #expect(Set(activeQuestionIDs).count == 3)
-        #expect(appState.lastDetectedQuestion?.questionText == "If the same issue happened again, what would you do differently?")
+        #expect(appState.lastDetectedQuestion?.questionText == "If the same issue happened again in the LeoRover timing and localisation pipeline, what would you do differently?")
         #expect(appState.currentGenerationTelemetry.questionID == activeQuestionIDs.last)
         try await waitUntil(timeout: 8.0) {
             appState.visibleAnswerExists && !appState.currentSpinnerVisible
@@ -266,6 +266,8 @@ private final class LongInterviewLLMClient: LLMClientProtocol, @unchecked Sendab
         ("do you have any questions for us", "Do you have any questions for us?", "company_fit", "direct_answer"),
         ("can you explain how your previous robotics experience prepares you for this role", "Can you explain how your previous robotics experience prepares you for this role?", "company_fit", "direct_answer"),
         ("what was the hardest technical challenge in your leorover project", "What was the hardest technical challenge in your LeoRover project?", "behavioral", "star_story"),
+        ("how did you solve the noisy perception and navigation timing issue in your leorover project", "How did you solve the noisy perception and navigation timing issue in your LeoRover project?", "technical", "technical_explanation"),
+        ("if the same issue happened again in the leorover timing and localisation pipeline", "If the same issue happened again in the LeoRover timing and localisation pipeline, what would you do differently?", "behavioral", "star_story"),
         ("and how did you solve it", "And how did you solve it?", "technical", "technical_explanation"),
         ("if the same issue happened again", "If the same issue happened again, what would you do differently?", "behavioral", "star_story"),
         ("could you walk me through your robotics project, especially your role", "Could you walk me through your robotics project, especially your role in the perception and navigation pipeline?", "project_deep_dive", "project_walkthrough")

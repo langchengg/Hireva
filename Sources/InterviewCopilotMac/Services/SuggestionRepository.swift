@@ -365,6 +365,22 @@ final class SuggestionRepository {
         }
     }
 
+    func suggestionCount() throws -> Int {
+        try database.dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM suggestion_cards") ?? 0
+        }
+    }
+
+    func latestSuggestion() throws -> SuggestionCard? {
+        try database.dbQueue.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM suggestion_cards ORDER BY created_at DESC LIMIT 1"
+            )
+            return row.map(Self.makeCard)
+        }
+    }
+
     private static func makeQuestion(row: Row) -> DetectedQuestion {
         DetectedQuestion(
             id: row["id"],

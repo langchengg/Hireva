@@ -79,9 +79,9 @@ struct ManualCaptureTests {
             let content = """
             {
                 "strategy": "Technical Deep Dive",
-                "say_first": "I adapts large vision language models for robotics by adding physical tokens.",
-                "key_points": ["First point", "Second point"],
-                "follow_up_ready": ["What was the latency?"],
+                "say_first": "I am comfortable with Python and ROS2 from robotics projects, and I am actively improving C++ for performance-critical robotics systems.",
+                "key_points": ["Python and ROS2 robotics projects", "C++ for performance-critical robotics systems"],
+                "follow_up_ready": ["I can describe where I used each tool in the robotics pipeline."],
                 "confidence": 0.95,
                 "caution": "None"
             }
@@ -193,13 +193,13 @@ struct ManualCaptureTests {
             return [self.makeDummyAudioBuffer()]
         }
         ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { timeout in
-            return "What is your experience in ScreenCaptureKit?"
+            return "How comfortable are you with Python, C++, and ROS2?"
         }
 
         appState.stopAndTranscribeManualCapture()
         
         var elapsed = 0
-        while appState.manualCaptureState != .suggestionReady && elapsed < 200 {
+        while (appState.manualCaptureState != .suggestionReady || appState.transcriptSegments.last == nil) && elapsed < 200 {
             try? await Task.sleep(for: .milliseconds(50))
             elapsed += 1
         }
@@ -208,7 +208,7 @@ struct ManualCaptureTests {
         let lastSegment = try #require(appState.transcriptSegments.last)
         #expect(lastSegment.source == .systemAudio)
         #expect(lastSegment.speaker == .interviewer)
-        #expect(lastSegment.text == "What is your experience in ScreenCaptureKit?")
+        #expect(lastSegment.text == "How comfortable are you with Python, C++, and ROS2?")
 
         // Validate final state is suggestionReady
         #expect(appState.manualCaptureState == .suggestionReady)
@@ -650,8 +650,8 @@ struct ManualCaptureTests {
                 ```json
                 {
                     "strategy": "Direct Answer",
-                    "say_first": "I would explain that I offer relevant robotics experience, practical project work, and a clear fit for the role.",
-                    "key_points": ["First point", "Second point"],
+                    "say_first": "I want this role because it connects with my robotics, AI, and perception experience, real robot deployment interests, and engineering growth.",
+                    "key_points": ["Role connects with robotics and AI", "Real-world deployment and engineering growth"],
                     "follow_up_ready": [],
                     "confidence": 0.85,
                     "caution": "None",
@@ -683,7 +683,7 @@ struct ManualCaptureTests {
         appState.refreshAll()
 
         appState.manualCaptureState = .transcriptReady
-        appState.manualCaptureTranscript = "What do you offer"
+        appState.manualCaptureTranscript = "Why do you want to join our team?"
 
         appState.sendManualCaptureToAI()
 
@@ -696,7 +696,7 @@ struct ManualCaptureTests {
         #expect(appState.manualCaptureState == .suggestionReady)
         let suggestion = try #require(appState.manualCaptureSuggestion)
         #expect(suggestion.strategy == "Direct Answer")
-        #expect(suggestion.sayFirst == "I would explain that I offer relevant robotics experience, practical project work, and a clear fit for the role.")
+        #expect(suggestion.sayFirst == "I want this role because it connects with my robotics, AI, and perception experience, real robot deployment interests, and engineering growth.")
         #expect(suggestion.keyPoints.count == 2)
     }
 
@@ -714,7 +714,7 @@ struct ManualCaptureTests {
                 return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
             }
             func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage], responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
-                let rawContent = "This is a plain text answer from the model. It contains sentences. It also has: \n- Bullet point 1\n- Bullet point 2"
+                let rawContent = "I want this role because it connects with my robotics, AI, and perception experience and my interest in real robot deployment.\n- Engineering growth\n- Contribute to practical robotics systems"
                 return LLMChatResult(
                     content: rawContent,
                     modelName: "test-model",
@@ -738,7 +738,7 @@ struct ManualCaptureTests {
         appState.refreshAll()
 
         appState.manualCaptureState = .transcriptReady
-        appState.manualCaptureTranscript = "What do you offer"
+        appState.manualCaptureTranscript = "Why do you want to join our team?"
 
         appState.sendManualCaptureToAI()
 
@@ -751,8 +751,8 @@ struct ManualCaptureTests {
         #expect(appState.manualCaptureState == .suggestionReady)
         let suggestion = try #require(appState.manualCaptureSuggestion)
         #expect(suggestion.strategy == "Direct Answer")
-        #expect(suggestion.sayFirst.contains("This is a plain text answer"))
+        #expect(suggestion.sayFirst.contains("I want this role"))
         #expect(suggestion.keyPoints.count >= 2)
-        #expect(suggestion.keyPoints.contains("Bullet point 1"))
+        #expect(suggestion.keyPoints.contains("Engineering growth"))
     }
 }

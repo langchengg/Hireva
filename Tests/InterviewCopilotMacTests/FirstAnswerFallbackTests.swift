@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct FirstAnswerFallbackTests {
     @Test
-    func automaticQuestionDetectionCorrectsProviderWaitForCompleteShortQuestion() async throws {
+    func automaticQuestionDetectionCorrectsProviderWaitForCompleteProjectQuestion() async throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "FirstAnswerFallbackTests")
         let settingsRepository = SettingsRepository(database: database)
         try settingsRepository.ensureDefaultProviderConfigurations()
@@ -15,7 +15,7 @@ struct FirstAnswerFallbackTests {
         {
           "should_trigger": false,
           "question_complete": false,
-          "question_text": "What is your project",
+          "question_text": "Could you walk me through your LeoRover project",
           "intent": "project_deep_dive",
           "answer_strategy": "wait",
           "confidence": 0.6,
@@ -44,7 +44,7 @@ struct FirstAnswerFallbackTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "What is your project"
+            text: "Could you walk me through your LeoRover project"
         )
 
         await appState.handleTranscriptSegment(segment)
@@ -54,7 +54,7 @@ struct FirstAnswerFallbackTests {
         let card = try #require(appState.currentSuggestion)
         #expect(question.shouldTrigger)
         #expect(question.questionComplete)
-        #expect(question.questionText == "What is your project")
+        #expect(question.questionText == "Could you walk me through your LeoRover project")
         #expect(question.answerStrategy == .projectWalkthrough)
         #expect(card.sayFirstSource == "local_first_answer_fallback")
         #expect(appState.homeLiveAnswerPreviewText == card.sayFirst)

@@ -193,6 +193,201 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func decoderComparisonFallbackMentionsMuJoCoVLAAndAllDecoderResults() {
+        let question = makeQuestion("What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .decoderComparison)
+        #expect(combined.localizedCaseInsensitiveContains("MuJoCo"))
+        #expect(combined.localizedCaseInsensitiveContains("VLA"))
+        #expect(combined.localizedCaseInsensitiveContains("autoregressive"))
+        #expect(combined.localizedCaseInsensitiveContains("diffusion"))
+        #expect(combined.localizedCaseInsensitiveContains("flow-matching"))
+        #expect(combined.localizedCaseInsensitiveContains("7/10"))
+        #expect(combined.localizedCaseInsensitiveContains("1/10"))
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func perceptionDebuggingFallbackMentionsConcreteDebuggingSteps() {
+        let question = makeQuestion("If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .perceptionDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(combined.localizedCaseInsensitiveContains("frames"))
+        #expect(combined.localizedCaseInsensitiveContains("logs"))
+        #expect(combined.localizedCaseInsensitiveContains("bounding"))
+        #expect(combined.localizedCaseInsensitiveContains("confidence"))
+        #expect(combined.localizedCaseInsensitiveContains("calibration"))
+        #expect(combined.localizedCaseInsensitiveContains("lighting"))
+        #expect(combined.localizedCaseInsensitiveContains("occlusion"))
+        #expect(combined.localizedCaseInsensitiveContains("retraining"))
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func technicalTradeoffFallbackIsConcreteRoboticsAnswer() {
+        let question = makeQuestion("What was the biggest technical trade-off you made in your robotics projects?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .technicalTradeoff)
+        #expect(combined.localizedCaseInsensitiveContains("trade-off"))
+        #expect(combined.localizedCaseInsensitiveContains("robustness"))
+        #expect(combined.localizedCaseInsensitiveContains("latency"))
+        #expect(combined.localizedCaseInsensitiveContains("complexity"))
+        #expect(combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func systemIntegrationDebuggingFallbackIsStarStyleAndLeoRoverSpecific() {
+        let question = makeQuestion("Tell me about a time you had to debug a system integration problem.")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("ROS2"))
+        #expect(combined.localizedCaseInsensitiveContains("perception"))
+        #expect(combined.localizedCaseInsensitiveContains("navigation"))
+        #expect(combined.localizedCaseInsensitiveContains("manipulation"))
+        #expect(combined.localizedCaseInsensitiveContains("logs"))
+        #expect(combined.localizedCaseInsensitiveContains("timestamps"))
+        #expect(combined.localizedCaseInsensitiveContains("recovery"))
+        #expect(combined.localizedCaseInsensitiveContains("lesson"))
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.answerIntent == .systemIntegrationDebugging)
+    }
+
+    @Test
+    func interviewerQuestionsFallbackOutputsActualQuestions() {
+        let question = makeQuestion("What questions would you ask us about the team or the role before accepting an offer?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .interviewerQuestions)
+        #expect(combined.localizedCaseInsensitiveContains("Yes, I’d love") == false)
+        #expect(combined.localizedCaseInsensitiveContains("success"))
+        #expect(combined.localizedCaseInsensitiveContains("deployment"))
+        #expect(combined.localizedCaseInsensitiveContains("team"))
+        #expect(combined.localizedCaseInsensitiveContains("ownership"))
+        #expect(fallback.sayFirst.filter { $0 == "?" }.count >= 2)
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func interviewerQuestionsRejectsOneVagueQuestionAndUsesFallback() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "InterviewerQuestionQuality")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion(
+            "What would you ask the engineering team to understand whether this role is a good fit?",
+            sessionID: session.id
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        var card = SuggestionCard(
+            id: "single-interviewer-question",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "Provider answer",
+            sayFirst: "I'd ask what success looks like for real-world deployment given the team's ownership structure.",
+            keyPoints: [],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        card.questionText = question.questionText
+        card.promptPrimaryQuestion = question.questionText
+        card.stageBCompleted = true
+
+        #expect(appState.applySuggestionIfAlignedForTesting(card, question: question, generationID: nil) == false)
+        let fallback = try #require(appState.currentSuggestion)
+        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
+        #expect(fallback.sayFirst.filter { $0 == "?" }.count >= 2)
+        #expect(fallback.alignmentVerdict == .aligned)
+    }
+
+    @Test
+    func leoRoverImprovementFallbackAvoidsVLAThesisRerankerGrounding() {
+        let question = makeQuestion("If you had one more month to improve your LeoRover system, what would you improve first?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined, sayFirst: fallback.sayFirst)
+
+        #expect(combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("real-robot") || combined.localizedCaseInsensitiveContains("real robot"))
+        #expect(combined.localizedCaseInsensitiveContains("lighting"))
+        #expect(combined.localizedCaseInsensitiveContains("occlusion"))
+        #expect(combined.localizedCaseInsensitiveContains("spatial consistency"))
+        #expect(combined.localizedCaseInsensitiveContains("closed-loop") || combined.localizedCaseInsensitiveContains("closed loop"))
+        #expect(combined.localizedCaseInsensitiveContains("evaluation"))
+        #expect(combined.localizedCaseInsensitiveContains("calibration"))
+        #expect(combined.localizedCaseInsensitiveContains("latency"))
+        #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(fallback.sayFirst))
+        #expect(combined.localizedCaseInsensitiveContains("semantic-geometric") == false)
+        #expect(combined.localizedCaseInsensitiveContains("re-ranker") == false)
+        #expect(combined.localizedCaseInsensitiveContains("target-conditioned") == false)
+        #expect(combined.localizedCaseInsensitiveContains("VLM grasping") == false)
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test(arguments: [
+        "add confidence and spatial c",
+        "I would ask the engineering team how they",
+        "onto a real physical robot platform—a concrete",
+        "I would improve LeoRover robustness with better evaluation"
+    ])
+    func incompleteVisibleAnswersWithoutFinishedSentenceAreRejected(_ answer: String) {
+        #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(answer) == false)
+        #expect(QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(answer) != nil)
+    }
+
+    @Test
+    func projectComparisonFallbackContainsConcreteDetailsFromBothProjects() {
+        let question = makeQuestion("Can you explain the difference between your VLA project and your LeoRover project?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+
+        #expect(combined.localizedCaseInsensitiveContains("MuJoCo") || combined.localizedCaseInsensitiveContains("Franka"))
+        #expect(combined.localizedCaseInsensitiveContains("DROID") || combined.localizedCaseInsensitiveContains("decoder") || combined.localizedCaseInsensitiveContains("VLA policy"))
+        #expect(combined.localizedCaseInsensitiveContains("ROS2") || combined.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(combined.localizedCaseInsensitiveContains("navigation") || combined.localizedCaseInsensitiveContains("manipulation") || combined.localizedCaseInsensitiveContains("recovery"))
+        #expect(combined.localizedCaseInsensitiveContains("simulation"))
+        #expect(combined.localizedCaseInsensitiveContains("real robot") || combined.localizedCaseInsensitiveContains("real-robot"))
+    }
+
+    @Test
+    func projectComparisonRejectsVagueSimulationVersusRobotAnswer() {
+        let question = "Can you explain the difference between your VLA project and your LeoRover project?"
+        let answer = "The VLA project focused on simulation, while LeoRover was a real robot integration project."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.reason.localizedCaseInsensitiveContains("concrete"))
+    }
+
+    @Test
     func completeVisibleModelComparisonAnswerRemainsAlignedWhenFullCardIsStillExpanding() {
         let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
         let sayFirst = "From my experience, diffusion-based policies produce smoother and more robust continuous action sequences through iterative denoising, unlike autoregressive policies which can compound errors step-by-step."
@@ -372,9 +567,44 @@ struct AnswerRelevanceTests {
             mustContain: ["diffusion", "autoregressive", "flow-matching", "smoother", "seven out of ten"]
         ),
         Fixture(
+            question: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            intent: .decoderComparison,
+            mustContain: ["MuJoCo", "VLA", "autoregressive", "diffusion", "flow-matching", "7/10"]
+        ),
+        Fixture(
+            question: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
+            intent: .perceptionDebugging,
+            mustContain: ["YOLOv8", "frames", "bounding", "confidence", "calibration", "retraining"]
+        ),
+        Fixture(
+            question: "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
+            intent: .datasetAdaptation,
+            mustContain: ["DROID", "MuJoCo", "Franka", "trajectory", "coordinate"]
+        ),
+        Fixture(
+            question: "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
+            intent: .simToRealDebugging,
+            mustContain: ["sim-to-real", "observations", "timing", "calibration", "dynamics"]
+        ),
+        Fixture(
+            question: "Can you explain the difference between your VLA project and your LeoRover project?",
+            intent: .projectComparison,
+            mustContain: ["VLA", "LeoRover", "MuJoCo", "ROS2", "difference"]
+        ),
+        Fixture(
             question: "What would you change first if you had another month?",
             intent: .improvementPlan,
-            mustContain: ["evaluation", "failure cases", "reranking"]
+            mustContain: ["evaluation", "failure cases", "perception"]
+        ),
+        Fixture(
+            question: "What was the biggest technical trade-off you made in your robotics projects?",
+            intent: .technicalTradeoff,
+            mustContain: ["trade-off", "robustness", "latency", "LeoRover"]
+        ),
+        Fixture(
+            question: "Tell me about a time you had to debug a system integration problem.",
+            intent: .systemIntegrationDebugging,
+            mustContain: ["system integration", "logs", "timestamps", "recovery"]
         ),
         Fixture(
             question: "Why do you want to join our team?",
@@ -390,6 +620,11 @@ struct AnswerRelevanceTests {
             question: "Do you have any questions for us?",
             intent: .candidateQuestions,
             mustContain: ["ask", "team", "deployment"]
+        ),
+        Fixture(
+            question: "What questions would you ask us about the team or the role before accepting an offer?",
+            intent: .interviewerQuestions,
+            mustContain: ["success", "deployment", "team", "ownership"]
         )
     ]
 
@@ -419,6 +654,8 @@ struct AnswerRelevanceTests {
                 chunk("challenge", "Hardest challenge: noisy perception, localisation instability, timing mismatch, and unpredictable real robot execution.", .cv),
                 chunk("noise", "Noisy detections were handled with filtering, repeated observations, stability thresholds, retry, repositioning, and recovery behaviour.", .cv),
                 chunk("vla", "VLA MuJoCo evaluation compared diffusion, autoregressive, and flow-matching decoders; diffusion gave smoother continuous actions and seven out of ten successful grasps.", .cv),
+                chunk("detector", "YOLOv8 detector debugging used frame logs, bounding boxes, class confidence, calibration checks, lighting and occlusion review, and recovery before retraining.", .cv),
+                chunk("tradeoff", "Robotics trade-off: LeoRover prioritized robust filtering, recovery behaviour, ROS2 coordination, and reliable real robot execution over latency and model complexity.", .cv),
                 chunk("skills", "Skills: Python, ROS2, C++, robotics projects, control coordination, experiment scripting, and performance-critical robotics systems.", .cv)
             ],
             jobDescriptionChunks: [

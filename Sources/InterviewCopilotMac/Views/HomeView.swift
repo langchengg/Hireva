@@ -208,6 +208,7 @@ struct HomeView: View {
 
             if let card = appState.currentSuggestion, !card.sayFirst.isEmpty {
                 answerCard(card)
+                recentAnswersList
             } else if appState.shouldShowBlockingAnswerSpinner || !appState.streamedSayFirst.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Say First")
@@ -283,6 +284,32 @@ struct HomeView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recentAnswersList: some View {
+        let cards = Array(appState.liveSuggestionHistory.suffix(4).reversed())
+        if cards.count > 1 {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Recent answers")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(cards) { card in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(card.questionText ?? "Interview question")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(2)
+                        Text(card.sayFirst)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
             }
         }

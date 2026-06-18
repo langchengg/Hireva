@@ -16,55 +16,7 @@ enum QuestionIntentPromptPolicy {
     }
 
     static func intent(for questionText: String) -> AnswerRelevanceIntent {
-        let text = normalize(questionText)
-        if text.contains("diffusion") && (text.contains("autoregressive") || text.contains("auto regressive")) {
-            return .modelComparison
-        }
-        if text.contains("diffusion") && text.contains("robotic manipulation") {
-            return .diffusionPolicy
-        }
-        if text.contains("action decoder") || text.contains("policy") || text.contains("flow matching") || text.contains("flow-matching") {
-            return .modelComparison
-        }
-        if text.contains("diffusion decoder") ||
-            text.contains("diffusion-based policy") ||
-            text.contains("diffusion policy") ||
-            text.contains("mujoco") ||
-            text.contains("mu jo co") ||
-            text.contains("autoregressive") ||
-            text.contains("flow matching") {
-            return .modelComparison
-        }
-        if text.contains("hardest technical challenge") ||
-            text.contains("hardest challenge") ||
-            text.contains("pipeline was most fragile") ||
-            text.contains("most fragile") ||
-            text.contains("clean demo") ||
-            text.contains("real robot execution") {
-            return .technicalChallenge
-        }
-        if text.contains("about yourself") || text.contains("brought you into robotics") || text.contains("introduce yourself") {
-            return .tellMeAboutYourself
-        }
-        if text.contains("leorover") || text.contains("leo rover") || text.contains("walk me through") {
-            return .projectWalkthrough
-        }
-        if text.contains("noisy detections") || text.contains("localisation errors") || text.contains("localization errors") {
-            return .errorHandling
-        }
-        if text.contains("another month") || text.contains("change first") || text.contains("improve first") {
-            return .improvementPlan
-        }
-        if text.contains("python") || text.contains("c plus plus") || text.contains("ros2") || text.contains("rose two") {
-            return .skillComfort
-        }
-        if text.contains("questions for us") || text.contains("questions for you") || text.contains("do you have any questions") {
-            return .candidateQuestions
-        }
-        if text.contains("why do you want") || text.contains("join our team") || text.contains("this role") {
-            return .whyRole
-        }
-        return .generic
+        IntentRouter.answerIntent(for: questionText)
     }
 
     static func filterContext(_ context: RetrievedContext, intent: AnswerRelevanceIntent) -> RetrievedContext {
@@ -99,9 +51,51 @@ enum QuestionIntentPromptPolicy {
                 jobDescriptionChunks: [],
                 additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
             )
+        case .decoderComparison:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["vla", "mujoco", "franka", "decoder", "autoregressive", "diffusion", "flow-matching", "flow matching", "seven out of ten", "7/10", "one out of ten", "1/10"], limit: 3),
+                jobDescriptionChunks: [],
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
+        case .perceptionDebugging:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["yolov8", "detector", "wrong prediction", "false positive", "frames", "calibration", "lighting", "occlusion", "bounding boxes", "confidence", "temporal", "spatial", "recovery", "leorover"], limit: 3),
+                jobDescriptionChunks: [],
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
+        case .technicalTradeoff:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["trade-off", "tradeoff", "robustness", "latency", "complexity", "reliability", "leorover", "vla", "filtering", "recovery", "ros2", "integration"], limit: 3),
+                jobDescriptionChunks: Array(context.jobDescriptionChunks.prefix(1)),
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
+        case .datasetAdaptation:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["droid", "mujoco", "franka", "trajectory", "trajectories", "demonstration", "action", "observation", "coordinate", "timing"], limit: 3),
+                jobDescriptionChunks: [],
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
+        case .simToRealDebugging:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["sim-to-real", "sim to real", "mujoco", "real robot", "calibration", "contact dynamics", "action scaling", "latency", "domain randomization", "failure"], limit: 3),
+                jobDescriptionChunks: [],
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
+        case .projectComparison:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["vla", "mujoco", "franka", "action decoder", "leorover", "ros2", "yolov8", "navigation", "manipulation", "real robot"], limit: 4),
+                jobDescriptionChunks: Array(context.jobDescriptionChunks.prefix(1)),
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
+        case .systemIntegrationDebugging:
+            return RetrievedContext(
+                cvChunks: pick(context.cvChunks, keywords: ["leorover", "ros2", "system integration", "perception", "navigation", "manipulation", "timing", "logs", "timestamps", "sensor", "recovery", "reliability"], limit: 3),
+                jobDescriptionChunks: Array(context.jobDescriptionChunks.prefix(1)),
+                additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            )
         case .improvementPlan:
             return RetrievedContext(
-                cvChunks: pick(context.cvChunks, keywords: ["evaluation", "failure cases", "more objects", "initial positions", "robust perception", "visual grounding", "reranking", "grasp candidates"], limit: 3),
+                cvChunks: pick(context.cvChunks, keywords: ["leorover", "real robot", "evaluation", "failure cases", "more objects", "initial positions", "robust perception", "lighting", "occlusion", "spatial consistency", "calibration", "latency", "recovery"], limit: 3),
                 jobDescriptionChunks: Array(context.jobDescriptionChunks.prefix(1)),
                 additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
             )
@@ -117,7 +111,7 @@ enum QuestionIntentPromptPolicy {
                 jobDescriptionChunks: pick(context.jobDescriptionChunks, keywords: ["python", "c++", "ros2", "software"], limit: 1),
                 additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
             )
-        case .candidateQuestions:
+        case .candidateQuestions, .interviewerQuestions:
             return RetrievedContext(
                 cvChunks: [],
                 jobDescriptionChunks: pick(context.jobDescriptionChunks, keywords: ["team", "evaluation", "deployment", "success", "robotics", "role"], limit: 2),
@@ -139,58 +133,7 @@ enum QuestionIntentPromptPolicy {
     /// instructions. Model-comparison fallbacks must directly compare diffusion
     /// and autoregressive behavior.
     static func fallbackAnswer(for question: DetectedQuestion) -> IntentFallbackAnswer {
-        switch intent(for: question.questionText) {
-        case .tellMeAboutYourself:
-            return IntentFallbackAnswer(
-                sayFirst: "I’m currently studying MSc Robotics at the University of Manchester, and my computer science background brought me into robotics because it combines software, perception, manipulation, and real-world AI systems.",
-                keyPoints: ["MSc Robotics and computer science background.", "Interest in robotics through software, perception, control, and AI.", "Recent direction: perception, manipulation, and decision making."]
-            )
-        case .projectWalkthrough:
-            return IntentFallbackAnswer(
-                sayFirst: "My LeoRover project was an autonomous object retrieval robot. I worked on the ROS2 pipeline, YOLOv8 object detection, target localisation, navigation coordination, and connecting that perception output to manipulation.",
-                keyPoints: ["Goal: search, localise, navigate, and pick up a target object.", "Role: ROS2, YOLOv8, localisation, navigation, and manipulation coordination.", "Learning: real robot integration matters as much as each module."]
-            )
-        case .technicalChallenge:
-            return IntentFallbackAnswer(
-                sayFirst: "The hardest technical challenge was making the real robot pipeline reliable, because noisy perception, localisation instability, timing mismatch, and module integration made real robot execution much less predictable than simulation.",
-                keyPoints: ["Challenge: perception, localisation, navigation, and manipulation integration.", "Why hard: noisy inputs and real robot uncertainty.", "Outcome: added more robust coordination and recovery behaviour."]
-            )
-        case .errorHandling:
-            return IntentFallbackAnswer(
-                sayFirst: "I handled noisy detections by using filtering, repeated observations, and a stability threshold before acting, then adding recovery behaviour such as retrying, repositioning, or adjusting when localisation was unreliable.",
-                keyPoints: ["Did not trust a single detection.", "Used repeated observations and stability checks.", "Added retry, reposition, and recovery behaviour."]
-            )
-        case .modelComparison, .diffusionPolicy:
-            return IntentFallbackAnswer(
-                sayFirst: "My interpretation is that a diffusion-based policy can be more stable because it denoises a whole continuous action sequence or trajectory, which tends to produce smoother and more robust manipulation motions. An autoregressive policy predicts actions step by step, so small mistakes can compound and accumulate over the sequence.",
-                keyPoints: ["Diffusion refines a full continuous action trajectory through denoising.", "Autoregressive and flow-matching variants were less robust, and autoregressive prediction can accumulate compounding errors step by step.", "In MuJoCo, diffusion reached seven out of ten successful grasps, helped by smoother action generation."]
-            )
-        case .improvementPlan:
-            return IntentFallbackAnswer(
-                sayFirst: "If I had another month, I would improve the evaluation pipeline first by testing more objects, more initial positions, and more failure cases, then strengthen robust perception, visual grounding, and grasp candidate reranking.",
-                keyPoints: ["First priority: broader evaluation and failure cases.", "Next: more robust perception and visual grounding.", "Then: better reranking for grasp candidates."]
-            )
-        case .whyRole:
-            return IntentFallbackAnswer(
-                sayFirst: "I’m interested in this role because it connects directly with my robotics, AI, and perception experience, and I want to keep building systems that move from prototypes into reliable real robot deployment while growing as an engineer.",
-                keyPoints: ["Role alignment with robotics, AI, and perception.", "Interest in real robot deployment and deployed systems.", "Growth motivation in practical robotics engineering."]
-            )
-        case .skillComfort:
-            return IntentFallbackAnswer(
-                sayFirst: "I’m comfortable with Python and ROS2 from my robotics projects, especially perception pipelines, robot coordination, and experiment scripting. I have used C++ less than Python, but I understand its importance for performance-critical robotics systems and I’m actively improving it.",
-                keyPoints: ["Python: strong for experiments, perception, and scripting.", "ROS2: used in robotics project pipelines and coordination.", "C++: honest learning area, important for performance-critical systems."]
-            )
-        case .candidateQuestions:
-            return IntentFallbackAnswer(
-                sayFirst: "Yes, I’d like to ask how your team evaluates success when moving a robotics system from prototype demos to reliable real-world deployment.",
-                keyPoints: ["Ask about team evaluation and success criteria.", "Focus on deployment, reliability, and real-world robotics.", "Keep it interviewer-facing, not a self-introduction."]
-            )
-        case .generic:
-            return IntentFallbackAnswer(
-                sayFirst: "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned.",
-                keyPoints: ["Direct answer first.", "Concrete example from experience.", "Outcome or lesson learned."]
-            )
-        }
+        ProjectGroundedFallbackPolicy.fallbackAnswer(for: question)
     }
 
     static func answerShape(for intent: AnswerRelevanceIntent) -> String {
@@ -205,6 +148,20 @@ enum QuestionIntentPromptPolicy {
             return "noisy detections/localisation issue -> filtering/repeated observations/recovery -> robust execution"
         case .modelComparison, .diffusionPolicy:
             return "directly compare diffusion vs autoregressive vs flow-matching -> smoother continuous actions -> robustness -> success rate if available"
+        case .decoderComparison:
+            return "MuJoCo VLA setup -> autoregressive vs diffusion vs flow-matching -> empirical result -> lesson about trajectory generation"
+        case .perceptionDebugging:
+            return "reproduce frames/logs -> inspect boxes/classes/confidence -> check calibration/lighting/occlusion -> validate/recover before retraining"
+        case .technicalTradeoff:
+            return "trade-off -> concrete robotics decision -> reliability impact -> lesson learned"
+        case .datasetAdaptation:
+            return "DROID source data -> MuJoCo/Franka target setup -> action/observation mapping -> coordinate/timing validation"
+        case .simToRealDebugging:
+            return "compare sim versus real -> observations/actions/timing/calibration -> isolate perception/control/dynamics/distribution shift"
+        case .projectComparison:
+            return "VLA learning-policy simulation work -> LeoRover real robot integration work -> concrete difference and shared robotics lesson"
+        case .systemIntegrationDebugging:
+            return "STAR debugging story -> LeoRover/ROS2 integration issue -> logs/timestamps/isolation -> recovery/reliability lesson"
         case .improvementPlan:
             return "what to improve first -> why -> concrete next steps"
         case .whyRole:
@@ -213,6 +170,8 @@ enum QuestionIntentPromptPolicy {
             return "Python -> ROS2 -> C++ -> honest strength and active learning"
         case .candidateQuestions:
             return "ask the interviewer one question about team, evaluation, deployment, or success criteria; do not answer about my background"
+        case .interviewerQuestions:
+            return "ask the interviewer 3-5 concise questions about success criteria, deployment challenges, team structure, infrastructure, or ownership; do not answer about my background"
         case .generic:
             return "direct answer -> concrete example -> result or lesson"
         }
@@ -227,22 +186,38 @@ enum QuestionIntentPromptPolicy {
     }
 
     private static func normalize(_ text: String) -> String {
-        " " + text
+        " " + ASRCanonicalizer.canonicalizeTerms(text)
             .lowercased()
             .replacingOccurrences(of: "c++", with: "c plus plus")
             .replacingOccurrences(of: "ros 2", with: "ros2")
-            .replacingOccurrences(of: "leader rover", with: "leorover")
-            .replacingOccurrences(of: "leah rover", with: "leorover")
-            .replacingOccurrences(of: "leo rover", with: "leorover")
-            .replacingOccurrences(of: "lero", with: "leorover")
-            .replacingOccurrences(of: "auto rig progressive", with: "autoregressive")
-            .replacingOccurrences(of: "auto regressive", with: "autoregressive")
-            .replacingOccurrences(of: "diffusion-based policy", with: "diffusion policy")
-            .replacingOccurrences(of: "diffusion based policy", with: "diffusion policy")
-            .replacingOccurrences(of: "from n to end", with: "from end to end")
+            .replacingOccurrences(of: "flow matching", with: "flow-matching")
             .replacingOccurrences(of: "\n", with: " ")
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ") + " "
+    }
+
+    private static func isDecoderComparisonQuestion(_ text: String) -> Bool {
+        let mentionsDecoderComparison = text.contains("comparing") ||
+            text.contains("compared") ||
+            text.contains("what did you learn")
+        let mentionsVLAContext = text.contains("mujoco") ||
+            text.contains("vla") ||
+            text.contains("franka") ||
+            text.contains("flow-matching")
+        let modelTerms = ["autoregressive", "diffusion", "flow-matching"].filter { text.contains($0) }.count
+        return mentionsDecoderComparison && mentionsVLAContext && modelTerms >= 2
+    }
+
+    private static func isPerceptionDebuggingQuestion(_ text: String) -> Bool {
+        let mentionsDetector = text.contains("yolov8") ||
+            text.contains("detector") ||
+            text.contains("detection") ||
+            text.contains("prediction")
+        let mentionsDebugging = text.contains("debug") ||
+            text.contains("wrong prediction") ||
+            text.contains("confident but wrong") ||
+            text.contains("false positive")
+        return mentionsDetector && mentionsDebugging
     }
 }

@@ -3,16 +3,19 @@ import GRDB
 
 final class AppDatabase {
     let dbQueue: DatabaseQueue
+    let databaseURL: URL?
 
     init(path: URL = AppPaths.databaseURL) throws {
         try AppPaths.ensureDirectoriesExist()
         let configuration = Self.makeConfiguration()
         dbQueue = try DatabaseQueue(path: path.path, configuration: configuration)
+        databaseURL = path
         try migrator.migrate(dbQueue)
     }
 
     init(inMemory: Bool) throws {
         dbQueue = try DatabaseQueue(configuration: Self.makeConfiguration())
+        databaseURL = nil
         try migrator.migrate(dbQueue)
     }
 
