@@ -133,15 +133,17 @@ struct RuntimeSmokeHarnessTests {
     func incompleteStreamSuiteRejectsPartialProviderAnswerAndUsesFallback() async throws {
         guard Self.shouldRun("incomplete-stream") else { return }
         let harness = try makeHarness(suite: "incomplete-stream")
+        defer { harness.appState.cancelStageBTask() }
         harness.client.incompleteStageAForNeedle = "engineering team"
         let delayProvider = MockDelayProvider()
         delayProvider.sleepDuration = 2_000_000_000
         harness.appState.delayProvider = delayProvider
-        harness.appState.generationFullCardWatchdogNanoseconds = 3_000_000_000
+        harness.appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         await harness.feed(text: "What would you ask the engineering team to understand whether this role is a good fit?", id: "incomplete-stream-q1")
 
         try await harness.waitForRows(1)
+        try await harness.waitForTraceEvent("partialAnswerRejectedIncomplete")
         let rows = try harness.rows()
         let trace = try harness.traceText()
         harness.printSummary(rows: rows, trace: trace)
@@ -244,6 +246,24 @@ private struct RuntimeSmokeHarness {
                     domain: "RuntimeSmokeHarnessTests",
                     code: 1,
                     userInfo: [NSLocalizedDescriptionKey: diagnostic]
+                )
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
+    func waitForTraceEvent(_ eventType: String, timeout: TimeInterval = 60.0) async throws {
+        let expected = "\"event_type\":\"\(eventType)\""
+        let start = Date()
+        while true {
+            if (try? traceText().contains(expected)) == true {
+                return
+            }
+            if Date().timeIntervalSince(start) > timeout {
+                throw NSError(
+                    domain: "RuntimeSmokeHarnessTests",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for trace event \(eventType)."]
                 )
             }
             try await Task.sleep(nanoseconds: 25_000_000)

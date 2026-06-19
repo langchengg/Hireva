@@ -229,6 +229,7 @@ struct ManualCaptureTests {
         let trackingLLM = TrackingLLMClient()
         let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
         let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
         appState.refreshAll()
 
         // 1. Force microphone manual capture source
@@ -237,15 +238,22 @@ struct ManualCaptureTests {
         appState.saveSettings(settings)
 
         // Mock audio capture start
+        var captureStarted = false
+        var transcriptionStarted = false
         ManualQuestionCaptureService.mockStartCapture = { source, maxSecs, timeoutBlock in
             #expect(source == .microphone)
+            captureStarted = true
         }
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+        ManualQuestionCaptureService.mockCancelCapture = {}
+        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in
+            transcriptionStarted = true
+        }
+        ManualQuestionTranscriptionService.mockCancel = {}
 
         // Act
         appState.startManualCapture()
         var elapsedStart = 0
-        while appState.manualCaptureState != .recording && elapsedStart < 100 {
+        while (appState.manualCaptureState != .recording || !captureStarted || !transcriptionStarted) && elapsedStart < 100 {
             try? await Task.sleep(for: .milliseconds(20))
             elapsedStart += 1
         }
@@ -254,6 +262,8 @@ struct ManualCaptureTests {
         #expect(mockPermission.micRequestedCount == 1)
         #expect(mockPermission.speechRequestedCount == 1)
         #expect(appState.manualCaptureState == .recording)
+        #expect(captureStarted)
+        #expect(transcriptionStarted)
     }
 
     // MARK: - Requirement 3 Test

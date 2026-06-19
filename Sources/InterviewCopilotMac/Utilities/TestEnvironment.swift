@@ -9,8 +9,10 @@ public func isRunningUnderTestOrAutomation() -> Bool {
     if env["XCTestBundlePath"] != nil || env["XCS"] != nil || env["ANTIGRAVITY"] != nil {
         return true
     }
-    let processName = ProcessInfo.processInfo.processName
-    if processName.contains("xctest") || processName.contains("swift-test") {
+    let processName = ProcessInfo.processInfo.processName.lowercased()
+    if processName.contains("xctest") ||
+        processName.contains("swift-test") ||
+        processName.contains("swiftpm-testing-helper") {
         return true
     }
     return false

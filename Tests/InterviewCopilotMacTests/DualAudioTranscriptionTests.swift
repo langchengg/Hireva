@@ -74,9 +74,9 @@ struct DualAudioTranscriptionTests {
         let systemSession = try #require(service.systemAudioSession)
         
         var segmentsCollected: [TranscriptSegment] = []
-        
+        let segmentStream = service.segments
         let collectorTask = Task {
-            for await segment in service.segments {
+            for await segment in segmentStream {
                 segmentsCollected.append(segment)
                 if segmentsCollected.count >= 2 {
                     break
@@ -112,9 +112,9 @@ struct DualAudioTranscriptionTests {
         let systemSession = try #require(service.systemAudioSession)
         
         var segmentsCollected: [TranscriptSegment] = []
-        
+        let segmentStream = service.segments
         let collectorTask = Task {
-            for await segment in service.segments {
+            for await segment in segmentStream {
                 segmentsCollected.append(segment)
                 if segmentsCollected.count >= 2 {
                     break
@@ -212,6 +212,7 @@ struct DualAudioTranscriptionTests {
     }
     
     @Test
+    @MainActor
     func longPartialWithShortFinalASRQualityLogic() async throws {
         let service = AppleSpeechTranscriptionService()
         try await service.start(sessionID: "test_session_id", captureMode: .microphoneOnly)
@@ -219,8 +220,9 @@ struct DualAudioTranscriptionTests {
         let micSession = try #require(service.microphoneSession)
         
         var segmentsCollected: [TranscriptSegment] = []
+        let segmentStream = service.segments
         let collectorTask = Task {
-            for await segment in service.segments {
+            for await segment in segmentStream {
                 segmentsCollected.append(segment)
                 if segmentsCollected.count >= 2 {
                     break
@@ -229,10 +231,10 @@ struct DualAudioTranscriptionTests {
         }
         
         // 1. Emit a long, complete partial
-        await micSession.simulateEmit(text: "This is my complete candidate answer regarding robotics experience", isFinal: false)
+        micSession.simulateEmit(text: "This is my complete candidate answer regarding robotics experience", isFinal: false)
         
         // 2. Emit a short final pass (less than 50% words)
-        await micSession.simulateEmit(text: "Take", isFinal: true)
+        micSession.simulateEmit(text: "Take", isFinal: true)
         
         // Stop service to complete AsyncStream
         service.stop()
@@ -248,6 +250,7 @@ struct DualAudioTranscriptionTests {
     }
     
     @Test
+    @MainActor
     func emptyFinalWithMeaningfulPartialQualityLogic() async throws {
         let service = AppleSpeechTranscriptionService()
         try await service.start(sessionID: "test_session_id", captureMode: .microphoneOnly)
@@ -255,8 +258,9 @@ struct DualAudioTranscriptionTests {
         let micSession = try #require(service.microphoneSession)
         
         var segmentsCollected: [TranscriptSegment] = []
+        let segmentStream = service.segments
         let collectorTask = Task {
-            for await segment in service.segments {
+            for await segment in segmentStream {
                 segmentsCollected.append(segment)
                 if segmentsCollected.count >= 2 {
                     break
@@ -265,10 +269,10 @@ struct DualAudioTranscriptionTests {
         }
         
         // 1. Emit a meaningful partial
-        await micSession.simulateEmit(text: "Robotics and VLA policies", isFinal: false)
+        micSession.simulateEmit(text: "Robotics and VLA policies", isFinal: false)
         
         // 2. Emit an empty final pass
-        await micSession.simulateEmit(text: "", isFinal: true)
+        micSession.simulateEmit(text: "", isFinal: true)
         
         service.stop()
         _ = await collectorTask.result
@@ -282,6 +286,7 @@ struct DualAudioTranscriptionTests {
     }
     
     @Test
+    @MainActor
     func goodFinalUsesFinalQualityLogic() async throws {
         let service = AppleSpeechTranscriptionService()
         try await service.start(sessionID: "test_session_id", captureMode: .microphoneOnly)
@@ -289,8 +294,9 @@ struct DualAudioTranscriptionTests {
         let micSession = try #require(service.microphoneSession)
         
         var segmentsCollected: [TranscriptSegment] = []
+        let segmentStream = service.segments
         let collectorTask = Task {
-            for await segment in service.segments {
+            for await segment in segmentStream {
                 segmentsCollected.append(segment)
                 if segmentsCollected.count >= 2 {
                     break
@@ -299,10 +305,10 @@ struct DualAudioTranscriptionTests {
         }
         
         // 1. Emit partial
-        await micSession.simulateEmit(text: "This is a good candidate", isFinal: false)
+        micSession.simulateEmit(text: "This is a good candidate", isFinal: false)
         
         // 2. Emit a good final (similar or longer)
-        await micSession.simulateEmit(text: "This is a good candidate answer.", isFinal: true)
+        micSession.simulateEmit(text: "This is a good candidate answer.", isFinal: true)
         
         service.stop()
         _ = await collectorTask.result
@@ -345,8 +351,9 @@ struct DualAudioTranscriptionTests {
         systemSession.simulatedTaskActive = true
         
         var segmentsCollected: [TranscriptSegment] = []
+        let segmentStream = service.segments
         let collectorTask = Task {
-            for await segment in service.segments {
+            for await segment in segmentStream {
                 print("[VerificationStream] Yielded segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
                 segmentsCollected.append(segment)
                 try? transcriptRepo.saveSegment(segment)

@@ -33,6 +33,13 @@ public final class AudioDeviceRouteMonitor: ObservableObject {
 
     /// Sets up notifications for configuration change, capture connection, and app focus fallback.
     private func setupObservers() {
+        // Swift tests create many AppState instances while sharing the process-wide
+        // AudioEngineManager. Real hardware notifications can otherwise rebuild a
+        // test-owned tap concurrently and make AVFAudio abort before Swift can catch
+        // an error. Tests exercise route handling explicitly; production keeps all
+        // external observers enabled.
+        guard !isRunningUnderTestOrAutomation() else { return }
+
         // 1. AVAudioEngine configuration change
         let configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,

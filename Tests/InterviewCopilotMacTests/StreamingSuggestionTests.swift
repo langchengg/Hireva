@@ -327,12 +327,26 @@ struct StreamingSuggestionTests {
 // MARK: - Mocks for Testing
 
 final class MockDelayProvider: DelayProvider, @unchecked Sendable {
-    var delayCalledWithNanoseconds: [UInt64] = []
-    var sleepDuration: UInt64 = 0
+    private let lock = NSLock()
+    private var delayCalledWithNanosecondsStorage: [UInt64] = []
+    private var sleepDurationStorage: UInt64 = 0
+
+    var delayCalledWithNanoseconds: [UInt64] {
+        lock.withLock { delayCalledWithNanosecondsStorage }
+    }
+
+    var sleepDuration: UInt64 {
+        get { lock.withLock { sleepDurationStorage } }
+        set { lock.withLock { sleepDurationStorage = newValue } }
+    }
+
     func sleep(nanoseconds: UInt64) async throws {
-        delayCalledWithNanoseconds.append(nanoseconds)
-        if sleepDuration > 0 {
-            try await Task.sleep(nanoseconds: sleepDuration)
+        let duration = lock.withLock {
+            delayCalledWithNanosecondsStorage.append(nanoseconds)
+            return sleepDurationStorage
+        }
+        if duration > 0 {
+            try await Task.sleep(nanoseconds: duration)
         }
     }
 }
@@ -468,7 +482,7 @@ struct StreamingSoftFallbackTests {
             []
         ]
         mockClient.streamDelayNS = 0
-        mockClient.chatResultDelayNS = 100_000_000
+        mockClient.chatResultDelayNS = 0
         
         // Detailed Stage B suggestion card returned as JSON
         mockClient.chatResultContent = """
@@ -508,6 +522,9 @@ struct StreamingSoftFallbackTests {
         appState.delayProvider = mockDelay
         appState.stageATimeoutSeconds = 60.0
         appState.lateDeepSeekReplacementWindowSeconds = 60.0
+        // The production full-card watchdog is not part of this soft-fallback test.
+        // Keep it from racing the deterministic mock Stage B completion under suite load.
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
         
         let session = InterviewSession(id: "sess-1", title: "Test", company: "C", role: "R", startedAt: Date(), endedAt: nil, mode: .microphone, createdAt: Date())
         try await database.dbQueue.write { db in

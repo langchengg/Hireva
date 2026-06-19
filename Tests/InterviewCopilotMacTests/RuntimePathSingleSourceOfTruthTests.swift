@@ -639,6 +639,7 @@ struct RuntimePathSingleSourceOfTruthTests {
     func rapidThreeQuestionSequencePersistsAllRowsAndKeepsLatestCurrentCard() async throws {
         let traceURL = temporaryTraceURL("runtime-three-question-history-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        let expectedLatestQuestion = "Can you explain the difference between your VLA project and your LeoRover project"
         let transcript = [
             "What would you ask the engineering team to understand whether this role is a good fit",
             "If you had one more month to improve your LeoRover system, what would you improve first",
@@ -651,18 +652,20 @@ struct RuntimePathSingleSourceOfTruthTests {
             text: transcript
         ))
 
-        try await waitUntil(timeout: 60.0) {
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return rows.count == 3 &&
-                appState.liveSuggestionHistory.count == 3 &&
-                appState.currentSuggestion?.questionIntent == .projectComparison
-        }
+        try await awaitPersistenceIdle(
+            appState,
+            sessionID: session.id,
+            expectedRowCount: 3,
+            expectedCurrentQuestion: expectedLatestQuestion,
+            traceURL: traceURL,
+            timeout: 60.0
+        )
 
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         let rowQuestions = rows.compactMap(\.questionText)
         #expect(rows.count == 3)
         #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == rowQuestions)
-        #expect(appState.currentSuggestion?.questionText == "Can you explain the difference between your VLA project and your LeoRover project")
+        #expect(appState.currentSuggestion?.questionText == expectedLatestQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("VLA") == true)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("LeoRover") == true)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
@@ -751,10 +754,13 @@ struct RuntimePathSingleSourceOfTruthTests {
             text: "What would you ask the engineering team to understand whether this role is a good fit?"
         ))
 
-        try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 &&
-            appState.liveSuggestionHistory.count == 1
-        }
+        try await awaitPersistenceIdle(
+            appState,
+            sessionID: session.id,
+            expectedRowCount: 1,
+            traceURL: traceURL,
+            timeout: 60.0
+        )
 
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         let persisted = try #require(rows.first)
@@ -786,12 +792,14 @@ struct RuntimePathSingleSourceOfTruthTests {
             text: transcript
         ))
 
-        try await waitUntil(timeout: 60.0) {
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return rows.count == 3 &&
-                appState.liveSuggestionHistory.count == 3 &&
-                appState.currentSuggestion?.questionIntent == .projectComparison
-        }
+        try await awaitQueueIdle(appState, timeout: 60.0)
+        try await awaitPersistenceIdle(
+            appState,
+            sessionID: session.id,
+            expectedRowCount: 3,
+            traceURL: traceURL,
+            timeout: 60.0
+        )
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.components(separatedBy: "\"event_type\":\"questionQueued\"").count - 1 >= 2)
@@ -801,6 +809,53 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 3)
         #expect(!trace.contains("blocked_stage_b_pending"))
         #expect(!trace.contains("blocked_stale_generation_flags"))
+    }
+
+    @Test
+    func rapidThreeQuestionQueueAndPersistenceRemainStableAcrossTenIsolatedRuns() async throws {
+        let transcript = [
+            "What would you ask the engineering team to understand whether this role is a good fit?",
+            "If you had one more month to improve your LeoRover system, what would you improve first?",
+            "Can you explain the difference between your VLA project and your LeoRover project?"
+        ].joined(separator: " ")
+        let expectedIntents: Set<String> = [
+            AnswerRelevanceIntent.interviewerQuestions.rawValue,
+            AnswerRelevanceIntent.improvementPlan.rawValue,
+            AnswerRelevanceIntent.projectComparison.rawValue
+        ]
+        let terminalPunctuation = CharacterSet(charactersIn: ".!?")
+
+        for iteration in 1...10 {
+            let traceURL = temporaryTraceURL("runtime-rapid-three-repeat-\(iteration)")
+            let (appState, session, _) = try makeAppState(traceURL: traceURL)
+
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-rapid-three-repeat-\(iteration)",
+                sessionID: session.id,
+                text: transcript
+            ))
+
+            try await awaitQueueIdle(appState, timeout: 60.0)
+            try await awaitPersistenceIdle(
+                appState,
+                sessionID: session.id,
+                expectedRowCount: 3,
+                traceURL: traceURL,
+                timeout: 60.0
+            )
+
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            let questionTexts = rows.compactMap(\.questionText)
+            #expect(rows.count == 3, "iteration \(iteration)")
+            #expect(Set(rows.map(\.id)).count == 3, "duplicate row in iteration \(iteration)")
+            #expect(Set(questionTexts).count == 3, "duplicate question in iteration \(iteration)")
+            #expect(Set(rows.compactMap { $0.questionIntent?.rawValue }) == expectedIntents, "wrong intents in iteration \(iteration)")
+            #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion }, "question/prompt mismatch in iteration \(iteration)")
+            #expect(rows.allSatisfy { QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted }, "incomplete answer in iteration \(iteration)")
+            #expect(rows.allSatisfy {
+                $0.sayFirst.unicodeScalars.last.map(terminalPunctuation.contains) == true
+            }, "unterminated answer in iteration \(iteration)")
+        }
     }
 
     @Test
@@ -965,6 +1020,38 @@ struct RuntimePathSingleSourceOfTruthTests {
                 )
             }
             try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
+    private func awaitQueueIdle(_ appState: AppState, timeout: TimeInterval) async throws {
+        try await waitUntil(timeout: timeout) {
+            appState.pendingAcceptedQuestions.isEmpty &&
+                !appState.suggestionGenerationStarted &&
+                !appState.isStreamingSayFirst &&
+                !appState.isExpandingSuggestionCard &&
+                !appState.providerStreamActive &&
+                !appState.stageBTaskActive &&
+                !appState.fallbackWatchdogActive &&
+                appState.generationUIState.isTerminal
+        }
+    }
+
+    private func awaitPersistenceIdle(
+        _ appState: AppState,
+        sessionID: String,
+        expectedRowCount: Int,
+        expectedCurrentQuestion: String? = nil,
+        traceURL: URL,
+        timeout: TimeInterval
+    ) async throws {
+        try await waitUntil(timeout: timeout) {
+            let rowCount = (try? appState.suggestionRepository.suggestions(sessionID: sessionID).count) ?? 0
+            let trace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+            let successCount = countOccurrences(of: "\"event_type\":\"persistenceSucceeded\"", in: trace)
+            return rowCount == expectedRowCount &&
+                appState.liveSuggestionHistory.count == expectedRowCount &&
+                expectedCurrentQuestion.map { appState.currentSuggestion?.questionText == $0 } != false &&
+                successCount >= expectedRowCount
         }
     }
 

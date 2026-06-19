@@ -41,6 +41,7 @@ BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
 EXPECTED_BUNDLE_PATH="$APP_BUNDLE"
+OLD_BUNDLE_DELETED_BEFORE_REBUILD="no"
 
 # --- Handle --reset-tcc mode early ---
 if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
@@ -113,6 +114,14 @@ fi
 # Always remove the old bundle before assembly so Finder never launches stale code.
 echo "[bundle] Removing stale bundle at $APP_BUNDLE ..."
 rm -rf "$APP_BUNDLE"
+find "$DIST_DIR" -name '._*' -delete 2>/dev/null || true
+find "$DIST_DIR" -name '.DS_Store' -delete 2>/dev/null || true
+if [[ ! -e "$APP_BUNDLE" ]]; then
+    OLD_BUNDLE_DELETED_BEFORE_REBUILD="yes"
+else
+    echo "[bundle] ERROR: stale app bundle still exists after removal: $APP_BUNDLE" >&2
+    exit 1
+fi
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 
 # Copy the SPM product binary, renamed to match CFBundleExecutable
@@ -166,36 +175,83 @@ cp "$APP_ICON_SOURCE" "$APP_ICON_BUNDLE"
 # Google Drive/Finder can leave extended attributes or AppleDouble files inside
 # the assembled bundle; codesign rejects those as resource-fork detritus.
 echo "[sign] Clearing bundle extended attributes before signing..."
-touch "$APP_BUNDLE"
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-find "$APP_BUNDLE" -name "._*" -delete 2>/dev/null || true
+find "$DIST_DIR" -name '._*' -delete 2>/dev/null || true
+find "$DIST_DIR" -name '.DS_Store' -delete 2>/dev/null || true
+
+print_signing_diagnostics() {
+    local signing_details
+    local team_identifier
+    local signing_authority
+    local quarantine_exists="no"
+    local inside_google_drive="no"
+    local apple_double_file
+
+    echo ""
+    echo "======================================================================"
+    echo "Signing and launch diagnostics"
+    echo "======================================================================"
+    echo "App path: $APP_BUNDLE"
+    echo "Executable path: $APP_BINARY"
+    echo "Bundle ID: $BUNDLE_ID"
+
+    signing_details="$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 || true)"
+    team_identifier="$(printf '%s\n' "$signing_details" | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+    signing_authority="$(printf '%s\n' "$signing_details" | awk -F= '/^Authority=/{print $2; exit}')"
+    echo "TeamIdentifier: ${team_identifier:-not set}"
+    echo "Signing authority: ${signing_authority:-none (ad-hoc or unsigned)}"
+
+    if xattr -p com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1; then
+        quarantine_exists="yes"
+    fi
+    if [[ "$APP_BUNDLE" == *"/Library/CloudStorage/GoogleDrive-"* ]]; then
+        inside_google_drive="yes"
+    fi
+    apple_double_file="$(find "$APP_BUNDLE" -name '._*' -print -quit 2>/dev/null || true)"
+    echo "Quarantine xattr exists: $quarantine_exists"
+    echo "Inside Google Drive path: $inside_google_drive"
+    if [[ -n "$apple_double_file" ]]; then
+        echo "AppleDouble files exist: yes ($apple_double_file)"
+    else
+        echo "AppleDouble files exist: no"
+    fi
+    echo "Old app deleted before rebuild: $OLD_BUNDLE_DELETED_BEFORE_REBUILD"
+
+    echo ""
+    echo "+ codesign -dv --verbose=4 $APP_BUNDLE"
+    codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 || true
+    echo "+ codesign --verify --deep --strict --verbose=4 $APP_BUNDLE"
+    codesign --verify --deep --strict --verbose=4 "$APP_BUNDLE" 2>&1 || true
+    echo "+ spctl --assess --type execute --verbose=4 $APP_BUNDLE"
+    spctl --assess --type execute --verbose=4 "$APP_BUNDLE" 2>&1 || true
+    echo "+ xattr -lr $APP_BUNDLE"
+    xattr -lr "$APP_BUNDLE" 2>&1 || true
+    echo "+ log show --predicate 'process == \"amfid\" OR eventMessage CONTAINS \"InterviewCopilotMac\"' --last 5m --style compact"
+    /usr/bin/log show \
+        --predicate 'process == "amfid" OR eventMessage CONTAINS "InterviewCopilotMac"' \
+        --last 5m \
+        --style compact 2>&1 || true
+    echo "======================================================================"
+}
 
 # --- Code Signing ---
-# Prefer an explicit local identity so Keychain/TCC can trust the same
-# designated requirement across rebuilds:
+# Use an explicit local identity so Keychain/TCC can trust the same designated
+# requirement across rebuilds:
 #   INTERVIEW_COPILOT_SIGNING_IDENTITY="Apple Development: Name (TEAMID)" ./script/build_and_run.sh --verify
-# Then try Apple Development automatically. Fall back to ad-hoc (--sign -)
-# only when no stable identity exists.
-SIGNING_IDENTITY=""
-if [[ -n "$REQUESTED_SIGNING_IDENTITY" ]]; then
-    SIGNING_IDENTITY="$REQUESTED_SIGNING_IDENTITY"
-elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development"; then
-    SIGNING_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-        | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)"/\1/')
-fi
+echo "[sign] Available code-signing identities:"
+security find-identity -v -p codesigning || true
+SIGNING_IDENTITY="$REQUESTED_SIGNING_IDENTITY"
 
 if [[ -n "$SIGNING_IDENTITY" ]]; then
-    echo "[sign] Signing with Apple Development: $SIGNING_IDENTITY"
+    echo "[sign] Signing with configured identity: $SIGNING_IDENTITY"
     codesign --force --deep --options runtime \
         --sign "$SIGNING_IDENTITY" \
         "$APP_BUNDLE"
 else
     echo "================================================================================"
-    echo "⚠️  WARNING: No Apple Development signing identity found. Falling back to ad-hoc signing."
-    echo "⚠️  macOS Screen/System Audio permissions may reset after rebuilds."
-    echo "⚠️  Keychain may ask again after each rebuild because ad-hoc CDHash changes."
-    echo "⚠️  Install/use a stable Apple Development identity and set:"
-    echo "⚠️  INTERVIEW_COPILOT_SIGNING_IDENTITY=\"Apple Development: Name (TEAMID)\""
+    echo "Using ad-hoc signing. AMFI may reject this on some systems."
+    echo "For stable verification, install/configure Apple Development signing identity."
+    echo "Set INTERVIEW_COPILOT_SIGNING_IDENTITY=\"Apple Development: Name (TEAMID)\""
     echo "================================================================================"
     codesign --force --deep \
         --sign - \
@@ -203,13 +259,17 @@ else
 fi
 
 echo "[sign] Verifying code signature..."
-codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+if ! codesign --verify --deep --strict --verbose=4 "$APP_BUNDLE"; then
+    echo "[sign] ERROR: code signature verification failed." >&2
+    print_signing_diagnostics
+    exit 1
+fi
 
 echo ""
 echo "[sign] Running signing diagnostics..."
 codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 || true
 codesign -d -r- "$APP_BUNDLE" 2>&1 || true
-spctl --assess --type execute --verbose "$APP_BUNDLE" || true
+spctl --assess --type execute --verbose=4 "$APP_BUNDLE" || true
 echo ""
 
 echo "[sign] Log Identity Information:"
@@ -239,7 +299,7 @@ open_app() {
     echo "[Launch]   Binary Path: $APP_BINARY"
     echo "[Launch]   Signature Info:"
     codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature" | sed 's/^/  /' || true
-    /usr/bin/open "$APP_BUNDLE"
+    /usr/bin/open -n "$APP_BUNDLE"
 }
 
 case "$MODE" in
@@ -261,21 +321,34 @@ case "$MODE" in
         /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
         ;;
     --verify|verify)
-        open_app
+        if open_app; then
+            :
+        else
+            launch_status=$?
+            echo "[verify] ERROR: open failed with exit $launch_status." >&2
+            print_signing_diagnostics
+            exit "$launch_status"
+        fi
+        APP_PID=""
         for i in {1..20}; do
-            if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -f "$APP_BINARY" >/dev/null; then
+            APP_PID="$(pgrep -f "$APP_BINARY" | head -1 || true)"
+            if [[ -n "$APP_PID" ]]; then
                 break
             fi
             sleep 0.5
         done
-        if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -f "$APP_BINARY" >/dev/null; then
-            echo "[verify] ✅ $EXECUTABLE_NAME is running."
+        if [[ -n "$APP_PID" ]]; then
+            sleep 2
+        fi
+        if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" >/dev/null 2>&1; then
+            echo "[verify] ✅ $EXECUTABLE_NAME is running from the expected path (pid $APP_PID)."
             echo "[verify] Bundle: $APP_BUNDLE"
             echo "[verify] Bundle ID: $BUNDLE_ID"
             echo "[verify] CFBundleExecutable: $EXECUTABLE_NAME"
             codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature" || true
         else
-            echo "[verify] ❌ $EXECUTABLE_NAME is NOT running."
+            echo "[verify] ❌ $EXECUTABLE_NAME is NOT running from $APP_BINARY."
+            print_signing_diagnostics
             exit 1
         fi
         ;;

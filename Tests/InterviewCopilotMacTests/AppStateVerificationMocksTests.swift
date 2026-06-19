@@ -5,6 +5,14 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AppStateVerificationMocksTests {
+
+    @Test
+    func swiftPMTestingHelperIsDetectedAsTestEnvironment() {
+        #expect(
+            isRunningUnderTestOrAutomation(),
+            "Undetected test host: \(ProcessInfo.processInfo.processName)"
+        )
+    }
     
     private func makeTemporaryDatabase() throws -> AppDatabase {
         let directory = FileManager.default.temporaryDirectory
