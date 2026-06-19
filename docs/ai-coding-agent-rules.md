@@ -33,3 +33,10 @@ assisted changes.
   failures, and Gatekeeper trust policy.
 - Run `scripts/release_status.sh` for read-only branch, bundle, signing, DB, and
   trace metadata. Never include secrets in its output.
+- Use `scripts/package_local_release.sh` only after its verification contract is
+  understood; never weaken its allowlist or forbidden-artifact scan.
+- Use `scripts/signing_status.sh` to classify signing without inventing an
+  identity or hiding ad-hoc limitations.
+- Follow `docs/local-workspace-migration.md`, `docs/notarization-prep.md`, and
+  `docs/rollback-known-good.md` for local migration, future notarization, and
+  recovery. Never place credentials or runtime data in release artifacts.

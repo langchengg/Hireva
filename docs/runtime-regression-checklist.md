@@ -119,3 +119,8 @@ also pass.
 - Release acceptance and rollback: `docs/release-checklist.md`
 - Stable local signing and Gatekeeper diagnosis: `docs/macos-local-signing.md`
 - Read-only release metadata and runtime paths: `scripts/release_status.sh`
+- Local allowlisted package creation: `scripts/package_local_release.sh`
+- Signing identity classification: `scripts/signing_status.sh`
+- Non-cloud workspace migration: `docs/local-workspace-migration.md`
+- Future notarization requirements: `docs/notarization-prep.md`
+- Known-good rollback: `docs/rollback-known-good.md`

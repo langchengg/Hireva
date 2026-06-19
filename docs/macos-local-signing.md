@@ -86,3 +86,11 @@ If metadata keeps returning:
 Do not add entitlements speculatively to fix a metadata or trust-policy failure.
 Public distribution additionally requires an appropriate distribution identity,
 hardened runtime/entitlements review, and Apple notarization validation.
+
+## Phase 2J Distribution References
+
+- Package a validated local handoff: `scripts/package_local_release.sh`
+- Classify installed identities and current signature: `scripts/signing_status.sh`
+- Move builds out of Google Drive: `docs/local-workspace-migration.md`
+- Prepare future Developer ID notarization: `docs/notarization-prep.md`
+- Restore a known-good source safely: `docs/rollback-known-good.md`

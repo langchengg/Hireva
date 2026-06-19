@@ -49,11 +49,38 @@ The individual commands are useful when isolating a failure:
 ./script/build_and_run.sh --verify
 ./scripts/db_diagnostics.sh
 ./scripts/release_status.sh
+./scripts/signing_status.sh
 ```
 
 `db_diagnostics.sh` and `release_status.sh` are read-only. DB diagnostics can
 contain interview questions and answers; release status intentionally emits
 only row/event metadata. Treat all captured operational logs as sensitive.
+
+## Create a Local Release Package
+
+Create an allowlisted local package and ZIP after the full gate:
+
+```bash
+./scripts/package_local_release.sh
+```
+
+For package-structure diagnostics only, the gate can be skipped while the app
+is still rebuilt and verified:
+
+```bash
+./scripts/package_local_release.sh --skip-verify
+```
+
+Output is written under `release/InterviewCopilotMac-local-YYYYMMDD-HHMMSS/`
+with a sibling ZIP and `RELEASE_INFO.txt`. Inspect signing state with
+`scripts/signing_status.sh`. The package intentionally excludes repository,
+build cache, DB, trace, Keychain, and transcript data.
+
+This is a local handoff/archive package, not a portable installed-app release.
+The current build identity embeds the source workspace's absolute `dist` path,
+so launching the copied app elsewhere can display the existing stale-build
+warning. Run and verify the canonical `dist/InterviewCopilotMac.app` when an
+unambiguous build-identity check is required.
 
 ## Configure the DeepSeek Key
 
@@ -146,3 +173,11 @@ repeat the manual test and retain DB/trace evidence.
 Attach the completed `docs/release-checklist.md`, the output of
 `./scripts/release_status.sh`, and redacted verification logs. Record the exact
 commit/tag and whether the build used ad-hoc or Apple Development signing.
+
+Additional operator references:
+
+- `scripts/package_local_release.sh`
+- `scripts/signing_status.sh`
+- `docs/local-workspace-migration.md`
+- `docs/notarization-prep.md`
+- `docs/rollback-known-good.md`

@@ -283,6 +283,127 @@ struct RuntimeVerificationScriptTests {
         #expect(!result.output.contains(secret))
     }
 
+    @Test
+    func phase2JDistributionScriptsExposeSafeContracts() throws {
+        let packageURL = repositoryRoot.appendingPathComponent("scripts/package_local_release.sh")
+        let signingURL = repositoryRoot.appendingPathComponent("scripts/signing_status.sh")
+
+        for url in [packageURL, signingURL] {
+            #expect(FileManager.default.fileExists(atPath: url.path), "Missing \(url.lastPathComponent)")
+            #expect(FileManager.default.isExecutableFile(atPath: url.path), "Not executable: \(url.lastPathComponent)")
+        }
+
+        let help = try runScript(
+            at: packageURL,
+            currentDirectory: repositoryRoot,
+            arguments: ["--help"]
+        )
+        #expect(help.status == 0)
+        #expect(help.output.contains("Usage:"))
+        #expect(help.output.contains("--skip-verify"))
+
+        let packageContents = try String(contentsOf: packageURL, encoding: .utf8)
+        for snippet in [
+            "./scripts/verify_runtime_stability.sh",
+            "./script/build_and_run.sh --verify",
+            "codesign --verify --deep --strict",
+            "RELEASE_INFO.txt",
+            "docs/local-workspace-migration.md",
+            "docs/notarization-prep.md",
+            "docs/rollback-known-good.md",
+            "interview_copilot.sqlite",
+            "runtime_transcript_trace.jsonl",
+            ".git",
+            ".build",
+            ".DS_Store",
+            "._*"
+        ] {
+            #expect(packageContents.contains(snippet), "Package contract is missing \(snippet)")
+        }
+
+        let signing = try runScript(at: signingURL, currentDirectory: repositoryRoot)
+        #expect(signing.status == 0)
+        for label in [
+            "Apple Development identities:",
+            "Developer ID Application identities:",
+            "INTERVIEW_COPILOT_SIGNING_IDENTITY:",
+            "Signing status:"
+        ] {
+            #expect(signing.output.contains(label), "Signing status is missing \(label)")
+        }
+        let allowedStatuses = [
+            "AD_HOC_ONLY",
+            "APPLE_DEVELOPMENT_AVAILABLE",
+            "DEVELOPER_ID_AVAILABLE",
+            "UNKNOWN"
+        ]
+        #expect(allowedStatuses.contains { signing.output.contains("Signing status: \($0)") })
+    }
+
+    @Test
+    func phase2JDocsExistAndReleaseDocsLinkDistributionWorkflow() throws {
+        let newDocuments = [
+            "docs/local-workspace-migration.md",
+            "docs/notarization-prep.md",
+            "docs/rollback-known-good.md"
+        ]
+        for relativePath in newDocuments {
+            #expect(
+                FileManager.default.fileExists(atPath: repositoryRoot.appendingPathComponent(relativePath).path),
+                "Missing \(relativePath)"
+            )
+        }
+
+        let migration = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/local-workspace-migration.md"),
+            encoding: .utf8
+        )
+        #expect(migration.contains("$HOME/Developer/InterviewCopilotMac"))
+        #expect(migration.contains("rsync -a --delete"))
+        #expect(migration.contains("--exclude '.git'"))
+
+        let notarization = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/notarization-prep.md"),
+            encoding: .utf8
+        )
+        #expect(notarization.contains("Developer ID Application"))
+        #expect(notarization.contains("xcrun notarytool"))
+        #expect(notarization.contains("xcrun stapler"))
+        #expect(notarization.contains("app-specific password"))
+
+        let rollback = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/rollback-known-good.md"),
+            encoding: .utf8
+        )
+        #expect(rollback.contains("git tag --list"))
+        #expect(rollback.contains("phase2h-runtime-stability-gate-complete"))
+        #expect(rollback.contains("phase2i-release-packaging-complete"))
+        #expect(rollback.contains("phase2j-local-distribution-prep-complete"))
+
+        let requiredReferences = [
+            "scripts/package_local_release.sh",
+            "scripts/signing_status.sh",
+            "docs/local-workspace-migration.md",
+            "docs/notarization-prep.md",
+            "docs/rollback-known-good.md"
+        ]
+        for relativePath in [
+            "docs/release-runbook.md",
+            "docs/release-checklist.md",
+            "docs/macos-local-signing.md",
+            "docs/runtime-regression-checklist.md",
+            "docs/ai-coding-agent-rules.md"
+        ] {
+            let contents = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            for reference in requiredReferences {
+                #expect(contents.contains(reference), "\(relativePath) is missing \(reference)")
+            }
+        }
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
