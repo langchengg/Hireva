@@ -5,6 +5,48 @@ import Testing
 @Suite
 struct RepositoryTests {
     @Test
+    func transcriptUpdatePreservesDetectedQuestionForeignKey() throws {
+        let database = try makeTemporaryDatabase()
+        let sessions = SessionRepository(database: database)
+        let transcripts = TranscriptRepository(database: database)
+        let suggestions = SuggestionRepository(database: database)
+        let session = try sessions.createSession(mode: .mock, title: "Transcript upsert")
+        let segmentID = "stable-apple-segment"
+        let first = TranscriptSegment(
+            id: segmentID,
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "Could you explain your LeoRover project?",
+            createdAt: Date(),
+            asrFinalizationReason: "partial"
+        )
+        try transcripts.saveSegment(first)
+        let question = DetectedQuestion(
+            id: "linked-question",
+            sessionID: session.id,
+            transcriptSegmentID: segmentID,
+            questionText: first.text,
+            intent: .projectDeepDive,
+            answerStrategy: .projectWalkthrough,
+            confidence: 0.95,
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "test",
+            promptVersion: "test",
+            createdAt: Date()
+        )
+        try suggestions.saveDetectedQuestion(question)
+        var final = first
+        final.text = "Could you explain your LeoRover project from end to end?"
+        final.asrFinalizationReason = "stable_partial"
+        try transcripts.saveSegment(final)
+
+        #expect(try suggestions.questions(sessionID: session.id).first?.transcriptSegmentID == segmentID)
+        #expect(try transcripts.segmentByID(segmentID)?.text == final.text)
+    }
+
+    @Test
     func documentRepositoryPersistsDocumentsChunksAndOnboardingGate() throws {
         let database = try makeTemporaryDatabase()
         let repository = DocumentRepository(database: database)

@@ -51,6 +51,7 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var promptTokenEstimate: Int? = nil
     var promptContextPreview: String? = nil
     var mismatchReason: String? = nil
+    var ingressIdentity: TranscriptQuestionIngressIdentity? = nil
 
     var detectedQuestionID: String? {
         get { questionID }

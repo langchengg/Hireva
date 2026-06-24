@@ -12,6 +12,8 @@ struct AcceptedQuestionCandidate: Equatable {
     var answerStrategy: AnswerStrategy
     var answerRelevanceIntent: AnswerRelevanceIntent
     var duplicateKey: String
+    var sourceStartUTF16: Int
+    var sourceEndUTF16: Int
 }
 
 /// Pure transcript-to-question pipeline. It must not mutate UI state, write the
@@ -30,13 +32,28 @@ enum QuestionCandidatePipeline {
             return []
         }
 
-        let canonicalInput = ASRCanonicalizer.canonicalizeTerms(collapsed)
-        let bounded = String(canonicalInput.prefix(maxInputCharacters))
-        let rawQuestions = MultiQuestionSplitter.split(bounded)
+        // Split against the recognizer's formatted source text so provenance
+        // offsets remain stable. Canonicalization can change string length and
+        // therefore happens independently inside each source slice.
+        let bounded = String(collapsed.prefix(maxInputCharacters))
+        let rawQuestions = MultiQuestionSplitter.splitWithRanges(bounded)
         var questions: [AcceptedQuestionCandidate] = []
+        var sourceSliceWasTerminated: [Bool] = []
 
         for raw in rawQuestions {
-            let questionText = RawQuestionCleaner.clean(raw)
+            // A splitter slice extends to the next question start. When the
+            // recognizer supplied punctuation, exclude any intervening
+            // interviewer statement from both the candidate and its source
+            // span.
+            let sourceSlice: String
+            if let questionMark = raw.text.firstIndex(of: "?"),
+               !shouldKeepCompoundQuestionTail(after: questionMark, in: raw.text) {
+                sourceSlice = String(raw.text[...questionMark])
+            } else {
+                sourceSlice = raw.text
+            }
+            let canonicalSlice = ASRCanonicalizer.canonicalizeTerms(sourceSlice)
+            let questionText = RawQuestionCleaner.clean(canonicalSlice)
             guard QuestionCompletenessGate.isCompleteQuestion(questionText, isFinal: segment.isFinal),
                   !RawQuestionCleaner.isSmallTalkOnly(questionText) else {
                 continue
@@ -49,30 +66,76 @@ enum QuestionCandidatePipeline {
                 intent: classified.intent,
                 answerStrategy: classified.strategy,
                 answerRelevanceIntent: IntentRouter.answerIntent(for: questionText),
-                duplicateKey: SemanticDuplicateKeyBuilder.key(for: questionText)
+                duplicateKey: SemanticDuplicateKeyBuilder.key(for: questionText),
+                sourceStartUTF16: raw.startUTF16,
+                sourceEndUTF16: raw.startUTF16 + (sourceSlice as NSString).length
             )
-            if let duplicateIndex = questions.firstIndex(where: { SemanticDuplicateKeyBuilder.areDuplicates($0.text, extracted.text) }) {
-                if SemanticDuplicateKeyBuilder.shouldPrefer(extracted.text, over: questions[duplicateIndex].text) {
-                    questions[duplicateIndex] = extracted
+            if let existingIndex = questions.firstIndex(where: {
+                $0.duplicateKey == extracted.duplicateKey &&
+                    max($0.sourceStartUTF16, extracted.sourceStartUTF16) < min($0.sourceEndUTF16, extracted.sourceEndUTF16)
+            }) {
+                if extracted.text.count >= questions[existingIndex].text.count {
+                    questions[existingIndex] = extracted
+                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
                 }
-            } else {
-                questions.append(extracted)
+                continue
             }
+            if let existingIndex = questions.firstIndex(where: { $0.duplicateKey == extracted.duplicateKey }),
+               !sourceSliceWasTerminated[existingIndex] {
+                // Consecutive unpunctuated variants in one ASR callback are a
+                // recognizer correction/expansion, not a second utterance.
+                // Keep the more complete physical span. A terminated first
+                // occurrence remains distinct so an explicit later repeat is
+                // preserved.
+                if extracted.text.count >= questions[existingIndex].text.count {
+                    questions[existingIndex] = extracted
+                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
+                }
+                continue
+            }
+            // Keep semantically repeated questions when they occupy distinct
+            // source spans. Ingress provenance decides whether the later span
+            // is an intentional repeat or cumulative replay.
+            questions.append(extracted)
+            sourceSliceWasTerminated.append(sourceSlice.contains("?"))
             if questions.count >= maxExtractedQuestions { break }
         }
 
         return questions
     }
+
+    private static func shouldKeepCompoundQuestionTail(after questionMark: String.Index, in text: String) -> Bool {
+        let tailStart = text.index(after: questionMark)
+        guard tailStart < text.endIndex else { return false }
+        let tail = String(text[tailStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowerTail = tail.lowercased()
+        guard lowerTail.hasPrefix("what made ") else { return false }
+        let prefix = String(text[..<questionMark]).lowercased()
+        return prefix.contains("system") ||
+            prefix.contains("project") ||
+            prefix.contains("pipeline") ||
+            prefix.contains("leorover")
+    }
 }
 
 enum MultiQuestionSplitter {
+    struct QuestionSlice: Equatable {
+        let text: String
+        let startUTF16: Int
+        let endUTF16: Int
+    }
+
     static func split(_ text: String) -> [String] {
+        splitWithRanges(text).map(\.text)
+    }
+
+    static func splitWithRanges(_ text: String) -> [QuestionSlice] {
         let bounded = QuestionTextUtilities.collapse(text)
         let lower = bounded.lowercased()
         let starts = questionStarts(in: lower)
         guard !starts.isEmpty else { return [] }
 
-        var questions: [String] = []
+        var questions: [QuestionSlice] = []
         for index in starts.indices {
             let start = starts[index]
             let end = index + 1 < starts.count ? starts[index + 1] : bounded.count
@@ -82,7 +145,11 @@ enum MultiQuestionSplitter {
             guard startIndex <= endIndex, endIndex <= bounded.endIndex else {
                 continue
             }
-            questions.append(String(bounded[startIndex..<endIndex]))
+            questions.append(QuestionSlice(
+                text: String(bounded[startIndex..<endIndex]),
+                startUTF16: start,
+                endUTF16: end
+            ))
         }
         return questions
     }

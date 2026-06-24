@@ -12,12 +12,28 @@ final class TranscriptRepository {
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT OR REPLACE INTO transcript_segments (
+                INSERT INTO transcript_segments (
                     id, session_id, speaker, text, start_time, end_time, created_at,
                     source, input_device_name, output_device_name, device_id, confidence,
                     asr_first_partial_ms, asr_final_ms, asr_best_selected_ms, asr_finalization_reason
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    speaker = excluded.speaker,
+                    text = excluded.text,
+                    start_time = excluded.start_time,
+                    end_time = excluded.end_time,
+                    created_at = excluded.created_at,
+                    source = excluded.source,
+                    input_device_name = excluded.input_device_name,
+                    output_device_name = excluded.output_device_name,
+                    device_id = excluded.device_id,
+                    confidence = excluded.confidence,
+                    asr_first_partial_ms = excluded.asr_first_partial_ms,
+                    asr_final_ms = excluded.asr_final_ms,
+                    asr_best_selected_ms = excluded.asr_best_selected_ms,
+                    asr_finalization_reason = excluded.asr_finalization_reason
                 """,
                 arguments: [
                     segment.id,
@@ -107,4 +123,3 @@ final class TranscriptRepository {
         )
     }
 }
-

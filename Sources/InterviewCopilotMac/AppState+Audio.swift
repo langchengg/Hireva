@@ -317,6 +317,7 @@ extension AppState {
         transcriptSegments = []
         resetRuntimeTranscriptState(clearEvents: true)
         currentSuggestion = nil
+        manualCaptureSuggestion = nil
         liveSuggestionHistory = []
         currentSuggestionRetrievedChunks = []
         lastDetectedQuestion = nil
@@ -346,6 +347,19 @@ extension AppState {
         lastDetectionAt = nil
         lastAutoQuestionText = nil
         recentQuestionTimestamps.removeAll()
+        acceptedQuestionSegmentIDs.removeAll()
+        consumedQuestionOccurrenceKeys.removeAll()
+        consumedQuestionSourceSpanKeys.removeAll()
+        consumedQuestionOccurrences.removeAll()
+        consumedQuestionSourceSpans.removeAll()
+        consumedQuestionAbsoluteSourceSpans.removeAll()
+        acceptedNormalizedQuestionKeys.removeAll()
+        intentionalRepeatQuestionIDs.removeAll()
+        transcriptReconciler.reset()
+        cancelledPersistenceGenerationIDs.removeAll()
+        terminalGenerationIDs.removeAll()
+        suggestionPersistenceClaims.removeAll()
+        successfulSuggestionPersistenceOwners.removeAll()
         recentQuestionsFingerprints.removeAll()
         precomputedRAGCache.removeAll()
         streamedSayFirst = ""
@@ -510,11 +524,26 @@ extension AppState {
 
         stopAudioSignalMonitoring()
         recentQuestionsFingerprints.removeAll()
+        recentQuestionTimestamps.removeAll()
+        acceptedQuestionSegmentIDs.removeAll()
+        consumedQuestionOccurrenceKeys.removeAll()
+        consumedQuestionSourceSpanKeys.removeAll()
+        consumedQuestionOccurrences.removeAll()
+        consumedQuestionSourceSpans.removeAll()
+        consumedQuestionAbsoluteSourceSpans.removeAll()
+        acceptedNormalizedQuestionKeys.removeAll()
+        intentionalRepeatQuestionIDs.removeAll()
+        transcriptReconciler.reset()
+        cancelledPersistenceGenerationIDs.removeAll()
+        terminalGenerationIDs.removeAll()
+        suggestionPersistenceClaims.removeAll()
+        successfulSuggestionPersistenceOwners.removeAll()
 
         currentSession = nil
         transcriptSegments = []
         resetRuntimeTranscriptState(clearEvents: true)
         currentSuggestion = nil
+        manualCaptureSuggestion = nil
         liveSuggestionHistory = []
         lastDetectedQuestion = nil
         possibleQuestion = nil

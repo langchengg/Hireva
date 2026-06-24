@@ -5,6 +5,18 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func repeatedQuestionAtNewSourceSpanRemainsASeparateCandidate() {
+        let question = "What was the hardest technical challenge in making the real robot work reliably?"
+        let transcript = "\(question) The interviewer asks it again. \(question)"
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+
+        #expect(candidates.count == 2)
+        #expect(candidates.map(\.duplicateKey).allSatisfy { $0 == SemanticDuplicateKeyBuilder.key(for: question) })
+        #expect(Set(candidates.map(\.sourceStartUTF16)).count == 2)
+    }
+
+    @Test
     func asrCanonicalizerNormalizesKnownRuntimeVariants() {
         let text = "Muja Cove with flowmatching on a layover using YOLO eight, from N to end, and a seem to real gap"
         let canonical = ASRCanonicalizer.canonicalizeTerms(text)
@@ -99,6 +111,31 @@ struct QuestionCandidatePipelineTests {
             "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [.decoderComparison, .perceptionDebugging])
+    }
+
+    @Test
+    func relatedWhatMadeFollowUpStaysInOneCompoundQuestion() {
+        let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+
+        #expect(candidates.map(\.text) == [
+            "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+        ])
+        #expect(candidates.first?.answerRelevanceIntent == .perceptionDebugging)
+    }
+
+    @Test
+    func unrelatedPunctuatedQuestionsSplitIntoSeparateCandidates() {
+        let transcript = "How did your LeoRover system connect YOLOv8 detection with localization and navigation? What questions would you ask us about the team before accepting an offer?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+
+        #expect(candidates.map(\.text) == [
+            "How did your LeoRover system connect YOLOv8 detection with localization and navigation?",
+            "What questions would you ask us about the team before accepting an offer?"
+        ])
+        #expect(candidates.map(\.answerRelevanceIntent) == [.perceptionDebugging, .interviewerQuestions])
     }
 
     @Test

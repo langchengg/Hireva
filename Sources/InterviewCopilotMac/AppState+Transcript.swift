@@ -94,7 +94,10 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.questionConfidence = localQuestion.confidence
             lastTranscriptQuestionGenerationTrace.questionIntent = localQuestion.reason
         }
-        let extractedSystemAudioQuestions = extractSystemAudioQuestionsIfNeeded(from: segment)
+        let questionExtractionSegment = systemAudioSegmentForQuestionExtraction(from: segment)
+        let extractedSystemAudioQuestions = questionExtractionSegment.map {
+            extractSystemAudioQuestionsIfNeeded(from: $0)
+        } ?? []
         if !extractedSystemAudioQuestions.isEmpty {
             lastTranscriptQuestionGenerationTrace.extractedQuestionCount = extractedSystemAudioQuestions.count
             lastTranscriptQuestionGenerationTrace.extractedQuestionsPreview = extractedSystemAudioQuestions.map(\.text)
@@ -327,16 +330,21 @@ extension AppState {
            let session = currentSession {
             recordTranscriptRuntimeEvent(.utteranceCandidate(
                 sessionID: segment.sessionID,
-                text: segment.text,
+                text: questionExtractionSegment?.text ?? segment.text,
                 timestamp: Date()
             ))
+            recordLifecycleTrace(
+                "question.detected",
+                sessionID: segment.sessionID,
+                text: questionExtractionSegment?.text ?? segment.text
+            )
             // Multi-question transcripts are split before generation so the
             // current answer is bound to one clean latest interviewer question,
             // not to a merged monologue.
             self.lastDetectionSkipReason = ""
             processExtractedSystemAudioQuestions(
                 extractedSystemAudioQuestions,
-                segment: segment,
+                segment: questionExtractionSegment ?? segment,
                 session: session,
                 suggestionTranscript: recentTranscriptText()
             )
@@ -409,12 +417,22 @@ extension AppState {
             recordTranscriptRuntimeEvent(.asrPartial(
                 sessionID: segment.sessionID,
                 text: segment.text,
+                recognitionTaskID: segment.recognitionTaskID,
+                eventSequence: segment.recognitionEventSequence,
+                sourceStartUTF16: segment.sourceTextStartUTF16,
+                sourceEndUTF16: segment.sourceTextEndUTF16,
+                isFinal: false,
                 timestamp: segment.createdAt
             ))
         } else {
             recordTranscriptRuntimeEvent(.asrFinal(
                 sessionID: segment.sessionID,
                 text: segment.text,
+                recognitionTaskID: segment.recognitionTaskID,
+                eventSequence: segment.recognitionEventSequence,
+                sourceStartUTF16: segment.sourceTextStartUTF16,
+                sourceEndUTF16: segment.sourceTextEndUTF16,
+                isFinal: segment.recognitionIsFinal ?? true,
                 timestamp: segment.createdAt
             ))
         }
@@ -461,7 +479,12 @@ extension AppState {
                     asrFirstPartialMS: current.asrFirstPartialMS,
                     asrFinalMS: current.asrFinalMS,
                     asrBestSelectedMS: current.asrBestSelectedMS,
-                    asrFinalizationReason: "stable_partial"
+                    asrFinalizationReason: "stable_partial",
+                    recognitionTaskID: current.recognitionTaskID,
+                    recognitionEventSequence: current.recognitionEventSequence,
+                    sourceTextStartUTF16: current.sourceTextStartUTF16,
+                    sourceTextEndUTF16: current.sourceTextEndUTF16,
+                    recognitionIsFinal: true
                 )
             }
 
@@ -567,6 +590,9 @@ extension AppState {
             card,
             result: persistenceGuard
         )
+        guard claimSuggestionPersistence(sanitizedCard, generationID: sanitizedCard.generationID) else {
+            return
+        }
         let repository = suggestionRepository
         recordTranscriptRuntimeEvent(.persistenceStarted(
             sessionID: sanitizedCard.sessionID,
@@ -578,6 +604,12 @@ extension AppState {
         markSQLiteOperation("Saving suggestion snapshot in background")
         Task.detached(priority: .utility) { [weak self, sanitizedCard] in
             do {
+                guard let self else { return }
+                guard !(await self.rejectCancelledPersistenceIfNeeded(
+                    card: sanitizedCard,
+                    generationID: sanitizedCard.generationID,
+                    sourceCallback: "snapshot_validation"
+                )) else { return }
                 let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(sanitizedCard)
                 guard detachedGuard.accepted else {
                     await MainActor.run { [weak self] in
@@ -608,6 +640,11 @@ extension AppState {
                     sanitizedCard,
                     result: detachedGuard
                 )
+                guard !(await self.rejectCancelledPersistenceIfNeeded(
+                    card: detachedCard,
+                    generationID: detachedCard.generationID,
+                    sourceCallback: "snapshot_sqlite_save"
+                )) else { return }
                 try repository.saveSuggestionCard(detachedCard, retrievedChunks: chunks)
                 await MainActor.run { [weak self, detachedCard] in
                     guard let self else { return }
@@ -616,13 +653,18 @@ extension AppState {
                         sessionID: detachedCard.sessionID,
                         latestQuestion: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? ""
                     )
-                    self.recordTranscriptRuntimeEvent(.persistenceSucceeded(
-                        sessionID: detachedCard.sessionID,
-                        questionID: detachedCard.detectedQuestionID ?? detachedCard.questionID,
-                        generationID: detachedCard.generationID,
-                        question: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? "",
-                        timestamp: Date()
-                    ))
+                    if self.markSuggestionPersistenceSucceededOnce(
+                        cardID: detachedCard.id,
+                        generationID: detachedCard.generationID
+                    ) {
+                        self.recordTranscriptRuntimeEvent(.persistenceSucceeded(
+                            sessionID: detachedCard.sessionID,
+                            questionID: detachedCard.detectedQuestionID ?? detachedCard.questionID,
+                            generationID: detachedCard.generationID,
+                            question: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? "",
+                            timestamp: Date()
+                        ))
+                    }
                 }
             } catch {
                 await MainActor.run { [weak self] in

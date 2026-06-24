@@ -28,6 +28,7 @@ enum StageBDecision: String, Codable, Equatable, Hashable {
 /// The decision has no authority to mutate UI or persistence. It only explains
 /// how the already-owned AppState generation lifecycle should treat a result.
 struct GenerationStageBResult: Equatable {
+    let identity: GenerationIdentity?
     let generationID: String
     let detectedQuestionID: String?
     let providerResult: GenerationProviderResult?
@@ -36,4 +37,26 @@ struct GenerationStageBResult: Equatable {
     let fallbackReason: String?
     let safeDiagnostics: [String: String]
     let alignmentResult: AnswerAlignmentResult?
+
+    init(
+        generationID: String,
+        detectedQuestionID: String?,
+        providerResult: GenerationProviderResult?,
+        decision: StageBDecision,
+        classification: StageBResultClassification,
+        fallbackReason: String?,
+        safeDiagnostics: [String: String],
+        alignmentResult: AnswerAlignmentResult?,
+        identity: GenerationIdentity? = nil
+    ) {
+        self.identity = identity ?? providerResult?.identity
+        self.generationID = generationID
+        self.detectedQuestionID = detectedQuestionID
+        self.providerResult = providerResult
+        self.decision = decision
+        self.classification = classification
+        self.fallbackReason = fallbackReason
+        self.safeDiagnostics = safeDiagnostics
+        self.alignmentResult = alignmentResult
+    }
 }

@@ -39,6 +39,12 @@ struct GenerationExecutionContextTests {
         #expect(context.generationID == "generation-context-1")
         #expect(context.triggerPath == .autoDetect)
         #expect(context.startedAt == acceptedAt)
+        #expect(context.identity.acceptedQuestionID == question.id)
+        #expect(context.identity.sessionID == session.id)
+        #expect(context.identity.questionText == question.questionText)
+        #expect(context.identity.normalizedQuestionText == SemanticDuplicateKeyBuilder.key(for: question.questionText))
+        #expect(context.identity.questionIntent == AnswerRelevancePolicy.intent(for: question.questionText))
+        #expect(context.identity.promptPrimaryQuestion == question.questionText)
     }
 
     @Test
@@ -62,6 +68,7 @@ struct GenerationExecutionContextTests {
         #expect(request.providerID == "deepseek-main")
         #expect(request.model == "deepseek-v4")
         #expect(request.streamingEnabled)
+        #expect(request.identity == context.identity)
     }
 
     @Test

@@ -93,6 +93,7 @@ struct GenerationCoordinatorTests {
         #expect(result.providerModel == "mock-model-[REDACTED_API_KEY]")
         #expect(result.providerName == "DeepSeek [REDACTED_API_KEY]")
         #expect(result.safeDiagnostics.values.contains { $0.contains(rawKey) } == false)
+        #expect(result.identity == input.request.identity)
         #expect(client.chatCallCount == 1)
         #expect(client.lastResponseFormat == .jsonObject)
         #expect(client.lastOptions?.stream == false)
@@ -123,6 +124,7 @@ struct GenerationCoordinatorTests {
         #expect(result.keyPoints.isEmpty)
         #expect(result.providerModel == input.request.model)
         #expect(result.safeDiagnostics["errorClassification"] == "network")
+        #expect(result.identity == input.request.identity)
     }
 
     @Test
@@ -182,7 +184,14 @@ struct GenerationCoordinatorTests {
         let coordinator = GenerationCoordinator()
         let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
         let sections = makeAlignedStageBSections()
-        let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
+        let identity = GenerationIdentity(
+            acceptedQuestionID: "question-apply",
+            generationID: "generation-apply",
+            sessionID: "session-apply",
+            questionText: question,
+            promptPrimaryQuestion: question
+        )
+        let providerResult = makeStageBProviderResult(status: .completed, sections: sections, identity: identity)
         let result = coordinator.interpretStageBResult(
             generationID: "generation-apply",
             detectedQuestionID: "question-apply",
@@ -206,6 +215,8 @@ struct GenerationCoordinatorTests {
         #expect(plan.shouldPersist)
         #expect(plan.shouldUpdateVisibleCard)
         #expect(plan.safeDiagnostics["stageBApplicationAction"] == "applyFullCard")
+        #expect(result.identity == identity)
+        #expect(plan.identity == identity)
     }
 
     @Test
@@ -712,9 +723,11 @@ struct GenerationCoordinatorTests {
         status: GenerationProviderStatus,
         sections: StreamingSuggestionSections?,
         errorClassification: GenerationProviderErrorClassification? = nil,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        identity: GenerationIdentity? = nil
     ) -> GenerationProviderResult {
         GenerationProviderResult(
+            identity: identity,
             sayFirst: sections?.sayFirst ?? "",
             keyPoints: sections?.keyPoints ?? [],
             followUp: sections?.followUpReady ?? [],

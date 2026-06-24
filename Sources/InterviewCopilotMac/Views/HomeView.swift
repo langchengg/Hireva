@@ -4,6 +4,10 @@ struct HomeView: View {
     @ObservedObject var appState: AppState
     @ObservedObject private var audioDeviceManager = AudioDeviceManager.shared
 
+    private var renderState: VisibleAssistantRenderState {
+        appState.visibleAssistantRenderState
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -206,15 +210,28 @@ struct HomeView: View {
                 }
             }
 
+            if let errorText = renderState.generationErrorText {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(errorText)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            }
+
             if let card = appState.currentSuggestion, !card.sayFirst.isEmpty {
                 answerCard(card)
                 recentAnswersList
-            } else if appState.shouldShowBlockingAnswerSpinner || !appState.streamedSayFirst.isEmpty {
+            } else if appState.shouldShowBlockingAnswerSpinner || renderState.hasAnswerText {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Say First")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(appState.homeLiveAnswerPreviewText ?? "Generating first answer...")
+                    Text(renderState.hasAnswerText ? renderState.answerText : "Generating first answer...")
                         .font(.system(size: 17, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -437,13 +454,7 @@ struct HomeView: View {
     }
 
     private var currentQuestionText: String? {
-        if let possible = appState.possibleQuestion {
-            return possible.questionText
-        }
-        if let detected = appState.lastDetectedQuestion {
-            return detected.questionText
-        }
-        return nil
+        !renderState.questionText.isEmpty ? renderState.questionText : nil
     }
 
     private var speakerLeakWarningVisible: Bool {

@@ -14,6 +14,7 @@ struct GenerationProviderRequest: Equatable {
     let providerID: String
     let streamingEnabled: Bool
     let promptPrimaryQuestion: String
+    let identity: GenerationIdentity
     let safeDiagnostics: [String: String]
 
     init(context: GenerationExecutionContext, streamingEnabled: Bool) {
@@ -21,8 +22,7 @@ struct GenerationProviderRequest: Equatable {
             promptSnapshot: context.promptSnapshot,
             providerID: context.providerID,
             model: context.providerModel,
-            generationID: context.generationID,
-            detectedQuestionID: context.detectedQuestionID,
+            identity: context.identity,
             triggerPath: context.triggerPath,
             streamingEnabled: streamingEnabled
         )
@@ -32,8 +32,7 @@ struct GenerationProviderRequest: Equatable {
         promptSnapshot: AnswerPromptSnapshot,
         providerID: String,
         model: String,
-        generationID: String,
-        detectedQuestionID: String,
+        identity: GenerationIdentity,
         triggerPath: GenerationTriggerPath,
         streamingEnabled: Bool
     ) {
@@ -42,13 +41,18 @@ struct GenerationProviderRequest: Equatable {
         self.providerID = Self.redactSecrets(providerID)
         self.streamingEnabled = streamingEnabled
         self.promptPrimaryQuestion = promptSnapshot.promptPrimaryQuestion
+        self.identity = identity
         self.safeDiagnostics = [
-            "detectedQuestionID": Self.redactSecrets(detectedQuestionID),
-            "generationID": Self.redactSecrets(generationID),
+            "acceptedQuestionID": Self.redactSecrets(identity.acceptedQuestionID),
+            "detectedQuestionID": Self.redactSecrets(identity.acceptedQuestionID),
+            "generationID": Self.redactSecrets(identity.generationID),
+            "sessionID": Self.redactSecrets(identity.sessionID),
+            "questionText": Self.redactSecrets(identity.questionText),
+            "normalizedQuestionText": Self.redactSecrets(identity.normalizedQuestionText),
             "providerID": Self.redactSecrets(providerID),
             "model": Self.redactSecrets(model),
             "promptPrimaryQuestion": Self.redactSecrets(promptSnapshot.promptPrimaryQuestion),
-            "questionIntent": promptSnapshot.questionIntent.rawValue,
+            "questionIntent": identity.questionIntent.rawValue,
             "triggerPath": triggerPath.rawValue,
             "streamingEnabled": streamingEnabled ? "true" : "false"
         ]

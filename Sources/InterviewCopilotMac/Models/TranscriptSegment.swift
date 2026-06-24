@@ -95,6 +95,14 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
     var asrBestSelectedMS: Int?
     var asrFinalizationReason: String?
 
+    // Immutable ingress provenance for one recognition callback. These fields
+    // stay in memory/trace only; no database schema change is required.
+    var recognitionTaskID: String?
+    var recognitionEventSequence: Int?
+    var sourceTextStartUTF16: Int?
+    var sourceTextEndUTF16: Int?
+    var recognitionIsFinal: Bool?
+
     init(
         id: String,
         sessionID: String,
@@ -111,7 +119,12 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         asrFirstPartialMS: Int? = nil,
         asrFinalMS: Int? = nil,
         asrBestSelectedMS: Int? = nil,
-        asrFinalizationReason: String? = nil
+        asrFinalizationReason: String? = nil,
+        recognitionTaskID: String? = nil,
+        recognitionEventSequence: Int? = nil,
+        sourceTextStartUTF16: Int? = nil,
+        sourceTextEndUTF16: Int? = nil,
+        recognitionIsFinal: Bool? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -129,6 +142,11 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         self.asrFinalMS = asrFinalMS
         self.asrBestSelectedMS = asrBestSelectedMS
         self.asrFinalizationReason = asrFinalizationReason
+        self.recognitionTaskID = recognitionTaskID
+        self.recognitionEventSequence = recognitionEventSequence
+        self.sourceTextStartUTF16 = sourceTextStartUTF16
+        self.sourceTextEndUTF16 = sourceTextEndUTF16
+        self.recognitionIsFinal = recognitionIsFinal
     }
 
     static func system(_ text: String, sessionID: String = "ephemeral") -> TranscriptSegment {

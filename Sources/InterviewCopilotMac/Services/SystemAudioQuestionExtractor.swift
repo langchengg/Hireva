@@ -5,6 +5,8 @@ struct ExtractedTranscriptQuestion: Equatable {
     var confidence: Double
     var intent: QuestionIntent
     var answerStrategy: AnswerStrategy
+    var sourceStartUTF16: Int
+    var sourceEndUTF16: Int
 }
 
 /// Backwards-compatible facade for system-audio question extraction.
@@ -27,7 +29,9 @@ enum SystemAudioQuestionExtractor {
                 text: $0.text,
                 confidence: $0.confidence,
                 intent: $0.intent,
-                answerStrategy: $0.answerStrategy
+                answerStrategy: $0.answerStrategy,
+                sourceStartUTF16: $0.sourceStartUTF16,
+                sourceEndUTF16: $0.sourceEndUTF16
             )
         }
     }

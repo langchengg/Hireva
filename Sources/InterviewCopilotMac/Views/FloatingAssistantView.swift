@@ -18,6 +18,10 @@ struct FloatingAssistantView: View {
         appState.manualCaptureSuggestion ?? appState.currentSuggestion
     }
 
+    private var renderState: VisibleAssistantRenderState {
+        appState.visibleAssistantRenderState
+    }
+
     private var effectiveOpacity: Double {
         max(appState.settings.highContrastFloatingPanel ? 0.72 : 0.62, appState.settings.floatingWindowOpacity)
     }
@@ -186,6 +190,7 @@ struct FloatingAssistantView: View {
                     diagnosticRow("stageBTaskActive", appState.stageBTaskActive ? "true" : "false")
                     diagnosticRow("providerStreamActive", appState.providerStreamActive ? "true" : "false")
                     diagnosticRow("lastProviderError", appState.currentGenerationTelemetry.providerError ?? "nil")
+                    diagnosticRow("generationError", renderState.generationErrorText ?? "nil")
                     diagnosticRow("lastJSONParseError", appState.currentGenerationTelemetry.jsonParseError ?? "nil")
                     diagnosticRow("lastDBError", appState.currentGenerationTelemetry.dbError ?? "nil")
                     diagnosticRow("cancelledGenerationCount", "\(appState.cancelledGenerationCount)")
@@ -261,6 +266,13 @@ struct FloatingAssistantView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if let errorText = renderState.generationErrorText {
+                Text(errorText)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Text(answerText)
@@ -401,36 +413,27 @@ struct FloatingAssistantView: View {
     }
 
     private var currentQuestionText: String {
-        if let possible = appState.possibleQuestion {
-            return possible.questionText
-        }
-        if let detected = appState.lastDetectedQuestion {
-            return detected.questionText
-        }
-        if !appState.displayTranscriptText.isEmpty {
-            return appState.displayTranscriptText
-        }
-        if !appState.lastTranscriptSnippet.isEmpty {
-            return appState.lastTranscriptSnippet
+        if !renderState.questionText.isEmpty {
+            return renderState.questionText
         }
         return emptyQuestionText
     }
 
     private var answerText: String {
-        if let card = activeCard, !card.sayFirst.isEmpty {
-            return card.sayFirst
-        }
-        if !appState.streamedSayFirst.isEmpty {
-            return appState.streamedSayFirst
+        if renderState.hasAnswerText {
+            return renderState.answerText
         }
         if appState.shouldShowBlockingAnswerSpinner {
             return "Generating first answer..."
+        }
+        if renderState.generationErrorText != nil {
+            return "No answer content was produced."
         }
         return emptyAnswerText
     }
 
     private var keyPoints: [String] {
-        activeCard?.keyPoints ?? []
+        renderState.keyPoints
     }
 
     private var emptyQuestionText: String {

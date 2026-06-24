@@ -424,6 +424,11 @@ struct GenerationUIStateTests {
             source: .systemAudio,
             speaker: .interviewer
         )
+        #expect(appState.activeGenerationController?.identity.acceptedQuestionID == secondQuestion.id)
+        #expect(appState.activeGenerationController?.identity.generationID == generationID)
+        #expect(appState.activeGenerationController?.identity.sessionID == session.id)
+        #expect(appState.activeGenerationController?.identity.questionText == secondQuestion.questionText)
+        #expect(appState.activeGenerationController?.identity.promptPrimaryQuestion == secondQuestion.questionText)
         appState.lastDetectedQuestion = secondQuestion
 
         var staleCard = SuggestionCard(
@@ -478,6 +483,9 @@ struct GenerationUIStateTests {
     @Test
     func stageBStalePlanCannotOverwriteCurrentQuestionCard() async throws {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stale-stage-b-\(UUID().uuidString).jsonl")
+        appState.runtimeTranscriptTraceLogURL = traceURL
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
             text: "Why do you want this role?",
@@ -553,6 +561,392 @@ struct GenerationUIStateTests {
         #expect(visible.questionText == secondQuestion.questionText)
         #expect(visible.sayFirst.localizedCaseInsensitiveContains("first project") == false)
         #expect(appState.staleAnswerDiscardCount >= 1)
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"staleGenerationResultRejected\""))
+        #expect(trace.contains("\"event_type\":\"currentCardRegressionRejected\""))
+        #expect(trace.contains("\"old_generation_id\":\"generation-stage-b-first\""))
+        #expect(trace.contains("\"current_generation_id\":\"\(generationID)\""))
+        #expect(trace.contains("\"old_question_text\":\"\(firstQuestion.questionText)\""))
+        #expect(trace.contains("\"current_question_text\":\"\(secondQuestion.questionText)\""))
+        #expect(trace.contains("\"old_accepted_question_id\":\"\(firstQuestion.id)\""))
+        #expect(trace.contains("\"current_accepted_question_id\":\"\(secondQuestion.id)\""))
+        #expect(trace.contains("\"source_callback\":\"stage_b_application\""))
+    }
+
+    @Test
+    func lateFirstProviderCardCannotOverwriteSecondCurrentCard() throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stale-provider-\(UUID().uuidString).jsonl")
+        appState.runtimeTranscriptTraceLogURL = traceURL
+        let secondQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "Why do you want this role?",
+            suffix: "late-provider-second"
+        )
+        let secondGenerationID = "late-provider-generation-2"
+        appState.activateGeneration(
+            question: secondQuestion,
+            generationID: secondGenerationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        var secondCard = SuggestionCard(
+            id: "late-provider-card-2",
+            sessionID: session.id,
+            questionID: secondQuestion.id,
+            strategy: "Role fit",
+            sayFirst: "I want this role because it connects my robotics and deployed AI experience.",
+            keyPoints: ["Robotics fit"],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "test",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        secondCard.questionText = secondQuestion.questionText
+        secondCard.promptPrimaryQuestion = secondQuestion.questionText
+        secondCard.generationID = secondGenerationID
+        appState.currentSuggestion = secondCard
+
+        var staleFirstCard = secondCard
+        staleFirstCard.id = "late-provider-card-1"
+        staleFirstCard.questionID = firstQuestion.id
+        staleFirstCard.questionText = firstQuestion.questionText
+        staleFirstCard.promptQuestionText = firstQuestion.questionText
+        staleFirstCard.promptPrimaryQuestion = firstQuestion.questionText
+        staleFirstCard.generationID = "late-provider-generation-1"
+        staleFirstCard.sayFirst = "I can explain my first project, but this answer belongs to Q1."
+
+        let applied = appState.displaySuggestionIfAligned(
+            staleFirstCard,
+            question: firstQuestion,
+            generationID: "late-provider-generation-1",
+            triggerPath: .autoDetect
+        )
+
+        #expect(applied == false)
+        #expect(appState.currentSuggestion?.id == secondCard.id)
+        #expect(appState.currentSuggestion?.questionText == secondQuestion.questionText)
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"staleGenerationResultRejected\""))
+        #expect(trace.contains("\"event_type\":\"currentCardRegressionRejected\""))
+        #expect(trace.contains("late-provider-generation-1"))
+        #expect(trace.contains(secondGenerationID))
+        #expect(trace.contains("\"old_accepted_question_id\":\"\(firstQuestion.id)\""))
+        #expect(trace.contains("\"current_accepted_question_id\":\"\(secondQuestion.id)\""))
+        #expect(trace.contains("\"source_callback\":\"provider_display\""))
+    }
+
+    @Test
+    func visibleQuestionTextStaysBoundToVisibleCardWhileNewQuestionIsQueued() throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let secondQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "Why did diffusion outperform autoregressive and flow-matching decoders?",
+            suffix: "queued-visible-binding"
+        )
+        var firstCard = SuggestionCard(
+            id: "visible-first-card",
+            sessionID: session.id,
+            questionID: firstQuestion.id,
+            strategy: "Project walkthrough",
+            sayFirst: "I can explain the first project clearly.",
+            keyPoints: [],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "test",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        firstCard.questionText = firstQuestion.questionText
+        firstCard.promptPrimaryQuestion = firstQuestion.questionText
+        appState.currentSuggestion = firstCard
+        appState.lastDetectedQuestion = secondQuestion
+        appState.possibleQuestion = secondQuestion
+
+        #expect(appState.visibleQuestionText(for: appState.currentSuggestion) == firstQuestion.questionText)
+    }
+
+    @Test
+    func streamedAnswerQuestionUsesActiveGenerationSnapshot() throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let secondQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "How did you convert DROID demonstrations for MuJoCo Franka?",
+            suffix: "queued-stream-label"
+        )
+        appState.activateGeneration(
+            question: firstQuestion,
+            generationID: "stream-owner-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.streamedSayFirst = "I built the LeoRover project with ROS2 navigation and YOLOv8 perception."
+        appState.currentSuggestion = nil
+        appState.lastDetectedQuestion = secondQuestion
+        appState.possibleQuestion = secondQuestion
+
+        #expect(appState.visibleQuestionText(for: nil) == firstQuestion.questionText)
+        let snapshot = try #require(appState.visibleSuggestionState)
+        #expect(snapshot.identity.acceptedQuestionID == firstQuestion.id)
+        #expect(snapshot.questionText == firstQuestion.questionText)
+        #expect(snapshot.answerText == appState.streamedSayFirst)
+    }
+
+    @Test
+    func loadingQuestionUsesActiveGenerationSnapshotBeforeAnswerTextExists() throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let secondQuestion = try makeQuestion(
+            sessionID: session.id,
+            text: "If YOLOv8 is confidently wrong, how would you debug it?",
+            suffix: "loading-label"
+        )
+        appState.activateGeneration(
+            question: firstQuestion,
+            generationID: "loading-owner-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.currentSuggestion = nil
+        appState.streamedSayFirst = ""
+        appState.lastDetectedQuestion = secondQuestion
+
+        #expect(appState.visibleSuggestionState?.identity.acceptedQuestionID == firstQuestion.id)
+        #expect(appState.visibleSuggestionState?.questionText == firstQuestion.questionText)
+    }
+
+    @Test
+    func terminalGenerationFailureShowsVisibleErrorInsteadOfEmptyAnswer() throws {
+        let (appState, _, question, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let generationID = "visible-terminal-failure-generation"
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.currentSuggestion = nil
+        appState.streamedSayFirst = ""
+
+        appState.markGenerationFailed(
+            generationID: generationID,
+            reason: "provider unavailable",
+            providerError: "HTTP 503"
+        )
+
+        let visible = try #require(appState.visibleSuggestionState)
+        #expect(visible.questionText == question.questionText)
+        #expect(visible.answerText.isEmpty)
+        #expect(visible.generationErrorText == "Generation failed: provider unavailable")
+        #expect(visible.answerText.localizedCaseInsensitiveContains("No answer yet") == false)
+        #expect(appState.visibleAssistantRenderState.generationErrorText == "Generation failed: provider unavailable")
+        #expect(appState.visibleAssistantRenderState.answerText.isEmpty)
+    }
+
+    @Test
+    func asrTraceDoesNotInheritActiveGenerationIdentity() throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("asr-provenance-\(UUID().uuidString).jsonl")
+        appState.runtimeTranscriptTraceLogURL = traceURL
+        appState.activateGeneration(
+            question: firstQuestion,
+            generationID: "active-generation-not-asr-owner",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        let segment = TranscriptSegment(
+            id: "new-asr-callback",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "How did you adapt DROID demonstrations for MuJoCo?",
+            createdAt: Date(),
+            asrFinalizationReason: "stable_partial",
+            recognitionTaskID: "new-recognition-task",
+            recognitionEventSequence: 4,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: 49,
+            recognitionIsFinal: true
+        )
+
+        appState.recordASRTranscriptRuntimeEvent(for: segment)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"asrFinal\""))
+        #expect(trace.contains("\"generation_id\":\"\""))
+        #expect(!trace.contains("active-generation-not-asr-owner"))
+    }
+
+    @Test
+    func cancellingActiveStageBDoesNotPersistFinalRow() async throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancelled-persistence-\(UUID().uuidString).jsonl")
+        appState.runtimeTranscriptTraceLogURL = traceURL
+        let generationID = "cancelled-generation"
+        appState.activateGeneration(
+            question: firstQuestion,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        var card = SuggestionCard(
+            id: "cancelled-card",
+            sessionID: session.id,
+            questionID: firstQuestion.id,
+            strategy: "Project walkthrough",
+            sayFirst: "I built the LeoRover project with ROS2 navigation, YOLOv8 perception, and real robot reliability checks.",
+            keyPoints: ["ROS2 navigation", "YOLOv8 perception"],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "test",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        card.detectedQuestionID = firstQuestion.id
+        card.questionText = firstQuestion.questionText
+        card.promptQuestionText = firstQuestion.questionText
+        card.promptPrimaryQuestion = firstQuestion.questionText
+        card.generationID = generationID
+        card.questionIntent = AnswerRelevancePolicy.intent(for: firstQuestion.questionText)
+        card.alignmentVerdict = .aligned
+        appState.currentSuggestion = card
+        appState.stageBTaskActive = true
+        appState.simulatedSuggestionPersistenceDelayNanoseconds = 150_000_000
+        appState.persistSuggestionInBackground(
+            card,
+            chunks: [],
+            generationID: generationID,
+            requestStart: Date()
+        )
+
+        appState.cancelStageBTask()
+        try await Task.sleep(nanoseconds: 350_000_000)
+
+        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).isEmpty)
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
+    }
+
+    @Test
+    func duplicateLogicalPersistenceFromSameTranscriptSegmentIsRejected() async throws {
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("duplicate-persistence-\(UUID().uuidString).jsonl")
+        appState.runtimeTranscriptTraceLogURL = traceURL
+        let questionText = firstQuestion.questionText
+
+        func card(id: String, questionID: String, generationID: String) -> SuggestionCard {
+            var value = SuggestionCard(
+                id: id,
+                sessionID: session.id,
+                questionID: questionID,
+                strategy: "Project walkthrough",
+                sayFirst: "I built the LeoRover navigation pipeline with ROS2, perception, planning, and real robot reliability checks.",
+                keyPoints: ["ROS2 navigation", "Real robot reliability"],
+                followUpReady: [],
+                confidence: 0.9,
+                caution: nil,
+                evidenceUsed: [],
+                riskLevel: .low,
+                modelName: "test",
+                promptVersion: "test",
+                rawJSON: nil,
+                createdAt: Date()
+            )
+            value.questionText = questionText
+            value.promptQuestionText = questionText
+            value.promptPrimaryQuestion = questionText
+            value.transcriptSegmentID = "same-cumulative-segment"
+            value.generationID = generationID
+            value.questionIntent = AnswerRelevancePolicy.intent(for: questionText)
+            value.alignmentVerdict = .aligned
+            value.stageBCompleted = true
+            return value
+        }
+
+        let firstGenerationID = "duplicate-persistence-generation-1"
+        appState.activateGeneration(
+            question: firstQuestion,
+            generationID: firstGenerationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.persistSuggestionInBackground(
+            card(id: "duplicate-card-1", questionID: firstQuestion.id, generationID: firstGenerationID),
+            chunks: [],
+            generationID: firstGenerationID,
+            requestStart: Date()
+        )
+        try await waitUntil(timeout: 8.0) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+        }
+
+        let repeatedQuestion = DetectedQuestion(
+            id: "duplicate-question-2",
+            sessionID: session.id,
+            transcriptSegmentID: nil,
+            questionText: questionText,
+            intent: firstQuestion.intent,
+            answerStrategy: firstQuestion.answerStrategy,
+            confidence: 0.95,
+            reason: "Cumulative replay",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "test",
+            promptVersion: "test",
+            createdAt: Date()
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(repeatedQuestion)
+        let secondGenerationID = "duplicate-persistence-generation-2"
+        appState.activateGeneration(
+            question: repeatedQuestion,
+            generationID: secondGenerationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.persistSuggestionInBackground(
+            card(id: "duplicate-card-2", questionID: repeatedQuestion.id, generationID: secondGenerationID),
+            chunks: [],
+            generationID: secondGenerationID,
+            requestStart: Date()
+        )
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).count == 1)
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
+        #expect(trace.contains("duplicate-persistence-generation-2"))
     }
 
     @Test

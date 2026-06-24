@@ -96,6 +96,7 @@ final class GenerationCoordinator {
             }
 
             return GenerationProviderResult(
+                identity: request.identity,
                 sayFirst: card.sayFirst,
                 keyPoints: card.keyPoints,
                 followUp: card.followUpReady,
@@ -131,7 +132,8 @@ final class GenerationCoordinator {
         sections: StreamingSuggestionSections?,
         sawStreamingSections: Bool,
         visibleSayFirst: String?,
-        visibleAnswerExists: Bool
+        visibleAnswerExists: Bool,
+        identity: GenerationIdentity? = nil
     ) -> GenerationStageBResult {
         if activeGenerationID != generationID {
             return makeStageBDecision(
@@ -142,7 +144,8 @@ final class GenerationCoordinator {
                 classification: .staleResult,
                 fallbackReason: "Stage B result belongs to an inactive generation.",
                 questionText: questionText,
-                alignmentResult: nil
+                alignmentResult: nil,
+                identity: identity
             )
         }
 
@@ -162,7 +165,8 @@ final class GenerationCoordinator {
                 classification: .timedOut,
                 fallbackReason: visibleAnswerIsUsable ? nil : "Stage B timed out before producing an aligned visible answer.",
                 questionText: questionText,
-                alignmentResult: nil
+                alignmentResult: nil,
+                identity: identity
             )
         }
 
@@ -175,7 +179,8 @@ final class GenerationCoordinator {
                 classification: .providerFailure,
                 fallbackReason: visibleAnswerIsUsable ? nil : "Stage B provider failed before producing an aligned visible answer.",
                 questionText: questionText,
-                alignmentResult: nil
+                alignmentResult: nil,
+                identity: identity
             )
         }
 
@@ -189,7 +194,8 @@ final class GenerationCoordinator {
                 classification: .noSections,
                 fallbackReason: visibleAnswerIsUsable ? nil : "Stage B completed without usable sections.",
                 questionText: questionText,
-                alignmentResult: nil
+                alignmentResult: nil,
+                identity: identity
             )
         }
 
@@ -203,7 +209,8 @@ final class GenerationCoordinator {
                 classification: .fallbackRequired,
                 fallbackReason: alignment.reason,
                 questionText: questionText,
-                alignmentResult: alignment
+                alignmentResult: alignment,
+                identity: identity
             )
         }
 
@@ -215,7 +222,8 @@ final class GenerationCoordinator {
             classification: .usableFullCard,
             fallbackReason: nil,
             questionText: questionText,
-            alignmentResult: alignment
+            alignmentResult: alignment,
+            identity: identity
         )
     }
 
@@ -253,7 +261,8 @@ final class GenerationCoordinator {
                 fallbackReason: result.fallbackReason ?? "Stage B result belongs to an inactive generation.",
                 shouldPersist: false,
                 shouldUpdateVisibleCard: false,
-                safeDiagnostics: diagnostics
+                safeDiagnostics: diagnostics,
+                identity: result.identity
             )
         }
 
@@ -279,7 +288,8 @@ final class GenerationCoordinator {
             fallbackReason: result.fallbackReason,
             shouldPersist: Self.shouldPersistStageBPlan(action: action, visibleSuggestion: visibleSuggestion),
             shouldUpdateVisibleCard: Self.shouldUpdateVisibleCard(action: action),
-            safeDiagnostics: diagnostics
+            safeDiagnostics: diagnostics,
+            identity: result.identity
         )
     }
 
@@ -335,6 +345,7 @@ final class GenerationCoordinator {
         diagnostics["providerStatus"] = (status ?? Self.status(for: classification)).rawValue
 
         return GenerationProviderResult(
+            identity: request.identity,
             sayFirst: "",
             keyPoints: [],
             followUp: [],
@@ -361,7 +372,8 @@ final class GenerationCoordinator {
         classification: StageBResultClassification,
         fallbackReason: String?,
         questionText: String,
-        alignmentResult: AnswerAlignmentResult?
+        alignmentResult: AnswerAlignmentResult?,
+        identity: GenerationIdentity? = nil
     ) -> GenerationStageBResult {
         var diagnostics = providerResult?.safeDiagnostics ?? [:]
         diagnostics["stageBDecision"] = decision.rawValue
@@ -384,7 +396,8 @@ final class GenerationCoordinator {
             classification: classification,
             fallbackReason: fallbackReason,
             safeDiagnostics: diagnostics,
-            alignmentResult: alignmentResult
+            alignmentResult: alignmentResult,
+            identity: identity ?? providerResult?.identity
         )
     }
 

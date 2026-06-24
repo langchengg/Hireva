@@ -7,8 +7,8 @@ import Foundation
 enum TranscriptRuntimeEvent: Equatable {
     case audioStarted(sessionID: String, timestamp: Date)
     case audioBufferReceived(sessionID: String, frameCount: Int, timestamp: Date)
-    case asrPartial(sessionID: String, text: String, timestamp: Date)
-    case asrFinal(sessionID: String, text: String, timestamp: Date)
+    case asrPartial(sessionID: String, text: String, recognitionTaskID: String?, eventSequence: Int?, sourceStartUTF16: Int?, sourceEndUTF16: Int?, isFinal: Bool, timestamp: Date)
+    case asrFinal(sessionID: String, text: String, recognitionTaskID: String?, eventSequence: Int?, sourceStartUTF16: Int?, sourceEndUTF16: Int?, isFinal: Bool, timestamp: Date)
     case utteranceCandidate(sessionID: String, text: String, timestamp: Date)
     case questionAccepted(sessionID: String, candidate: AcceptedQuestionCandidate, timestamp: Date)
     case questionRejected(sessionID: String, text: String, reason: QuestionRuntimeRejectionReason, timestamp: Date)
@@ -29,12 +29,19 @@ enum TranscriptRuntimeEvent: Equatable {
     case persistenceStarted(sessionID: String, questionID: String?, generationID: String?, question: String, timestamp: Date)
     case persistenceSucceeded(sessionID: String, questionID: String?, generationID: String?, question: String, timestamp: Date)
     case persistenceRejected(sessionID: String, questionID: String?, generationID: String?, question: String, reason: String, timestamp: Date)
+    case duplicatePersistenceRejected(sessionID: String, questionID: String?, generationID: String?, question: String, normalizedQuestion: String, reason: String, timestamp: Date)
+    case intentionalQuestionRepeatAccepted(sessionID: String, questionID: String, question: String, occurrenceKey: String, timestamp: Date)
+    case cumulativeReplayRejected(sessionID: String, questionID: String?, question: String, normalizedQuestion: String, oldRecognitionEpoch: String, newRecognitionEpoch: String, oldSourceSpan: String, newSourceSpan: String, overlapScore: Double, reason: String, timestamp: Date)
+    case cancelledGenerationPersistenceRejected(sessionID: String, questionID: String?, generationID: String?, question: String, reason: String, timestamp: Date)
+    case staleGenerationResultRejected(sessionID: String, oldGenerationID: String?, currentGenerationID: String?, oldAcceptedQuestionID: String?, currentAcceptedQuestionID: String?, oldQuestionText: String, currentQuestionText: String, sourceCallback: String, reason: String, timestamp: Date)
+    case currentCardRegressionRejected(sessionID: String, oldGenerationID: String?, currentGenerationID: String?, oldAcceptedQuestionID: String?, currentAcceptedQuestionID: String?, oldQuestionText: String, currentQuestionText: String, sourceCallback: String, reason: String, timestamp: Date)
     case questionHistoryAppended(sessionID: String, questionID: String?, generationID: String?, question: String, timestamp: Date)
     case visibleCurrentSuggestionUpdated(sessionID: String, questionID: String?, generationID: String?, question: String, timestamp: Date)
     case queuedAnswerPersisted(sessionID: String, questionID: String?, generationID: String?, question: String, timestamp: Date)
     case uiHistoryRefresh(sessionID: String, question: String, count: Int, timestamp: Date)
     case duplicatePartialSuppressed(sessionID: String, question: String, reason: QuestionRuntimeRejectionReason, timestamp: Date)
     case answerRejectedWrongProjectGrounding(sessionID: String, questionID: String?, generationID: String?, question: String, reason: String, timestamp: Date)
+    case lifecycle(eventName: String, sessionID: String, questionID: String?, generationID: String?, text: String, currentState: String, reason: String, cancelled: Bool, skipped: Bool, timestamp: Date)
 
     var record: TranscriptRuntimeEventRecord {
         switch self {
@@ -42,10 +49,30 @@ enum TranscriptRuntimeEvent: Equatable {
             return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "audioStarted", sessionID: sessionID)
         case let .audioBufferReceived(sessionID, frameCount, timestamp):
             return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "audioBufferReceived", sessionID: sessionID, frameCount: frameCount)
-        case let .asrPartial(sessionID, text, timestamp):
-            return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "asrPartial", sessionID: sessionID, text: text)
-        case let .asrFinal(sessionID, text, timestamp):
-            return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "asrFinal", sessionID: sessionID, text: text)
+        case let .asrPartial(sessionID, text, recognitionTaskID, eventSequence, sourceStartUTF16, sourceEndUTF16, isFinal, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "asrPartial",
+                sessionID: sessionID,
+                text: text,
+                recognitionTaskID: recognitionTaskID ?? "",
+                recognitionEventSequence: eventSequence ?? 0,
+                sourceTextStartUTF16: sourceStartUTF16 ?? 0,
+                sourceTextEndUTF16: sourceEndUTF16 ?? 0,
+                recognitionIsFinal: isFinal
+            )
+        case let .asrFinal(sessionID, text, recognitionTaskID, eventSequence, sourceStartUTF16, sourceEndUTF16, isFinal, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "asrFinal",
+                sessionID: sessionID,
+                text: text,
+                recognitionTaskID: recognitionTaskID ?? "",
+                recognitionEventSequence: eventSequence ?? 0,
+                sourceTextStartUTF16: sourceStartUTF16 ?? 0,
+                sourceTextEndUTF16: sourceEndUTF16 ?? 0,
+                recognitionIsFinal: isFinal
+            )
         case let .utteranceCandidate(sessionID, text, timestamp):
             return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "utteranceCandidate", sessionID: sessionID, text: text)
         case let .questionAccepted(sessionID, candidate, timestamp):
@@ -280,6 +307,112 @@ enum TranscriptRuntimeEvent: Equatable {
                 acceptanceStatus: "persistence_rejected",
                 rejectionReason: reason
             )
+        case let .duplicatePersistenceRejected(sessionID, questionID, generationID, question, normalizedQuestion, reason, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "duplicatePersistenceRejected",
+                sessionID: sessionID,
+                questionID: questionID,
+                generationID: generationID,
+                text: question,
+                reason: reason,
+                canonicalText: normalizedQuestion,
+                candidateText: question,
+                questionIntent: IntentRouter.answerIntent(for: question).rawValue,
+                duplicateKey: SemanticDuplicateKeyBuilder.key(for: question),
+                acceptanceStatus: "duplicate_persistence_rejected",
+                rejectionReason: reason
+            )
+        case let .intentionalQuestionRepeatAccepted(sessionID, questionID, question, occurrenceKey, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "intentionalQuestionRepeatAccepted",
+                sessionID: sessionID,
+                questionID: questionID,
+                text: question,
+                reason: occurrenceKey,
+                canonicalText: QuestionCanonicalizer.canonicalize(question),
+                candidateText: question,
+                duplicateKey: SemanticDuplicateKeyBuilder.key(for: question),
+                acceptanceStatus: "intentional_repeat_accepted"
+            )
+        case let .cumulativeReplayRejected(sessionID, questionID, question, normalizedQuestion, oldRecognitionEpoch, newRecognitionEpoch, oldSourceSpan, newSourceSpan, overlapScore, reason, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "cumulativeReplayRejected",
+                sessionID: sessionID,
+                questionID: questionID,
+                text: question,
+                reason: reason,
+                canonicalText: normalizedQuestion,
+                candidateText: question,
+                questionIntent: IntentRouter.answerIntent(for: question).rawValue,
+                duplicateKey: SemanticDuplicateKeyBuilder.key(for: question),
+                acceptanceStatus: "cumulative_replay_rejected",
+                rejectionReason: reason,
+                oldRecognitionTaskID: oldRecognitionEpoch,
+                newRecognitionTaskID: newRecognitionEpoch,
+                oldSourceSpan: oldSourceSpan,
+                newSourceSpan: newSourceSpan,
+                overlapScore: overlapScore
+            )
+        case let .cancelledGenerationPersistenceRejected(sessionID, questionID, generationID, question, reason, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "cancelledGenerationPersistenceRejected",
+                sessionID: sessionID,
+                questionID: questionID,
+                generationID: generationID,
+                text: question,
+                reason: reason,
+                canonicalText: QuestionCanonicalizer.canonicalize(question),
+                candidateText: question,
+                duplicateKey: SemanticDuplicateKeyBuilder.key(for: question),
+                acceptanceStatus: "cancelled_persistence_rejected",
+                rejectionReason: reason
+            )
+        case let .staleGenerationResultRejected(sessionID, oldGenerationID, currentGenerationID, oldAcceptedQuestionID, currentAcceptedQuestionID, oldQuestionText, currentQuestionText, sourceCallback, reason, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "staleGenerationResultRejected",
+                sessionID: sessionID,
+                generationID: oldGenerationID,
+                text: oldQuestionText,
+                reason: reason,
+                canonicalText: QuestionCanonicalizer.canonicalize(oldQuestionText),
+                candidateText: oldQuestionText,
+                questionIntent: IntentRouter.answerIntent(for: oldQuestionText).rawValue,
+                acceptanceStatus: "stale_generation_result_rejected",
+                rejectionReason: reason,
+                oldGenerationID: oldGenerationID ?? "",
+                currentGenerationID: currentGenerationID ?? "",
+                oldQuestionText: oldQuestionText,
+                currentQuestionText: currentQuestionText,
+                oldAcceptedQuestionID: oldAcceptedQuestionID ?? "",
+                currentAcceptedQuestionID: currentAcceptedQuestionID ?? "",
+                sourceCallback: sourceCallback
+            )
+        case let .currentCardRegressionRejected(sessionID, oldGenerationID, currentGenerationID, oldAcceptedQuestionID, currentAcceptedQuestionID, oldQuestionText, currentQuestionText, sourceCallback, reason, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: "currentCardRegressionRejected",
+                sessionID: sessionID,
+                generationID: oldGenerationID,
+                text: oldQuestionText,
+                reason: reason,
+                canonicalText: QuestionCanonicalizer.canonicalize(oldQuestionText),
+                candidateText: oldQuestionText,
+                questionIntent: IntentRouter.answerIntent(for: oldQuestionText).rawValue,
+                acceptanceStatus: "current_card_regression_rejected",
+                rejectionReason: reason,
+                oldGenerationID: oldGenerationID ?? "",
+                currentGenerationID: currentGenerationID ?? "",
+                oldQuestionText: oldQuestionText,
+                currentQuestionText: currentQuestionText,
+                oldAcceptedQuestionID: oldAcceptedQuestionID ?? "",
+                currentAcceptedQuestionID: currentAcceptedQuestionID ?? "",
+                sourceCallback: sourceCallback
+            )
         case let .questionHistoryAppended(sessionID, questionID, generationID, question, timestamp):
             return TranscriptRuntimeEventRecord(
                 timestamp: timestamp,
@@ -360,6 +493,23 @@ enum TranscriptRuntimeEvent: Equatable {
                 acceptanceStatus: "answer_rejected_wrong_project_grounding",
                 rejectionReason: QuestionRuntimeRejectionReason.mismatchedAlignment.rawValue
             )
+        case let .lifecycle(eventName, sessionID, questionID, generationID, text, currentState, reason, cancelled, skipped, timestamp):
+            return TranscriptRuntimeEventRecord(
+                timestamp: timestamp,
+                name: eventName,
+                sessionID: sessionID,
+                questionID: questionID,
+                generationID: generationID,
+                text: text,
+                reason: reason,
+                canonicalText: QuestionCanonicalizer.canonicalize(text),
+                candidateText: text,
+                acceptanceStatus: skipped ? "skipped" : "observed",
+                rejectionReason: skipped ? reason : "",
+                currentState: currentState,
+                cancelled: cancelled,
+                skipped: skipped
+            )
         }
     }
 }
@@ -389,6 +539,26 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
     var splitCandidates: [String]
     var completenessResult: String
     var intentResult: String
+    var oldGenerationID: String
+    var currentGenerationID: String
+    var oldQuestionText: String
+    var currentQuestionText: String
+    var oldAcceptedQuestionID: String
+    var currentAcceptedQuestionID: String
+    var sourceCallback: String
+    var recognitionTaskID: String
+    var recognitionEventSequence: Int
+    var sourceTextStartUTF16: Int
+    var sourceTextEndUTF16: Int
+    var recognitionIsFinal: Bool
+    var oldRecognitionTaskID: String
+    var newRecognitionTaskID: String
+    var oldSourceSpan: String
+    var newSourceSpan: String
+    var overlapScore: Double
+    var currentState: String
+    var cancelled: Bool
+    var skipped: Bool
 
     init(
         timestamp: Date,
@@ -413,7 +583,27 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
         visibleQuestionText: String = "",
         splitCandidates: [String] = [],
         completenessResult: String = "",
-        intentResult: String = ""
+        intentResult: String = "",
+        oldGenerationID: String = "",
+        currentGenerationID: String = "",
+        oldQuestionText: String = "",
+        currentQuestionText: String = "",
+        oldAcceptedQuestionID: String = "",
+        currentAcceptedQuestionID: String = "",
+        sourceCallback: String = "",
+        recognitionTaskID: String = "",
+        recognitionEventSequence: Int = 0,
+        sourceTextStartUTF16: Int = 0,
+        sourceTextEndUTF16: Int = 0,
+        recognitionIsFinal: Bool = false,
+        oldRecognitionTaskID: String = "",
+        newRecognitionTaskID: String = "",
+        oldSourceSpan: String = "",
+        newSourceSpan: String = "",
+        overlapScore: Double = 0,
+        currentState: String = "",
+        cancelled: Bool = false,
+        skipped: Bool = false
     ) {
         self.id = UUID().uuidString
         self.timestamp = timestamp
@@ -439,6 +629,26 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
         self.splitCandidates = splitCandidates
         self.completenessResult = completenessResult
         self.intentResult = intentResult
+        self.oldGenerationID = oldGenerationID
+        self.currentGenerationID = currentGenerationID
+        self.oldQuestionText = oldQuestionText
+        self.currentQuestionText = currentQuestionText
+        self.oldAcceptedQuestionID = oldAcceptedQuestionID
+        self.currentAcceptedQuestionID = currentAcceptedQuestionID
+        self.sourceCallback = sourceCallback
+        self.recognitionTaskID = recognitionTaskID
+        self.recognitionEventSequence = recognitionEventSequence
+        self.sourceTextStartUTF16 = sourceTextStartUTF16
+        self.sourceTextEndUTF16 = sourceTextEndUTF16
+        self.recognitionIsFinal = recognitionIsFinal
+        self.oldRecognitionTaskID = oldRecognitionTaskID
+        self.newRecognitionTaskID = newRecognitionTaskID
+        self.oldSourceSpan = oldSourceSpan
+        self.newSourceSpan = newSourceSpan
+        self.overlapScore = overlapScore
+        self.currentState = currentState
+        self.cancelled = cancelled
+        self.skipped = skipped
     }
 
     func jsonLine() -> String {
@@ -462,7 +672,27 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             generationStarted: generationStarted,
             persistenceStarted: persistenceStarted,
             uiTranscriptText: uiTranscriptText,
-            visibleQuestionText: visibleQuestionText
+            visibleQuestionText: visibleQuestionText,
+            oldGenerationID: oldGenerationID,
+            currentGenerationID: currentGenerationID,
+            oldQuestionText: oldQuestionText,
+            currentQuestionText: currentQuestionText,
+            oldAcceptedQuestionID: oldAcceptedQuestionID,
+            currentAcceptedQuestionID: currentAcceptedQuestionID,
+            sourceCallback: sourceCallback,
+            recognitionTaskID: recognitionTaskID,
+            recognitionEventSequence: recognitionEventSequence,
+            sourceTextStartUTF16: sourceTextStartUTF16,
+            sourceTextEndUTF16: sourceTextEndUTF16,
+            recognitionIsFinal: recognitionIsFinal,
+            oldRecognitionTaskID: oldRecognitionTaskID,
+            newRecognitionTaskID: newRecognitionTaskID,
+            oldSourceSpan: oldSourceSpan,
+            newSourceSpan: newSourceSpan,
+            overlapScore: overlapScore,
+            currentState: currentState,
+            cancelled: cancelled,
+            skipped: skipped
         )
         guard let data = try? JSONEncoder().encode(payload),
               let line = String(data: data, encoding: .utf8) else {
@@ -493,6 +723,26 @@ private struct RuntimeTranscriptTracePayload: Encodable {
     var persistenceStarted: Bool
     var uiTranscriptText: String
     var visibleQuestionText: String
+    var oldGenerationID: String
+    var currentGenerationID: String
+    var oldQuestionText: String
+    var currentQuestionText: String
+    var oldAcceptedQuestionID: String
+    var currentAcceptedQuestionID: String
+    var sourceCallback: String
+    var recognitionTaskID: String
+    var recognitionEventSequence: Int
+    var sourceTextStartUTF16: Int
+    var sourceTextEndUTF16: Int
+    var recognitionIsFinal: Bool
+    var oldRecognitionTaskID: String
+    var newRecognitionTaskID: String
+    var oldSourceSpan: String
+    var newSourceSpan: String
+    var overlapScore: Double
+    var currentState: String
+    var cancelled: Bool
+    var skipped: Bool
 
     enum CodingKeys: String, CodingKey {
         case timestamp
@@ -515,6 +765,26 @@ private struct RuntimeTranscriptTracePayload: Encodable {
         case persistenceStarted = "persistence_started"
         case uiTranscriptText = "ui_transcript_text"
         case visibleQuestionText = "visible_question_text"
+        case oldGenerationID = "old_generation_id"
+        case currentGenerationID = "current_generation_id"
+        case oldQuestionText = "old_question_text"
+        case currentQuestionText = "current_question_text"
+        case oldAcceptedQuestionID = "old_accepted_question_id"
+        case currentAcceptedQuestionID = "current_accepted_question_id"
+        case sourceCallback = "source_callback"
+        case recognitionTaskID = "recognition_task_id"
+        case recognitionEventSequence = "recognition_event_sequence"
+        case sourceTextStartUTF16 = "source_text_start_utf16"
+        case sourceTextEndUTF16 = "source_text_end_utf16"
+        case recognitionIsFinal = "recognition_is_final"
+        case oldRecognitionTaskID = "old_recognition_task_id"
+        case newRecognitionTaskID = "new_recognition_task_id"
+        case oldSourceSpan = "old_source_span"
+        case newSourceSpan = "new_source_span"
+        case overlapScore = "overlap_score"
+        case currentState = "current_state"
+        case cancelled
+        case skipped
     }
 }
 

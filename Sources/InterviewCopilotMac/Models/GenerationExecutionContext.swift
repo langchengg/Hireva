@@ -25,6 +25,13 @@ struct GenerationExecutionContext: Equatable {
 
     var detectedQuestionID: String { question.id }
     var promptPrimaryQuestion: String { promptSnapshot.promptPrimaryQuestion }
+    var identity: GenerationIdentity {
+        GenerationIdentity(
+            question: question,
+            generationID: generationID,
+            promptPrimaryQuestion: promptSnapshot.promptPrimaryQuestion
+        )
+    }
 
     init(
         session: InterviewSession,

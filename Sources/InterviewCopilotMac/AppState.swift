@@ -506,6 +506,7 @@ final class AppState: ObservableObject {
     /// When a newer interviewer question is accepted, all tasks in this
     /// controller are cancelled and late callbacks must be treated as stale.
     struct ActiveGenerationController {
+        let identity: GenerationIdentity
         let generationID: String
         let questionID: String?
         let questionTextSnapshot: String
@@ -548,6 +549,8 @@ final class AppState: ObservableObject {
     var pendingAcceptedQuestions: [PendingAcceptedQuestion] = []
     // internal for AppState extension access only
     var autoSuggestionLaunchPending: Bool = false
+    // internal for AppState extension access only
+    var autoSuggestionLaunchID: String?
     // internal for AppState extension access only
     var mainThreadHeartbeatTask: Task<Void, Never>?
     // internal for AppState extension access only
@@ -623,6 +626,26 @@ final class AppState: ObservableObject {
     var lastAutoQuestionText: String?
     // internal for AppState extension access only
     var recentQuestionTimestamps = [String: Date]()
+    // Keeps accepted question origins for the full live session. Apple Speech
+    // can emit one cumulative segment for several minutes, so time-based
+    // duplicate expiry alone must not make an old question fresh again.
+    var acceptedQuestionSegmentIDs = [String: String]()
+    var consumedQuestionOccurrenceKeys = Set<String>()
+    var consumedQuestionSourceSpanKeys = Set<String>()
+    var consumedQuestionOccurrences = [String: TranscriptQuestionIngressIdentity]()
+    var consumedQuestionSourceSpans = [String: TranscriptQuestionIngressIdentity]()
+    var consumedQuestionAbsoluteSourceSpans = [String: TranscriptQuestionIngressIdentity]()
+    var acceptedNormalizedQuestionKeys = Set<String>()
+    var intentionalRepeatQuestionIDs = Set<String>()
+    var transcriptReconciler = TranscriptReconciler()
+    var cancelledPersistenceGenerationIDs = Set<String>()
+    var terminalGenerationIDs = Set<String>()
+    struct SuggestionPersistenceClaim {
+        let cardID: String
+        let identity: GenerationIdentity
+    }
+    var suggestionPersistenceClaims = [String: SuggestionPersistenceClaim]()
+    var successfulSuggestionPersistenceOwners = Set<String>()
     // internal for AppState extension access only
     let autoQuestionDuplicateCooldownSeconds: TimeInterval = 60
 
@@ -1094,6 +1117,13 @@ final class AppState: ObservableObject {
             question: question.questionText,
             timestamp: Date()
         ))
+        recordLifecycleTrace(
+            "answer.request.started",
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: generationID,
+            text: question.questionText
+        )
         if question.transcriptSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
             lastTranscriptQuestionGenerationTrace.generationTriggered = true
             lastTranscriptQuestionGenerationTrace.generationID = generationID
@@ -1555,7 +1585,8 @@ final class AppState: ObservableObject {
                         sections: providerResult.parsedSections,
                         sawStreamingSections: false,
                         visibleSayFirst: self.currentSuggestion?.sayFirst,
-                        visibleAnswerExists: self.visibleAnswerExists
+                        visibleAnswerExists: self.visibleAnswerExists,
+                        identity: fullAnswerContext.identity
                     )
                     let stageBApplicationPlan = self.generationCoordinator.makeStageBApplicationPlan(
                         from: stageBDecision,
@@ -1597,7 +1628,8 @@ final class AppState: ObservableObject {
                     sections: latestSections,
                     sawStreamingSections: sawStreamingSections,
                     visibleSayFirst: self.currentSuggestion?.sayFirst,
-                    visibleAnswerExists: self.visibleAnswerExists
+                    visibleAnswerExists: self.visibleAnswerExists,
+                    identity: self.activeGenerationController?.identity
                 )
                 let finalStageBApplicationPlan = self.generationCoordinator.makeStageBApplicationPlan(
                     from: finalStageBDecision,
@@ -1731,6 +1763,13 @@ final class AppState: ObservableObject {
                         self.streamFirstTokenAt = Date()
                         self.currentGenerationTelemetry.firstDeepSeekTokenAt = self.streamFirstTokenAt
                         self.deepseekFirstTokenMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+                        self.recordLifecycleTrace(
+                            "answer.first_token",
+                            sessionID: localSession.id,
+                            questionID: localQuestion.id,
+                            generationID: generationID,
+                            text: localQuestion.questionText
+                        )
                     }
                     collected += token
                     let cleanedCollected = self.cleanedFirstAnswerStreamText(collected)

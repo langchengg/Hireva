@@ -5,6 +5,34 @@ import AVFoundation
 
 @Suite
 struct DualAudioTranscriptionTests {
+
+    @Test
+    func emittedSegmentsCarryImmutableRecognitionProvenance() async throws {
+        let service = AppleSpeechTranscriptionService()
+        try await service.start(sessionID: "provenance-session", captureMode: .systemAudioOnly)
+        defer { service.stop() }
+
+        let systemSession = try #require(service.systemAudioSession)
+        let collector = Task { () -> TranscriptSegment? in
+            for await segment in service.segments {
+                return segment
+            }
+            return nil
+        }
+        await systemSession.simulateEmit(
+            text: "Could you explain your LeoRover project from end to end?",
+            isFinal: true
+        )
+        let segment = try #require(await collector.value)
+        let data = try JSONEncoder().encode(segment)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect((json["recognitionTaskID"] as? String)?.isEmpty == false)
+        #expect((json["recognitionEventSequence"] as? Int) == 1)
+        #expect((json["sourceTextStartUTF16"] as? Int) == 0)
+        #expect((json["sourceTextEndUTF16"] as? Int) == (segment.text as NSString).length)
+        #expect((json["recognitionIsFinal"] as? Bool) == true)
+    }
     
     @Test
     func microphoneAndSystemCreatesTwoIndependentSessionInstances() async throws {

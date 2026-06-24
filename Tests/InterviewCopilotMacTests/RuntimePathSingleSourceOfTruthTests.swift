@@ -284,7 +284,7 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func mergedBSequenceProducesFourAlignedRowsAndTraceEvents() async throws {
+    func mergedBSequenceDetectsFourQuestionsAndGeneratesLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-merged-b-sequence-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
         let transcript = [
@@ -301,42 +301,30 @@ struct RuntimePathSingleSourceOfTruthTests {
         ))
 
         try await waitUntil(timeout: 60.0) {
+            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            let intents = Set(rows.compactMap(\.questionIntent))
-            return rows.count == 4 &&
-                intents == Set<AnswerRelevanceIntent>([
-                    .decoderComparison,
-                    .systemIntegrationDebugging,
-                    .interviewerQuestions,
-                    .simToRealDebugging
-                ])
+            return detected.count == 4 &&
+                rows.count == 1 &&
+                rows.first?.questionIntent == .simToRealDebugging
         }
 
+        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         #expect(client.detectionCallCount == 0)
-        #expect(rows.count == 4)
+        #expect(detected.count == 4)
+        #expect(rows.count == 1)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(rows.contains {
-            $0.questionIntent == .decoderComparison &&
-            ($0.questionText ?? "").contains("autoregressive, diffusion, and flow-matching decoders") &&
-            ($0.sayFirst.localizedCaseInsensitiveContains("7/10") || $0.sayFirst.localizedCaseInsensitiveContains("seven out of ten"))
-        })
-        #expect(rows.contains {
-            $0.questionIntent == .interviewerQuestions &&
-            $0.sayFirst.localizedCaseInsensitiveContains("success looks like") &&
-            $0.sayFirst.localizedCaseInsensitiveContains("deployment")
-        })
-        #expect(rows.contains {
-            $0.questionIntent == .simToRealDebugging &&
-            ($0.questionText ?? "").contains("MuJoCo")
-        })
+        #expect(detected.contains { $0.questionText.contains("autoregressive, diffusion, and flow-matching decoders") })
+        #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("system integration") })
+        #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("questions would you ask us") })
+        #expect(rows.contains { $0.questionIntent == .simToRealDebugging && ($0.questionText ?? "").contains("MuJoCo") })
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.components(separatedBy: "\"event_type\":\"generationStarted\"").count - 1 >= 4)
-        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceStarted\"").count - 1 >= 4)
-        #expect(trace.contains("\"question_intent\":\"decoder_comparison\""))
-        #expect(trace.contains("\"question_intent\":\"interviewer_questions\""))
+        #expect(trace.contains("\"event_type\":\"question.accepted\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceStarted\"").count - 1 >= 1)
+        #expect(trace.contains("\"question_intent\":\"sim_to_real_debugging\""))
         #expect(!trace.contains("What questions would you ask us about that"))
     }
 
@@ -525,7 +513,7 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func observedEngineeringFitThenLeoRoverImprovementRuntimePersistsSeparateRowsAndTraceEvents() async throws {
+    func observedEngineeringFitThenLeoRoverImprovementRuntimeGeneratesLatestAnswerAndTraceEvents() async throws {
         let traceURL = temporaryTraceURL("runtime-engineering-fit-improvement-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
         let transcript = "What would you ask the engineering team to understand whether this role is a good fit if you had one more month to improve your Lero system what would you improve first"
@@ -537,23 +525,21 @@ struct RuntimePathSingleSourceOfTruthTests {
         ))
 
         try await waitUntil(timeout: 60.0) {
+            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            let intents = Set(rows.compactMap(\.questionIntent))
-            return rows.count == 2 &&
-                intents.contains(.interviewerQuestions) &&
-                intents.contains(.improvementPlan)
+            return detected.count == 2 &&
+                rows.count == 1 &&
+                rows.first?.questionIntent == .improvementPlan
         }
 
+        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         #expect(client.detectionCallCount == 0)
-        #expect(rows.count == 2)
+        #expect(detected.count == 2)
+        #expect(rows.count == 1)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(rows.contains {
-            $0.questionIntent == .interviewerQuestions &&
-            ($0.questionText ?? "").localizedCaseInsensitiveContains("engineering team") &&
-            $0.sayFirst.localizedCaseInsensitiveContains("success")
-        })
+        #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("engineering team") })
         #expect(rows.contains {
             let answer = $0.sayFirst.lowercased()
             return $0.questionIntent == .improvementPlan &&
@@ -573,14 +559,14 @@ struct RuntimePathSingleSourceOfTruthTests {
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"utteranceBufferConsumed\""))
         #expect(trace.contains("\"event_type\":\"utteranceBufferReset\""))
-        #expect(trace.contains("\"question_intent\":\"interviewer_questions\""))
+        #expect(trace.contains("\"event_type\":\"question.accepted\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
         #expect(trace.contains("\"question_intent\":\"improvement_plan\""))
-        #expect(!trace.contains("\"candidate_text\":\"What would you ask the engineering team to understand whether this role is a good fit if you had one more month"))
         #expect(!trace.contains("\"visible_question_text\":\"What would you ask the engineering team to understand whether this role is a good fit if you had one more month"))
     }
 
     @Test
-    func secondAcceptedRuntimeQuestionQueuesWhileGenerationIsActiveAndDrains() async throws {
+    func secondAcceptedRuntimeQuestionCancelsActiveGenerationAndStartsImmediately() async throws {
         let traceURL = temporaryTraceURL("runtime-question-queue-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
         client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
@@ -604,8 +590,10 @@ struct RuntimePathSingleSourceOfTruthTests {
         ))
 
         try await waitUntil(timeout: 8.0) {
-            appState.recentTranscriptRuntimeEvents.contains { $0.name == "questionQueued" } &&
-            appState.recentTranscriptRuntimeEvents.contains { $0.name == "generationSkippedBecauseActive" }
+            appState.lastDetectedQuestion?.questionText == "If you had one more month to improve your LeoRover system, what would you improve first?" &&
+            appState.activeQuestionID == appState.lastDetectedQuestion?.id &&
+            appState.cancelledGenerationCount >= 1 &&
+            appState.pendingAcceptedQuestions.isEmpty
         }
 
         try await waitUntil(timeout: 60.0) {
@@ -619,24 +607,24 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(!appState.currentSpinnerVisible)
 
         try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
-            appState.liveSuggestionHistory.count == 2
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1 &&
+            appState.liveSuggestionHistory.contains { $0.questionText == "If you had one more month to improve your LeoRover system, what would you improve first?" }
         }
         let historyQuestions = appState.liveSuggestionHistory.compactMap(\.questionText)
-        #expect(historyQuestions.contains("What would you ask the engineering team to understand whether this role is a good fit"))
         #expect(historyQuestions.contains("If you had one more month to improve your LeoRover system, what would you improve first?"))
         #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"questionQueued\""))
-        #expect(trace.contains("\"event_type\":\"questionDequeued\""))
+        #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+        #expect(trace.contains("\"event_type\":\"answer.first_token\"") || trace.contains("\"event_type\":\"answer.ui.rendered\""))
         #expect(trace.contains("\"event_type\":\"generationCompleted\"") || trace.contains("\"event_type\":\"generationTimedOut\""))
         #expect(trace.contains("\"event_type\":\"questionHistoryAppended\""))
         #expect(trace.contains("\"event_type\":\"uiHistoryRefresh\""))
     }
 
     @Test
-    func rapidThreeQuestionSequencePersistsAllRowsAndKeepsLatestCurrentCard() async throws {
+    func rapidThreeQuestionSequenceGeneratesOnlyLatestCurrentCard() async throws {
         let traceURL = temporaryTraceURL("runtime-three-question-history-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
         let expectedLatestQuestion = "Can you explain the difference between your VLA project and your LeoRover project"
@@ -655,15 +643,17 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await awaitPersistenceIdle(
             appState,
             sessionID: session.id,
-            expectedRowCount: 3,
+            expectedRowCount: 1,
             expectedCurrentQuestion: expectedLatestQuestion,
             traceURL: traceURL,
             timeout: 60.0
         )
 
+        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         let rowQuestions = rows.compactMap(\.questionText)
-        #expect(rows.count == 3)
+        #expect(detected.count == 3)
+        #expect(rows.count == 1)
         #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == rowQuestions)
         #expect(appState.currentSuggestion?.questionText == expectedLatestQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("VLA") == true)
@@ -673,7 +663,7 @@ struct RuntimePathSingleSourceOfTruthTests {
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"visibleCurrentSuggestionUpdated\""))
-        #expect(trace.contains("\"event_type\":\"queuedAnswerPersisted\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
         #expect(trace.contains("\"question_intent\":\"project_comparison\""))
     }
 
@@ -777,7 +767,7 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func rapidThreeQuestionRuntimeDrainEmitsQueueAndPersistenceTraceReasons() async throws {
+    func rapidThreeQuestionRuntimeLatestWinsEmitsLifecycleAndPersistenceTraceReasons() async throws {
         let traceURL = temporaryTraceURL("runtime-three-question-drain-lifecycle-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
         let transcript = [
@@ -796,33 +786,30 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await awaitPersistenceIdle(
             appState,
             sessionID: session.id,
-            expectedRowCount: 3,
+            expectedRowCount: 1,
             traceURL: traceURL,
             timeout: 60.0
         )
 
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(rows.count == 1)
+        #expect(rows.first?.questionIntent == .projectComparison)
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.components(separatedBy: "\"event_type\":\"questionQueued\"").count - 1 >= 2)
-        #expect(trace.components(separatedBy: "\"event_type\":\"questionDequeued\"").count - 1 >= 2)
-        #expect(trace.contains("\"event_type\":\"queueDepthChanged\""))
-        #expect(trace.contains("\"event_type\":\"queueDrainRequested\""))
-        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 3)
+        #expect(trace.contains("\"event_type\":\"question.accepted\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 1)
         #expect(!trace.contains("blocked_stage_b_pending"))
         #expect(!trace.contains("blocked_stale_generation_flags"))
     }
 
     @Test
-    func rapidThreeQuestionQueueAndPersistenceRemainStableAcrossTenIsolatedRuns() async throws {
+    func rapidThreeQuestionLatestPersistenceRemainsStableAcrossTenIsolatedRuns() async throws {
         let transcript = [
             "What would you ask the engineering team to understand whether this role is a good fit?",
             "If you had one more month to improve your LeoRover system, what would you improve first?",
             "Can you explain the difference between your VLA project and your LeoRover project?"
         ].joined(separator: " ")
-        let expectedIntents: Set<String> = [
-            AnswerRelevanceIntent.interviewerQuestions.rawValue,
-            AnswerRelevanceIntent.improvementPlan.rawValue,
-            AnswerRelevanceIntent.projectComparison.rawValue
-        ]
+        let expectedIntent = AnswerRelevanceIntent.projectComparison.rawValue
         let terminalPunctuation = CharacterSet(charactersIn: ".!?")
 
         for iteration in 1...10 {
@@ -839,17 +826,19 @@ struct RuntimePathSingleSourceOfTruthTests {
             try await awaitPersistenceIdle(
                 appState,
                 sessionID: session.id,
-                expectedRowCount: 3,
+                expectedRowCount: 1,
                 traceURL: traceURL,
                 timeout: 60.0
             )
 
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
             let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
             let questionTexts = rows.compactMap(\.questionText)
-            #expect(rows.count == 3, "iteration \(iteration)")
-            #expect(Set(rows.map(\.id)).count == 3, "duplicate row in iteration \(iteration)")
-            #expect(Set(questionTexts).count == 3, "duplicate question in iteration \(iteration)")
-            #expect(Set(rows.compactMap { $0.questionIntent?.rawValue }) == expectedIntents, "wrong intents in iteration \(iteration)")
+            #expect(detected.count == 3, "iteration \(iteration)")
+            #expect(rows.count == 1, "iteration \(iteration)")
+            #expect(Set(rows.map(\.id)).count == 1, "duplicate row in iteration \(iteration)")
+            #expect(Set(questionTexts).count == 1, "duplicate question in iteration \(iteration)")
+            #expect(rows.first?.questionIntent?.rawValue == expectedIntent, "wrong intent in iteration \(iteration)")
             #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion }, "question/prompt mismatch in iteration \(iteration)")
             #expect(rows.allSatisfy { QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted }, "incomplete answer in iteration \(iteration)")
             #expect(rows.allSatisfy {

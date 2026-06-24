@@ -125,6 +125,99 @@ struct LongInterviewQuestionDetectionTests {
     }
 
     @Test
+    func rotatedCumulativeCallbacksDoNotRestartConsumedQuestions() async throws {
+        let (appState, session, _) = try makeAppState()
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rotated-cumulative-\(UUID().uuidString).jsonl")
+        appState.runtimeTranscriptTraceLogURL = traceURL
+        let leo = "Could you explain your LeoRover project from end to end?"
+        let droid = "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?"
+
+        await appState.handleTranscriptSegment(segment(
+            id: "apple-callback-1",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: leo,
+            recognitionTaskID: "rotated-apple-task",
+            recognitionEventSequence: 1
+        ))
+        try await waitUntil(timeout: 8.0) {
+            appState.currentSuggestion?.questionText == SystemAudioQuestionExtractor.extract(from: leo).last?.text
+        }
+
+        appState.recentQuestionTimestamps = appState.recentQuestionTimestamps
+            .mapValues { _ in Date().addingTimeInterval(-120) }
+        await appState.handleTranscriptSegment(segment(
+            id: "apple-callback-2",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "\(leo) \(droid)",
+            recognitionTaskID: "rotated-apple-task-restart",
+            recognitionEventSequence: 1
+        ))
+        let expectedDROID = try #require(SystemAudioQuestionExtractor.extract(from: droid).last?.text)
+        try await waitUntil(timeout: 8.0) {
+            appState.currentSuggestion?.questionText == expectedDROID &&
+                appState.pendingAcceptedQuestions.isEmpty
+        }
+        #expect(appState.detectedQuestionsInSessionCount == 2)
+        #expect(appState.currentSuggestion?.questionText == expectedDROID)
+        #expect(appState.activeQuestionID == appState.currentSuggestion?.detectedQuestionID)
+
+        appState.transcriptReconciler.reset()
+        appState.recentQuestionTimestamps = appState.recentQuestionTimestamps
+            .mapValues { _ in Date().addingTimeInterval(-120) }
+        await appState.handleTranscriptSegment(segment(
+            id: "apple-callback-3",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "\(leo) \(droid)",
+            recognitionTaskID: "rotated-apple-task-second-replay",
+            recognitionEventSequence: 1
+        ))
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(appState.detectedQuestionsInSessionCount == 2)
+        #expect(appState.currentSuggestion?.questionText == expectedDROID)
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"cumulativeReplayRejected\""))
+        #expect(trace.contains("\"old_recognition_task_id\":\"rotated-apple-task"))
+        #expect(trace.contains("\"new_recognition_task_id\":\"rotated-apple-task-second-replay\""))
+    }
+
+    @Test
+    func distinctNewUtteranceCanIntentionallyRepeatAQuestion() async throws {
+        let (appState, session, _) = try makeAppState()
+        let question = "What was the hardest technical challenge in making the real robot work reliably?"
+
+        await appState.handleTranscriptSegment(segment(
+            id: "explicit-repeat-utterance-1",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: question
+        ))
+        try await waitUntil(timeout: 8.0) { appState.detectedQuestionsInSessionCount == 1 }
+        appState.recentQuestionTimestamps = appState.recentQuestionTimestamps
+            .mapValues { _ in Date().addingTimeInterval(-120) }
+
+        await appState.handleTranscriptSegment(segment(
+            id: "explicit-repeat-utterance-2",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: question
+        ))
+        try await waitUntil(timeout: 8.0) { appState.detectedQuestionsInSessionCount == 2 }
+
+        #expect(appState.lastDetectedQuestion?.questionText == question)
+        let repeatedID = try #require(appState.lastDetectedQuestion?.id)
+        #expect(appState.intentionalRepeatQuestionIDs.contains(repeatedID))
+    }
+
+    @Test
     func longInterviewerMonologueDetectsOnlyFinalQuestion() async throws {
         let (appState, session, _) = try makeAppState()
         let text = "Before I ask the next question, let me explain a little bit about what this role involves. We work with deployed robotics systems, perception, edge AI, and reliability in real environments. The team is small, so we care about people who can debug across software and hardware. With that context, can you explain how your previous robotics experience prepares you for this role?"
@@ -166,7 +259,7 @@ struct LongInterviewQuestionDetectionTests {
         try await waitUntil(timeout: 8.0) {
             appState.visibleAnswerExists && !appState.currentSpinnerVisible
         }
-        #expect(appState.cancelledGenerationCount >= 2)
+        #expect(appState.cancelledGenerationCount == 0)
         #expect(!appState.currentSpinnerVisible)
     }
 
@@ -224,7 +317,9 @@ struct LongInterviewQuestionDetectionTests {
         sessionID: String,
         source: AudioSourceType,
         speaker: SpeakerRole,
-        text: String
+        text: String,
+        recognitionTaskID: String? = nil,
+        recognitionEventSequence: Int? = nil
     ) -> TranscriptSegment {
         TranscriptSegment(
             id: id,
@@ -232,7 +327,12 @@ struct LongInterviewQuestionDetectionTests {
             source: source,
             speaker: speaker,
             text: text,
-            createdAt: Date()
+            createdAt: Date(),
+            recognitionTaskID: recognitionTaskID,
+            recognitionEventSequence: recognitionEventSequence,
+            sourceTextStartUTF16: recognitionTaskID == nil ? nil : 0,
+            sourceTextEndUTF16: recognitionTaskID == nil ? nil : (text as NSString).length,
+            recognitionIsFinal: recognitionTaskID == nil ? nil : true
         )
     }
 

@@ -64,6 +64,37 @@ struct DetectedQuestion: Identifiable, Hashable, Codable {
     var isLocal: Bool = false
     var rawJSON: String?
     var createdAt: Date
+    var ingressIdentity: TranscriptQuestionIngressIdentity? = nil
+}
+
+/// Immutable identity of the exact transcript occurrence that produced an
+/// accepted question. A repeated sentence is intentional only when its source
+/// span differs, not merely because time elapsed or a callback ID rotated.
+struct TranscriptQuestionIngressIdentity: Hashable, Codable {
+    let recognitionTaskID: String
+    let recognitionEventSequence: Int
+    let sourceSegmentID: String
+    let sourceStartUTF16: Int
+    let sourceEndUTF16: Int
+    let normalizedText: String
+    let eventTimestamp: Date
+    let isFinal: Bool
+
+    var occurrenceKey: String {
+        [recognitionTaskID, String(sourceStartUTF16)].joined(separator: "|")
+    }
+
+    var sourceSpanKey: String {
+        [recognitionTaskID, normalizedText, String(sourceStartUTF16), String(sourceEndUTF16)].joined(separator: "|")
+    }
+
+    var absoluteSourceSpanKey: String {
+        [normalizedText, String(sourceStartUTF16), String(sourceEndUTF16)].joined(separator: "|")
+    }
+
+    var sourceSpanDescription: String {
+        "\(sourceStartUTF16)-\(sourceEndUTF16)"
+    }
 }
 
 /// Decoded provider response for question detection.

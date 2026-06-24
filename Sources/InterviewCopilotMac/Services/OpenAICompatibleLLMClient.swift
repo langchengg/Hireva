@@ -163,6 +163,9 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
 
         var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
         request.httpMethod = "POST"
+        if let timeoutInterval = options.timeoutInterval {
+            request.timeoutInterval = timeoutInterval
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try encoder.encode(requestBody)

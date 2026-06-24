@@ -63,6 +63,8 @@ final class AppleSpeechTranscriptionSession: NSObject {
     
     // Current utterance ID to prevent duplication in transcript feed
     private var utteranceID: String = UUID().uuidString
+    private var recognitionTaskID: String = UUID().uuidString
+    private var recognitionEventSequence: Int = 0
     
     // Session-level ASR timestamps
     private(set) var sessionStartedAt: Date?
@@ -136,6 +138,8 @@ final class AppleSpeechTranscriptionSession: NSObject {
             self.bestTranscriptUsed = ""
             self.finalizationReason = ""
             self.utteranceID = UUID().uuidString
+            self.recognitionTaskID = UUID().uuidString
+            self.recognitionEventSequence = 0
             self.sessionStartedAt = Date()
             self.firstPartialReceivedAt = nil
             self.firstFinalReceivedAt = nil
@@ -165,6 +169,8 @@ final class AppleSpeechTranscriptionSession: NSObject {
         self.bestTranscriptUsed = ""
         self.finalizationReason = ""
         self.utteranceID = UUID().uuidString
+        self.recognitionTaskID = UUID().uuidString
+        self.recognitionEventSequence = 0
         self.sessionStartedAt = Date()
         self.firstPartialReceivedAt = nil
         self.firstFinalReceivedAt = nil
@@ -185,6 +191,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
             if let result {
                 let text = result.bestTranscription.formattedString
                 Task { @MainActor in
+                    self.recognitionEventSequence += 1
                     self.partialTranscriptBuffer = text
                     
                     if !result.isFinal {
@@ -314,6 +321,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
     
     @MainActor
     func simulateEmit(text: String, isFinal: Bool = false) {
+        recognitionEventSequence += 1
         self.partialTranscriptBuffer = text
         if !isFinal {
             self.lastPartialTranscript = text
@@ -389,7 +397,12 @@ final class AppleSpeechTranscriptionSession: NSObject {
             outputDeviceName: outputDeviceName,
             deviceID: deviceID,
             confidence: 1.0,
-            asrFinalizationReason: "partial"
+            asrFinalizationReason: "partial",
+            recognitionTaskID: recognitionTaskID,
+            recognitionEventSequence: recognitionEventSequence,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: (trimmed as NSString).length,
+            recognitionIsFinal: false
         )
         onEmit(segment)
     }
@@ -419,7 +432,12 @@ final class AppleSpeechTranscriptionSession: NSObject {
             asrFirstPartialMS: latency?.asrFirstPartialMS,
             asrFinalMS: latency?.asrFinalMS,
             asrBestSelectedMS: latency?.asrBestSelectedMS,
-            asrFinalizationReason: latency?.finalizationReason
+            asrFinalizationReason: latency?.finalizationReason,
+            recognitionTaskID: recognitionTaskID,
+            recognitionEventSequence: recognitionEventSequence,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: (trimmed as NSString).length,
+            recognitionIsFinal: true
         )
         onEmit(segment)
     }

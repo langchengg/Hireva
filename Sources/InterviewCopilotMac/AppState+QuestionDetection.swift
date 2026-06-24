@@ -10,6 +10,17 @@ extension AppState {
     // MARK: - Local System-Audio Extraction
 
     // internal for AppState extension access only
+    func systemAudioSegmentForQuestionExtraction(from segment: TranscriptSegment) -> TranscriptSegment? {
+        guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
+            return nil
+        }
+        guard systemAudioCanUseQuestionIntent(segment) else {
+            return nil
+        }
+        return transcriptReconciler.segmentForQuestionExtraction(segment)
+    }
+
+    // internal for AppState extension access only
     func extractSystemAudioQuestionsIfNeeded(from segment: TranscriptSegment) -> [ExtractedTranscriptQuestion] {
         guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
             return []
@@ -44,15 +55,15 @@ extension AppState {
         session: InterviewSession,
         suggestionTranscript: String
     ) {
-        // One ASR segment can contain several interviewer questions. Generate
-        // answers for accepted questions in order; later questions wait in the
-        // same queue used for consecutive ASR segments.
+        // One ASR segment can contain several interviewer questions. Persist
+        // each accepted detection, but generate only for the newest question so
+        // the visible answer stays aligned with the visible current question.
         let baseDate = Date()
         let acceptedQuestions = extractedQuestions.enumerated().compactMap { index, extracted in
             let detected = makeDetectedQuestion(
                 from: extracted,
                 sessionID: session.id,
-                transcriptSegmentID: segment.id,
+                segment: segment,
                 createdAt: baseDate.addingTimeInterval(Double(index) / 1_000.0)
             )
             return runtimeAcceptedQuestionForGeneration(
@@ -69,10 +80,48 @@ extension AppState {
         let wasFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
         var freshQuestions: [DetectedQuestion] = []
         var duplicateQuestions: [DetectedQuestion] = []
+        let isCumulativeTranscript = extractedQuestions.count > 1
         for question in acceptedQuestions {
-            if !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(question.questionText) {
+            let replaySource = consumedReplaySource(
+                question,
+                isCumulativeTranscript: isCumulativeTranscript
+            )
+            let replayedOccurrence = replaySource != nil
+            let intentionalRepeat = isIntentionalQuestionRepeat(
+                question,
+                replayedOccurrence: replayedOccurrence
+            )
+            if replayedOccurrence || (!intentionalRepeat && !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(
+                question.questionText,
+                transcriptSegmentID: question.transcriptSegmentID
+            )) {
+                if let replaySource, let ingress = question.ingressIdentity {
+                    recordTranscriptRuntimeEvent(.cumulativeReplayRejected(
+                        sessionID: session.id,
+                        questionID: question.id,
+                        question: question.questionText,
+                        normalizedQuestion: ingress.normalizedText,
+                        oldRecognitionEpoch: replaySource.recognitionTaskID,
+                        newRecognitionEpoch: ingress.recognitionTaskID,
+                        oldSourceSpan: replaySource.sourceSpanDescription,
+                        newSourceSpan: ingress.sourceSpanDescription,
+                        overlapScore: sourceSpanOverlapScore(replaySource, ingress),
+                        reason: "consumed_source_span_overlap",
+                        timestamp: Date()
+                    ))
+                }
                 duplicateQuestions.append(question)
             } else {
+                if intentionalRepeat {
+                    intentionalRepeatQuestionIDs.insert(question.id)
+                    recordTranscriptRuntimeEvent(.intentionalQuestionRepeatAccepted(
+                        sessionID: session.id,
+                        questionID: question.id,
+                        question: question.questionText,
+                        occurrenceKey: question.ingressIdentity?.occurrenceKey ?? "segment:\(question.transcriptSegmentID ?? "unknown")",
+                        timestamp: Date()
+                    ))
+                }
                 freshQuestions.append(question)
             }
         }
@@ -139,21 +188,23 @@ extension AppState {
         currentFirstQuestionSuppressedReason = ""
 
         for question in freshQuestions {
-            rememberAutoQuestion(question.questionText)
+            rememberConsumedTranscriptOccurrence(question)
+            rememberAutoQuestion(
+                question.questionText,
+                transcriptSegmentID: question.transcriptSegmentID
+            )
         }
         lastAutoSuggestionAt = Date()
         lastTranscriptQuestionGenerationTrace.generationTriggered = true
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
-        if shouldQueueAutoSuggestionGeneration(for: firstQuestion) {
-            for queuedQuestion in freshQuestions {
-                queueAcceptedAutoQuestion(queuedQuestion, session: session, transcript: suggestionTranscript)
-            }
-        } else {
-            for queuedQuestion in freshQuestions.dropFirst() {
-                queueAcceptedAutoQuestion(queuedQuestion, session: session, transcript: suggestionTranscript)
-            }
-            launchAutoSuggestionGeneration(for: firstQuestion, session: session, transcript: suggestionTranscript)
-        }
+        recordLifecycleTrace(
+            "question.accepted",
+            sessionID: session.id,
+            questionID: latestQuestion.id,
+            text: latestQuestion.questionText
+        )
+        pendingAcceptedQuestions.removeAll()
+        launchAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
     }
 
     private func persistMergedTranscriptSnapshot(
@@ -241,7 +292,7 @@ extension AppState {
     private func makeDetectedQuestion(
         from extracted: ExtractedTranscriptQuestion,
         sessionID: String,
-        transcriptSegmentID: String,
+        segment: TranscriptSegment,
         createdAt: Date
     ) -> DetectedQuestion {
         let rawJSON = """
@@ -250,7 +301,7 @@ extension AppState {
         return DetectedQuestion(
             id: UUID().uuidString,
             sessionID: sessionID,
-            transcriptSegmentID: transcriptSegmentID,
+            transcriptSegmentID: segment.id,
             questionText: extracted.text,
             intent: extracted.intent,
             answerStrategy: extracted.answerStrategy,
@@ -266,7 +317,17 @@ extension AppState {
             latencyMS: 0,
             isLocal: true,
             rawJSON: rawJSON,
-            createdAt: createdAt
+            createdAt: createdAt,
+            ingressIdentity: TranscriptQuestionIngressIdentity(
+                recognitionTaskID: segment.recognitionTaskID ?? "segment:\(segment.id)",
+                recognitionEventSequence: segment.recognitionEventSequence ?? 0,
+                sourceSegmentID: segment.id,
+                sourceStartUTF16: (segment.sourceTextStartUTF16 ?? 0) + extracted.sourceStartUTF16,
+                sourceEndUTF16: (segment.sourceTextStartUTF16 ?? 0) + extracted.sourceEndUTF16,
+                normalizedText: SemanticDuplicateKeyBuilder.key(for: extracted.text),
+                eventTimestamp: segment.createdAt,
+                isFinal: segment.recognitionIsFinal ?? (segment.asrFinalizationReason != "partial")
+            )
         )
     }
 
@@ -485,13 +546,19 @@ extension AppState {
             // Duplicate suppression must not become a global "generation is
             // already busy" state. If a question is suppressed, the UI must end
             // in a visible duplicate notice or listening state, not loading.
-            let duplicateQuestion = !isFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(question.questionText)
+            let duplicateQuestion = !isFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(
+                question.questionText,
+                transcriptSegmentID: question.transcriptSegmentID
+            )
 
             if question.shouldTrigger,
                question.questionComplete,
                question.confidence >= autoSuggestionConfidenceThreshold,
                !duplicateQuestion {
-                rememberAutoQuestion(question.questionText)
+                rememberAutoQuestion(
+                    question.questionText,
+                    transcriptSegmentID: question.transcriptSegmentID
+                )
                 lastAutoSuggestionAt = Date()
                 detectedQuestionsInSessionCount += 1
                 if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
@@ -500,6 +567,12 @@ extension AppState {
                     lastTranscriptQuestionGenerationTrace.firstQuestionSuppressedReason = ""
                 }
                 currentFirstQuestionSuppressedReason = ""
+                recordLifecycleTrace(
+                    "question.accepted",
+                    sessionID: session.id,
+                    questionID: question.id,
+                    text: question.questionText
+                )
                 startAutoSuggestionGeneration(for: question, session: session, transcript: suggestionTranscript)
             } else {
                 var skipMsg = ""
@@ -638,10 +711,7 @@ extension AppState {
         ) else {
             return
         }
-        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion) {
-            queueAcceptedAutoQuestion(acceptedQuestion, session: session, transcript: transcript)
-            return
-        }
+        pendingAcceptedQuestions.removeAll()
         launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
     }
 
@@ -723,7 +793,8 @@ extension AppState {
     private func queueAcceptedAutoQuestion(
         _ question: DetectedQuestion,
         session: InterviewSession,
-        transcript: String
+        transcript: String,
+        drainImmediately: Bool = true
     ) {
         let duplicateKey = SemanticDuplicateKeyBuilder.key(for: question.questionText)
         if pendingAcceptedQuestions.contains(where: { $0.duplicateKey == duplicateKey }) {
@@ -775,7 +846,9 @@ extension AppState {
         ))
         lastTranscriptQuestionGenerationTrace.generationTriggered = false
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
-        finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
+        if drainImmediately {
+            finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
+        }
     }
 
     private func finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: InterviewSession) {
@@ -874,10 +947,17 @@ extension AppState {
         transcript: String
     ) {
         activeAITask?.cancel()
+        let launchID = UUID().uuidString
+        autoSuggestionLaunchID = launchID
         autoSuggestionLaunchPending = true
         activeAITask = Task { [weak self] in
             guard let self else { return }
-            defer { self.autoSuggestionLaunchPending = false }
+            defer {
+                if self.autoSuggestionLaunchID == launchID {
+                    self.autoSuggestionLaunchPending = false
+                    self.autoSuggestionLaunchID = nil
+                }
+            }
             do {
                 try await self.generateSuggestion(for: acceptedQuestion, session: session, transcript: transcript, autoGenerated: true)
             } catch {
@@ -905,7 +985,10 @@ extension AppState {
         guard let accepted = question.runtimeAcceptedForGeneration() else {
             let result = QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(question)
             recordRuntimeQuestionRejected(question, result: result, triggeringSegmentID: triggeringSegmentID)
-            if isRecentDuplicateAutoQuestion(question.questionText) ||
+            if isRecentDuplicateAutoQuestion(
+                question.questionText,
+                transcriptSegmentID: question.transcriptSegmentID
+            ) ||
                 result.reason == .incompleteFragment,
                SemanticDuplicateKeyBuilder.areDuplicates(lastAcceptedQuestionText, question.questionText) {
                 recordDuplicateSuppression()
@@ -1004,20 +1087,51 @@ extension AppState {
 
     // internal for AppState extension access only
     func isDuplicateAutoQuestion(_ questionText: String) -> Bool {
-        let duplicate = isRecentDuplicateAutoQuestion(questionText)
+        isDuplicateAutoQuestion(questionText, transcriptSegmentID: nil, now: Date())
+    }
+
+    // internal for deterministic duplicate-origin tests and live acceptance.
+    func isDuplicateAutoQuestion(
+        _ questionText: String,
+        transcriptSegmentID: String?,
+        now: Date
+    ) -> Bool {
+        let duplicate = isRecentDuplicateAutoQuestion(
+            questionText,
+            transcriptSegmentID: transcriptSegmentID,
+            now: now
+        )
         if duplicate {
             recordDuplicateSuppression()
         } else {
-            rememberAutoQuestion(questionText)
+            rememberAutoQuestion(
+                questionText,
+                transcriptSegmentID: transcriptSegmentID,
+                now: now
+            )
         }
         return duplicate
     }
 
-    private func isRecentDuplicateAutoQuestion(_ questionText: String) -> Bool {
+    private func isRecentDuplicateAutoQuestion(
+        _ questionText: String,
+        transcriptSegmentID: String? = nil,
+        now: Date = Date()
+    ) -> Bool {
         let normalized = normalizedQuestion(questionText)
         guard !normalized.isEmpty else { return false }
 
-        let now = Date()
+        if let transcriptSegmentID,
+           acceptedQuestionSegmentIDs[normalized] == transcriptSegmentID {
+            return true
+        }
+        if let transcriptSegmentID {
+            for (fingerprint, acceptedSegmentID) in acceptedQuestionSegmentIDs
+            where acceptedSegmentID == transcriptSegmentID && isNearDuplicateQuestion(normalized, fingerprint) {
+                return true
+            }
+        }
+
         pruneRecentQuestionTimestamps(now: now)
 
         if let lastTime = recentQuestionTimestamps[normalized],
@@ -1077,12 +1191,18 @@ extension AppState {
         return starters.contains { padded.contains($0) }
     }
 
-    private func rememberAutoQuestion(_ questionText: String) {
+    private func rememberAutoQuestion(
+        _ questionText: String,
+        transcriptSegmentID: String? = nil,
+        now: Date = Date()
+    ) {
         let normalized = normalizedQuestion(questionText)
         guard !normalized.isEmpty else { return }
-        let now = Date()
         pruneRecentQuestionTimestamps(now: now)
         recentQuestionTimestamps[normalized] = now
+        if let transcriptSegmentID, !transcriptSegmentID.isEmpty {
+            acceptedQuestionSegmentIDs[normalized] = transcriptSegmentID
+        }
     }
 
     private func pruneRecentQuestionTimestamps(now: Date) {
@@ -1095,5 +1215,59 @@ extension AppState {
 
     private func normalizedQuestion(_ text: String) -> String {
         SystemAudioQuestionExtractor.duplicateKey(for: text)
+    }
+
+    private func consumedReplaySource(
+        _ question: DetectedQuestion,
+        isCumulativeTranscript: Bool
+    ) -> TranscriptQuestionIngressIdentity? {
+        guard let ingress = question.ingressIdentity else { return nil }
+        if let consumed = consumedQuestionOccurrences[ingress.occurrenceKey] {
+            return consumed
+        }
+        guard isCumulativeTranscript else { return nil }
+        if let consumed = consumedQuestionSourceSpans[ingress.sourceSpanKey] {
+            return consumed
+        }
+        if let consumed = consumedQuestionAbsoluteSourceSpans[ingress.absoluteSourceSpanKey] {
+            return consumed
+        }
+        return consumedQuestionAbsoluteSourceSpans.values.first {
+            $0.normalizedText == ingress.normalizedText &&
+                sourceSpanOverlapScore($0, ingress) >= 0.80
+        }
+    }
+
+    private func isIntentionalQuestionRepeat(
+        _ question: DetectedQuestion,
+        replayedOccurrence: Bool
+    ) -> Bool {
+        guard !replayedOccurrence else { return false }
+        return acceptedNormalizedQuestionKeys.contains(normalizedQuestion(question.questionText))
+    }
+
+    private func rememberConsumedTranscriptOccurrence(_ question: DetectedQuestion) {
+        let normalized = normalizedQuestion(question.questionText)
+        acceptedNormalizedQuestionKeys.insert(normalized)
+        guard let ingress = question.ingressIdentity else { return }
+        consumedQuestionOccurrenceKeys.insert(ingress.occurrenceKey)
+        consumedQuestionOccurrences[ingress.occurrenceKey] = ingress
+        consumedQuestionSourceSpanKeys.insert(ingress.sourceSpanKey)
+        consumedQuestionSourceSpans[ingress.sourceSpanKey] = ingress
+        consumedQuestionAbsoluteSourceSpans[ingress.absoluteSourceSpanKey] = ingress
+    }
+
+    private func sourceSpanOverlapScore(
+        _ lhs: TranscriptQuestionIngressIdentity,
+        _ rhs: TranscriptQuestionIngressIdentity
+    ) -> Double {
+        let overlapStart = max(lhs.sourceStartUTF16, rhs.sourceStartUTF16)
+        let overlapEnd = min(lhs.sourceEndUTF16, rhs.sourceEndUTF16)
+        let overlap = max(0, overlapEnd - overlapStart)
+        let shortest = max(1, min(
+            lhs.sourceEndUTF16 - lhs.sourceStartUTF16,
+            rhs.sourceEndUTF16 - rhs.sourceStartUTF16
+        ))
+        return Double(overlap) / Double(shortest)
     }
 }

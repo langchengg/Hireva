@@ -40,6 +40,7 @@ struct RuntimeSmokeHarnessTests {
         await harness.feed(text: "If you had one more month to improve your LeoRover system, what would you improve first?", id: "rapid-two-q2", secondsFromStart: 3)
 
         try await harness.waitForRows(2)
+        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 2)
         let rows = try harness.rows()
         let trace = try harness.traceText()
         harness.printSummary(rows: rows, trace: trace)
@@ -50,8 +51,7 @@ struct RuntimeSmokeHarnessTests {
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(harness.appState.liveSuggestionHistory.count == 2)
         #expect(harness.appState.currentSuggestion?.questionText == rows[1].questionText)
-        #expect(trace.contains("\"event_type\":\"questionQueued\""))
-        #expect(trace.contains("\"event_type\":\"questionDequeued\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
         #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 2)
     }
 
@@ -66,6 +66,7 @@ struct RuntimeSmokeHarnessTests {
         await harness.feed(text: "Can you explain the difference between your VLA project and your LeoRover project?", id: "rapid-three-q3", secondsFromStart: 6)
 
         try await harness.waitForRows(3)
+        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 3)
         let rows = try harness.rows()
         let trace = try harness.traceText()
         harness.printSummary(rows: rows, trace: trace)
@@ -155,6 +156,186 @@ struct RuntimeSmokeHarnessTests {
         #expect(trace.contains("\"event_type\":\"partialAnswerRejectedIncomplete\""))
     }
 
+    @Test
+    func longInterviewSuiteKeepsSevenCumulativeQuestionsDistinctAndCurrent() async throws {
+        guard Self.shouldRun("long-interview") else { return }
+        let harness = try makeHarness(suite: "long-interview")
+        let questions = [
+            "Could you briefly introduce yourself and your robotics background?",
+            "Could you explain your LeoRover project from end to end?",
+            "What was the hardest technical challenge in making the real robot work reliably?",
+            "In your VLA project, why did the diffusion decoder outperform the autoregressive and flow-matching versions?",
+            "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?",
+            "If your YOLOv8 detector confidently picks the wrong object on the LeoRover, how would you debug that before retraining the model?",
+            "Can you explain the difference between your VLA project and your LeoRover project?"
+        ]
+        var cumulativeTranscript: [String] = []
+
+        for (index, question) in questions.enumerated() {
+            if index == 4 {
+                harness.appState.recentQuestionTimestamps = harness.appState.recentQuestionTimestamps
+                    .mapValues { _ in Date().addingTimeInterval(-120) }
+            }
+            cumulativeTranscript.append(question)
+            let cumulativeText = cumulativeTranscript.joined(separator: " ")
+            let expectedQuestion = SystemAudioQuestionExtractor.extract(from: cumulativeText).last?.text ?? question
+            await harness.feed(
+                text: cumulativeText,
+                id: "long-interview-cumulative-segment",
+                secondsFromStart: TimeInterval(index * 25)
+            )
+            try await harness.waitForCurrentQuestion(expectedQuestion)
+            if index > 0 {
+                try await harness.waitForRowsAtLeast(index)
+            }
+            #expect(harness.appState.currentSuggestion?.questionText == expectedQuestion)
+            #expect(harness.appState.visibleQuestionText(for: harness.appState.currentSuggestion) == expectedQuestion)
+        }
+
+        try await harness.waitForPipelineIdle()
+        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 6)
+        let rows = try harness.rows()
+        let trace = try harness.traceText()
+        harness.printSummary(rows: rows, trace: trace)
+        let normalizedQuestions = rows.compactMap(\.questionText).map(SemanticDuplicateKeyBuilder.key(for:))
+        let persistenceSucceededCount = trace.components(
+            separatedBy: "\"event_type\":\"persistenceSucceeded\""
+        ).count - 1
+        let orderedAll = questions.flatMap {
+            SystemAudioQuestionExtractor.extract(from: $0).map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
+        }
+        let orderedWithoutGreeting = Array(orderedAll.dropFirst())
+
+        #expect(rows.count == 6 || rows.count == 7)
+        #expect(Set(normalizedQuestions).count == rows.count)
+        #expect(Set(rows.compactMap(\.detectedQuestionID)).count == rows.count)
+        #expect(Set(rows.compactMap(\.generationID)).count == rows.count)
+        #expect(Set(rows.compactMap(\.questionIntent)).count >= 5)
+        #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
+        #expect(harness.appState.liveSuggestionHistory.count == rows.count)
+        let finalExpectedQuestion = SystemAudioQuestionExtractor.extract(
+            from: questions.joined(separator: " ")
+        ).last?.text
+        #expect(harness.appState.currentSuggestion?.questionText == finalExpectedQuestion)
+        #expect(persistenceSucceededCount == rows.count)
+        if normalizedQuestions == orderedWithoutGreeting {
+            #expect(trace.contains("\"event_type\":\"persistenceRejected\""))
+            #expect(trace.contains(questions[0]))
+        } else {
+            #expect(normalizedQuestions == orderedAll)
+        }
+        #expect(!trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
+    }
+
+    @Test
+    func appleSpeechCumulativeReplaySuiteRejectsOldCallbacksAndKeepsNewestCard() async throws {
+        guard Self.shouldRun("apple-speech-cross-task-replay") else { return }
+        let harness = try makeHarness(suite: "apple-speech-cross-task-replay")
+        harness.client.stageAStreamDelayByNeedle["LeoRover project from end to end"] = 5_000_000_000
+        let slowDelay = MockDelayProvider()
+        slowDelay.sleepDuration = 5_000_000_000
+        harness.appState.delayProvider = slowDelay
+        harness.appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
+        let q1 = "Could you explain your LeoRover project from end to end?"
+        let q2 = "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?"
+        let q3 = "If your YOLOv8 detector confidently picks the wrong object on the LeoRover, how would you debug that before retraining the model?"
+
+        await harness.feed(text: q1, id: "apple-replay-callback-1", secondsFromStart: 0, recognitionTaskID: "apple-task-1", eventSequence: 1)
+        try await harness.waitForTraceEvent("generationStarted")
+        harness.appState.recentQuestionTimestamps = harness.appState.recentQuestionTimestamps
+            .mapValues { _ in Date().addingTimeInterval(-120) }
+        let fastDelay = MockDelayProvider()
+        fastDelay.sleepDuration = 5_000_000
+        harness.appState.delayProvider = fastDelay
+        harness.appState.generationFullCardWatchdogNanoseconds = 400_000_000
+        await harness.feed(text: "\(q1) \(q2)", id: "apple-replay-callback-2", secondsFromStart: 65, recognitionTaskID: "apple-task-1", eventSequence: 2)
+        let expectedQ2 = SystemAudioQuestionExtractor.extract(from: q2).last?.text ?? q2
+        try await harness.waitForCurrentQuestion(expectedQ2)
+        await harness.feed(text: "\(q1) \(q2) \(q3)", id: "apple-replay-callback-3", secondsFromStart: 90, recognitionTaskID: "apple-task-2", eventSequence: 1)
+
+        let expectedQ3 = SystemAudioQuestionExtractor.extract(from: q3).last?.text ?? q3
+        try await harness.waitForCurrentQuestion(expectedQ3)
+        try await harness.waitForRows(2)
+        try await harness.waitForPipelineIdle()
+        let rows = try harness.rows()
+        let trace = try harness.traceText()
+        harness.printSummary(rows: rows, trace: trace)
+        let normalized = rows.compactMap(\.questionText).map(SemanticDuplicateKeyBuilder.key(for:))
+
+        #expect(Set(normalized).count == rows.count)
+        #expect(rows.filter { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", q1) }.isEmpty)
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("DROID") })
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("YOLOv8") })
+        #expect(rows.allSatisfy { $0.stageBStatus != "cancelled" })
+        #expect(harness.appState.currentSuggestion?.questionText == expectedQ3)
+        #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
+    }
+
+    @Test
+    func realLongInterviewOrderingSuiteNeverRegressesToOldCumulativeQuestion() async throws {
+        guard Self.shouldRun("seven-question-real-order") else { return }
+        let harness = try makeHarness(suite: "seven-question-real-order")
+        let questions = [
+            "Could you briefly introduce yourself and your robotics background?",
+            "Could you explain your LeoRover project from end to end?",
+            "What was the hardest technical challenge in making the real robot work reliably?",
+            "In your VLA project, why did the diffusion decoder outperform the autoregressive and flow-matching versions?",
+            "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?",
+            "If your YOLOv8 detector confidently picks the wrong object on the LeoRover, how would you debug that before retraining the model?",
+            "Can you explain the difference between your VLA project and your LeoRover project?"
+        ]
+        var cumulative: [String] = []
+
+        for (index, question) in questions.enumerated() {
+            if index == 4 {
+                harness.appState.recentQuestionTimestamps = harness.appState.recentQuestionTimestamps
+                    .mapValues { _ in Date().addingTimeInterval(-120) }
+            }
+            cumulative.append(question)
+            await harness.feed(
+                text: cumulative.joined(separator: " "),
+                id: "real-apple-callback-\(index)",
+                secondsFromStart: TimeInterval(index * 25),
+                recognitionTaskID: index >= 4 ? "real-apple-task-restart" : "real-apple-task",
+                eventSequence: index + 1
+            )
+            try await harness.waitForPipelineIdle()
+            let expected = SystemAudioQuestionExtractor.extract(from: question).last?.text
+            #expect(harness.appState.currentSuggestion?.questionText == expected)
+            #expect(harness.appState.visibleQuestionText(for: harness.appState.currentSuggestion) == expected)
+        }
+
+        try await harness.waitForRowsAtLeast(6)
+        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 6)
+        let rows = try harness.rows()
+        let trace = try harness.traceText()
+        harness.printSummary(rows: rows, trace: trace)
+        let normalized = rows.compactMap(\.questionText).map(SemanticDuplicateKeyBuilder.key(for:))
+        let expectedNormalized = Set(questions.flatMap {
+            SystemAudioQuestionExtractor.extract(from: $0).map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
+        })
+        let orderedAll = questions.flatMap {
+            SystemAudioQuestionExtractor.extract(from: $0).map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
+        }
+        let orderedWithoutGreeting = Array(orderedAll.dropFirst())
+
+        #expect(rows.count >= 6)
+        #expect(rows.count <= 7)
+        #expect(Set(normalized).count == rows.count)
+        #expect(Set(normalized).isSubset(of: expectedNormalized))
+        if normalized == orderedWithoutGreeting {
+            #expect(trace.contains("\"event_type\":\"persistenceRejected\""))
+            #expect(trace.contains(questions[0]))
+        } else {
+            #expect(normalized == orderedAll)
+        }
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("DROID") })
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("YOLOv8") })
+        #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
+        #expect(rows.allSatisfy { $0.stageBStatus != "cancelled" })
+        #expect(!trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
+    }
+
     private static func shouldRun(_ suite: String) -> Bool {
         let selected = ProcessInfo.processInfo.environment["RUNTIME_SMOKE_SUITE"] ?? "all"
         return selected == "all" || selected == suite
@@ -206,7 +387,13 @@ private struct RuntimeSmokeHarness {
     let traceURL: URL
     private let startedAt = Date()
 
-    func feed(text: String, id: String, secondsFromStart: TimeInterval = 0) async {
+    func feed(
+        text: String,
+        id: String,
+        secondsFromStart: TimeInterval = 0,
+        recognitionTaskID: String? = nil,
+        eventSequence: Int? = nil
+    ) async {
         let segment = TranscriptSegment(
             id: id,
             sessionID: session.id,
@@ -215,7 +402,12 @@ private struct RuntimeSmokeHarness {
             text: text,
             createdAt: startedAt.addingTimeInterval(secondsFromStart),
             confidence: 1.0,
-            asrFinalizationReason: "final_accepted"
+            asrFinalizationReason: "final_accepted",
+            recognitionTaskID: recognitionTaskID,
+            recognitionEventSequence: eventSequence,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: (text as NSString).length,
+            recognitionIsFinal: true
         )
         await appState.handleTranscriptSegment(segment)
     }
@@ -252,6 +444,40 @@ private struct RuntimeSmokeHarness {
         }
     }
 
+    func waitForRowsAtLeast(_ expected: Int, timeout: TimeInterval = 60.0) async throws {
+        let start = Date()
+        while true {
+            if (try? rows().count) ?? 0 >= expected {
+                return
+            }
+            if Date().timeIntervalSince(start) > timeout {
+                throw NSError(
+                    domain: "RuntimeSmokeHarnessTests",
+                    code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for at least \(expected) persisted row(s)."]
+                )
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
+    func waitForCurrentQuestion(_ expected: String, timeout: TimeInterval = 60.0) async throws {
+        let start = Date()
+        while true {
+            if appState.currentSuggestion?.questionText == expected && appState.visibleAnswerExists {
+                return
+            }
+            if Date().timeIntervalSince(start) > timeout {
+                throw NSError(
+                    domain: "RuntimeSmokeHarnessTests",
+                    code: 5,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for current card: \(expected)"]
+                )
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
     func waitForTraceEvent(_ eventType: String, timeout: TimeInterval = 60.0) async throws {
         let expected = "\"event_type\":\"\(eventType)\""
         let start = Date()
@@ -264,6 +490,53 @@ private struct RuntimeSmokeHarness {
                     domain: "RuntimeSmokeHarnessTests",
                     code: 2,
                     userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for trace event \(eventType)."]
+                )
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
+    func waitForTraceEventCount(
+        _ eventType: String,
+        atLeast expectedCount: Int,
+        timeout: TimeInterval = 60.0
+    ) async throws {
+        let needle = "\"event_type\":\"\(eventType)\""
+        let start = Date()
+        while true {
+            let count = ((try? traceText()) ?? "").components(separatedBy: needle).count - 1
+            if count >= expectedCount {
+                return
+            }
+            if Date().timeIntervalSince(start) > timeout {
+                throw NSError(
+                    domain: "RuntimeSmokeHarnessTests",
+                    code: 6,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(expectedCount) \(eventType) events."]
+                )
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
+    func waitForPipelineIdle(timeout: TimeInterval = 60.0) async throws {
+        let start = Date()
+        while true {
+            let idle = appState.pendingAcceptedQuestions.isEmpty &&
+                !appState.autoSuggestionLaunchPending &&
+                !appState.suggestionGenerationStarted &&
+                !appState.isStreamingSayFirst &&
+                !appState.providerStreamActive &&
+                !appState.stageBTaskActive &&
+                !appState.fallbackWatchdogActive
+            if idle {
+                return
+            }
+            if Date().timeIntervalSince(start) > timeout {
+                throw NSError(
+                    domain: "RuntimeSmokeHarnessTests",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for long-interview pipeline idle state."]
                 )
             }
             try await Task.sleep(nanoseconds: 25_000_000)

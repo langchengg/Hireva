@@ -213,6 +213,30 @@ struct QuestionDetectionTests {
     }
 
     @Test
+    func cumulativeASRSegmentRemainsDuplicateAfterCooldownButNewSegmentCanRepeat() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "QuestionDetectionTests")
+        let appState = AppState(database: database)
+        let question = "What was the hardest technical challenge in making the real robot work reliably?"
+        let firstSeenAt = Date(timeIntervalSince1970: 1_000)
+
+        #expect(appState.isDuplicateAutoQuestion(
+            question,
+            transcriptSegmentID: "cumulative-segment",
+            now: firstSeenAt
+        ) == false)
+        #expect(appState.isDuplicateAutoQuestion(
+            question,
+            transcriptSegmentID: "cumulative-segment",
+            now: firstSeenAt.addingTimeInterval(120)
+        ) == true)
+        #expect(appState.isDuplicateAutoQuestion(
+            question,
+            transcriptSegmentID: "explicit-repeat-segment",
+            now: firstSeenAt.addingTimeInterval(120)
+        ) == false)
+    }
+
+    @Test
     func mixedFourQuestionSequenceKeepsFourFinalQuestionsOnly() {
         let transcript = [
             "Why might a diffusion based policy be more stable for robotic manipulation than an auto rig progressive policy",

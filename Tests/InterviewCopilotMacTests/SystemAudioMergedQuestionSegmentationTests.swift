@@ -65,7 +65,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
     }
 
     @Test
-    func mergedTranscriptQueuesAndPersistsRowsForAllQuestionsInOrder() async throws {
+    func mergedTranscriptPersistsAllDetectedQuestionsAndGeneratesLatestAnswer() async throws {
         let (appState, database, session, client) = try makeAppState()
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -85,10 +85,10 @@ struct SystemAudioMergedQuestionSegmentationTests {
 
         try await waitUntil(
             timeout: Self.runtimeWaitTimeout,
-            label: "persisted rows for queued split questions",
+            label: "latest answer for split questions",
             stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
         ) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == Self.expectedQuestions.count &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 &&
             appState.currentSuggestion?.questionText == Self.expectedQuestions.last &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
@@ -117,7 +117,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 arguments: [session.id]
             )
         }
-        #expect(persisted == Self.expectedQuestions)
+        #expect(persisted == [Self.expectedQuestions.last])
         #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("why do you want to join our team now let us switch") })
     }
 
@@ -148,10 +148,10 @@ struct SystemAudioMergedQuestionSegmentationTests {
 
         try await waitUntil(
             timeout: Self.runtimeWaitTimeout,
-            label: "persisted rows for four split questions",
+            label: "latest answer for four split questions",
             stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
         ) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == Self.expectedFourQuestions.count &&
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1 &&
             appState.currentSuggestion?.questionText == Self.expectedFourQuestions.last &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
@@ -169,8 +169,8 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 arguments: [session.id]
             )
         }
-        #expect(persisted == Self.expectedFourQuestions)
-        #expect(persisted.count == Self.expectedFourQuestions.count)
+        #expect(persisted == [Self.expectedFourQuestions.last])
+        #expect(persisted.count == 1)
         #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
     }
 
@@ -218,7 +218,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
 
         try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 2 &&
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 &&
             appState.currentSuggestion?.questionText == "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy" &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible

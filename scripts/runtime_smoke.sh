@@ -15,6 +15,11 @@ Suites:
   conditional-asr
   noisy-canonicalization
   incomplete-stream
+  long-interview
+  apple-speech-cross-task-replay
+  seven-question-real-order
+  apple-speech-cumulative-replay
+  real-long-interview-ordering
 USAGE
 }
 
@@ -42,7 +47,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$SUITE" in
-  all|bad-fragments|rapid-two|rapid-three|conditional-asr|noisy-canonicalization|incomplete-stream)
+  all|bad-fragments|rapid-two|rapid-three|conditional-asr|noisy-canonicalization|incomplete-stream|long-interview|apple-speech-cross-task-replay|seven-question-real-order|apple-speech-cumulative-replay|real-long-interview-ordering)
     ;;
   *)
     echo "error: unknown runtime smoke suite: $SUITE" >&2
@@ -51,6 +56,16 @@ case "$SUITE" in
     ;;
 esac
 
+CANONICAL_SUITE="$SUITE"
+case "$CANONICAL_SUITE" in
+  apple-speech-cumulative-replay)
+    CANONICAL_SUITE="apple-speech-cross-task-replay"
+    ;;
+  real-long-interview-ordering)
+    CANONICAL_SUITE="seven-question-real-order"
+    ;;
+esac
+
 echo "Runtime smoke suite: $SUITE"
-export RUNTIME_SMOKE_SUITE="$SUITE"
+export RUNTIME_SMOKE_SUITE="$CANONICAL_SUITE"
 swift test --filter RuntimeSmokeHarnessTests

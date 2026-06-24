@@ -20,7 +20,8 @@ extension AppState {
             if frameCount > 0 {
                 totalSystemAudioASRBuffersAppended = max(totalSystemAudioASRBuffersAppended, diagnostics.audioBufferCount)
             }
-        case let .asrPartial(sessionID, text, timestamp):
+            recordLifecycleTrace("audio.received", sessionID: sessionID, text: "frames=\(frameCount)")
+        case let .asrPartial(sessionID, text, _, _, _, _, _, timestamp):
             diagnostics.audioSessionID = sessionID
             diagnostics.audioIsRunning = true
             diagnostics.lastASRPartialAt = timestamp
@@ -29,7 +30,8 @@ extension AppState {
             partialTranscriptText = text
             displayTranscriptText = text
             lastSystemAudioASRPartialTranscript = text
-        case let .asrFinal(sessionID, text, timestamp):
+            recordLifecycleTrace("transcript.partial", sessionID: sessionID, text: text)
+        case let .asrFinal(sessionID, text, _, _, _, _, _, timestamp):
             diagnostics.audioSessionID = sessionID
             diagnostics.audioIsRunning = true
             diagnostics.lastASRFinalAt = timestamp
@@ -39,6 +41,7 @@ extension AppState {
             displayTranscriptText = text
             partialTranscriptText = ""
             lastSystemAudioASRFinalTranscript = text
+            recordLifecycleTrace("transcript.final", sessionID: sessionID, text: text)
         case let .utteranceCandidate(sessionID, _, timestamp):
             diagnostics.audioSessionID = sessionID
             diagnostics.lastQuestionCandidateAt = timestamp
@@ -91,6 +94,23 @@ extension AppState {
         case let .persistenceRejected(sessionID, _, _, _, reason, _):
             diagnostics.audioSessionID = sessionID
             diagnostics.lastGenerationRejectedReason = reason
+        case let .duplicatePersistenceRejected(sessionID, _, _, _, _, reason, _):
+            diagnostics.audioSessionID = sessionID
+            diagnostics.lastGenerationRejectedReason = reason
+        case let .intentionalQuestionRepeatAccepted(sessionID, _, _, _, _):
+            diagnostics.audioSessionID = sessionID
+        case let .cumulativeReplayRejected(sessionID, _, _, _, _, _, _, _, _, reason, _):
+            diagnostics.audioSessionID = sessionID
+            diagnostics.lastGenerationRejectedReason = reason
+        case let .cancelledGenerationPersistenceRejected(sessionID, _, _, _, reason, _):
+            diagnostics.audioSessionID = sessionID
+            diagnostics.lastGenerationRejectedReason = reason
+        case let .staleGenerationResultRejected(sessionID, _, _, _, _, _, _, _, reason, _):
+            diagnostics.audioSessionID = sessionID
+            diagnostics.lastGenerationRejectedReason = reason
+        case let .currentCardRegressionRejected(sessionID, _, _, _, _, _, _, _, reason, _):
+            diagnostics.audioSessionID = sessionID
+            diagnostics.lastGenerationRejectedReason = reason
         case let .questionHistoryAppended(sessionID, _, _, _, _):
             diagnostics.audioSessionID = sessionID
         case let .visibleCurrentSuggestionUpdated(sessionID, _, _, _, _):
@@ -105,6 +125,11 @@ extension AppState {
         case let .answerRejectedWrongProjectGrounding(sessionID, _, _, _, _, _):
             diagnostics.audioSessionID = sessionID
             diagnostics.lastGenerationRejectedReason = QuestionRuntimeRejectionReason.mismatchedAlignment.rawValue
+        case let .lifecycle(_, sessionID, _, _, _, _, reason, _, skipped, _):
+            diagnostics.audioSessionID = sessionID
+            if skipped || !reason.isEmpty {
+                diagnostics.lastGenerationRejectedReason = reason
+            }
         }
         transcriptRuntimeDiagnostics = diagnostics
 
@@ -114,6 +139,31 @@ extension AppState {
             recentTranscriptRuntimeEvents.removeFirst(recentTranscriptRuntimeEvents.count - 40)
         }
         appendRuntimeTranscriptTraceLog(record)
+    }
+
+    // internal for AppState extension access only
+    func recordLifecycleTrace(
+        _ eventName: String,
+        sessionID: String? = nil,
+        questionID: String? = nil,
+        generationID: String? = nil,
+        text: String = "",
+        reason: String = "",
+        cancelled: Bool = false,
+        skipped: Bool = false
+    ) {
+        recordTranscriptRuntimeEvent(.lifecycle(
+            eventName: eventName,
+            sessionID: sessionID ?? currentSession?.id ?? transcriptRuntimeDiagnostics.audioSessionID,
+            questionID: questionID,
+            generationID: generationID,
+            text: text,
+            currentState: "\(liveState) | \(generationUIState.displayName)",
+            reason: reason,
+            cancelled: cancelled,
+            skipped: skipped,
+            timestamp: Date()
+        ))
     }
 
     // internal for AppState extension access only
@@ -189,9 +239,6 @@ extension AppState {
         }
         if record.generationRejectedReason.isEmpty, record.name == "generationRejected" {
             record.generationRejectedReason = record.rejectionReason
-        }
-        if record.generationID == nil {
-            record.generationID = currentGenerationID
         }
         record.uiTranscriptText = displayTranscriptText
         record.visibleQuestionText = currentSuggestion?.questionText ??

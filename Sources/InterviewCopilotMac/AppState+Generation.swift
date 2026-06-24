@@ -277,13 +277,6 @@ func cancelStageBTask() {
     if hadActiveStageB {
         print("[StageB] Cancelled active background Stage B suggestion task.")
     }
-    if var current = self.currentSuggestion, hadActiveStageB {
-        current.stageBCompleted = false
-        current.stageBStatus = "cancelled"
-        current.caution = "Full answer cancelled by user action."
-        self.currentSuggestion = current
-        saveSuggestionSnapshotInBackground(current, chunks: self.currentSuggestionRetrievedChunks)
-    }
     cancelActiveGenerationForStop()
 }
 
@@ -472,6 +465,93 @@ public var shouldShowAnswerExpansionStatus: Bool {
     visibleAnswerExists && (generationUIState.isExpandingAfterVisibleAnswer || isExpandingSuggestionCard)
 }
 
+var visibleSuggestionState: VisibleSuggestionState? {
+    if let card = currentSuggestion,
+       let generationID = card.generationID ?? activeGenerationController?.generationID,
+       let identity = GenerationIdentity(card: card, generationID: generationID) {
+        return VisibleSuggestionState(
+            identity: identity,
+            questionText: identity.questionText,
+            answerText: card.sayFirst,
+            status: card.stageBStatus ?? generationUIState.displayName,
+            generationErrorText: currentGenerationErrorText,
+            card: card
+        )
+    }
+    if let controller = activeGenerationController {
+        return VisibleSuggestionState(
+            identity: controller.identity,
+            questionText: controller.identity.questionText,
+            answerText: streamedSayFirst,
+            status: generationUIState.displayName,
+            generationErrorText: currentGenerationErrorText,
+            card: nil
+        )
+    }
+    return nil
+}
+
+var currentGenerationErrorText: String? {
+    guard let reason = generationUIState.failureReason,
+          !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return nil
+    }
+    switch generationUIState {
+    case .failed:
+        return "Generation failed: \(reason)"
+    case .timeout:
+        return "Generation timed out: \(reason)"
+    case .cancelled:
+        return "Generation cancelled: \(reason)"
+    case .idle, .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady:
+        return nil
+    }
+}
+
+var visibleAssistantRenderState: VisibleAssistantRenderState {
+    let snapshot = visibleSuggestionState
+    let card = currentSuggestion
+    let question = snapshot?.questionText ??
+        visibleQuestionText(for: card) ??
+        (!displayTranscriptText.isEmpty ? displayTranscriptText : lastTranscriptSnippet)
+    let answer = snapshot?.answerText.isEmpty == false ? snapshot?.answerText ?? "" :
+        (card?.sayFirst.isEmpty == false ? card?.sayFirst ?? "" : streamedSayFirst)
+    let points = card?.keyPoints ?? []
+    return VisibleAssistantRenderState(
+        questionText: question,
+        answerText: answer,
+        keyPoints: points,
+        generationStatus: snapshot?.status ?? generationUIState.displayName,
+        generationErrorText: snapshot?.generationErrorText ?? currentGenerationErrorText,
+        isGenerating: shouldShowBlockingAnswerSpinner || shouldShowAnswerExpansionStatus || isStreamingSayFirst || providerStreamActive,
+        hasAnswerText: !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        activeGenerationID: activeGenerationID,
+        activeQuestionID: activeQuestionID
+    )
+}
+
+/// Returns the question that owns the supplied visible card. Detection state may
+/// already point at a queued question, so it is only a fallback when no answer
+/// card is visible.
+func visibleQuestionText(for card: SuggestionCard?) -> String? {
+    if card == nil, let snapshot = visibleSuggestionState {
+        return snapshot.questionText
+    }
+    if let cardQuestion = card?.questionText ?? card?.promptPrimaryQuestion ?? card?.promptQuestionText,
+       !cardQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return cardQuestion
+    }
+    if !streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+       let activeQuestion = activeGenerationController?.questionTextSnapshot,
+       !activeQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return activeQuestion
+    }
+    if let lastDetectedQuestion {
+        return lastDetectedQuestion.questionText
+    }
+    return possibleQuestion?.questionText
+}
+
     // MARK: - Active Generation Lifecycle
 
     private func cancelActiveGenerationForReplacement() {
@@ -481,8 +561,11 @@ public var shouldShowAnswerExpansionStatus: Bool {
     }
 
     previousGenerationID = controller.generationID
-    cancelledGenerationCount += 1
-    persistVisibleSuggestionBeforeReplacement(controller: controller)
+    if generationHasCancellableWork(controller) {
+        cancelledGenerationCount += 1
+        cancelledPersistenceGenerationIDs.insert(controller.generationID)
+        rejectCancelledGenerationPersistence(controller: controller, reason: "generation_replaced")
+    }
     controller.cancelAll()
     activeGenerationController = nil
     cancelLegacyGenerationTaskReferences()
@@ -496,8 +579,11 @@ public var shouldShowAnswerExpansionStatus: Bool {
 func cancelActiveGenerationForStop() {
     if var controller = activeGenerationController {
         previousGenerationID = controller.generationID
-        cancelledGenerationCount += 1
-        persistVisibleSuggestionBeforeReplacement(controller: controller)
+        if generationHasCancellableWork(controller) {
+            cancelledGenerationCount += 1
+            cancelledPersistenceGenerationIDs.insert(controller.generationID)
+            rejectCancelledGenerationPersistence(controller: controller, reason: "generation_stopped")
+        }
         controller.cancelAll()
     }
     activeGenerationController = nil
@@ -506,11 +592,19 @@ func cancelActiveGenerationForStop() {
     activeTriggerPath = nil
     activeGenerationStartedAt = nil
     currentGenerationID = nil
+    autoSuggestionLaunchPending = false
+    suggestionGenerationStarted = false
+    isStreamingSayFirst = false
+    isExpandingSuggestionCard = false
     cancelLegacyGenerationTaskReferences()
     fallbackWatchdogActive = false
     stageBTaskActive = false
     providerStreamActive = false
     updateActiveTaskSummary()
+}
+
+private func generationHasCancellableWork(_ controller: ActiveGenerationController) -> Bool {
+    !terminalGenerationIDs.contains(controller.generationID) && !generationUIState.isTerminal
 }
 
 private func cancelLegacyGenerationTaskReferences() {
@@ -522,13 +616,40 @@ private func cancelLegacyGenerationTaskReferences() {
     stageBTask = nil
 }
 
-private func persistVisibleSuggestionBeforeReplacement(controller: ActiveGenerationController) {
-    guard let current = currentSuggestion,
-          current.questionID == controller.questionID,
-          !current.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    else { return }
-    let chunks = currentSuggestionRetrievedChunks
-    saveSuggestionSnapshotInBackground(current, chunks: chunks)
+private func rejectCancelledGenerationPersistence(
+    controller: ActiveGenerationController,
+    reason: String
+) {
+    let current = currentSuggestion
+    recordTranscriptRuntimeEvent(.cancelledGenerationPersistenceRejected(
+        sessionID: current?.sessionID ?? currentSession?.id ?? "",
+        questionID: controller.questionID ?? current?.detectedQuestionID,
+        generationID: controller.generationID,
+        question: controller.questionTextSnapshot,
+        reason: reason,
+        timestamp: Date()
+    ))
+}
+
+// internal for AppState extension access only
+@discardableResult
+func rejectCancelledPersistenceIfNeeded(
+    card: SuggestionCard,
+    generationID: String?,
+    sourceCallback: String
+) -> Bool {
+    guard let generationID,
+          cancelledPersistenceGenerationIDs.contains(generationID)
+    else { return false }
+    recordTranscriptRuntimeEvent(.cancelledGenerationPersistenceRejected(
+        sessionID: card.sessionID,
+        questionID: card.detectedQuestionID ?? card.questionID,
+        generationID: generationID,
+        question: card.questionText ?? card.promptPrimaryQuestion ?? card.promptQuestionText ?? "",
+        reason: "cancelled_before_\(sourceCallback)",
+        timestamp: Date()
+    ))
+    return true
 }
 
 // internal for AppState extension access only
@@ -546,6 +667,11 @@ func activateGeneration(
     cancelActiveGenerationForReplacement()
     currentGenerationID = generationID
     activeGenerationController = ActiveGenerationController(
+        identity: GenerationIdentity(
+            question: question,
+            generationID: generationID,
+            promptPrimaryQuestion: question.questionText
+        ),
         generationID: generationID,
         questionID: question.id,
         questionTextSnapshot: question.questionText,
@@ -613,6 +739,13 @@ func visibleCardMatchesGeneration(
         if !controllerQuestion.isEmpty, !expectedQuestion.isEmpty, controllerQuestion != expectedQuestion {
             return false
         }
+        if controller.identity.sessionID != card.sessionID {
+            return false
+        }
+        if let cardIntent = card.questionIntent,
+           controller.identity.questionIntent != cardIntent {
+            return false
+        }
     }
 
     if let cardGenerationID = card.generationID, cardGenerationID != generationID {
@@ -676,9 +809,16 @@ func displaySuggestionIfAligned(
 ) -> Bool {
     if let generationID, !allowInactiveGeneration {
         guard isActiveGeneration(generationID, questionID: question.id) else {
+            recordStaleGenerationResultRejected(
+                sessionID: card.sessionID,
+                oldGenerationID: generationID,
+                oldQuestionText: question.questionText,
+                reason: "provider_result_generation_or_question_not_active",
+                oldAcceptedQuestionID: question.id,
+                sourceCallback: "provider_display"
+            )
             recordAlignmentMismatch(
-                "Stale answer discarded: generation/question no longer active for question \(question.id).",
-                stale: true
+                "Stale answer discarded: generation/question no longer active for question \(question.id)."
             )
             return false
         }
@@ -698,9 +838,16 @@ func displaySuggestionIfAligned(
     if let generationID,
        let cardGenerationID = boundCard.generationID,
        cardGenerationID != generationID {
+        recordStaleGenerationResultRejected(
+            sessionID: card.sessionID,
+            oldGenerationID: cardGenerationID,
+            oldQuestionText: boundCard.questionText ?? question.questionText,
+            reason: "provider_result_generation_id_mismatch",
+            oldAcceptedQuestionID: boundCard.detectedQuestionID ?? question.id,
+            sourceCallback: "provider_display"
+        )
         recordAlignmentMismatch(
-            "Suggestion generation mismatch: card generation \(cardGenerationID) does not match active generation \(generationID).",
-            stale: true
+            "Suggestion generation mismatch: card generation \(cardGenerationID) does not match active generation \(generationID)."
         )
         return false
     }
@@ -731,6 +878,7 @@ func displaySuggestionIfAligned(
     // generated cards so later DB queries can detect context bleed.
     boundCard.questionText = question.questionText
     boundCard.transcriptSegmentID = boundCard.transcriptSegmentID ?? question.transcriptSegmentID
+    boundCard.ingressIdentity = boundCard.ingressIdentity ?? question.ingressIdentity
     boundCard.generationID = boundCard.generationID ?? generationID
     boundCard.source = boundCard.source ?? source?.rawValue ?? currentGenerationTelemetry.source
     boundCard.speaker = boundCard.speaker ?? speaker?.rawValue ?? currentGenerationTelemetry.speaker
@@ -1133,11 +1281,25 @@ func setGenerationUIState(_ state: GenerationUIState, generationID: String? = ni
         return
     }
     generationUIState = state
+    if state.isTerminal, let terminalGenerationID = state.generationID ?? generationID {
+        terminalGenerationIDs.insert(terminalGenerationID)
+    }
     lastGenerationStateChangeAt = Date()
     currentGenerationTelemetry.generationState = state.displayName
     if let reason = state.failureReason {
         currentGenerationTelemetry.failureReason = reason
     }
+    recordLifecycleTrace(
+        "answer.state.updated",
+        questionID: state.questionID,
+        generationID: state.generationID ?? generationID,
+        text: activeGenerationController?.questionTextSnapshot ?? currentSuggestion?.questionText ?? "",
+        reason: state.failureReason ?? "",
+        cancelled: {
+            if case .cancelled = state { return true }
+            return false
+        }()
+    )
     updateActiveTaskSummary()
 }
 
@@ -1215,6 +1377,13 @@ func markFullCardVisible(generationID: String) {
         question: currentSuggestion?.questionText ?? activeGenerationController?.questionTextSnapshot ?? "",
         timestamp: Date()
     ))
+    recordLifecycleTrace(
+        "answer.stream.completed",
+        sessionID: currentSuggestion?.sessionID ?? currentSession?.id,
+        questionID: currentGenerationTelemetry.questionID,
+        generationID: generationID,
+        text: currentSuggestion?.questionText ?? activeGenerationController?.questionTextSnapshot ?? ""
+    )
 }
 
 // internal for AppState extension access only
@@ -1247,6 +1416,17 @@ func markGenerationFailed(
     } else {
         generationUIState = .failed(questionID: questionID, generationID: generationID, triggerPath: triggerPath, reason: reason)
     }
+    recordLifecycleTrace(
+        "answer.request.failed",
+        questionID: questionID,
+        generationID: generationID,
+        text: activeGenerationController?.questionTextSnapshot ?? currentSuggestion?.questionText ?? "",
+        reason: reason,
+        cancelled: cancelled
+    )
+    if let generationID {
+        terminalGenerationIDs.insert(generationID)
+    }
     lastGenerationStateChangeAt = Date()
     currentGenerationTelemetry.generationState = generationUIState.displayName
     if let generationID {
@@ -1274,6 +1454,49 @@ func recordStaleGenerationDiscard() {
     staleAnswerDiscardCount += 1
     currentGenerationTelemetry.staleDiscardCount = staleCallbackDiscardCount
     updateActiveTaskSummary()
+}
+
+// internal for AppState extension access only
+func recordStaleGenerationResultRejected(
+    sessionID: String,
+    oldGenerationID: String?,
+    oldQuestionText: String,
+    reason: String,
+    oldAcceptedQuestionID: String? = nil,
+    sourceCallback: String = "unknown"
+) {
+    let currentController = activeGenerationController
+    let currentGeneration = currentController?.generationID ?? currentGenerationID
+    let currentQuestionID = currentController?.questionID ?? activeQuestionID
+    let currentQuestionText = currentController?.questionTextSnapshot ?? currentSuggestion?.questionText ?? ""
+    recordStaleGenerationDiscard()
+    recordTranscriptRuntimeEvent(.staleGenerationResultRejected(
+        sessionID: sessionID,
+        oldGenerationID: oldGenerationID,
+        currentGenerationID: currentGeneration,
+        oldAcceptedQuestionID: oldAcceptedQuestionID,
+        currentAcceptedQuestionID: currentQuestionID,
+        oldQuestionText: oldQuestionText,
+        currentQuestionText: currentQuestionText,
+        sourceCallback: sourceCallback,
+        reason: reason,
+        timestamp: Date()
+    ))
+    if !currentQuestionText.isEmpty,
+       SemanticDuplicateKeyBuilder.key(for: oldQuestionText) != SemanticDuplicateKeyBuilder.key(for: currentQuestionText) {
+        recordTranscriptRuntimeEvent(.currentCardRegressionRejected(
+            sessionID: sessionID,
+            oldGenerationID: oldGenerationID,
+            currentGenerationID: currentGeneration,
+            oldAcceptedQuestionID: oldAcceptedQuestionID,
+            currentAcceptedQuestionID: currentQuestionID,
+            oldQuestionText: oldQuestionText,
+            currentQuestionText: currentQuestionText,
+            sourceCallback: sourceCallback,
+            reason: reason,
+            timestamp: Date()
+        ))
+    }
 }
 
 // internal for AppState extension access only
@@ -1322,6 +1545,13 @@ func recordVisibleSuggestionInHistory(_ card: SuggestionCard) {
         question: question,
         timestamp: Date()
     ))
+    recordLifecycleTrace(
+        "answer.ui.rendered",
+        sessionID: historyCard.sessionID,
+        questionID: historyCard.detectedQuestionID,
+        generationID: historyCard.generationID,
+        text: question
+    )
     if !alreadyExists {
         recordTranscriptRuntimeEvent(.questionHistoryAppended(
             sessionID: historyCard.sessionID,
@@ -1365,7 +1595,9 @@ private func restoreCaptureAfterGenerationIfNeeded(
         liveState = .listening
         currentCaptureRuntimeState = .listening
         addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: reason)
-    } else if liveState == .generatingSuggestion && !anyCaptureRunning {
+    } else if currentGenerationID == generationID &&
+                liveState == .generatingSuggestion &&
+                !anyCaptureRunning {
         liveState = .stopped
         if currentCaptureRuntimeState == .generating {
             currentCaptureRuntimeState = .stopped(reason: stopReason)
@@ -1750,6 +1982,13 @@ private func finishGenerationWithVisibleCard(
             question: question.questionText,
             timestamp: Date()
         ))
+        recordLifecycleTrace(
+            "answer.stream.completed",
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: generationID,
+            text: question.questionText
+        )
     }
     refreshLatencyAverages()
     processNextQueuedAutoQuestionIfIdle()
@@ -1943,14 +2182,34 @@ func applyStageBApplicationPlan(
 ) async throws {
     guard plan.generationID == generationID,
           isActiveGeneration(generationID, questionID: question.id),
-          plan.detectedQuestionID == nil || plan.detectedQuestionID == question.id
+          plan.detectedQuestionID == nil || plan.detectedQuestionID == question.id,
+          let planIdentity = plan.identity,
+          planIdentity.mismatchReason(comparedTo: activeGenerationController?.identity ?? GenerationIdentity(
+              question: question,
+              generationID: generationID,
+              promptPrimaryQuestion: question.questionText
+          )) == nil
     else {
-        recordStaleGenerationDiscard()
+        recordStaleGenerationResultRejected(
+            sessionID: session.id,
+            oldGenerationID: plan.generationID,
+            oldQuestionText: question.questionText,
+            reason: "stage_b_identity_mismatch",
+            oldAcceptedQuestionID: plan.detectedQuestionID ?? question.id,
+            sourceCallback: "stage_b_application"
+        )
         return
     }
 
     if plan.action == .discardStaleResult {
-        recordStaleGenerationDiscard()
+        recordStaleGenerationResultRejected(
+            sessionID: session.id,
+            oldGenerationID: plan.generationID,
+            oldQuestionText: question.questionText,
+            reason: plan.fallbackReason ?? "stage_b_result_inactive",
+            oldAcceptedQuestionID: plan.detectedQuestionID ?? question.id,
+            sourceCallback: "stage_b_application"
+        )
         return
     }
 
@@ -2134,7 +2393,14 @@ func persistSuggestionInBackground(
             reason: "persistence_rejected_stale_generation",
             timestamp: Date()
         ))
-        recordStaleGenerationDiscard()
+        recordStaleGenerationResultRejected(
+            sessionID: card.sessionID,
+            oldGenerationID: generationID,
+            oldQuestionText: card.questionText ?? expectedPrompt,
+            reason: "persistence_identity_mismatch",
+            oldAcceptedQuestionID: card.detectedQuestionID,
+            sourceCallback: "persistence"
+        )
         return
     }
     let persistenceGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card)
@@ -2146,6 +2412,9 @@ func persistSuggestionInBackground(
         card,
         result: persistenceGuard
     )
+    guard claimSuggestionPersistence(sanitizedCard, generationID: generationID) else {
+        return
+    }
     let repository = suggestionRepository
     let simulateFailure = simulateSuggestionPersistenceFailure
     let simulatedDelay = simulatedSuggestionPersistenceDelayNanoseconds
@@ -2180,6 +2449,20 @@ func persistSuggestionInBackground(
             if simulatedDelay > 0 {
                 try await Task.sleep(nanoseconds: simulatedDelay)
             }
+            guard let self else { return }
+            guard !Task.isCancelled else {
+                await self.rejectCancelledPersistenceIfNeeded(
+                    card: persistedCard,
+                    generationID: generationID,
+                    sourceCallback: "detached_persistence_task"
+                )
+                return
+            }
+            guard !(await self.rejectCancelledPersistenceIfNeeded(
+                card: persistedCard,
+                generationID: generationID,
+                sourceCallback: "detached_persistence_validation"
+            )) else { return }
             let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(persistedCard)
             guard detachedGuard.accepted else {
                 await MainActor.run { [weak self] in
@@ -2191,8 +2474,12 @@ func persistSuggestionInBackground(
                 persistedCard,
                 result: detachedGuard
             )
-            try repository.saveSuggestionCard(persistedCard, retrievedChunks: chunks)
             persistedCard.dbPersistedMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+            guard !(await self.rejectCancelledPersistenceIfNeeded(
+                card: persistedCard,
+                generationID: generationID,
+                sourceCallback: "sqlite_save"
+            )) else { return }
             try repository.saveSuggestionCard(persistedCard, retrievedChunks: chunks)
             let persistedID = persistedCard.id
             let persistedSessionID = persistedCard.sessionID
@@ -2201,24 +2488,29 @@ func persistSuggestionInBackground(
             let persistedPrompt = persistedCard.promptPrimaryQuestion ?? persistedCard.promptQuestionText ?? persistedCard.questionText ?? ""
             await MainActor.run { [weak self, persistedID, persistedSessionID, persistedDBMS, persistedQuestionID, persistedPrompt] in
                 guard let self = self else { return }
+                guard self.currentGenerationID == generationID else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
                 self.lastSQLiteOperation = "Saved suggestion card"
                 self.streamPersistedAt = Date()
                 self.refreshLiveSuggestionHistory(sessionID: persistedSessionID, latestQuestion: persistedPrompt)
-                self.recordTranscriptRuntimeEvent(.persistenceSucceeded(
-                    sessionID: persistedSessionID,
-                    questionID: persistedQuestionID,
-                    generationID: generationID,
-                    question: persistedPrompt,
-                    timestamp: Date()
-                ))
-                self.recordTranscriptRuntimeEvent(.queuedAnswerPersisted(
-                    sessionID: persistedSessionID,
-                    questionID: persistedQuestionID,
-                    generationID: generationID,
-                    question: persistedPrompt,
-                    timestamp: Date()
-                ))
-                guard self.currentGenerationID == generationID else { return }
+                if self.markSuggestionPersistenceSucceededOnce(cardID: persistedID, generationID: generationID) {
+                    self.recordTranscriptRuntimeEvent(.persistenceSucceeded(
+                        sessionID: persistedSessionID,
+                        questionID: persistedQuestionID,
+                        generationID: generationID,
+                        question: persistedPrompt,
+                        timestamp: Date()
+                    ))
+                    self.recordTranscriptRuntimeEvent(.queuedAnswerPersisted(
+                        sessionID: persistedSessionID,
+                        questionID: persistedQuestionID,
+                        generationID: generationID,
+                        question: persistedPrompt,
+                        timestamp: Date()
+                    ))
+                }
                 self.currentGenerationTelemetry.dbPersistedAt = Date()
                 if let current = self.currentSuggestion,
                    current.id == persistedID,
@@ -2252,6 +2544,84 @@ func persistSuggestionInBackground(
             }
         }
     }
+}
+
+// internal for AppState extension access only
+@discardableResult
+func claimSuggestionPersistence(_ card: SuggestionCard, generationID: String?) -> Bool {
+    if card.stageBStatus == "cancelled" {
+        recordTranscriptRuntimeEvent(.cancelledGenerationPersistenceRejected(
+            sessionID: card.sessionID,
+            questionID: card.detectedQuestionID,
+            generationID: generationID ?? card.generationID,
+            question: card.questionText ?? card.promptPrimaryQuestion ?? "",
+            reason: "cancelled_card_is_not_final",
+            timestamp: Date()
+        ))
+        lastSQLiteOperation = "Suggestion save blocked: cancelled generation"
+        return false
+    }
+    guard let generationID = generationID ?? card.generationID,
+          let identity = GenerationIdentity(card: card, generationID: generationID) else {
+        let question = card.questionText ?? card.promptPrimaryQuestion ?? card.promptQuestionText ?? ""
+        recordTranscriptRuntimeEvent(.persistenceRejected(
+            sessionID: card.sessionID,
+            questionID: card.detectedQuestionID,
+            generationID: generationID ?? card.generationID,
+            question: question,
+            reason: "persistence_rejected_missing_generation_identity",
+            timestamp: Date()
+        ))
+        lastSQLiteOperation = "Suggestion save blocked: missing generation identity"
+        return false
+    }
+    let logicalKey = [
+        identity.sessionID,
+        identity.normalizedQuestionText
+    ].joined(separator: "|")
+
+    let sameOwnerClaim = suggestionPersistenceClaims.values.contains { existing in
+        existing.cardID == card.id &&
+            existing.identity.acceptedQuestionID == identity.acceptedQuestionID &&
+            existing.identity.generationID == identity.generationID
+    }
+    if sameOwnerClaim {
+        return true
+    }
+
+    if suggestionPersistenceClaims[logicalKey] != nil {
+        guard intentionalRepeatQuestionIDs.contains(identity.acceptedQuestionID) else {
+            let reason = "same_normalized_question_without_intentional_repeat"
+            recordTranscriptRuntimeEvent(.duplicatePersistenceRejected(
+                sessionID: identity.sessionID,
+                questionID: identity.acceptedQuestionID,
+                generationID: identity.generationID,
+                question: identity.questionText,
+                normalizedQuestion: identity.normalizedQuestionText,
+                reason: reason,
+                timestamp: Date()
+            ))
+            lastSQLiteOperation = "Suggestion save blocked: duplicate persistence"
+            return false
+        }
+        suggestionPersistenceClaims["\(logicalKey)|intentional:\(identity.acceptedQuestionID)"] = SuggestionPersistenceClaim(
+            cardID: card.id,
+            identity: identity
+        )
+        return true
+    }
+
+    suggestionPersistenceClaims[logicalKey] = SuggestionPersistenceClaim(
+        cardID: card.id,
+        identity: identity
+    )
+    return true
+}
+
+// internal for AppState extension access only
+func markSuggestionPersistenceSucceededOnce(cardID: String, generationID: String?) -> Bool {
+    let owner = "\(cardID)|\(generationID ?? "no-generation")"
+    return successfulSuggestionPersistenceOwners.insert(owner).inserted
 }
 
 // internal for AppState extension access only
