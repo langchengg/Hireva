@@ -561,6 +561,7 @@ func visibleQuestionText(for card: SuggestionCard?) -> String? {
     }
 
     previousGenerationID = controller.generationID
+    persistSupersededAcceptedQuestionSnapshotIfNeeded(controller: controller)
     if generationHasCancellableWork(controller) {
         cancelledGenerationCount += 1
         cancelledPersistenceGenerationIDs.insert(controller.generationID)
@@ -605,6 +606,67 @@ func cancelActiveGenerationForStop() {
 
 private func generationHasCancellableWork(_ controller: ActiveGenerationController) -> Bool {
     !terminalGenerationIDs.contains(controller.generationID) && !generationUIState.isTerminal
+}
+
+private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
+    controller: ActiveGenerationController
+) {
+    guard controller.triggerPath == .autoDetect,
+          let session = currentSession,
+          session.id == controller.identity.sessionID else {
+        return
+    }
+    guard !acceptedQuestionHistoryAlreadyExists(
+        sessionID: session.id,
+        questionID: controller.identity.acceptedQuestionID
+    ) else {
+        return
+    }
+    let classified = IntentRouter.transcriptClassification(for: controller.identity.questionText)
+    let question = DetectedQuestion(
+        id: controller.identity.acceptedQuestionID,
+        sessionID: controller.identity.sessionID,
+        transcriptSegmentID: controller.identity.ingressIdentity?.sourceSegmentID,
+        questionText: controller.identity.questionText,
+        intent: classified.intent,
+        answerStrategy: classified.strategy,
+        confidence: max(classified.confidence, 0.72),
+        reason: "Saved local history snapshot when a newer accepted question replaced active generation.",
+        shouldTrigger: true,
+        questionComplete: true,
+        modelName: "local-replaced-generation-snapshot",
+        promptVersion: "replaced-generation-snapshot-v1",
+        providerKind: nil,
+        providerName: "Local Question Snapshot",
+        providerBaseURL: "",
+        latencyMS: 0,
+        isLocal: true,
+        rawJSON: nil,
+        createdAt: controller.startedAt,
+        ingressIdentity: controller.identity.ingressIdentity
+    )
+    persistAcceptedQuestionHistorySnapshot(
+        for: question,
+        session: session,
+        stageBStatus: "superseded",
+        finalVisibleSource: "local_superseded_question_snapshot",
+        caution: "Generation was superseded by a newer accepted question before provider completion.",
+        modelName: "local-replaced-generation-snapshot",
+        promptVersion: "replaced-generation-snapshot-v1"
+    )
+}
+
+private func acceptedQuestionHistoryAlreadyExists(sessionID: String, questionID: String) -> Bool {
+    if suggestionPersistenceClaims.values.contains(where: { existing in
+        existing.identity.sessionID == sessionID &&
+            existing.identity.acceptedQuestionID == questionID
+    }) {
+        return true
+    }
+    guard let rows = try? suggestionRepository.suggestions(sessionID: sessionID) else {
+        return false
+    }
+    return rows.contains { $0.detectedQuestionID == questionID }
 }
 
 private func cancelLegacyGenerationTaskReferences() {
@@ -1014,6 +1076,13 @@ func displaySuggestionIfAligned(
     }
 
     currentSuggestion = boundCard
+    recordLifecycleTrace(
+        "answer.ui.rendered",
+        sessionID: boundCard.sessionID,
+        questionID: boundCard.detectedQuestionID,
+        generationID: boundCard.generationID,
+        text: boundCard.questionText ?? question.questionText
+    )
     recordVisibleSuggestionInHistory(boundCard)
     lastAlignmentError = ""
     currentAnswerQuestionIntent = alignment.questionIntent
@@ -1358,6 +1427,11 @@ private func markFirstKeyPointVisible(generationID: String) {
 func markFullCardVisible(generationID: String) {
     guard currentGenerationID == generationID else {
         recordStaleGenerationDiscard()
+        return
+    }
+    guard !terminalGenerationIDs.contains(generationID) else {
+        clearFullCardWatchdogTask(generationID: generationID)
+        clearStageBTask(generationID: generationID)
         return
     }
     currentGenerationTelemetry.fullCardAt = Date()
@@ -2329,6 +2403,7 @@ func applyStageBApplicationPlan(
                 generationID: generationID,
                 requestStart: requestStart
             )
+            markFullCardVisible(generationID: generationID)
             completeAction(ActionID.generateAnswer, title: "Answer ready", message: "First answer and key points are visible.")
             restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "stageBCompletedWithFallback")
             refreshLatencyAverages()
@@ -2346,6 +2421,7 @@ func applyStageBApplicationPlan(
         generationID: generationID,
         requestStart: requestStart
     )
+    markFullCardVisible(generationID: generationID)
     completeAction(ActionID.generateAnswer, title: "Answer ready", message: "First answer and key points are visible.")
 
     // Preserve the exact post-success capture-state rules from the inline Stage B
@@ -2488,10 +2564,6 @@ func persistSuggestionInBackground(
             let persistedPrompt = persistedCard.promptPrimaryQuestion ?? persistedCard.promptQuestionText ?? persistedCard.questionText ?? ""
             await MainActor.run { [weak self, persistedID, persistedSessionID, persistedDBMS, persistedQuestionID, persistedPrompt] in
                 guard let self = self else { return }
-                guard self.currentGenerationID == generationID else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
                 self.lastSQLiteOperation = "Saved suggestion card"
                 self.streamPersistedAt = Date()
                 self.refreshLiveSuggestionHistory(sessionID: persistedSessionID, latestQuestion: persistedPrompt)
@@ -2510,6 +2582,10 @@ func persistSuggestionInBackground(
                         question: persistedPrompt,
                         timestamp: Date()
                     ))
+                }
+                guard self.currentGenerationID == generationID else {
+                    self.recordStaleGenerationDiscard()
+                    return
                 }
                 self.currentGenerationTelemetry.dbPersistedAt = Date()
                 if let current = self.currentSuggestion,

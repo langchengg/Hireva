@@ -269,8 +269,14 @@ enum QuestionAnswerAlignmentEvaluator {
         }
 
         if questionIntent == .systemIntegrationDebugging {
-            let hasConcreteProject = containsAny(normalizedAnswer, ["leorover", "leo rover"]) &&
-                normalizedAnswer.contains("ros2")
+            let hasConcreteProject: Bool
+            if isRobotSystemArchitectureQuestion(normalizedQuestion) {
+                hasConcreteProject = containsAny(normalizedAnswer, ["yolov8", "yolo", "detection", "detector"]) &&
+                    containsAny(normalizedAnswer, ["ros2", "target pose", "target poses", "localisation", "localization", "navigation"])
+            } else {
+                hasConcreteProject = containsAny(normalizedAnswer, ["leorover", "leo rover"]) &&
+                    normalizedAnswer.contains("ros2")
+            }
             let hasIntegrationWork = containsAny(normalizedAnswer, ["perception", "navigation", "manipulation", "handoff", "module", "pipeline"])
             let hasStarEvidence = containsAny(normalizedAnswer, ["situation", "task", "action", "result", "reproduced", "isolated", "added validation", "recovery"])
             if !hasConcreteProject || !hasIntegrationWork || !hasStarEvidence {
@@ -295,17 +301,33 @@ enum QuestionAnswerAlignmentEvaluator {
         }
 
         if questionIntent == .projectComparison {
-            let hasVLAPlatform = containsAny(normalizedAnswer, ["mujoco", "franka"])
+            let hasVLAPlatform = containsAny(normalizedAnswer, ["vla", "mujoco", "franka", "simulation"])
             let hasVLALearningDetail = containsAny(normalizedAnswer, [
-                "droid", "decoder", "autoregressive", "diffusion", "flow-matching", "vla policy", "visuomotor"
+                "droid",
+                "decoder",
+                "autoregressive",
+                "diffusion",
+                "flow-matching",
+                "vla policy",
+                "visuomotor",
+                "learning",
+                "policy",
+                "simulation",
+                "simulation evaluation"
             ])
-            let hasLeoStack = containsAny(normalizedAnswer, ["ros2", "yolov8"])
+            let hasLeoStack = containsAny(normalizedAnswer, ["leorover", "leo rover", "ros2", "yolov8"])
             let hasLeoExecutionDetail = containsAny(normalizedAnswer, [
-                "navigation", "manipulation", "localisation", "localization", "recovery"
+                "navigation", "manipulation", "localisation", "localization", "recovery", "real-world", "real world", "real robot", "real-robot"
+            ])
+            let hasConcreteVLA = containsAny(normalizedAnswer, [
+                "mujoco", "franka", "droid", "decoder", "autoregressive", "diffusion", "flow-matching", "visuomotor", "policy", "learning-policy"
+            ])
+            let hasConcreteLeo = containsAny(normalizedAnswer, [
+                "ros2", "yolov8", "navigation", "manipulation", "localisation", "localization", "recovery", "perception-to-action"
             ])
             let hasConcreteContrast = containsAny(normalizedAnswer, ["simulation", "mujoco"]) &&
-                containsAny(normalizedAnswer, ["real robot", "real-robot", "physical hardware"])
-            if !hasVLAPlatform || !hasVLALearningDetail || !hasLeoStack || !hasLeoExecutionDetail || !hasConcreteContrast {
+                containsAny(normalizedAnswer, ["real robot", "real-robot", "real-world", "real world", "physical hardware"])
+            if !hasVLAPlatform || !hasVLALearningDetail || !hasLeoStack || !hasLeoExecutionDetail || !hasConcreteVLA || !hasConcreteLeo || !hasConcreteContrast {
                 verdict = .mismatched
                 finalReason += " Rejected project-comparison answer without concrete VLA learning/simulation and LeoRover real-robot integration details."
             }
@@ -367,7 +389,10 @@ enum QuestionAnswerAlignmentEvaluator {
     }
 
     private static func profile(for question: String) -> Profile {
-        if question.contains("about yourself") || question.contains("brought you into robotics") {
+        if question.contains("about yourself") ||
+            question.contains("introduce yourself") ||
+            question.contains("robotics background") ||
+            question.contains("brought you into robotics") {
             return Profile(
                 themes: [
                     Theme(name: "MSc Robotics", alternatives: ["msc robotics", "robotics at the university"]),
@@ -463,11 +488,28 @@ enum QuestionAnswerAlignmentEvaluator {
                 themes: [
                     Theme(name: "VLA project", alternatives: ["vla", "learning-policy", "policy", "action decoder", "action decoders"]),
                     Theme(name: "MuJoCo / Franka evaluation", alternatives: ["mujoco", "franka", "simulation evaluation"]),
-                    Theme(name: "LeoRover project", alternatives: ["leorover", "real-robot", "real robot"]),
+                    Theme(name: "LeoRover project", alternatives: ["leorover", "real-robot", "real robot", "real-world", "real world"]),
                     Theme(name: "ROS2 / YOLOv8 / navigation", alternatives: ["ros2", "yolov8", "perception", "navigation", "localisation", "localization"]),
-                    Theme(name: "core difference", alternatives: ["difference", "while", "versus", "whereas", "learning-policy evaluation", "system integration"])
+                    Theme(name: "core difference", alternatives: ["difference", "while", "versus", "whereas", "learning-policy evaluation", "system integration", "simulation", "real-world", "real world"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if isRobotSystemArchitectureQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "YOLOv8 / detection", alternatives: ["yolov8", "yolo", "detection", "detector"]),
+                    Theme(name: "localisation / localization", alternatives: ["localisation", "localization", "localise", "localize", "target pose", "target poses"]),
+                    Theme(name: "navigation", alternatives: ["navigation", "navigate"]),
+                    Theme(name: "manipulation", alternatives: ["manipulation", "manipulator", "grasp", "pick"]),
+                    Theme(name: "recovery behavior", alternatives: ["recovery", "recover", "retry", "fallback"]),
+                    Theme(name: "module handoff / validation", alternatives: ["handoff", "handoffs", "validated", "validation", "robot state", "ros2"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "interviewer-questions answer", alternatives: ["questions i would ask", "ask the engineering team", "success criteria"]),
+                    Theme(name: "unrelated VLA/DROID answer", alternatives: ["droid", "mujoco", "franka", "diffusion decoder"])
+                ]
             )
         }
 
@@ -780,8 +822,16 @@ enum QuestionAnswerAlignmentEvaluator {
         }
         if answer.contains("vla") &&
             answer.contains("leorover") &&
-            (answer.contains("difference") || answer.contains("while") || answer.contains("versus") || answer.contains("whereas")) {
+            (answer.contains("difference") ||
+                answer.contains("while") ||
+                answer.contains("versus") ||
+                answer.contains("whereas") ||
+                (answer.contains("simulation") && containsAny(answer, ["real-world", "real world", "real robot", "real-robot"]))) {
             return .projectComparison
+        }
+        if (answer.contains("leorover project") || answer.contains("autonomous object retrieval robot")) &&
+            containsAny(answer, ["ros2", "yolov8", "navigation", "localisation", "localization", "manipulation"]) {
+            return .projectWalkthrough
         }
         if answer.contains("mujoco") &&
             (answer.contains("vla") || answer.contains("franka")) &&
@@ -789,6 +839,9 @@ enum QuestionAnswerAlignmentEvaluator {
             answer.contains("autoregressive") &&
             (answer.contains("flow-matching") || answer.contains("flow matching")) {
             return .decoderComparison
+        }
+        if isRobotSystemArchitectureQuestion(answer) {
+            return .systemIntegrationDebugging
         }
         if (answer.contains("yolov8") || answer.contains("detector")) &&
             (answer.contains("wrong prediction") || answer.contains("false positive") || answer.contains("confident but wrong") || answer.contains("debug")) {
@@ -879,5 +932,23 @@ enum QuestionAnswerAlignmentEvaluator {
             question.contains("wrong prediction") ||
             question.contains("false positive")
         return mentionsDetector && mentionsDebugging
+    }
+
+    private static func isRobotSystemArchitectureQuestion(_ question: String) -> Bool {
+        let mentionsDetector = question.contains("yolov8") ||
+            question.contains("detector") ||
+            question.contains("detection")
+        let mentionsSystemFlow = question.contains("connect") ||
+            question.contains("connected") ||
+            question.contains("pipeline") ||
+            question.contains("system")
+        let downstreamModules = [
+            "localization",
+            "localisation",
+            "navigation",
+            "manipulation",
+            "recovery"
+        ].filter { question.contains($0) }.count
+        return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
     }
 }

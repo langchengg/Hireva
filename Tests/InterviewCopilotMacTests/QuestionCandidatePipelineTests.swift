@@ -122,7 +122,17 @@ struct QuestionCandidatePipelineTests {
         #expect(candidates.map(\.text) == [
             "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
         ])
-        #expect(candidates.first?.answerRelevanceIntent == .perceptionDebugging)
+        #expect(candidates.first?.answerRelevanceIntent == .systemIntegrationDebugging)
+    }
+
+    @Test
+    func standaloneWhatMadeRealWorldExecutionQuestionIsAccepted() throws {
+        let candidate = try #require(QuestionCandidatePipeline.extract(
+            from: "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+        ).first)
+
+        #expect(candidate.text == "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?")
+        #expect(candidate.answerRelevanceIntent == .technicalChallenge)
     }
 
     @Test
@@ -133,9 +143,9 @@ struct QuestionCandidatePipelineTests {
 
         #expect(candidates.map(\.text) == [
             "How did your LeoRover system connect YOLOv8 detection with localization and navigation?",
-            "What questions would you ask us about the team before accepting an offer?"
+            "What questions would you ask us about the team or the role before accepting an offer?"
         ])
-        #expect(candidates.map(\.answerRelevanceIntent) == [.perceptionDebugging, .interviewerQuestions])
+        #expect(candidates.map(\.answerRelevanceIntent) == [.projectWalkthrough, .interviewerQuestions])
     }
 
     @Test

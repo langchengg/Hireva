@@ -89,6 +89,7 @@ extension AppState {
             let replayedOccurrence = replaySource != nil
             let intentionalRepeat = isIntentionalQuestionRepeat(
                 question,
+                isCumulativeTranscript: isCumulativeTranscript,
                 replayedOccurrence: replayedOccurrence
             )
             if replayedOccurrence || (!intentionalRepeat && !wasFirstAnswerWorthyQuestion && isRecentDuplicateAutoQuestion(
@@ -152,9 +153,26 @@ extension AppState {
             return
         }
 
-        saveDetectedQuestionsInBackground(freshQuestions)
-
         let latestQuestion = freshQuestions.last ?? firstQuestion
+        saveDetectedQuestionsInBackground(freshQuestions)
+        // Cumulative ASR callbacks can contain older accepted questions plus a
+        // newly appended one. The history contract is per accepted question,
+        // while the active-generation contract is latest-only: persist earlier
+        // fresh questions as local snapshots, then start one provider request
+        // for the newest question below. Replay/correction suppression remains
+        // in the source-span checks above, not in canonical text alone.
+        for historicalQuestion in freshQuestions.dropLast() {
+            persistAcceptedQuestionHistorySnapshot(
+                for: historicalQuestion,
+                session: session,
+                segment: segment,
+                stageBStatus: "local_snapshot",
+                finalVisibleSource: "local_merged_question_snapshot",
+                caution: "Saved from an earlier complete question in a merged transcript.",
+                modelName: "local-merged-question-snapshot",
+                promptVersion: "merged-transcript-snapshot-v1"
+            )
+        }
         detectedQuestionsInSessionCount += freshQuestions.count
         lastDetectedQuestion = latestQuestion
         lastDetectedQuestionSource = segment.source.rawValue
@@ -207,38 +225,39 @@ extension AppState {
         launchAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
     }
 
-    private func persistMergedTranscriptSnapshot(
+    // internal for AppState extension access only
+    func persistAcceptedQuestionHistorySnapshot(
         for question: DetectedQuestion,
         session: InterviewSession,
-        segment: TranscriptSegment
+        segment: TranscriptSegment? = nil,
+        stageBStatus: String,
+        finalVisibleSource: String,
+        caution: String,
+        modelName: String,
+        promptVersion: String
     ) {
         let requestStart = Date()
         let generationID = UUID().uuidString
-        recordTranscriptRuntimeEvent(.generationStarted(
-            sessionID: session.id,
-            questionID: question.id,
-            generationID: generationID,
-            question: question.questionText,
-            timestamp: requestStart
-        ))
         var card = makeInitialFirstAnswerFallbackCard(
             cardID: UUID().uuidString,
             question: question,
             session: session,
             requestStart: requestStart
         )
-        card.modelName = "local-merged-question-snapshot"
-        card.promptVersion = "merged-transcript-snapshot-v1"
+        card.modelName = modelName
+        card.promptVersion = promptVersion
         card.providerName = "Local Question Snapshot"
         card.confidence = max(card.confidence ?? 0.45, 0.72)
-        card.caution = "Saved from an earlier complete question in a merged transcript."
+        card.caution = caution
+        card.createdAt = question.createdAt
         card.questionText = question.questionText
         card.transcriptSegmentID = question.transcriptSegmentID
         card.generationID = generationID
-        card.source = segment.source.rawValue
-        card.speaker = segment.speaker.rawValue
+        card.source = segment?.source.rawValue
+        card.speaker = segment?.speaker.rawValue
         card.triggerPath = .autoDetect
         card.questionIntent = AnswerRelevancePolicy.intent(for: question.questionText)
+        card.ingressIdentity = question.ingressIdentity
         card.promptQuestionText = question.questionText
         card.promptPrimaryQuestion = question.questionText
         card.promptContainsPreviousQuestion = false
@@ -250,15 +269,15 @@ extension AppState {
         card.firstQuestionSuppressedReason = nil
         card.promptTokenEstimate = AnswerRelevancePolicy.estimateTokens(question.questionText)
         card.mismatchReason = nil
-        card.sayFirstSource = "local_merged_question_snapshot"
+        card.sayFirstSource = finalVisibleSource
         card.stageATimedOut = false
         card.stageBCompleted = true
-        card.stageBStatus = "local_snapshot"
+        card.stageBStatus = stageBStatus
         card.latencyFirstVisibleMS = 0
         card.latencyFullCardMS = 0
         card.softFallbackUsed = true
         card.softFallbackLatencyMS = 0
-        card.finalVisibleSource = "local_merged_question_snapshot"
+        card.finalVisibleSource = finalVisibleSource
         card.firstVisibleAnswerMS = 0
         card.firstKeyPointVisibleMS = card.keyPoints.isEmpty ? nil : 0
         card.allKeyPointsVisibleMS = card.keyPoints.isEmpty ? nil : 0
@@ -1240,9 +1259,11 @@ extension AppState {
 
     private func isIntentionalQuestionRepeat(
         _ question: DetectedQuestion,
+        isCumulativeTranscript: Bool,
         replayedOccurrence: Bool
     ) -> Bool {
         guard !replayedOccurrence else { return false }
+        guard !isCumulativeTranscript else { return false }
         return acceptedNormalizedQuestionKeys.contains(normalizedQuestion(question.questionText))
     }
 

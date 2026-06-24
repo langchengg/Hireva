@@ -188,6 +188,9 @@ enum MultiQuestionSplitter {
 
         var starts = Set<Int>()
         let range = NSRange(location: 0, length: (lower as NSString).length)
+        if lower.hasPrefix("what made ") {
+            starts.insert(0)
+        }
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 continue

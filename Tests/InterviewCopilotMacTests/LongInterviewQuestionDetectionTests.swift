@@ -259,7 +259,7 @@ struct LongInterviewQuestionDetectionTests {
         try await waitUntil(timeout: 8.0) {
             appState.visibleAnswerExists && !appState.currentSpinnerVisible
         }
-        #expect(appState.cancelledGenerationCount == 0)
+        #expect(appState.cancelledGenerationCount == questions.count - 1)
         #expect(!appState.currentSpinnerVisible)
     }
 

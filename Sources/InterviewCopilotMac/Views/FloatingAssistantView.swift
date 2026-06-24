@@ -169,6 +169,18 @@ struct FloatingAssistantView: View {
     private var diagnosticBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                questionBlock(lineLimit: 4)
+
+                if answerVisible {
+                    sayFirstBlock(fontSize: 15, lineLimit: nil)
+                    keyPointsBlock(limit: 4)
+                    Divider()
+                } else {
+                    Text("Answer hidden")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
                 diagnosticSection("Provider") {
                     diagnosticRow("provider", activeCard?.providerName ?? appState.diagnostics.lastProviderName ?? "None")
                     diagnosticRow("model", activeCard?.modelName ?? appState.diagnostics.lastProviderModel ?? "None")

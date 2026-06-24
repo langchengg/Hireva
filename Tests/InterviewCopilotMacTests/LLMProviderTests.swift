@@ -149,6 +149,114 @@ struct LLMProviderTests {
     }
 
     @Test
+    func openAICompatibleRequestAppliesConfiguredTimeout() throws {
+        let keyStore = InMemoryAPIKeyStore()
+        try keyStore.saveAPIKey("sk-timeout-test", account: "custom.test")
+        let client = OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession())
+        let configuration = configuredOpenAICompatibleProvider()
+
+        let request = try client.makeURLRequest(
+            configuration: configuration,
+            messages: [.user("Hi")],
+            responseFormat: .jsonObject,
+            options: LLMRequestOptions(timeoutInterval: 2.75)
+        )
+
+        #expect(request.timeoutInterval == 2.75)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-timeout-test")
+    }
+
+    @Test
+    func openAICompatibleMapsHTTPFailuresToProviderErrors() async throws {
+        let cases: [(Int, LLMProviderError)] = [
+            (401, .invalidAPIKey(providerName: "Custom API")),
+            (403, .invalidAPIKey(providerName: "Custom API")),
+            (429, .rateLimited(providerName: "Custom API")),
+            (500, .serverError(providerName: "Custom API", statusCode: 500, body: #"{"error":"server"}"#))
+        ]
+
+        for (statusCode, expectedError) in cases {
+            MockURLProtocol.handlers = [
+                "https://openai-compatible.test": { request in
+                    let response = HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: statusCode,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!
+                    return (response, Data(#"{"error":"server"}"#.utf8))
+                }
+            ]
+
+            let (client, configuration) = try makeConfiguredOpenAICompatibleClient()
+            do {
+                _ = try await client.chatCompletion(
+                    configuration: configuration,
+                    messages: [.user("Hi")],
+                    responseFormat: .jsonObject,
+                    options: .default
+                )
+                Issue.record("Expected provider error for HTTP \(statusCode).")
+            } catch let error as LLMProviderError {
+                #expect(error == expectedError)
+            } catch {
+                Issue.record("Expected LLMProviderError, got \(error).")
+            }
+        }
+    }
+
+    @Test
+    func openAICompatibleMapsNetworkAndMalformedResponsesToVisibleErrors() async throws {
+        MockURLProtocol.handlers = [
+            "https://openai-compatible.test": { _ in
+                throw URLError(.notConnectedToInternet)
+            }
+        ]
+        var configured = try makeConfiguredOpenAICompatibleClient()
+
+        do {
+            _ = try await configured.client.chatCompletion(
+                configuration: configured.configuration,
+                messages: [.user("Hi")],
+                responseFormat: .jsonObject,
+                options: .default
+            )
+            Issue.record("Expected network failure.")
+        } catch let error as LLMProviderError {
+            guard case .networkFailure(let providerName, let message) = error else {
+                Issue.record("Expected networkFailure, got \(error).")
+                return
+            }
+            #expect(providerName == "Custom API")
+            #expect(!message.isEmpty)
+        } catch {
+            Issue.record("Expected LLMProviderError, got \(error).")
+        }
+
+        MockURLProtocol.handlers = [
+            "https://openai-compatible.test": { request in
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (response, Data("not-json".utf8))
+            }
+        ]
+        configured = try makeConfiguredOpenAICompatibleClient()
+
+        await #expect(throws: LLMProviderError.invalidResponse("Could not decode OpenAI-compatible chat response.")) {
+            _ = try await configured.client.chatCompletion(
+                configuration: configured.configuration,
+                messages: [.user("Hi")],
+                responseFormat: .jsonObject,
+                options: .default
+            )
+        }
+    }
+
+    @Test
     func routerUsesActiveRealtimeProviderConfiguration() async throws {
         let database = try makeTemporaryDatabase()
         let repository = SettingsRepository(database: database)
@@ -348,6 +456,23 @@ struct LLMProviderTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    private func configuredOpenAICompatibleProvider() -> LLMProviderConfiguration {
+        var configuration = LLMProviderConfiguration.openAICompatibleDefault()
+        configuration.name = "Custom API"
+        configuration.baseURL = "https://openai-compatible.test/v1"
+        configuration.apiKeyAccount = "custom.test"
+        return configuration
+    }
+
+    private func makeConfiguredOpenAICompatibleClient() throws -> (client: OpenAICompatibleLLMClient, configuration: LLMProviderConfiguration) {
+        let keyStore = InMemoryAPIKeyStore()
+        try keyStore.saveAPIKey("sk-test-key", account: "custom.test")
+        return (
+            OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession()),
+            configuredOpenAICompatibleProvider()
+        )
     }
 }
 

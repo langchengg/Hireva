@@ -128,6 +128,30 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func robotSystemArchitectureQuestionUsesSystemIntegrationFallbackAndAlignment() {
+        let questionText = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        let question = makeQuestion(questionText)
+
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
+
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let answer = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        #expect(answer.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(answer.localizedCaseInsensitiveContains("localisation") || answer.localizedCaseInsensitiveContains("localization"))
+        #expect(answer.localizedCaseInsensitiveContains("navigation"))
+        #expect(answer.localizedCaseInsensitiveContains("manipulation"))
+        #expect(answer.localizedCaseInsensitiveContains("recovery"))
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: answer,
+            sayFirst: fallback.sayFirst,
+            stageBCompleted: true
+        )
+        #expect(alignment.verdict == .aligned || alignment.verdict == .weaklyAligned)
+    }
+
+    @Test
     func modelComparisonRejectsGenericVisibleSayFirstEvenWhenKeyPointsMatch() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceGenericSayFirst")
         let appState = AppState(database: database)

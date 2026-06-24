@@ -157,6 +157,29 @@ struct RuntimeSmokeHarnessTests {
     }
 
     @Test
+    func completedStageBCancelsFullCardWatchdog() async throws {
+        guard Self.shouldRun("stage-b-watchdog") else { return }
+        let harness = try makeHarness(suite: "stage-b-watchdog")
+        harness.appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
+
+        await harness.feed(
+            text: "Can you explain the difference between your VLA project and your LeoRover project?",
+            id: "stage-b-watchdog-q1"
+        )
+
+        try await harness.waitForRows(1)
+        try await harness.waitForPipelineIdle(timeout: 120.0)
+        try await Task.sleep(nanoseconds: 5_500_000_000)
+        let trace = try harness.traceText()
+        let row = try #require(try harness.rows().first)
+
+        #expect(harness.appState.generationUIState.displayName == "Answer ready")
+        #expect(harness.appState.visibleAssistantRenderState.generationErrorText == nil)
+        #expect(row.stageBStatus == "completed" || row.stageBStatus == "semantic_fallback")
+        #expect(!trace.contains("\"event_type\":\"generationTimedOut\""))
+    }
+
+    @Test
     func longInterviewSuiteKeepsSevenCumulativeQuestionsDistinctAndCurrent() async throws {
         guard Self.shouldRun("long-interview") else { return }
         let harness = try makeHarness(suite: "long-interview")
@@ -185,15 +208,13 @@ struct RuntimeSmokeHarnessTests {
                 secondsFromStart: TimeInterval(index * 25)
             )
             try await harness.waitForCurrentQuestion(expectedQuestion)
-            if index > 0 {
-                try await harness.waitForRowsAtLeast(index)
-            }
+            try await harness.waitForRows(index + 1)
             #expect(harness.appState.currentSuggestion?.questionText == expectedQuestion)
             #expect(harness.appState.visibleQuestionText(for: harness.appState.currentSuggestion) == expectedQuestion)
         }
 
         try await harness.waitForPipelineIdle()
-        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 6)
+        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 7)
         let rows = try harness.rows()
         let trace = try harness.traceText()
         harness.printSummary(rows: rows, trace: trace)
@@ -204,9 +225,8 @@ struct RuntimeSmokeHarnessTests {
         let orderedAll = questions.flatMap {
             SystemAudioQuestionExtractor.extract(from: $0).map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
         }
-        let orderedWithoutGreeting = Array(orderedAll.dropFirst())
 
-        #expect(rows.count == 6 || rows.count == 7)
+        #expect(rows.count == 7)
         #expect(Set(normalizedQuestions).count == rows.count)
         #expect(Set(rows.compactMap(\.detectedQuestionID)).count == rows.count)
         #expect(Set(rows.compactMap(\.generationID)).count == rows.count)
@@ -218,12 +238,7 @@ struct RuntimeSmokeHarnessTests {
         ).last?.text
         #expect(harness.appState.currentSuggestion?.questionText == finalExpectedQuestion)
         #expect(persistenceSucceededCount == rows.count)
-        if normalizedQuestions == orderedWithoutGreeting {
-            #expect(trace.contains("\"event_type\":\"persistenceRejected\""))
-            #expect(trace.contains(questions[0]))
-        } else {
-            #expect(normalizedQuestions == orderedAll)
-        }
+        #expect(normalizedQuestions == orderedAll)
         #expect(!trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
     }
 
@@ -255,7 +270,7 @@ struct RuntimeSmokeHarnessTests {
 
         let expectedQ3 = SystemAudioQuestionExtractor.extract(from: q3).last?.text ?? q3
         try await harness.waitForCurrentQuestion(expectedQ3)
-        try await harness.waitForRows(2)
+        try await harness.waitForRows(3)
         try await harness.waitForPipelineIdle()
         let rows = try harness.rows()
         let trace = try harness.traceText()
@@ -263,7 +278,7 @@ struct RuntimeSmokeHarnessTests {
         let normalized = rows.compactMap(\.questionText).map(SemanticDuplicateKeyBuilder.key(for:))
 
         #expect(Set(normalized).count == rows.count)
-        #expect(rows.filter { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", q1) }.isEmpty)
+        #expect(rows.filter { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", q1) }.count == 1)
         #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("DROID") })
         #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("YOLOv8") })
         #expect(rows.allSatisfy { $0.stageBStatus != "cancelled" })
@@ -305,30 +320,19 @@ struct RuntimeSmokeHarnessTests {
             #expect(harness.appState.visibleQuestionText(for: harness.appState.currentSuggestion) == expected)
         }
 
-        try await harness.waitForRowsAtLeast(6)
-        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 6)
+        try await harness.waitForRows(7)
+        try await harness.waitForTraceEventCount("persistenceSucceeded", atLeast: 7)
         let rows = try harness.rows()
         let trace = try harness.traceText()
         harness.printSummary(rows: rows, trace: trace)
         let normalized = rows.compactMap(\.questionText).map(SemanticDuplicateKeyBuilder.key(for:))
-        let expectedNormalized = Set(questions.flatMap {
-            SystemAudioQuestionExtractor.extract(from: $0).map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
-        })
         let orderedAll = questions.flatMap {
             SystemAudioQuestionExtractor.extract(from: $0).map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
         }
-        let orderedWithoutGreeting = Array(orderedAll.dropFirst())
 
-        #expect(rows.count >= 6)
-        #expect(rows.count <= 7)
+        #expect(rows.count == 7)
         #expect(Set(normalized).count == rows.count)
-        #expect(Set(normalized).isSubset(of: expectedNormalized))
-        if normalized == orderedWithoutGreeting {
-            #expect(trace.contains("\"event_type\":\"persistenceRejected\""))
-            #expect(trace.contains(questions[0]))
-        } else {
-            #expect(normalized == orderedAll)
-        }
+        #expect(normalized == orderedAll)
         #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("DROID") })
         #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("YOLOv8") })
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })

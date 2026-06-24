@@ -88,7 +88,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
             label: "latest answer for split questions",
             stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
         ) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == Self.expectedQuestions.count &&
             appState.currentSuggestion?.questionText == Self.expectedQuestions.last &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
@@ -117,7 +117,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 arguments: [session.id]
             )
         }
-        #expect(persisted == [Self.expectedQuestions.last])
+        #expect(persisted == Self.expectedQuestions)
         #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("why do you want to join our team now let us switch") })
     }
 
@@ -151,7 +151,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
             label: "latest answer for four split questions",
             stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
         ) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1 &&
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == Self.expectedFourQuestions.count &&
             appState.currentSuggestion?.questionText == Self.expectedFourQuestions.last &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
@@ -169,8 +169,8 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 arguments: [session.id]
             )
         }
-        #expect(persisted == [Self.expectedFourQuestions.last])
-        #expect(persisted.count == 1)
+        #expect(persisted == Self.expectedFourQuestions)
+        #expect(persisted.count == Self.expectedFourQuestions.count)
         #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
     }
 
@@ -218,12 +218,17 @@ struct SystemAudioMergedQuestionSegmentationTests {
 
         try await waitUntil(timeout: Self.runtimeWaitTimeout) {
             appState.detectedQuestionsInSessionCount == 2 &&
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
             appState.currentSuggestion?.questionText == "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy" &&
             appState.visibleAnswerExists &&
             !appState.currentSpinnerVisible
         }
 
+        let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(persisted.map { $0.questionText ?? "" } == [
+            "Why do you want to join our team",
+            "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy"
+        ])
         let answer = try #require(appState.currentSuggestion?.sayFirst)
         #expect(answer.localizedCaseInsensitiveContains("diffusion"))
         #expect(answer.localizedCaseInsensitiveContains("autoregressive"))

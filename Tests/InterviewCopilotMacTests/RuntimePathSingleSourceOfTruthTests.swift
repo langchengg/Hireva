@@ -224,6 +224,13 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(appState.lastDetectedQuestionText == card.questionText)
         #expect(appState.lastDetectedQuestionText.caseInsensitiveCompare("would you debug it") != .orderedSame)
 
+        try await waitUntil(timeout: 60.0) {
+            let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+            return latestTrace.contains("\"event_type\":\"questionAccepted\"") &&
+                latestTrace.contains("\"event_type\":\"generationStarted\"") &&
+                latestTrace.contains("YOLOv8 detector") &&
+                latestTrace.contains("LeoRover")
+        }
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"questionAccepted\""))
         #expect(trace.contains("\"event_type\":\"generationStarted\""))
@@ -284,6 +291,87 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func singleFinalizedSystemAudioQuestionReachesUIBoundAnswerLifecycle() async throws {
+        let traceURL = temporaryTraceURL("runtime-single-clean-question-trace")
+        let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        var settings = appState.settings
+        settings.audioCaptureMode = .systemAudioOnly
+        settings.allowQuestionDetectionFromMicrophoneOnly = false
+        appState.saveSettings(settings)
+        let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
+        let expectedQuestion = "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "single-clean-system-audio-question",
+            sessionID: session.id,
+            text: transcript
+        ))
+
+        try await waitUntil(timeout: 5.0) {
+            appState.generationUIState.generationID != nil &&
+                appState.generationUIState.displayName != "Idle"
+        }
+        let questionAcceptedAt = try #require(appState.recentTranscriptRuntimeEvents.first {
+            $0.name == "questionAccepted" && $0.candidateText == expectedQuestion
+        }?.timestamp)
+        let generationStartedAt = try #require(appState.recentTranscriptRuntimeEvents.first {
+            $0.name == "generationStarted" && $0.text == expectedQuestion
+        }?.timestamp)
+        #expect(generationStartedAt >= questionAcceptedAt)
+        #expect(generationStartedAt.timeIntervalSince(questionAcceptedAt) <= 2.0)
+
+        try await waitUntil(timeout: 60.0) {
+            appState.visibleAssistantRenderState.questionText == expectedQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.streamFirstTokenAt != nil
+        }
+        #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
+        #expect(appState.settings.automaticQuestionDetectionEnabled)
+        #expect(appState.settings.allowQuestionDetectionFromMicrophoneOnly == false)
+        #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("No answer yet") == false)
+        #expect(appState.streamFirstTokenAt != nil)
+
+        try await waitUntil(timeout: 60.0) {
+            let render = appState.visibleAssistantRenderState
+            return render.questionText == expectedQuestion &&
+                render.keyPoints.count >= 2 &&
+                !appState.shouldShowBlockingAnswerSpinner &&
+                appState.generationUIState.isTerminal
+        }
+
+        for mode in FloatingAssistantDisplayMode.allCases {
+            var modeSettings = appState.settings
+            modeSettings.floatingAssistantDisplayMode = mode
+            appState.saveSettings(modeSettings)
+            let render = appState.visibleAssistantRenderState
+            #expect(render.questionText == expectedQuestion, "mode \(mode.rawValue)")
+            #expect(render.answerText.localizedCaseInsensitiveContains("YOLOv8"), "mode \(mode.rawValue)")
+            #expect(render.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") }, "mode \(mode.rawValue)")
+            #expect(render.generationErrorText == nil, "mode \(mode.rawValue)")
+        }
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        let orderedEvents = [
+            "transcript.final",
+            "question.detected",
+            "question.accepted",
+            "answer.request.started",
+            "answer.first_token",
+            "answer.state.updated",
+            "answer.ui.rendered",
+            "answer.stream.completed"
+        ]
+        try assertTraceContainsEventsInOrder(orderedEvents, trace: trace)
+        let questionID = try #require(appState.currentSuggestion?.detectedQuestionID)
+        let requestID = try #require(appState.currentSuggestion?.generationID)
+        #expect(trace.contains("\"question_id\":\"\(questionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(requestID)\""))
+        #expect(client.streamCallCount > 0)
+        #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
     func mergedBSequenceDetectsFourQuestionsAndGeneratesLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-merged-b-sequence-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
@@ -304,15 +392,16 @@ struct RuntimePathSingleSourceOfTruthTests {
             let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
             return detected.count == 4 &&
-                rows.count == 1 &&
-                rows.first?.questionIntent == .simToRealDebugging
+                rows.count == 4 &&
+                rows.last?.questionIntent == .simToRealDebugging &&
+                appState.currentSuggestion?.questionIntent == .simToRealDebugging
         }
 
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         #expect(client.detectionCallCount == 0)
         #expect(detected.count == 4)
-        #expect(rows.count == 1)
+        #expect(rows.count == 4)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
         #expect(detected.contains { $0.questionText.contains("autoregressive, diffusion, and flow-matching decoders") })
@@ -528,19 +617,20 @@ struct RuntimePathSingleSourceOfTruthTests {
             let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
             return detected.count == 2 &&
-                rows.count == 1 &&
-                rows.first?.questionIntent == .improvementPlan
+                rows.count == 2 &&
+                rows.last?.questionIntent == .improvementPlan &&
+                appState.currentSuggestion?.questionIntent == .improvementPlan
         }
 
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         #expect(client.detectionCallCount == 0)
         #expect(detected.count == 2)
-        #expect(rows.count == 1)
+        #expect(rows.count == 2)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
         #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("engineering team") })
-        #expect(rows.contains {
+        #expect(rows.last.map {
             let answer = $0.sayFirst.lowercased()
             return $0.questionIntent == .improvementPlan &&
             ($0.questionText ?? "").localizedCaseInsensitiveContains("LeoRover") &&
@@ -554,7 +644,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             !answer.contains("re-ranker") &&
             !answer.contains("reranker") &&
             !answer.contains("vlm grasp")
-        })
+        } == true)
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"utteranceBufferConsumed\""))
@@ -614,11 +704,18 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(historyQuestions.contains("If you had one more month to improve your LeoRover system, what would you improve first?"))
         #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
 
+        try await waitUntil(timeout: 60.0) {
+            let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+            return latestTrace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") &&
+                latestTrace.contains("\"event_type\":\"answer.request.started\"") &&
+                (latestTrace.contains("\"event_type\":\"answer.first_token\"") || latestTrace.contains("\"event_type\":\"answer.ui.rendered\"")) &&
+                latestTrace.contains("\"event_type\":\"questionHistoryAppended\"") &&
+                latestTrace.contains("\"event_type\":\"uiHistoryRefresh\"")
+        }
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
         #expect(trace.contains("\"event_type\":\"answer.request.started\""))
         #expect(trace.contains("\"event_type\":\"answer.first_token\"") || trace.contains("\"event_type\":\"answer.ui.rendered\""))
-        #expect(trace.contains("\"event_type\":\"generationCompleted\"") || trace.contains("\"event_type\":\"generationTimedOut\""))
         #expect(trace.contains("\"event_type\":\"questionHistoryAppended\""))
         #expect(trace.contains("\"event_type\":\"uiHistoryRefresh\""))
     }
@@ -643,7 +740,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await awaitPersistenceIdle(
             appState,
             sessionID: session.id,
-            expectedRowCount: 1,
+            expectedRowCount: 3,
             expectedCurrentQuestion: expectedLatestQuestion,
             traceURL: traceURL,
             timeout: 60.0
@@ -653,7 +750,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         let rowQuestions = rows.compactMap(\.questionText)
         #expect(detected.count == 3)
-        #expect(rows.count == 1)
+        #expect(rows.count == 3)
         #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == rowQuestions)
         #expect(appState.currentSuggestion?.questionText == expectedLatestQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("VLA") == true)
@@ -786,14 +883,14 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await awaitPersistenceIdle(
             appState,
             sessionID: session.id,
-            expectedRowCount: 1,
+            expectedRowCount: 3,
             traceURL: traceURL,
             timeout: 60.0
         )
 
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.count == 1)
-        #expect(rows.first?.questionIntent == .projectComparison)
+        #expect(rows.count == 3)
+        #expect(rows.last?.questionIntent == .projectComparison)
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"question.accepted\""))
         #expect(trace.contains("\"event_type\":\"answer.request.started\""))
@@ -826,7 +923,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             try await awaitPersistenceIdle(
                 appState,
                 sessionID: session.id,
-                expectedRowCount: 1,
+                expectedRowCount: 3,
                 traceURL: traceURL,
                 timeout: 60.0
             )
@@ -835,10 +932,10 @@ struct RuntimePathSingleSourceOfTruthTests {
             let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
             let questionTexts = rows.compactMap(\.questionText)
             #expect(detected.count == 3, "iteration \(iteration)")
-            #expect(rows.count == 1, "iteration \(iteration)")
-            #expect(Set(rows.map(\.id)).count == 1, "duplicate row in iteration \(iteration)")
-            #expect(Set(questionTexts).count == 1, "duplicate question in iteration \(iteration)")
-            #expect(rows.first?.questionIntent?.rawValue == expectedIntent, "wrong intent in iteration \(iteration)")
+            #expect(rows.count == 3, "iteration \(iteration)")
+            #expect(Set(rows.map(\.id)).count == 3, "duplicate row in iteration \(iteration)")
+            #expect(Set(questionTexts).count == 3, "duplicate question in iteration \(iteration)")
+            #expect(rows.last?.questionIntent?.rawValue == expectedIntent, "wrong latest intent in iteration \(iteration)")
             #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion }, "question/prompt mismatch in iteration \(iteration)")
             #expect(rows.allSatisfy { QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted }, "incomplete answer in iteration \(iteration)")
             #expect(rows.allSatisfy {
@@ -1012,6 +1109,21 @@ struct RuntimePathSingleSourceOfTruthTests {
         }
     }
 
+    private func assertTraceContainsEventsInOrder(_ events: [String], trace: String) throws {
+        var searchStart = trace.startIndex
+        for event in events {
+            let needle = "\"event_type\":\"\(event)\""
+            guard let range = trace.range(of: needle, range: searchStart..<trace.endIndex) else {
+                throw NSError(
+                    domain: "RuntimePathSingleSourceOfTruthTests",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Missing trace event in order: \(event)"]
+                )
+            }
+            searchStart = range.upperBound
+        }
+    }
+
     private func awaitQueueIdle(_ appState: AppState, timeout: TimeInterval) async throws {
         try await waitUntil(timeout: timeout) {
             appState.pendingAcceptedQuestions.isEmpty &&
@@ -1110,7 +1222,21 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
 
         lock.withLock { answerCalls += 1 }
         let content: String
-        if prompt.localizedCaseInsensitiveContains("YOLOv8") ||
+        if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
+            prompt.localizedCaseInsensitiveContains("recovery behaviors") {
+            content = """
+            {
+              "strategy": "LeoRover system integration",
+              "say_first": "My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain.",
+              "key_points": ["YOLOv8 detections became target poses for localization and navigation.", "Manipulation depended on validated perception and robot-state handoffs.", "Recovery behaviors handled missed detections, bad poses, and real-world execution uncertainty.", "The real robot was harder because lighting, timing, calibration, and contact effects were less controlled than a demo."],
+              "follow_up_ready": ["I can also describe how I debugged whether a failure came from perception, localization, navigation, or manipulation."],
+              "confidence": 0.9,
+              "caution": "None",
+              "evidence_used": [],
+              "risk_level": "low"
+            }
+            """
+        } else if prompt.localizedCaseInsensitiveContains("YOLOv8") ||
             prompt.localizedCaseInsensitiveContains("confident but wrong") ||
             prompt.localizedCaseInsensitiveContains("detector") {
             content = """
@@ -1227,7 +1353,23 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             let prompt = messages.map(\.content).joined(separator: "\n")
             let isFullCardPrompt = prompt.contains("Return plain text sections only")
             let text: String
-            if prompt.localizedCaseInsensitiveContains("YOLOv8") ||
+            if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
+                prompt.localizedCaseInsensitiveContains("recovery behaviors") {
+                if isFullCardPrompt {
+                    text = """
+                    SAY_FIRST: My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain.
+                    KEY_POINTS:
+                    - YOLOv8 detections became target poses for localization and navigation.
+                    - Manipulation depended on validated perception and robot-state handoffs.
+                    - Recovery behaviors handled missed detections, bad poses, and real-world execution uncertainty.
+                    - The real robot was harder because lighting, timing, calibration, and contact effects were less controlled than a demo.
+                    FOLLOW_UP:
+                    - I can also describe how I debugged whether a failure came from perception, localization, navigation, or manipulation.
+                    """
+                } else {
+                    text = "My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain."
+                }
+            } else if prompt.localizedCaseInsensitiveContains("YOLOv8") ||
                 prompt.localizedCaseInsensitiveContains("confident but wrong") ||
                 prompt.localizedCaseInsensitiveContains("detector") {
                 text = """

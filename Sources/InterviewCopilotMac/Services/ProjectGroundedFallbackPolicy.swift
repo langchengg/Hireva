@@ -62,8 +62,8 @@ enum ProjectGroundedFallbackPolicy {
             )
         case .systemIntegrationDebugging:
             return IntentFallbackAnswer(
-                sayFirst: "One system integration problem was on LeoRover, where the ROS2 perception, navigation, and manipulation modules did not always line up in timing. I reproduced the failure, checked logs and timestamps, isolated the fragile handoff, then added validation and recovery behaviour so the full retrieval pipeline became more reliable.",
-                keyPoints: ["Situation: LeoRover ROS2 perception-to-action pipeline had timing and module coordination issues.", "Action: used logs, timestamps, replayed failures, and isolated perception/navigation/manipulation handoffs.", "Result and lesson: recovery behaviour improved reliability, and integration discipline mattered as much as model accuracy."]
+                sayFirst: "On LeoRover, YOLOv8 detections fed the ROS2 perception pipeline, which turned object detections into target poses for localisation, navigation, and manipulation. I treated it as a system integration problem: I compared logs and timestamps across modules, then added validation and recovery behaviour so the robot could retry when detection, localisation, or execution was uncertain.",
+                keyPoints: ["YOLOv8 detection produced target information for localisation and navigation.", "Manipulation depended on validated perception and robot-state handoffs.", "Recovery behaviour handled missed detections, bad poses, and execution uncertainty.", "Lesson: logs, timestamps, and handoff checks matter as much as individual model accuracy."]
             )
         case .improvementPlan:
             return IntentFallbackAnswer(

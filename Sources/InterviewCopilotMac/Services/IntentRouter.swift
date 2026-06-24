@@ -36,6 +36,9 @@ enum IntentRouter {
         if text.contains("difference between") && text.contains("vla") && text.contains("leorover") {
             return .projectComparison
         }
+        if isRobotSystemArchitectureQuestion(text) {
+            return .systemIntegrationDebugging
+        }
         if text.contains("system integration problem") ||
             text.contains("debug a system integration") {
             return .systemIntegrationDebugging
@@ -62,6 +65,10 @@ enum IntentRouter {
             text.contains("hardest challenge") ||
             text.contains("pipeline was most fragile") ||
             text.contains("most fragile") ||
+            text.contains("real-world execution") ||
+            text.contains("real world execution") ||
+            text.contains("clean simulation") ||
+            text.contains("demo environment") ||
             text.contains("clean demo") ||
             text.contains("real robot execution") {
             return .technicalChallenge
@@ -107,7 +114,12 @@ enum IntentRouter {
             lower.contains("droid") ||
             lower.contains("sim-to-real") ||
             lower.contains("continuous action") ||
+            isRobotSystemArchitectureQuestion(normalize(lower)) ||
             lower.contains("fragile") ||
+            lower.contains("real-world execution") ||
+            lower.contains("real world execution") ||
+            lower.contains("clean simulation") ||
+            lower.contains("demo environment") ||
             lower.contains("clean demo") ||
             lower.contains("real robot execution") ||
             lower.contains("localisation") ||
@@ -180,5 +192,23 @@ enum IntentRouter {
             text.contains("confident but wrong") ||
             text.contains("false positive")
         return mentionsDetector && mentionsDebugging
+    }
+
+    static func isRobotSystemArchitectureQuestion(_ text: String) -> Bool {
+        let mentionsDetector = text.contains("yolov8") ||
+            text.contains("detector") ||
+            text.contains("detection")
+        let mentionsSystemFlow = text.contains("connect") ||
+            text.contains("connected") ||
+            text.contains("pipeline") ||
+            text.contains("system")
+        let downstreamModules = [
+            "localization",
+            "localisation",
+            "navigation",
+            "manipulation",
+            "recovery"
+        ].filter { text.contains($0) }.count
+        return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
     }
 }
