@@ -65,16 +65,7 @@ extension AppState {
             lastSystemTranscript = segment.text
         }
         if currentSession == nil {
-            let repository = sessionRepository
-            markSQLiteOperation("Loading transcript session in background")
-            Task.detached(priority: .utility) { [weak self] in
-                let session = try? repository.session(id: segment.sessionID)
-                await MainActor.run { [weak self] in
-                    guard let self, self.currentSession == nil else { return }
-                    self.currentSession = session
-                    self.lastSQLiteOperation = session == nil ? "Transcript session not found" : "Loaded transcript session"
-                }
-            }
+            bindCurrentSessionForTranscriptSegmentIfNeeded(segment)
         }
         if settings.saveTranscriptsLocally {
             saveTranscriptSegmentInBackground(segment)
@@ -387,6 +378,17 @@ extension AppState {
     }
 
     // MARK: - Normalization
+
+    private func bindCurrentSessionForTranscriptSegmentIfNeeded(_ segment: TranscriptSegment) {
+        guard currentSession == nil else { return }
+        markSQLiteOperation("Loading transcript session for ASR segment")
+        do {
+            currentSession = try sessionRepository.session(id: segment.sessionID)
+            lastSQLiteOperation = currentSession == nil ? "Transcript session not found" : "Loaded transcript session"
+        } catch {
+            lastSQLiteOperation = "Transcript session load failed: \(error.localizedDescription)"
+        }
+    }
 
     func normalizeTraceText(_ text: String) -> String {
         text

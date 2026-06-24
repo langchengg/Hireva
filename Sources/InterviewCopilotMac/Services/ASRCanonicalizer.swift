@@ -77,6 +77,8 @@ enum ASRCanonicalizer {
 
     private static func replaceYOLOv8Variants(in text: String) -> String {
         var result = text
+        result = QuestionTextUtilities.regexReplace(#"\byellow\s+of\s+aid\b"#, in: result, with: "YOLOv8")
+        result = QuestionTextUtilities.regexReplace(#"\byellow\s+aid\b"#, in: result, with: "YOLOv8")
         result = QuestionTextUtilities.regexReplace(#"\byo\s+love\s+eight\b"#, in: result, with: "YOLOv8")
         result = QuestionTextUtilities.regexReplace(#"\byolo\s+eight\b"#, in: result, with: "YOLOv8")
         result = QuestionTextUtilities.regexReplace(#"\byolo\s+8\b"#, in: result, with: "YOLOv8")

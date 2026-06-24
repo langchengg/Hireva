@@ -227,6 +227,12 @@ enum MultiQuestionSplitter {
                    isQuestionTail(currentClause) {
                     continue
                 }
+                if start - previous < 260,
+                   !previousClause.contains("?"),
+                   isMitigationTail(currentClause),
+                   previousClause.contains("real world execution") || previousClause.contains("demo environment") {
+                    continue
+                }
                 if start - previous < 180,
                    !previousClause.contains("?"),
                    previousClause.contains("if your") || previousClause.contains("also if") {
@@ -263,6 +269,14 @@ enum MultiQuestionSplitter {
             trimmed.hasPrefix("what part") ||
             trimmed.hasPrefix("how did") ||
             trimmed.hasPrefix("why was")
+    }
+
+    private static func isMitigationTail(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("and how did you mitigate") ||
+            trimmed.hasPrefix("how did you mitigate") ||
+            trimmed.hasPrefix("and how would you mitigate") ||
+            trimmed.hasPrefix("how would you mitigate")
     }
 }
 

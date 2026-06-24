@@ -372,6 +372,54 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func finalizedSystemAudioBindsSessionBeforeLocalExtractionAndGeneration() async throws {
+        let traceURL = temporaryTraceURL("runtime-final-without-current-session-trace")
+        let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.currentSession = nil
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "screenshot-final-system-audio-question",
+            sessionID: session.id,
+            text: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
+        ))
+
+        try await waitUntil(timeout: 60.0) {
+            appState.currentSession?.id == session.id &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("recovery") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                client.streamCallCount > 0
+        }
+
+        let card = try #require(appState.currentSuggestion)
+        #expect(card.sessionID == session.id)
+        #expect(card.questionText?.localizedCaseInsensitiveContains("YOLOv8 detection") == true)
+        #expect(card.questionIntent == .systemIntegrationDebugging)
+        #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
+
+        try await waitUntil(timeout: 10.0) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+        }
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(rows.count == 1)
+        #expect(rows.first?.detectedQuestionID == card.detectedQuestionID)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        try assertTraceContainsEventsInOrder(
+            [
+                "transcript.final",
+                "question.accepted",
+                "answer.request.started",
+                "answer.ui.rendered"
+            ],
+            trace: trace
+        )
+        #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
     func mergedBSequenceDetectsFourQuestionsAndGeneratesLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-merged-b-sequence-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)

@@ -18,7 +18,7 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func asrCanonicalizerNormalizesKnownRuntimeVariants() {
-        let text = "Muja Cove with flowmatching on a layover using YOLO eight, from N to end, and a seem to real gap"
+        let text = "Muja Cove with flowmatching on a layover using yellow of aid detection and YOLO eight, from N to end, and a seem to real gap"
         let canonical = ASRCanonicalizer.canonicalizeTerms(text)
 
         #expect(canonical.localizedCaseInsensitiveContains("MuJoCo"))
@@ -123,6 +123,23 @@ struct QuestionCandidatePipelineTests {
             "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
         ])
         #expect(candidates.first?.answerRelevanceIntent == .systemIntegrationDebugging)
+    }
+
+    @Test
+    func realScreenshotUnpunctuatedArchitectureTranscriptCanonicalizesAndExtracts() throws {
+        let candidates = QuestionCandidatePipeline.extract(
+            from: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
+        )
+        let candidate = try #require(candidates.first)
+
+        #expect(candidates.count == 1)
+        #expect(candidate.text.localizedCaseInsensitiveContains("YOLOv8 detection"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("localization"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("navigation"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("manipulation"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("recovery"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("mitigate those issues"))
+        #expect(candidate.answerRelevanceIntent == .systemIntegrationDebugging)
     }
 
     @Test
