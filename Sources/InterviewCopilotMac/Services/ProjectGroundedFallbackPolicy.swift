@@ -17,8 +17,8 @@ enum ProjectGroundedFallbackPolicy {
             )
         case .technicalChallenge:
             return IntentFallbackAnswer(
-                sayFirst: "The hardest technical challenge was making the real robot pipeline reliable, because noisy perception, localisation instability, timing mismatch, and module integration made real robot execution much less predictable than simulation.",
-                keyPoints: ["Challenge: perception, localisation, navigation, and manipulation integration.", "Why hard: noisy inputs and real robot uncertainty.", "Outcome: added more robust coordination and recovery behaviour."]
+                sayFirst: "Real-world execution was harder than a clean simulation because noisy perception, localisation instability, timing mismatch, and module integration made the LeoRover pipeline less predictable. I mitigated it with filtering, validation before acting, tighter perception-navigation handoffs, and recovery behaviour such as retrying or repositioning when detection or localisation was uncertain.",
+                keyPoints: ["Challenge: perception, localisation, navigation, and manipulation integration under real robot uncertainty.", "Why hard: noisy inputs, calibration drift, timing mismatch, and less controlled lighting or contact than simulation.", "Mitigation: filtering, validation before acting, tighter handoffs, and recovery behaviour such as retrying or repositioning."]
             )
         case .errorHandling:
             return IntentFallbackAnswer(

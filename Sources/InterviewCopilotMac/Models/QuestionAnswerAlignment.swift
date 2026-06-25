@@ -285,6 +285,21 @@ enum QuestionAnswerAlignmentEvaluator {
             }
         }
 
+        if questionIntent == .technicalChallenge,
+           isRealWorldExecutionChallengeQuestion(normalizedQuestion) {
+            let hasRealWorldGrounding = containsAny(normalizedAnswer, ["real-world", "real world", "physical robot", "real robot"])
+            let hasDifficultyContrast = containsAny(normalizedAnswer, ["simulation", "demo", "clean"]) &&
+                containsAny(normalizedAnswer, ["harder", "unpredictable", "less predictable", "noisy", "noise", "drift", "calibration", "timing", "integration"])
+            let asksMitigation = containsAny(normalizedQuestion, ["mitigate", "mitigated", "mitigation", "how did you address"])
+            let hasMitigation = !asksMitigation ||
+                containsAny(normalizedAnswer, ["mitigated", "mitigation", "validation", "validated", "filter", "handoff", "recovery", "retry", "reposition"])
+
+            if !hasRealWorldGrounding || !hasDifficultyContrast || !hasMitigation {
+                verdict = .mismatched
+                finalReason += " Rejected real-world execution answer without explicit real-world/physical-robot grounding, simulation contrast, and requested mitigation."
+            }
+        }
+
         if questionIntent == .improvementPlan,
            normalizedQuestion.contains("leorover"),
            containsWrongLeoRoverImprovementGrounding(normalizedAnswer) {
@@ -297,6 +312,11 @@ enum QuestionAnswerAlignmentEvaluator {
             if usefulInterviewerQuestionCount(in: visibleInterviewerAnswer) < 2 {
                 verdict = .mismatched
                 finalReason += " Rejected interviewer-questions answer without at least two distinct useful questions."
+            }
+            if isEngineeringTeamFitQuestion(normalizedQuestion),
+               !containsAny(normalizedAnswer, ["data", "simulation", "infrastructure", "workflow", "workflows"]) {
+                verdict = .mismatched
+                finalReason += " Rejected engineering-team fit answer without data, simulation, infrastructure, or workflow coverage."
             }
         }
 
@@ -347,6 +367,33 @@ enum QuestionAnswerAlignmentEvaluator {
             ) {
                 verdict = .mismatched
                 finalReason += " Rejected generic model-comparison sayFirst: \(visibleIssue)."
+            }
+
+            if let visibleIssue = projectComparisonVisibleSayFirstIssue(
+                normalizedQuestion: normalizedQuestion,
+                normalizedSayFirst: normalize(trimmedSayFirst),
+                questionIntent: questionIntent
+            ) {
+                verdict = .mismatched
+                finalReason += " Rejected project-comparison sayFirst: \(visibleIssue)."
+            }
+
+            if let visibleIssue = realWorldExecutionVisibleSayFirstIssue(
+                normalizedQuestion: normalizedQuestion,
+                normalizedSayFirst: normalize(trimmedSayFirst),
+                questionIntent: questionIntent
+            ) {
+                verdict = .mismatched
+                finalReason += " Rejected real-world execution sayFirst: \(visibleIssue)."
+            }
+
+            if let visibleIssue = engineeringTeamFitVisibleSayFirstIssue(
+                normalizedQuestion: normalizedQuestion,
+                normalizedSayFirst: normalize(trimmedSayFirst),
+                questionIntent: questionIntent
+            ) {
+                verdict = .mismatched
+                finalReason += " Rejected engineering-team fit sayFirst: \(visibleIssue)."
             }
         }
 
@@ -496,6 +543,21 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
+        if isRobotPerceptionToNavigationQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "YOLOv8 / detection", alternatives: ["yolov8", "yolo", "detection", "detector"]),
+                    Theme(name: "target object / pose", alternatives: ["target object", "target pose", "target poses", "object detections", "detections"]),
+                    Theme(name: "localisation / localization", alternatives: ["localisation", "localization", "localise", "localize"]),
+                    Theme(name: "navigation", alternatives: ["navigation", "navigate"]),
+                    Theme(name: "pipeline / validation", alternatives: ["pipeline", "ros2", "validated", "validation", "robot state"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "unrelated VLA/DROID answer", alternatives: ["droid", "mujoco", "franka", "diffusion decoder"])
+                ]
+            )
+        }
+
         if isRobotSystemArchitectureQuestion(question) {
             return Profile(
                 themes: [
@@ -573,15 +635,19 @@ enum QuestionAnswerAlignmentEvaluator {
             question.contains("pipeline was most fragile") ||
             question.contains("most fragile") ||
             question.contains("real robot execution") ||
-            question.contains("clean demo") {
+            question.contains("real-world execution") ||
+            question.contains("real world execution") ||
+            question.contains("clean demo") ||
+            question.contains("clean simulation") {
             return Profile(
                 themes: [
                     Theme(name: "module integration", alternatives: ["module integration", "integrating modules", "modules work", "coordination between perception", "coordination between"]),
-                    Theme(name: "sensor / perception noise", alternatives: ["sensor noise", "noisy perception", "noisy detections", "perception"]),
+                    Theme(name: "sensor / perception noise", alternatives: ["sensor noise", "noisy perception", "noisy detections", "noisy inputs", "perception"]),
                     Theme(name: "localisation / drift / calibration", alternatives: ["localisation instability", "localization instability", "localisation was not stable", "localization was not stable", "camera", "imu", "drift", "calibration", "recalibrate"]),
                     Theme(name: "timing mismatch", alternatives: ["timing mismatch", "timing mismatches", "timing between"]),
-                    Theme(name: "real robot unpredictability", alternatives: ["real robot", "unpredictable", "less predictable", "simulation vs real world", "clean demo"]),
-                    Theme(name: "navigation / manipulation coordination", alternatives: ["navigation", "manipulation", "filtering", "stabilized", "stabilised"])
+                    Theme(name: "real robot unpredictability", alternatives: ["real robot", "real-world", "real world", "unpredictable", "less predictable", "simulation vs real world", "clean demo", "clean simulation"]),
+                    Theme(name: "navigation / manipulation coordination", alternatives: ["navigation", "manipulation", "handoff", "handoffs", "filtering", "stabilized", "stabilised"]),
+                    Theme(name: "mitigation / recovery", alternatives: ["mitigated", "mitigation", "validation", "recovery", "retrying", "repositioning", "before acting"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
             )
@@ -761,6 +827,84 @@ enum QuestionAnswerAlignmentEvaluator {
 
         guard !missing.isEmpty else { return nil }
         return "visible answer missing \(missing.joined(separator: ", "))."
+    }
+
+    private static func projectComparisonVisibleSayFirstIssue(
+        normalizedQuestion: String,
+        normalizedSayFirst: String,
+        questionIntent: AnswerRelevanceIntent
+    ) -> String? {
+        guard questionIntent == .projectComparison,
+              normalizedQuestion.contains("vla"),
+              normalizedQuestion.contains("leorover") || normalizedQuestion.contains("leo rover") else {
+            return nil
+        }
+
+        var missing: [String] = []
+        if !normalizedSayFirst.contains("vla") {
+            missing.append("VLA")
+        }
+        if !containsAny(normalizedSayFirst, ["leorover", "leo rover"]) {
+            missing.append("LeoRover")
+        }
+        if !containsAny(normalizedSayFirst, ["mujoco", "franka", "simulation"]) {
+            missing.append("simulation/MuJoCo/Franka side")
+        }
+        if !containsAny(normalizedSayFirst, ["ros2", "yolov8", "navigation", "manipulation", "localisation", "localization"]) {
+            missing.append("LeoRover stack detail")
+        }
+        if !containsAny(normalizedSayFirst, ["real robot", "real-robot", "real-world", "real world", "physical hardware"]) {
+            missing.append("real-robot execution side")
+        }
+        if !containsAny(normalizedSayFirst, ["difference", "while", "whereas", "versus", "compared", "contrast"]) {
+            missing.append("explicit contrast")
+        }
+
+        guard !missing.isEmpty else { return nil }
+        return "visible answer missing \(missing.joined(separator: ", "))."
+    }
+
+    private static func realWorldExecutionVisibleSayFirstIssue(
+        normalizedQuestion: String,
+        normalizedSayFirst: String,
+        questionIntent: AnswerRelevanceIntent
+    ) -> String? {
+        guard questionIntent == .technicalChallenge,
+              isRealWorldExecutionChallengeQuestion(normalizedQuestion) else {
+            return nil
+        }
+
+        var missing: [String] = []
+        if !containsAny(normalizedSayFirst, ["real-world", "real world", "physical robot", "real robot"]) {
+            missing.append("real-world/physical-robot grounding")
+        }
+        if !containsAny(normalizedSayFirst, ["simulation", "demo", "clean"]) {
+            missing.append("simulation/demo contrast")
+        }
+        if !containsAny(normalizedSayFirst, ["lighting", "calibration", "noise", "noisy", "occlusion", "latency", "timing", "drift", "integration"]) {
+            missing.append("real execution difficulty")
+        }
+        if !containsAny(normalizedSayFirst, ["recovery", "robust", "reliable", "failure", "retry", "reposition", "validation", "validated", "filter"]) {
+            missing.append("recovery or robustness")
+        }
+
+        guard !missing.isEmpty else { return nil }
+        return "visible answer missing \(missing.joined(separator: ", "))."
+    }
+
+    private static func engineeringTeamFitVisibleSayFirstIssue(
+        normalizedQuestion: String,
+        normalizedSayFirst: String,
+        questionIntent: AnswerRelevanceIntent
+    ) -> String? {
+        guard questionIntent == .interviewerQuestions,
+              isEngineeringTeamFitQuestion(normalizedQuestion) else {
+            return nil
+        }
+        guard !containsAny(normalizedSayFirst, ["data", "simulation", "infrastructure", "workflow", "workflows"]) else {
+            return nil
+        }
+        return "visible answer missing data/simulation/infrastructure/workflow coverage."
     }
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
@@ -950,5 +1094,38 @@ enum QuestionAnswerAlignmentEvaluator {
             "recovery"
         ].filter { question.contains($0) }.count
         return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
+    }
+
+    private static func isRealWorldExecutionChallengeQuestion(_ question: String) -> Bool {
+        containsAny(question, [
+            "real-world execution",
+            "real world execution",
+            "real robot execution",
+            "clean simulation",
+            "demo environment",
+            "clean demo"
+        ])
+    }
+
+    private static func isEngineeringTeamFitQuestion(_ question: String) -> Bool {
+        question.contains("what would you ask the engineering team") ||
+            (question.contains("ask the engineering team") && question.contains("good fit"))
+    }
+
+    private static func isRobotPerceptionToNavigationQuestion(_ question: String) -> Bool {
+        let mentionsDetector = question.contains("yolov8") ||
+            question.contains("detector") ||
+            question.contains("detection") ||
+            question.contains("object detection")
+        let mentionsTargetSelection = question.contains("identify") ||
+            question.contains("target object") ||
+            question.contains("target pose") ||
+            question.contains("target poses") ||
+            question.contains("object before")
+        let mentionsDownstreamMotion = (
+            question.contains("localization") ||
+            question.contains("localisation")
+        ) && question.contains("navigation")
+        return mentionsDetector && mentionsTargetSelection && mentionsDownstreamMotion
     }
 }

@@ -480,6 +480,7 @@ final class AppState: ObservableObject {
     @Published public var keychainServiceName: String = KeychainConstants.service
     @Published public var keychainDeepSeekAccount: String = KeychainConstants.deepSeekAccount
     @Published public var keychainDeepSeekKeyExists: Bool = false
+    @Published public var keychainDeepSeekKeyLengthCategory: String = "unknown"
     @Published public var keychainMaskedKey: String = "None"
     @Published public var keychainLastReadStatus: String = "Not Checked"
     @Published public var keychainLastWriteStatus: String = "Not Checked"
@@ -514,6 +515,7 @@ final class AppState: ObservableObject {
         let triggerPath: GenerationTriggerPath
         let startedAt: Date
         var stageATask: Task<String, Error>?
+        var stageATimeoutTask: Task<Void, Never>?
         var stageBTask: Task<Void, Never>?
         var fallbackWatchdogTask: Task<Void, Never>?
         var fullCardWatchdogTask: Task<Void, Never>?
@@ -521,6 +523,8 @@ final class AppState: ObservableObject {
         mutating func cancelAll() {
             stageATask?.cancel()
             stageATask = nil
+            stageATimeoutTask?.cancel()
+            stageATimeoutTask = nil
             stageBTask?.cancel()
             stageBTask = nil
             fallbackWatchdogTask?.cancel()
@@ -650,6 +654,8 @@ final class AppState: ObservableObject {
     let autoQuestionDuplicateCooldownSeconds: TimeInterval = 60
 
     private var activeObserverToken: NSObjectProtocol?
+    var liveSystemAudioDiagnosticObserverToken: NSObjectProtocol?
+    private var keychainStatusRefreshInFlight = false
     private let verificationMocksEnabledOverride: Bool?
     private let defaultAppSectionOverride: AppSection?
     // internal for AppState extension access only
@@ -746,7 +752,9 @@ final class AppState: ObservableObject {
         )
         
         // Initialize notifications and refresh permissions on startup and when application didBecomeActive
-        refreshAll()
+        refreshAll(loadKeychain: !(keychain.store is RealKeychainStore))
+        installLiveSystemAudioDiagnosticNotificationObserver()
+        runLaunchLiveSystemAudioDiagnosticIfRequested()
 
         AudioDeviceRouteMonitor.shared.$currentInputDeviceName
             .receive(on: DispatchQueue.main)
@@ -862,6 +870,9 @@ final class AppState: ObservableObject {
         if let token = activeObserverToken {
             NotificationCenter.default.removeObserver(token)
         }
+        if let token = liveSystemAudioDiagnosticObserverToken {
+            DistributedNotificationCenter.default().removeObserver(token)
+        }
         actionFeedbackDismissTasks.values.forEach { $0.cancel() }
         mainThreadHeartbeatTask?.cancel()
     }
@@ -911,7 +922,113 @@ final class AppState: ObservableObject {
         return "keywordOnly (\(Int(coverage.coveragePercent))% embedding coverage)"
     }
 
-    func refreshAll() {
+    private struct KeychainStatusSnapshot {
+        var hasAnyAPIKey: Bool
+        var deepSeekKeyExists: Bool
+        var deepSeekKeyLengthCategory: String
+        var maskedKey: String
+        var lastReadStatus: String
+        var lastWriteStatus: String
+        var migrationPerformed: Bool
+        var legacyItemFound: Bool
+        var legacyItemCount: Int
+        var authorizationWarning: String?
+        var mismatchStatus: String
+    }
+
+    private func loadKeychainStatusSnapshot() -> KeychainStatusSnapshot {
+        Self.loadKeychainStatusSnapshot(
+            keychainService: keychainService,
+            accounts: Set(providerConfigurations.compactMap(\.apiKeyAccount))
+        )
+    }
+
+    nonisolated private static func loadKeychainStatusSnapshot(
+        keychainService: KeychainService,
+        accounts: Set<String>
+    ) -> KeychainStatusSnapshot {
+        var keychainStates: [String: KeychainAPIKeyAccessState] = [:]
+        for account in accounts {
+            keychainStates[account] = keychainService.apiKeyAccessState(account: account)
+        }
+        let deepSeekState = keychainStates[KeychainConstants.deepSeekAccount] ??
+            keychainService.apiKeyAccessState(account: KeychainConstants.deepSeekAccount)
+        keychainStates[KeychainConstants.deepSeekAccount] = deepSeekState
+
+        let authorizationWarning: String?
+        if case .authorizationRequired(let message) = deepSeekState {
+            authorizationWarning = message
+        } else {
+            authorizationWarning = nil
+        }
+
+        let mismatchStatus: String
+        if deepSeekState.hasReadableKey {
+            mismatchStatus = "✅ DeepSeek API Key loaded successfully"
+        } else if let authorizationWarning {
+            mismatchStatus = "⚠️ \(authorizationWarning)"
+        } else if keychainService.legacyItemFound || keychainService.legacyItemCount > 0 {
+            let count = keychainService.legacyItemCount
+            mismatchStatus = count > 1
+                ? "⚠️ Legacy keys found (\(count) items), migration available"
+                : "⚠️ Legacy key found, migration available"
+        } else {
+            mismatchStatus = "❌ No DeepSeek API key found in Keychain"
+        }
+
+        return KeychainStatusSnapshot(
+            hasAnyAPIKey: keychainStates.values.contains { $0.hasReadableKey },
+            deepSeekKeyExists: deepSeekState.hasReadableKey,
+            deepSeekKeyLengthCategory: deepSeekState.keyLengthCategory,
+            maskedKey: deepSeekState.maskedDisplay,
+            lastReadStatus: keychainService.lastReadStatus,
+            lastWriteStatus: keychainService.lastWriteStatus,
+            migrationPerformed: keychainService.migrationPerformed,
+            legacyItemFound: keychainService.legacyItemFound,
+            legacyItemCount: keychainService.legacyItemCount,
+            authorizationWarning: authorizationWarning,
+            mismatchStatus: mismatchStatus
+        )
+    }
+
+    private func applyKeychainStatusSnapshot(_ snapshot: KeychainStatusSnapshot) {
+        hasAPIKey = snapshot.hasAnyAPIKey
+        keychainDeepSeekKeyExists = snapshot.deepSeekKeyExists
+        keychainDeepSeekKeyLengthCategory = snapshot.deepSeekKeyLengthCategory
+        keychainMaskedKey = snapshot.maskedKey
+        keychainLastReadStatus = snapshot.lastReadStatus
+        keychainLastWriteStatus = snapshot.lastWriteStatus
+        keychainMigrationPerformed = snapshot.migrationPerformed
+        keychainLegacyItemFound = snapshot.legacyItemFound
+        keychainLegacyItemCount = snapshot.legacyItemCount
+        keychainAuthorizationWarning = snapshot.authorizationWarning
+        keychainMismatchStatus = snapshot.mismatchStatus
+    }
+
+    private func refreshKeychainStatusInBackground() {
+        guard keychainService.store is RealKeychainStore else {
+            applyKeychainStatusSnapshot(loadKeychainStatusSnapshot())
+            return
+        }
+        guard !keychainStatusRefreshInFlight else { return }
+        keychainStatusRefreshInFlight = true
+
+        let keychain = keychainService
+        let accounts = Set(providerConfigurations.compactMap(\.apiKeyAccount))
+        Task.detached(priority: .utility) {
+            let snapshot = AppState.loadKeychainStatusSnapshot(
+                keychainService: keychain,
+                accounts: accounts
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.applyKeychainStatusSnapshot(snapshot)
+                self.keychainStatusRefreshInFlight = false
+            }
+        }
+    }
+
+    func refreshAll(loadKeychain: Bool? = nil) {
         do {
             settings = try settingsRepository.loadSettings()
             providerConfigurations = try settingsRepository.ensureDefaultProviderConfigurations()
@@ -922,45 +1039,15 @@ final class AppState: ObservableObject {
             let completion = try documentRepository.onboardingCompletion()
             hasCV = completion.hasCV
             hasJD = completion.hasJD
-            let keychainAccounts = Set(providerConfigurations.compactMap(\.apiKeyAccount))
-            var keychainStates: [String: KeychainAPIKeyAccessState] = [:]
-            for account in keychainAccounts {
-                keychainStates[account] = keychainService.apiKeyAccessState(account: account)
-            }
-            let deepSeekState = keychainStates[KeychainConstants.deepSeekAccount] ??
-                keychainService.apiKeyAccessState(account: KeychainConstants.deepSeekAccount)
-            keychainStates[KeychainConstants.deepSeekAccount] = deepSeekState
-
-            hasAPIKey = keychainStates.values.contains { $0.hasReadableKey }
-
-            // Hydrate Keychain Diagnostics & Mismatch Detection without repeated reads.
-            self.keychainDeepSeekKeyExists = deepSeekState.hasReadableKey
-            self.keychainMaskedKey = deepSeekState.maskedDisplay
-            self.keychainLastReadStatus = keychainService.lastReadStatus
-            self.keychainLastWriteStatus = keychainService.lastWriteStatus
-            self.keychainMigrationPerformed = keychainService.migrationPerformed
-            self.keychainLegacyItemFound = keychainService.legacyItemFound
-            self.keychainLegacyItemCount = keychainService.legacyItemCount
-
-            if case .authorizationRequired(let message) = deepSeekState {
-                self.keychainAuthorizationWarning = message
+            let shouldLoadKeychain = loadKeychain ?? !(keychainService.store is RealKeychainStore)
+            if shouldLoadKeychain {
+                applyKeychainStatusSnapshot(loadKeychainStatusSnapshot())
             } else {
-                self.keychainAuthorizationWarning = nil
-            }
-
-            if self.keychainDeepSeekKeyExists {
-                self.keychainMismatchStatus = "✅ DeepSeek API Key loaded successfully"
-            } else if let warning = self.keychainAuthorizationWarning {
-                self.keychainMismatchStatus = "⚠️ \(warning)"
-            } else if keychainService.legacyItemFound || keychainService.legacyItemCount > 0 {
-                let count = keychainService.legacyItemCount
-                if count > 1 {
-                    self.keychainMismatchStatus = "⚠️ Legacy keys found (\(count) items), migration available"
-                } else {
-                    self.keychainMismatchStatus = "⚠️ Legacy key found, migration available"
+                self.keychainLastReadStatus = "Deferred"
+                if self.keychainMismatchStatus == "Not Checked" || self.keychainMismatchStatus.isEmpty {
+                    self.keychainMismatchStatus = "Keychain check deferred"
                 }
-            } else {
-                self.keychainMismatchStatus = "❌ No DeepSeek API key found in Keychain"
+                refreshKeychainStatusInBackground()
             }
             let cvCount = (try? documentRepository.chunks(type: .cv).count) ?? 0
             let jdCount = (try? documentRepository.chunks(type: .jobDescription).count) ?? 0
@@ -1382,7 +1469,7 @@ final class AppState: ObservableObject {
                 providerName: "RAG Template Fallback",
                 providerBaseURL: "",
                 latencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
-                isLocal: false,
+                isLocal: true,
                 rawJSON: nil,
                 createdAt: Date(),
                 questionIntent: intent,
@@ -1758,6 +1845,11 @@ final class AppState: ObservableObject {
                         self.recordStaleGenerationDiscard()
                         throw CancellationError()
                     }
+                    guard !self.terminalGenerationIDs.contains(generationID),
+                          !self.generationUIState.isTerminal else {
+                        self.recordStaleGenerationDiscard()
+                        throw CancellationError()
+                    }
                     guard !Task.isCancelled else { break }
                     if self.streamFirstTokenAt == nil {
                         self.streamFirstTokenAt = Date()
@@ -1819,6 +1911,129 @@ final class AppState: ObservableObject {
             }
         }
         registerStageATask(fastSayFirstTask, generationID: generationID)
+
+        let stageATimeoutNanoseconds = UInt64(max(stageATimeoutSeconds, 0) * 1_000_000_000)
+        let stageATimeoutTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.delayProvider.sleep(nanoseconds: stageATimeoutNanoseconds)
+            } catch {
+                return
+            }
+            guard self.isActiveGeneration(generationID, questionID: localQuestion.id),
+                  !self.generationUIState.isTerminal,
+                  self.activeGenerationController?.stageATask != nil,
+                  self.visibleAnswerExists else {
+                return
+            }
+
+            if var current = self.currentSuggestion,
+               self.visibleCardMatchesGeneration(
+                    card: current,
+                    generationID: generationID,
+                    detectedQuestionID: localQuestion.id,
+                    promptPrimaryQuestion: localQuestion.questionText
+               ) {
+                current.stageATimedOut = true
+                current.stageBCompleted = false
+                current.stageBStatus = "timed_out"
+                current.caution = current.caution ?? "DeepSeek first-answer stream did not finish; the visible answer was saved."
+                current.latencyFirstTokenMS = current.latencyFirstTokenMS ?? self.deepseekFirstTokenMS
+                current.latencyFirstVisibleMS = current.latencyFirstVisibleMS ?? self.deepseekFirstVisibleMS
+                current.deepseekFirstTokenMS = current.deepseekFirstTokenMS ?? self.deepseekFirstTokenMS
+                current.deepseekFirstVisibleMS = current.deepseekFirstVisibleMS ?? self.deepseekFirstVisibleMS
+                current.finalVisibleSource = current.finalVisibleSource ?? "deepseek_stream_timeout"
+                if current.keyPoints.isEmpty {
+                    current.keyPoints = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion).keyPoints
+                }
+                _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
+                    current,
+                    generationID: generationID,
+                    question: localQuestion,
+                    session: localSession,
+                    requestStart: requestStart,
+                    retrievedChunks: self.currentSuggestionRetrievedChunks,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker,
+                    caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
+                    stageATimedOut: true,
+                    fallback: current.isLocal || current.sayFirstSource?.contains("fallback") == true
+                )
+                return
+            }
+
+            let streamed = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !streamed.isEmpty else { return }
+
+            var streamCard = createRAGFallbackCard(isSoft: true)
+            streamCard.strategy = "DeepSeek First Answer"
+            streamCard.sayFirst = streamed
+            streamCard.caution = "DeepSeek first-answer stream did not finish; the visible answer was saved."
+            streamCard.modelName = self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model
+            streamCard.providerKind = self.activeRealtimeProvider?.kind
+            streamCard.providerName = self.activeRealtimeProvider?.name ?? "DeepSeek"
+            streamCard.providerBaseURL = self.activeRealtimeProvider?.baseURL ?? "https://api.deepseek.com"
+            streamCard.latencyMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+            streamCard.isLocal = false
+            streamCard.questionText = localQuestion.questionText
+            streamCard.transcriptSegmentID = localQuestion.transcriptSegmentID
+            streamCard.generationID = generationID
+            streamCard.source = telemetrySource?.rawValue
+            streamCard.speaker = telemetrySpeaker?.rawValue
+            streamCard.triggerPath = triggerPath
+            streamCard.sayFirstSource = "deepseek_stream_timeout"
+            streamCard.stageATimedOut = true
+            streamCard.stageBCompleted = false
+            streamCard.stageBStatus = "timed_out"
+            streamCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
+            streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
+            streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
+            streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
+            streamCard.finalVisibleSource = "deepseek_stream_timeout"
+            streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
+            if !streamCard.keyPoints.isEmpty {
+                streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS
+                streamCard.allKeyPointsVisibleMS = streamCard.firstVisibleAnswerMS
+            }
+            if !streamCard.followUpReady.isEmpty {
+                streamCard.followUpVisibleMS = streamCard.firstVisibleAnswerMS
+            }
+
+            let validated = await self.validateAndRewriteIfNeeded(streamCard, generationID: generationID)
+            guard self.isActiveGeneration(generationID, questionID: localQuestion.id),
+                  !self.generationUIState.isTerminal else {
+                return
+            }
+            guard self.displaySuggestionIfAligned(
+                validated,
+                question: localQuestion,
+                generationID: generationID,
+                triggerPath: triggerPath,
+                source: telemetrySource,
+                speaker: telemetrySpeaker
+            ) else { return }
+            self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+            self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
+            self.streamedSayFirst = ""
+            self.finalVisibleSource = "deepseek_stream_timeout"
+            let finalCard = self.currentSuggestion ?? validated
+            _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
+                finalCard,
+                generationID: generationID,
+                question: localQuestion,
+                session: localSession,
+                requestStart: requestStart,
+                retrievedChunks: self.currentSuggestionRetrievedChunks,
+                triggerPath: triggerPath,
+                source: telemetrySource,
+                speaker: telemetrySpeaker,
+                caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
+                stageATimedOut: true,
+                fallback: false
+            )
+        }
+        registerStageATimeoutTask(stageATimeoutTask, generationID: generationID)
         
         // Race Stage A with 6.0s timeout
         var fastSayFirst = ""
@@ -1827,8 +2042,12 @@ final class AppState: ObservableObject {
                 try await fastSayFirstTask.value
             }
             clearStageATask(generationID: generationID)
+            clearStageATimeoutTask(generationID: generationID)
             guard self.currentGenerationID == generationID else {
                 recordStaleGenerationDiscard()
+                return
+            }
+            guard !self.generationUIState.isTerminal else {
                 return
             }
             self.isStreamingSayFirst = false
@@ -1872,6 +2091,20 @@ final class AppState: ObservableObject {
                         self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
                         self.persistSuggestionInBackground(validated, chunks: self.currentSuggestionRetrievedChunks, generationID: generationID, requestStart: requestStart)
                         self.setGenerationUIState(.answerReady(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                        self.recordTranscriptRuntimeEvent(.generationCompleted(
+                            sessionID: localSession.id,
+                            questionID: localQuestion.id,
+                            generationID: generationID,
+                            question: localQuestion.questionText,
+                            timestamp: Date()
+                        ))
+                        self.recordLifecycleTrace(
+                            "answer.stream.completed",
+                            sessionID: localSession.id,
+                            questionID: localQuestion.id,
+                            generationID: generationID,
+                            text: localQuestion.questionText
+                        )
                         self.processNextQueuedAutoQuestionIfIdle()
                     } else {
                         var updated = createRAGFallbackCard(isSoft: true)
@@ -2000,13 +2233,124 @@ final class AppState: ObservableObject {
             }
         } catch {
             clearStageATask(generationID: generationID)
+            clearStageATimeoutTask(generationID: generationID)
             guard self.currentGenerationID == generationID else {
                 recordStaleGenerationDiscard()
+                return
+            }
+            guard !self.generationUIState.isTerminal else {
                 return
             }
             print("[StreamingASR] Stage A Fast Say-First timed out or failed: \(error.localizedDescription)")
             self.isStreamingSayFirst = false
             clearFallbackWatchdogTask(generationID: generationID)
+
+            if var current = self.currentSuggestion,
+               self.visibleCardMatchesGeneration(
+                    card: current,
+                    generationID: generationID,
+                    detectedQuestionID: localQuestion.id,
+                    promptPrimaryQuestion: localQuestion.questionText
+               ),
+               !current.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                current.stageATimedOut = true
+                current.stageBCompleted = false
+                current.stageBStatus = "timed_out"
+                current.caution = current.caution ?? "DeepSeek first-answer stream did not finish; the visible answer was saved."
+                current.latencyFirstTokenMS = current.latencyFirstTokenMS ?? self.deepseekFirstTokenMS
+                current.latencyFirstVisibleMS = current.latencyFirstVisibleMS ?? self.deepseekFirstVisibleMS
+                current.deepseekFirstTokenMS = current.deepseekFirstTokenMS ?? self.deepseekFirstTokenMS
+                current.deepseekFirstVisibleMS = current.deepseekFirstVisibleMS ?? self.deepseekFirstVisibleMS
+                current.finalVisibleSource = current.finalVisibleSource ?? "deepseek_stream_timeout"
+                if current.keyPoints.isEmpty {
+                    current.keyPoints = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion).keyPoints
+                }
+                _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
+                    current,
+                    generationID: generationID,
+                    question: localQuestion,
+                    session: localSession,
+                    requestStart: requestStart,
+                    retrievedChunks: self.currentSuggestionRetrievedChunks,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker,
+                    caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
+                    stageATimedOut: true,
+                    fallback: current.isLocal || current.sayFirstSource?.contains("fallback") == true
+                )
+                return
+            }
+
+            let streamedTimeoutText = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !streamedTimeoutText.isEmpty {
+                var streamCard = createRAGFallbackCard(isSoft: true)
+                streamCard.strategy = "DeepSeek First Answer"
+                streamCard.sayFirst = streamedTimeoutText
+                streamCard.caution = "DeepSeek first-answer stream did not finish; the visible answer was saved."
+                streamCard.modelName = self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model
+                streamCard.providerKind = self.activeRealtimeProvider?.kind
+                streamCard.providerName = self.activeRealtimeProvider?.name ?? "DeepSeek"
+                streamCard.providerBaseURL = self.activeRealtimeProvider?.baseURL ?? "https://api.deepseek.com"
+                streamCard.latencyMS = Int(Date().timeIntervalSince(requestStart) * 1000)
+                streamCard.isLocal = false
+                streamCard.questionText = localQuestion.questionText
+                streamCard.transcriptSegmentID = localQuestion.transcriptSegmentID
+                streamCard.generationID = generationID
+                streamCard.source = telemetrySource?.rawValue
+                streamCard.speaker = telemetrySpeaker?.rawValue
+                streamCard.triggerPath = triggerPath
+                streamCard.sayFirstSource = "deepseek_stream_timeout"
+                streamCard.stageATimedOut = true
+                streamCard.stageBCompleted = false
+                streamCard.stageBStatus = "timed_out"
+                streamCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
+                streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
+                streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
+                streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
+                streamCard.finalVisibleSource = "deepseek_stream_timeout"
+                streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
+                if !streamCard.keyPoints.isEmpty {
+                    streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS
+                    streamCard.allKeyPointsVisibleMS = streamCard.firstVisibleAnswerMS
+                }
+                if !streamCard.followUpReady.isEmpty {
+                    streamCard.followUpVisibleMS = streamCard.firstVisibleAnswerMS
+                }
+                let validated = await self.validateAndRewriteIfNeeded(streamCard, generationID: generationID)
+                guard self.isActiveGeneration(generationID, questionID: localQuestion.id),
+                      !self.generationUIState.isTerminal else {
+                    return
+                }
+                guard self.displaySuggestionIfAligned(
+                    validated,
+                    question: localQuestion,
+                    generationID: generationID,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker
+                ) else { return }
+                self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
+                self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
+                self.streamedSayFirst = ""
+                self.finalVisibleSource = "deepseek_stream_timeout"
+                let finalCard = self.currentSuggestion ?? validated
+                _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
+                    finalCard,
+                    generationID: generationID,
+                    question: localQuestion,
+                    session: localSession,
+                    requestStart: requestStart,
+                    retrievedChunks: self.currentSuggestionRetrievedChunks,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker,
+                    caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
+                    stageATimedOut: true,
+                    fallback: false
+                )
+                return
+            }
             
             // If soft fallback was already shown, preserve it but mark timeout/failure.
             // If not, show hard fallback now.

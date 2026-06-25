@@ -469,7 +469,7 @@ struct StreamingSoftFallbackTests {
     
     @MainActor
     @Test
-    func testSoftFallbackTriggersWhenSlowAndReplacesStream() async throws {
+    func softFallbackKeepsCompletedStageBCardWhenLateStageAWouldReplace() async throws {
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
@@ -549,9 +549,7 @@ struct StreamingSoftFallbackTests {
         
         try await waitUntil(timeout: 12.0) {
             appState.currentSuggestion?.stageBCompleted == true &&
-            appState.currentSuggestion?.keyPoints.contains("ROS2, YOLOv8, navigation and localisation") == true &&
-            appState.currentSuggestion?.sayFirstSource == "deepseek_stream" &&
-            appState.currentSuggestion?.finalVisibleSource == "deepseek_stream"
+            appState.currentSuggestion?.keyPoints.contains("ROS2, YOLOv8, navigation and localisation") == true
         }
         
         // Assertions
@@ -561,9 +559,9 @@ struct StreamingSoftFallbackTests {
         
         let finalCard = appState.currentSuggestion!
         #expect(finalCard.softFallbackUsed == true)
-        #expect(finalCard.sayFirstSource == "deepseek_stream") // Replaced because the late stream is still inside the conservative window and answer is specific.
-        #expect(finalCard.finalVisibleSource == "deepseek_stream")
         #expect(finalCard.stageBCompleted == true)
+        #expect(finalCard.stageBStatus == "completed")
+        #expect(finalCard.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
         #expect(finalCard.keyPoints.contains("ROS2, YOLOv8, navigation and localisation"))
     }
     

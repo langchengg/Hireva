@@ -17,7 +17,26 @@ extension AppState {
         guard systemAudioCanUseQuestionIntent(segment) else {
             return nil
         }
-        return transcriptReconciler.segmentForQuestionExtraction(segment)
+        if segment.asrFinalizationReason == "partial" {
+            return segment
+        }
+        let reconciled = transcriptReconciler.segmentForQuestionExtraction(segment)
+        if let reconciled {
+            return reconciled
+        }
+
+        // Apple Speech emits cumulative partials and then a final callback with
+        // the same utterance id. If the final text matches the last partial,
+        // reconciliation can report "no novel suffix" even though no accepted
+        // question has been generated yet. Final ASR is the source of truth for
+        // generation, so fall back to the complete final utterance when it
+        // contains an accepted question candidate.
+        let isFinal = segment.asrFinalizationReason != "partial"
+        guard isFinal,
+              !QuestionCandidatePipeline.extract(from: segment.text, isFinal: true).isEmpty else {
+            return nil
+        }
+        return segment
     }
 
     // internal for AppState extension access only
@@ -379,9 +398,10 @@ extension AppState {
         }
 
         let startedAt = Date()
+        let duplicateComparisonText = segment.asrFinalizationReason == "partial" ? previousSegment?.text : nil
         let classification = SystemAudioUtteranceClassifier.classify(
             text: segment.text,
-            previousText: previousSegment?.text
+            previousText: duplicateComparisonText
         )
         lastQuestionClassificationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         return classification
@@ -454,7 +474,15 @@ extension AppState {
         lastDetectionAt = now
         let detectionTranscript = detectionTranscriptText(for: triggeringSegment)
         let suggestionTranscript = recentTranscriptText()
-        guard !detectionTranscript.isEmpty, let session = currentSession else {
+        guard !detectionTranscript.isEmpty else {
+            recordAnswerRequestSkipped(reason: "empty_question", sessionID: triggeringSegment.sessionID, text: triggeringSegment.text)
+            lastQuestionDetectionResult = "Generation skipped: empty transcript."
+            liveState = .listening
+            return
+        }
+        guard let session = currentSession else {
+            recordAnswerRequestSkipped(reason: "current_session_not_bound", sessionID: triggeringSegment.sessionID, text: triggeringSegment.text)
+            lastQuestionDetectionResult = "Generation skipped: current session is not bound for the finalized transcript."
             liveState = .listening
             return
         }
@@ -487,7 +515,7 @@ extension AppState {
         triggeringSegmentID: String?
     ) async {
         do {
-            print("[AppState] Automatic question detection running on transcript context: \"\(detectionTranscript)\" | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
+            print("[AppState] Automatic question detection running | transcriptLength = \(detectionTranscript.count) | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
             liveState = .detectingQuestion
 
             // Set input segment submitted to question detection
@@ -728,6 +756,12 @@ extension AppState {
             question,
             triggeringSegmentID: question.transcriptSegmentID
         ) else {
+            recordAnswerRequestSkipped(
+                reason: lastDetectionSkipReason.isEmpty ? "question_not_accepted" : lastDetectionSkipReason,
+                sessionID: session.id,
+                questionID: question.id,
+                text: question.questionText
+            )
             return
         }
         pendingAcceptedQuestions.removeAll()
@@ -863,6 +897,13 @@ extension AppState {
             question: question.questionText,
             timestamp: Date()
         ))
+        recordAnswerRequestSkipped(
+            reason: "request_inflight",
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: activeGenerationID,
+            text: question.questionText
+        )
         lastTranscriptQuestionGenerationTrace.generationTriggered = false
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
         if drainImmediately {

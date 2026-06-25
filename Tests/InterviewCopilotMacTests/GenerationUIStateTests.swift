@@ -574,6 +574,96 @@ struct GenerationUIStateTests {
     }
 
     @Test
+    func stageBSemanticFallbackReplacesRejectedCurrentProviderCard() async throws {
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let question = try makeQuestion(
+            sessionID: session.id,
+            text: "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?",
+            suffix: "stage-b-semantic-fallback"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        let generationID = "generation-stage-b-semantic-fallback"
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = question
+
+        var currentProviderCard = SuggestionCard(
+            id: "current-provider-card",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek",
+            sayFirst: "A clean simulation keeps timing, calibration, and module integration controlled, while detections can be noisy and recovery is needed.",
+            keyPoints: ["Simulation is controlled.", "Noise and calibration matter.", "Recovery behaviour is needed."],
+            followUpReady: [],
+            confidence: 0.8,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        currentProviderCard.questionText = question.questionText
+        currentProviderCard.promptPrimaryQuestion = question.questionText
+        currentProviderCard.generationID = generationID
+        currentProviderCard.sayFirstSource = "deepseek_stream"
+        currentProviderCard.finalVisibleSource = "deepseek_stream"
+        currentProviderCard.stageBCompleted = true
+        currentProviderCard.stageBStatus = "completed"
+        appState.currentSuggestion = currentProviderCard
+
+        let plan = StageBApplicationPlan(
+            generationID: generationID,
+            detectedQuestionID: question.id,
+            action: .useSemanticFallback,
+            fallbackReason: "semantic mismatch",
+            shouldPersist: true,
+            shouldUpdateVisibleCard: true,
+            safeDiagnostics: [:],
+            identity: GenerationIdentity(question: question, generationID: generationID)
+        )
+        let sections = StreamingSuggestionSections(
+            strategy: "DeepSeek",
+            sayFirst: currentProviderCard.sayFirst,
+            keyPoints: currentProviderCard.keyPoints,
+            followUpReady: [],
+            caution: ""
+        )
+
+        try await appState.applyStageBApplicationPlan(
+            plan,
+            sections: sections,
+            cardID: "semantic-stage-b-card",
+            generationID: generationID,
+            question: question,
+            session: session,
+            requestStart: Date(),
+            stageBStreamStartedMS: nil,
+            retrievedChunks: [],
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            preserveFallbackSayFirst: false
+        )
+
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.id == "semantic-stage-b-card")
+        #expect(visible.stageBStatus == "semantic_fallback")
+        #expect(visible.sayFirstSource == "local_semantic_stage_b_fallback")
+        #expect(visible.finalVisibleSource == "local_semantic_stage_b_fallback")
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("real-world") || visible.sayFirst.localizedCaseInsensitiveContains("real world"))
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("clean simulation"))
+        #expect(visible.sayFirst != currentProviderCard.sayFirst)
+    }
+
+    @Test
     func lateFirstProviderCardCannotOverwriteSecondCurrentCard() throws {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let traceURL = FileManager.default.temporaryDirectory
@@ -975,6 +1065,33 @@ struct GenerationUIStateTests {
         #expect(visible.promptPrimaryQuestion == thirdQuestion.questionText)
         #expect(visible.generationID == generationID)
         #expect(visible.sayFirst.localizedCaseInsensitiveContains("trade-off"))
+    }
+
+    @Test
+    func terminalGenerationIgnoresLateStreamingStateUpdate() throws {
+        let (appState, _, question, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let generationID = "terminal-late-streaming-update"
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+
+        appState.setGenerationUIState(
+            .answerReady(questionID: question.id, generationID: generationID, triggerPath: .autoDetect),
+            generationID: generationID
+        )
+        appState.setGenerationUIState(
+            .streamingAnswer(questionID: question.id, generationID: generationID, triggerPath: .autoDetect),
+            generationID: generationID
+        )
+
+        #expect(appState.generationUIState.displayName == "Answer ready")
+        #expect(appState.terminalGenerationIDs.contains(generationID))
+        #expect(appState.currentGenerationTelemetry.questionID == question.id)
     }
 
     @Test

@@ -167,6 +167,29 @@ extension AppState {
     }
 
     // internal for AppState extension access only
+    func recordAnswerRequestSkipped(
+        reason: String,
+        blockedReasonCode: String? = nil,
+        sessionID: String? = nil,
+        questionID: String? = nil,
+        generationID: String? = nil,
+        text: String = ""
+    ) {
+        recordLifecycleTrace(
+            "answer.request.skipped",
+            sessionID: sessionID,
+            questionID: questionID,
+            generationID: generationID,
+            text: text,
+            reason: reason,
+            skipped: true
+        )
+        lastDetectionSkipReason = reason
+        lastTranscriptQuestionGenerationTrace.generationTriggered = false
+        lastTranscriptQuestionGenerationTrace.generationBlockedReason = blockedReasonCode ?? reason
+    }
+
+    // internal for AppState extension access only
     func resetRuntimeTranscriptState(clearEvents: Bool) {
         partialUtteranceFinalizationTasks.values.forEach { $0.cancel() }
         partialUtteranceFinalizationTasks.removeAll()

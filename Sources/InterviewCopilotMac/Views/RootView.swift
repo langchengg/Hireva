@@ -50,6 +50,9 @@ struct RootView: View {
         } message: {
             Text(appState.errorMessage ?? "")
         }
+        .onAppear {
+            appState.runLaunchLiveSystemAudioDiagnosticIfRequested()
+        }
     }
 
     @ViewBuilder

@@ -227,6 +227,104 @@ func replaceIncompleteVisibleAnswerWithFallbackIfNeeded(
     return true
 }
 
+// internal for AppState extension access only
+@discardableResult
+func preserveVisibleFirstAnswerWhileStageBContinues(
+    _ card: SuggestionCard,
+    generationID: String,
+    question: DetectedQuestion,
+    session: InterviewSession,
+    requestStart: Date,
+    retrievedChunks: [RetrievedChunk],
+    triggerPath: GenerationTriggerPath,
+    source: AudioSourceType?,
+    speaker: SpeakerRole?,
+    caution: String,
+    stageATimedOut: Bool,
+    fallback: Bool
+) -> Bool {
+    guard isActiveGeneration(generationID, questionID: question.id) else {
+        recordStaleGenerationDiscard()
+        return false
+    }
+
+    if replaceIncompleteVisibleAnswerWithFallbackIfNeeded(
+        card: card,
+        question: question,
+        session: session,
+        generationID: generationID,
+        requestStart: requestStart,
+        triggerPath: triggerPath,
+        source: source,
+        speaker: speaker,
+        reason: caution
+    ) {
+        guard var fallbackCard = currentSuggestion else { return false }
+        fallbackCard.stageATimedOut = stageATimedOut
+        fallbackCard.stageBCompleted = false
+        fallbackCard.stageBStatus = "expanding"
+        fallbackCard.caution = caution
+        currentSuggestion = fallbackCard
+        currentSuggestionRetrievedChunks = retrievedChunks
+        persistSuggestionInBackground(
+            fallbackCard,
+            chunks: retrievedChunks,
+            generationID: generationID,
+            requestStart: requestStart
+        )
+        setGenerationUIState(
+            .showingFallback(questionID: question.id, generationID: generationID, triggerPath: triggerPath),
+            generationID: generationID
+        )
+        return true
+    }
+
+    var visibleCard = card
+    visibleCard.stageATimedOut = stageATimedOut
+    visibleCard.stageBCompleted = false
+    visibleCard.stageBStatus = "expanding"
+    visibleCard.caution = visibleCard.caution ?? caution
+    visibleCard.latencyFirstTokenMS = visibleCard.latencyFirstTokenMS ?? deepseekFirstTokenMS
+    visibleCard.latencyFirstVisibleMS = visibleCard.latencyFirstVisibleMS ?? deepseekFirstVisibleMS
+    visibleCard.deepseekFirstTokenMS = visibleCard.deepseekFirstTokenMS ?? deepseekFirstTokenMS
+    visibleCard.deepseekFirstVisibleMS = visibleCard.deepseekFirstVisibleMS ?? deepseekFirstVisibleMS
+    visibleCard.firstVisibleAnswerMS = visibleCard.firstVisibleAnswerMS ?? deepseekFirstVisibleMS ?? elapsedMS(since: requestStart)
+    if visibleCard.keyPoints.isEmpty {
+        visibleCard.keyPoints = AnswerRelevancePolicy.fallbackAnswer(for: question).keyPoints
+    }
+    if !visibleCard.keyPoints.isEmpty {
+        visibleCard.firstKeyPointVisibleMS = visibleCard.firstKeyPointVisibleMS ?? visibleCard.firstVisibleAnswerMS
+    }
+
+    guard displaySuggestionIfAligned(
+        visibleCard,
+        question: question,
+        generationID: generationID,
+        triggerPath: triggerPath,
+        source: source,
+        speaker: speaker
+    ) else { return false }
+
+    currentSuggestionSetAt = currentSuggestionSetAt ?? Date()
+    currentSuggestionRetrievedChunks = retrievedChunks
+    isStreamingSayFirst = false
+    isExpandingSuggestionCard = true
+    markFirstVisibleAnswer(generationID: generationID, fallback: fallback)
+    persistSuggestionInBackground(
+        visibleCard,
+        chunks: retrievedChunks,
+        generationID: generationID,
+        requestStart: requestStart
+    )
+    setGenerationUIState(
+        fallback
+            ? .showingFallback(questionID: question.id, generationID: generationID, triggerPath: triggerPath)
+            : .expandingFullAnswer(questionID: question.id, generationID: generationID, triggerPath: triggerPath),
+        generationID: generationID
+    )
+    return true
+}
+
 private func runManualAnswer(session: InterviewSession, transcript: String) async {
     do {
         liveState = .detectingQuestion
@@ -369,7 +467,7 @@ func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) as
         return updated
     }
     
-    print("[QualityValidator] Card fields are invalid. Triggering background provider rewrite. Original say_first: \(card.sayFirst)")
+    print("[QualityValidator] Card fields are invalid. Triggering background provider rewrite. Original say_first length: \(card.sayFirst.count)")
     
     Task { [weak self] in
         guard let self = self else { return }
@@ -393,7 +491,7 @@ func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) as
             current.sayFirst = rewritten
             self.currentSuggestion = current
             self.saveSuggestionSnapshotInBackground(current, chunks: self.currentSuggestionRetrievedChunks)
-            print("[QualityValidator] Background provider rewrite complete! Rewritten say_first: \(rewritten)")
+            print("[QualityValidator] Background provider rewrite complete. Rewritten say_first length: \(rewritten.count)")
         }
     }
     
@@ -1018,7 +1116,8 @@ func displaySuggestionIfAligned(
         recordAlignmentMismatch("Generated answer did not align with question; using fallback. \(alignment.reason)")
         if let existing = currentSuggestion,
            existing.detectedQuestionID == question.id,
-           !existing.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           !existing.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(existing).accepted {
             return false
         }
 
@@ -1230,6 +1329,26 @@ func clearStageATask(generationID: String) {
 }
 
 // internal for AppState extension access only
+func registerStageATimeoutTask(_ task: Task<Void, Never>, generationID: String) {
+    guard isActiveGeneration(generationID) else {
+        task.cancel()
+        recordStaleGenerationDiscard()
+        return
+    }
+    activeGenerationController?.stageATimeoutTask?.cancel()
+    activeGenerationController?.stageATimeoutTask = task
+    updateActiveTaskSummary()
+}
+
+// internal for AppState extension access only
+func clearStageATimeoutTask(generationID: String) {
+    guard isActiveGeneration(generationID) else { return }
+    activeGenerationController?.stageATimeoutTask?.cancel()
+    activeGenerationController?.stageATimeoutTask = nil
+    updateActiveTaskSummary()
+}
+
+// internal for AppState extension access only
 func registerStageBTask(_ task: Task<Void, Never>, generationID: String) {
     guard isActiveGeneration(generationID) else {
         task.cancel()
@@ -1254,7 +1373,8 @@ func clearStageBTask(generationID: String) {
     updateActiveTaskSummary()
 }
 
-private func cancelActiveStageBTask(generationID: String) {
+// internal for AppState extension access only
+func cancelActiveStageBTask(generationID: String) {
     guard isActiveGeneration(generationID) else { return }
     activeGenerationController?.stageBTask?.cancel()
     activeGenerationController?.stageBTask = nil
@@ -1349,6 +1469,12 @@ func setGenerationUIState(_ state: GenerationUIState, generationID: String? = ni
         recordStaleGenerationDiscard()
         return
     }
+    if let generationID,
+       terminalGenerationIDs.contains(generationID),
+       !state.isTerminal {
+        recordStaleGenerationDiscard()
+        return
+    }
     generationUIState = state
     if state.isTerminal, let terminalGenerationID = state.generationID ?? generationID {
         terminalGenerationIDs.insert(terminalGenerationID)
@@ -1430,6 +1556,7 @@ func markFullCardVisible(generationID: String) {
         return
     }
     guard !terminalGenerationIDs.contains(generationID) else {
+        clearStageATimeoutTask(generationID: generationID)
         clearFullCardWatchdogTask(generationID: generationID)
         clearStageBTask(generationID: generationID)
         return
@@ -1437,6 +1564,8 @@ func markFullCardVisible(generationID: String) {
     currentGenerationTelemetry.fullCardAt = Date()
     providerStreamActive = false
     fallbackWatchdogActive = false
+    clearStageATask(generationID: generationID)
+    clearStageATimeoutTask(generationID: generationID)
     clearFullCardWatchdogTask(generationID: generationID)
     clearStageBTask(generationID: generationID)
     setGenerationUIState(.answerReady(
@@ -1505,6 +1634,7 @@ func markGenerationFailed(
     currentGenerationTelemetry.generationState = generationUIState.displayName
     if let generationID {
         clearFallbackWatchdogTask(generationID: generationID)
+        clearStageATimeoutTask(generationID: generationID)
         clearFullCardWatchdogTask(generationID: generationID)
         clearStageATask(generationID: generationID)
         clearStageBTask(generationID: generationID)
@@ -1722,34 +1852,21 @@ func startFullCardWatchdog(
                     triggerPath: triggerPath,
                     reason: "full-card watchdog timeout"
                 ) {
-                    if let fallback = self.currentSuggestion {
-                        self.persistSuggestionInBackground(
+                    if var fallback = self.currentSuggestion {
+                        fallback.stageBCompleted = false
+                        fallback.stageBStatus = "timed_out"
+                        _ = self.finishGenerationWithVisibleCard(
                             fallback,
-                            chunks: self.currentSuggestionRetrievedChunks,
                             generationID: generationID,
-                            requestStart: requestStart
+                            question: question,
+                            session: session,
+                            requestStart: requestStart,
+                            retrievedChunks: self.currentSuggestionRetrievedChunks,
+                            triggerPath: triggerPath,
+                            timedOut: true
                         )
                     }
-                    self.isStreamingSayFirst = false
-                    self.isExpandingSuggestionCard = false
-                    self.suggestionGenerationStarted = false
-                    self.cancelActiveStageBTask(generationID: generationID)
                     self.currentGenerationTelemetry.failureReason = "Full answer timed out after \(elapsed) ms."
-                    self.setGenerationUIState(.timeout(
-                        questionID: question.id,
-                        generationID: generationID,
-                        triggerPath: triggerPath,
-                        reason: "Full answer timed out after \(elapsed) ms."
-                    ), generationID: generationID)
-                    self.recordTranscriptRuntimeEvent(.generationTimedOut(
-                        sessionID: session.id,
-                        questionID: question.id,
-                        generationID: generationID,
-                        question: question.questionText,
-                        timestamp: Date()
-                    ))
-                    self.restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "generationFullCardTimeout")
-                    self.processNextQueuedAutoQuestionIfIdle()
                     self.warnAction(ActionID.generateAnswer, title: "Local answer shown", message: "DeepSeek returned an incomplete answer. The fallback answer is visible.")
                     return
                 }
@@ -1757,32 +1874,75 @@ func startFullCardWatchdog(
                 current.stageBStatus = "timed_out"
                 current.caution = current.caution ?? "Full answer is delayed. The first answer is still safe to use."
                 self.currentSuggestion = current
-                self.persistSuggestionInBackground(
+                self.currentGenerationTelemetry.failureReason = "Full answer timed out after \(elapsed) ms."
+                _ = self.finishGenerationWithVisibleCard(
                     current,
-                    chunks: self.currentSuggestionRetrievedChunks,
                     generationID: generationID,
+                    question: question,
+                    session: session,
+                    requestStart: requestStart,
+                    retrievedChunks: self.currentSuggestionRetrievedChunks,
+                    triggerPath: triggerPath,
+                    timedOut: true
+                )
+                self.warnAction(ActionID.generateAnswer, title: "First answer visible", message: "Full answer is delayed. You can retry, but the visible answer remains available.")
+                return
+            }
+
+            let streamed = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !streamed.isEmpty {
+                var streamCard = self.makeInitialFirstAnswerFallbackCard(
+                    cardID: cardID,
+                    question: question,
+                    session: session,
                     requestStart: requestStart
                 )
-                self.isStreamingSayFirst = false
-                self.isExpandingSuggestionCard = false
-                self.suggestionGenerationStarted = false
-                self.cancelActiveStageBTask(generationID: generationID)
-                self.currentGenerationTelemetry.failureReason = "Full answer timed out after \(elapsed) ms."
-                self.setGenerationUIState(.timeout(
-                    questionID: question.id,
+                streamCard.strategy = "DeepSeek First Answer"
+                streamCard.sayFirst = streamed
+                streamCard.caution = "DeepSeek first-answer stream did not finish; the visible answer was saved."
+                streamCard.modelName = self.activeRealtimeProvider?.model ?? streamCard.modelName
+                streamCard.providerKind = self.activeRealtimeProvider?.kind
+                streamCard.providerName = self.activeRealtimeProvider?.name ?? "DeepSeek"
+                streamCard.providerBaseURL = self.activeRealtimeProvider?.baseURL ?? "https://api.deepseek.com"
+                streamCard.latencyMS = elapsed
+                streamCard.isLocal = false
+                streamCard.questionText = question.questionText
+                streamCard.transcriptSegmentID = question.transcriptSegmentID
+                streamCard.generationID = generationID
+                streamCard.source = self.currentGenerationTelemetry.source
+                streamCard.speaker = self.currentGenerationTelemetry.speaker
+                streamCard.triggerPath = triggerPath
+                streamCard.sayFirstSource = "deepseek_stream_timeout"
+                streamCard.stageATimedOut = true
+                streamCard.stageBCompleted = false
+                streamCard.stageBStatus = "timed_out"
+                streamCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
+                streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
+                streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
+                streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
+                streamCard.finalVisibleSource = "deepseek_stream_timeout"
+                streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? elapsed
+                if streamCard.keyPoints.isEmpty {
+                    streamCard.keyPoints = AnswerRelevancePolicy.fallbackAnswer(for: question).keyPoints
+                }
+                if !streamCard.keyPoints.isEmpty {
+                    streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS
+                    streamCard.allKeyPointsVisibleMS = streamCard.firstVisibleAnswerMS
+                }
+                if !streamCard.followUpReady.isEmpty {
+                    streamCard.followUpVisibleMS = streamCard.firstVisibleAnswerMS
+                }
+                _ = self.finishGenerationWithVisibleCard(
+                    streamCard,
                     generationID: generationID,
+                    question: question,
+                    session: session,
+                    requestStart: requestStart,
+                    retrievedChunks: self.currentSuggestionRetrievedChunks,
                     triggerPath: triggerPath,
-                    reason: "Full answer timed out after \(elapsed) ms."
-                ), generationID: generationID)
-                self.recordTranscriptRuntimeEvent(.generationTimedOut(
-                    sessionID: session.id,
-                    questionID: question.id,
-                    generationID: generationID,
-                    question: question.questionText,
-                    timestamp: Date()
-                ))
-                self.restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "generationFullCardTimeout")
-                self.processNextQueuedAutoQuestionIfIdle()
+                    timedOut: true
+                )
+                self.currentGenerationTelemetry.failureReason = "Full answer timed out after \(elapsed) ms."
                 self.warnAction(ActionID.generateAnswer, title: "First answer visible", message: "Full answer is delayed. You can retry, but the visible answer remains available.")
                 return
             }
@@ -1935,6 +2095,10 @@ func publishStreamingSections(
         recordStaleGenerationDiscard()
         return
     }
+    guard !terminalGenerationIDs.contains(generationID),
+          !generationUIState.isTerminal else {
+        return
+    }
     let currentForUpdate: SuggestionCard?
     if let currentSuggestion {
         if visibleCardMatchesGeneration(
@@ -1990,8 +2154,9 @@ func publishStreamingSections(
     }
 }
 
+// internal for AppState extension access only
 @discardableResult
-private func finishGenerationWithVisibleCard(
+func finishGenerationWithVisibleCard(
     _ card: SuggestionCard,
     generationID: String,
     question: DetectedQuestion,
@@ -2015,19 +2180,72 @@ private func finishGenerationWithVisibleCard(
         return false
     }
 
-    currentSuggestion = card
-    recordVisibleSuggestionInHistory(card)
+    var finalCard = card
+    if timedOut,
+       let incompleteReason = QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(card.sayFirst) {
+        recordTranscriptRuntimeEvent(.partialAnswerRejectedIncomplete(
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: generationID,
+            question: question.questionText,
+            reason: "timed-out visible card: \(incompleteReason)",
+            timestamp: Date()
+        ))
+        var fallback = makeInitialFirstAnswerFallbackCard(
+            cardID: card.id,
+            question: question,
+            session: session,
+            requestStart: requestStart
+        )
+        fallback.questionText = question.questionText
+        fallback.transcriptSegmentID = question.transcriptSegmentID
+        fallback.generationID = generationID
+        fallback.source = card.source ?? currentGenerationTelemetry.source
+        fallback.speaker = card.speaker ?? currentGenerationTelemetry.speaker
+        fallback.triggerPath = card.triggerPath ?? triggerPath
+        fallback.promptQuestionText = card.promptQuestionText ?? question.questionText
+        fallback.promptPrimaryQuestion = card.promptPrimaryQuestion ?? question.questionText
+        fallback.promptContainsPreviousQuestion = card.promptContainsPreviousQuestion
+        fallback.previousQuestionIncluded = card.previousQuestionIncluded
+        fallback.previousQuestionText = card.previousQuestionText
+        fallback.contextBleedRisk = card.contextBleedRisk
+        fallback.ragChunkIDs = card.ragChunkIDs
+        fallback.ragChunkIntents = card.ragChunkIntents
+        fallback.promptTokenEstimate = card.promptTokenEstimate
+        fallback.promptContextPreview = card.promptContextPreview
+        fallback.stageATimedOut = card.stageATimedOut ?? false
+        fallback.stageBCompleted = false
+        fallback.stageBStatus = "timed_out"
+        fallback.caution = "Provider answer was incomplete after timeout, so a local first answer was saved."
+        fallback.sayFirstSource = "local_timeout_fallback"
+        fallback.finalVisibleSource = "local_timeout_fallback"
+        fallback.latencyFirstTokenMS = card.latencyFirstTokenMS
+        fallback.latencyFirstVisibleMS = card.latencyFirstVisibleMS
+        fallback.firstVisibleAnswerMS = card.firstVisibleAnswerMS ?? elapsedMS(since: requestStart)
+        if !fallback.keyPoints.isEmpty {
+            fallback.firstKeyPointVisibleMS = fallback.firstVisibleAnswerMS
+            fallback.allKeyPointsVisibleMS = fallback.firstVisibleAnswerMS
+        }
+        if !fallback.followUpReady.isEmpty {
+            fallback.followUpVisibleMS = fallback.firstVisibleAnswerMS
+        }
+        finalCard = fallback
+    }
+
+    currentSuggestion = finalCard
+    recordVisibleSuggestionInHistory(finalCard)
     currentSuggestionRetrievedChunks = retrievedChunks
     isStreamingSayFirst = false
     isExpandingSuggestionCard = false
     suggestionGenerationStarted = false
     providerStreamActive = false
     fallbackWatchdogActive = false
+    clearStageATimeoutTask(generationID: generationID)
     clearFullCardWatchdogTask(generationID: generationID)
     clearStageBTask(generationID: generationID)
 
     persistSuggestionInBackground(
-        card,
+        finalCard,
         chunks: retrievedChunks,
         generationID: generationID,
         requestStart: requestStart
@@ -2048,6 +2266,14 @@ private func finishGenerationWithVisibleCard(
             question: question.questionText,
             timestamp: Date()
         ))
+        recordLifecycleTrace(
+            "answer.stream.completed",
+            sessionID: session.id,
+            questionID: question.id,
+            generationID: generationID,
+            text: question.questionText,
+            reason: "visible_answer_ready_after_timeout"
+        )
     } else {
         recordTranscriptRuntimeEvent(.generationCompleted(
             sessionID: session.id,
@@ -2182,7 +2408,8 @@ private func applyTerminalStageBPlanIfNeeded(
                 promptPrimaryQuestion: question.questionText
            ),
            !current.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(current.sayFirst) == nil {
+           QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(current.sayFirst) == nil,
+           QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(current).accepted {
             let terminal = stageBStatus(for: plan)
             current.stageBCompleted = false
             current.stageBStatus = terminal.status
@@ -2395,19 +2622,16 @@ func applyStageBApplicationPlan(
            ),
            QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(fallback).accepted {
             currentSuggestionRetrievedChunks = retrievedChunks
-            isExpandingSuggestionCard = false
-            suggestionGenerationStarted = false
-            persistSuggestionInBackground(
+            _ = finishGenerationWithVisibleCard(
                 fallback,
-                chunks: retrievedChunks,
                 generationID: generationID,
-                requestStart: requestStart
+                question: question,
+                session: session,
+                requestStart: requestStart,
+                retrievedChunks: retrievedChunks,
+                triggerPath: triggerPath,
+                timedOut: false
             )
-            markFullCardVisible(generationID: generationID)
-            completeAction(ActionID.generateAnswer, title: "Answer ready", message: "First answer and key points are visible.")
-            restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "stageBCompletedWithFallback")
-            refreshLatencyAverages()
-            processNextQueuedAutoQuestionIfIdle()
         }
         return
     }
@@ -2481,6 +2705,22 @@ func persistSuggestionInBackground(
     }
     let persistenceGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card)
     guard persistenceGuard.accepted else {
+        if let fallback = localTimeoutFallbackForRejectedPersistence(
+            card: card,
+            result: persistenceGuard,
+            generationID: generationID,
+            requestStart: requestStart
+        ) {
+            currentSuggestion = fallback
+            recordVisibleSuggestionInHistory(fallback)
+            persistSuggestionInBackground(
+                fallback,
+                chunks: chunks,
+                generationID: generationID,
+                requestStart: requestStart
+            )
+            return
+        }
         recordSuggestionPersistenceRejected(persistenceGuard, generationID: generationID)
         return
     }
@@ -2620,6 +2860,144 @@ func persistSuggestionInBackground(
             }
         }
     }
+}
+
+private func localTimeoutFallbackForRejectedPersistence(
+    card: SuggestionCard,
+    result: QuestionPersistenceGuardResult,
+    generationID: String,
+    requestStart: Date
+) -> SuggestionCard? {
+    guard card.finalVisibleSource != "local_timeout_fallback" else { return nil }
+    switch result.reason {
+    case .some(.emptyAnswer), .some(.incompleteAnswer), .some(.partialCard),
+         .some(.weakAlignment), .some(.unknownAlignment), .some(.mismatchedAlignment),
+         .some(.interviewerQuestionsIncomplete), .some(.unrelatedTechnicalTradeoff):
+        break
+    default:
+        return nil
+    }
+
+    guard let question = lastDetectedQuestion,
+          question.id == (card.detectedQuestionID ?? card.questionID),
+          let session = currentSession,
+          session.id == card.sessionID,
+          isActiveGeneration(generationID, questionID: question.id)
+    else {
+        return nil
+    }
+
+    func isLocalFallbackCarrier(_ candidate: SuggestionCard) -> Bool {
+        let visibleSource = candidate.finalVisibleSource ?? ""
+        let sayFirstSource = candidate.sayFirstSource ?? ""
+        return candidate.stageBStatus == "timed_out" ||
+            candidate.stageATimedOut == true ||
+            candidate.isLocal ||
+            visibleSource.contains("timeout") ||
+            visibleSource == "local_incomplete_stream_fallback" ||
+            visibleSource == "semantic_intent_fallback" ||
+            visibleSource == "local_semantic_stage_b_fallback" ||
+            sayFirstSource == "local_first_answer_fallback" ||
+            sayFirstSource == "local_incomplete_stream_fallback" ||
+            sayFirstSource == "semantic_intent_fallback" ||
+            sayFirstSource == "local_semantic_stage_b_fallback" ||
+            candidate.providerName == "Local First Answer Fallback" ||
+            candidate.providerName == "Semantic Alignment Fallback"
+    }
+
+    func matchesCurrentQuestion(_ candidate: SuggestionCard) -> Bool {
+        guard candidate.sessionID == session.id else { return false }
+        if let candidateGenerationID = candidate.generationID,
+           candidateGenerationID != generationID {
+            return false
+        }
+        if let candidateQuestionID = candidate.detectedQuestionID ?? candidate.questionID,
+           candidateQuestionID != question.id {
+            return false
+        }
+        let expected = normalizedBindingText(question.questionText)
+        guard !expected.isEmpty else { return false }
+        for snapshot in [candidate.questionText, candidate.promptQuestionText, candidate.promptPrimaryQuestion] {
+            guard let snapshot else { continue }
+            let normalized = normalizedBindingText(snapshot)
+            guard normalized.isEmpty || normalized == expected else {
+                return false
+            }
+        }
+        return true
+    }
+
+    let visibleFallback = currentSuggestion.flatMap { visible -> SuggestionCard? in
+        guard visible.finalVisibleSource != "local_timeout_fallback",
+              isLocalFallbackCarrier(visible),
+              matchesCurrentQuestion(visible)
+        else { return nil }
+        return visible
+    }
+    let sourceCard: SuggestionCard
+    if let visibleFallback {
+        sourceCard = visibleFallback
+    } else if isLocalFallbackCarrier(card) {
+        sourceCard = card
+    } else {
+        return nil
+    }
+
+    recordTranscriptRuntimeEvent(.partialAnswerRejectedIncomplete(
+        sessionID: session.id,
+        questionID: question.id,
+        generationID: generationID,
+        question: question.questionText,
+        reason: "persistence fallback: \(result.diagnostic)",
+        timestamp: Date()
+    ))
+
+    var fallback = makeInitialFirstAnswerFallbackCard(
+        cardID: sourceCard.id,
+        question: question,
+        session: session,
+        requestStart: requestStart
+    )
+    fallback.createdAt = sourceCard.createdAt
+    fallback.questionText = question.questionText
+    fallback.transcriptSegmentID = question.transcriptSegmentID
+    fallback.generationID = generationID
+    fallback.source = sourceCard.source ?? currentGenerationTelemetry.source
+    fallback.speaker = sourceCard.speaker ?? currentGenerationTelemetry.speaker
+    fallback.triggerPath = sourceCard.triggerPath ?? activeGenerationController?.triggerPath
+    fallback.promptQuestionText = sourceCard.promptQuestionText ?? question.questionText
+    fallback.promptPrimaryQuestion = sourceCard.promptPrimaryQuestion ?? question.questionText
+    fallback.promptContainsPreviousQuestion = sourceCard.promptContainsPreviousQuestion
+    fallback.previousQuestionIncluded = sourceCard.previousQuestionIncluded
+    fallback.previousQuestionText = sourceCard.previousQuestionText
+    fallback.contextBleedRisk = sourceCard.contextBleedRisk
+    fallback.ragChunkIDs = sourceCard.ragChunkIDs
+    fallback.ragChunkIntents = sourceCard.ragChunkIntents
+    fallback.promptTokenEstimate = sourceCard.promptTokenEstimate
+    fallback.promptContextPreview = sourceCard.promptContextPreview
+    fallback.stageATimedOut = sourceCard.stageATimedOut ?? true
+    fallback.stageBCompleted = false
+    fallback.stageBStatus = "timed_out"
+    fallback.caution = "Provider answer was incomplete after timeout, so a local first answer was saved."
+    fallback.sayFirstSource = "local_timeout_fallback"
+    fallback.finalVisibleSource = "local_timeout_fallback"
+    fallback.latencyMS = sourceCard.latencyMS
+    fallback.latencyFirstTokenMS = sourceCard.latencyFirstTokenMS
+    fallback.latencyFirstVisibleMS = sourceCard.latencyFirstVisibleMS
+    fallback.firstVisibleAnswerMS = sourceCard.firstVisibleAnswerMS ?? elapsedMS(since: requestStart)
+    if !fallback.keyPoints.isEmpty {
+        fallback.firstKeyPointVisibleMS = fallback.firstVisibleAnswerMS
+        fallback.allKeyPointsVisibleMS = fallback.firstVisibleAnswerMS
+    }
+    if !fallback.followUpReady.isEmpty {
+        fallback.followUpVisibleMS = fallback.firstVisibleAnswerMS
+    }
+    fallback.deepseekFirstTokenMS = sourceCard.deepseekFirstTokenMS
+    fallback.deepseekFirstVisibleMS = sourceCard.deepseekFirstVisibleMS
+    fallback.softFallbackUsed = true
+    fallback.softFallbackLatencyMS = sourceCard.softFallbackLatencyMS
+    fallback.dbPersistedMS = sourceCard.dbPersistedMS
+    return fallback
 }
 
 // internal for AppState extension access only

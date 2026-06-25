@@ -142,6 +142,42 @@ extension AppState {
         keychainDeepSeekKeyExists && providerConfigurations.contains { $0.kind == .deepSeek }
     }
 
+    var deepSeekProviderConfigured: Bool {
+        providerConfigurations.contains { $0.kind == .deepSeek }
+    }
+
+    var deepSeekCredentialSource: String {
+        guard providerConfigurations.contains(where: { $0.kind == .deepSeek && ($0.apiKeyAccount?.isEmpty == false) }) else {
+            return "None"
+        }
+        return "Keychain"
+    }
+
+    var settingsConfigSource: String {
+        "DB: llm_provider_configurations"
+    }
+
+    var generationConfigSource: String {
+        "DB: active_realtime_provider_id + llm_provider_configurations"
+    }
+
+    var lastProviderConfigError: String {
+        guard let provider = providerConfigurations.first(where: { $0.kind == .deepSeek }) else {
+            return "missing_deepseek_provider"
+        }
+        guard let account = provider.apiKeyAccount,
+              !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "missing_deepseek_keychain_account"
+        }
+        if keychainAuthorizationWarning != nil {
+            return "keychain_authorization_required"
+        }
+        guard keychainDeepSeekKeyExists else {
+            return "missing_keychain_credential"
+        }
+        return "none"
+    }
+
     var hasCleanRelevantContext: Bool {
         diagnostics.storedCVChunkCount > 0 && diagnostics.storedJDChunkCount > 0
     }

@@ -319,6 +319,9 @@ struct LLMProviderTests {
         #expect(KeychainService.maskKey("my-other-secret-key-1234") == "****1234")
         #expect(KeychainService.maskKey("short") == "****hort")
         #expect(KeychainService.maskKey("") == "None")
+        #expect(KeychainService.keyLengthCategory("") == "empty")
+        #expect(KeychainService.keyLengthCategory("sk-short") == "short")
+        #expect(KeychainService.keyLengthCategory("sk-abcdefghijklmnopqrstuvwxyz") == "present")
 
         let mockStore = InMemoryMockKeychainStore()
         let keychain = KeychainService(store: mockStore)
@@ -334,6 +337,84 @@ struct LLMProviderTests {
         try keychain.deleteAPIKey(account: "deepseek.default")
         #expect(keychain.hasAPIKey(account: "deepseek.default") == false)
         #expect(keychain.lastWriteStatus == "Deleted")
+    }
+
+    @Test
+    @MainActor
+    func settingsSavedDeepSeekKeyMakesProductStatusConfigured() throws {
+        let database = try makeTemporaryDatabase()
+        let settingsRepo = SettingsRepository(database: database)
+        let keychain = KeychainService(store: InMemoryMockKeychainStore())
+        let router = LLMRouter(settingsRepository: settingsRepo, apiKeyStore: keychain)
+        let appState = AppState(database: database, llmRouter: router, keychainService: keychain)
+        appState.refreshAll()
+
+        let deepSeek = try #require(appState.providerConfigurations.first { $0.kind == .deepSeek })
+        #expect(deepSeek.apiKeyAccount == KeychainConstants.deepSeekAccount)
+        #expect(appState.deepSeekProviderConfigured)
+        #expect(appState.deepSeekCredentialSource == "Keychain")
+        #expect(appState.deepSeekConfigured == false)
+        #expect(appState.keychainDeepSeekKeyExists == false)
+        #expect(appState.keychainDeepSeekKeyLengthCategory == "empty")
+        #expect(appState.lastProviderConfigError == "missing_keychain_credential")
+
+        appState.saveAPIKey("sk-abcdefghijklmnopqrstuvwxyz", for: deepSeek)
+
+        #expect(appState.deepSeekConfigured)
+        #expect(appState.keychainDeepSeekKeyExists)
+        #expect(appState.keychainDeepSeekKeyLengthCategory == "present")
+        #expect(appState.lastProviderConfigError == "none")
+        #expect(appState.activeRealtimeProvider?.kind == .deepSeek)
+        #expect(try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount)?.isEmpty == false)
+    }
+
+    @Test
+    func legacyDeepSeekKeychainItemMigratesToCanonicalAccount() throws {
+        let store = InMemoryMockKeychainStore()
+        try store.saveGenericPassword(
+            data: Data("sk-legacy-abcdefghijklmnopqrstuvwxyz".utf8),
+            service: "com.langcheng.InterviewCopilotMac",
+            account: "DeepSeekAPIKey"
+        )
+        let keychain = KeychainService(store: store)
+
+        keychain.performMigrationIfNeeded()
+
+        #expect(keychain.legacyItemFound)
+        #expect(keychain.legacyItemCount == 1)
+        #expect(keychain.migrationPerformed)
+        #expect(keychain.hasAPIKey(account: KeychainConstants.deepSeekAccount))
+        #expect(try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount)?.isEmpty == false)
+        #expect(try store.loadGenericPassword(service: "com.langcheng.InterviewCopilotMac", account: "DeepSeekAPIKey") != nil)
+    }
+
+    @Test
+    func generationRequestUsesSameDeepSeekCredentialAccountAsSettings() throws {
+        final class TrackingAPIKeyStore: APIKeyStore {
+            var requestedAccounts: [String] = []
+
+            func saveAPIKey(_ apiKey: String, account: String) throws {}
+            func deleteAPIKey(account: String) throws {}
+
+            func loadAPIKey(account: String) throws -> String? {
+                requestedAccounts.append(account)
+                return "sk-generation-abcdefghijklmnopqrstuvwxyz"
+            }
+        }
+
+        let keyStore = TrackingAPIKeyStore()
+        let client = OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession())
+        let provider = LLMProviderConfiguration.deepSeekDefault()
+
+        _ = try client.makeURLRequest(
+            configuration: provider,
+            messages: [.user("Hi")],
+            responseFormat: nil,
+            options: .default
+        )
+
+        #expect(provider.apiKeyAccount == KeychainConstants.deepSeekAccount)
+        #expect(keyStore.requestedAccounts == [KeychainConstants.deepSeekAccount])
     }
 
     @Test

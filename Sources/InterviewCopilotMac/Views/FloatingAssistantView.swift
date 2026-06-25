@@ -181,10 +181,39 @@ struct FloatingAssistantView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                diagnosticSection("Visible Lifecycle") {
+                    diagnosticRow("currentQuestionText", currentQuestionText)
+                    diagnosticRow("currentQuestionId", renderState.activeQuestionID ?? appState.lastDetectedQuestion?.id ?? "nil")
+                    diagnosticRow("currentSessionId", appState.currentSession?.id ?? emptyAware(appState.transcriptRuntimeDiagnostics.audioSessionID, fallback: "nil"))
+                    diagnosticRow("activeGenerationId", renderState.activeGenerationID ?? "nil")
+                    diagnosticRow("selectedProvider", activeCard?.providerName ?? appState.activeRealtimeProvider?.name ?? "None")
+                    diagnosticRow("selectedModel", activeCard?.modelName ?? appState.activeRealtimeProvider?.model ?? "None")
+                    diagnosticRow("generationStatus", renderState.generationStatus)
+                    diagnosticRow("lastLifecycleEvent", lastLifecycleEvent?.name ?? "None")
+                    diagnosticRow("lastLifecycleTimestamp", lastLifecycleEvent.map { diagnosticTime($0.timestamp) } ?? "None")
+                    diagnosticRow("lastGenerationSkipReason", emptyAware(appState.transcriptRuntimeDiagnostics.lastGenerationRejectedReason, fallback: "None"))
+                    diagnosticRow("lastGenerationError", renderState.generationErrorText ?? appState.diagnostics.lastError ?? "None")
+                    diagnosticRow("systemAudioEnabled", appState.settings.audioCaptureMode == .microphoneOnly ? "false" : "true")
+                    diagnosticRow("micEnabled", appState.settings.audioCaptureMode == .systemAudioOnly ? "false" : (appState.micCaptureRunning ? "true" : "false"))
+                    diagnosticRow("answerOwnerQuestionId", activeCard?.detectedQuestionID ?? activeCard?.questionID ?? renderState.activeQuestionID ?? "nil")
+                    diagnosticRow("visibleAnswerNonEmpty", renderState.hasAnswerText ? "true" : "false")
+                }
+
                 diagnosticSection("Provider") {
-                    diagnosticRow("provider", activeCard?.providerName ?? appState.diagnostics.lastProviderName ?? "None")
-                    diagnosticRow("model", activeCard?.modelName ?? appState.diagnostics.lastProviderModel ?? "None")
+                    diagnosticRow("selectedProvider", activeCard?.providerName ?? appState.activeRealtimeProvider?.name ?? appState.diagnostics.lastProviderName ?? "None")
+                    diagnosticRow("selectedModel", activeCard?.modelName ?? appState.activeRealtimeProvider?.model ?? appState.diagnostics.lastProviderModel ?? "None")
+                    diagnosticRow("selectedBaseURL", activeCard?.providerBaseURL ?? appState.activeRealtimeProvider?.baseURL ?? "None")
+                    diagnosticRow("providerConfigured", appState.deepSeekProviderConfigured ? "true" : "false")
                     diagnosticRow("deepSeekConfigured", appState.deepSeekConfigured ? "true" : "false")
+                    diagnosticRow("credentialSource", appState.deepSeekCredentialSource)
+                    diagnosticRow("keyExists", appState.keychainDeepSeekKeyExists ? "true" : "false")
+                    diagnosticRow("keyLengthCategory", appState.keychainDeepSeekKeyLengthCategory)
+                    diagnosticRow("keychainService", appState.keychainServiceName)
+                    diagnosticRow("keychainAccount", appState.keychainDeepSeekAccount)
+                    diagnosticRow("bundleIdentifier", Bundle.main.bundleIdentifier ?? "nil")
+                    diagnosticRow("generationConfigSource", appState.generationConfigSource)
+                    diagnosticRow("settingsConfigSource", appState.settingsConfigSource)
+                    diagnosticRow("lastProviderConfigError", appState.lastProviderConfigError)
                     diagnosticRow("lastError", appState.diagnostics.lastError ?? "None")
                 }
 
@@ -410,6 +439,20 @@ struct FloatingAssistantView: View {
                 .textSelection(.enabled)
             Spacer()
         }
+    }
+
+    private var lastLifecycleEvent: TranscriptRuntimeEventRecord? {
+        appState.recentTranscriptRuntimeEvents.last
+    }
+
+    private func diagnosticTime(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func emptyAware(_ value: String, fallback: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : value
     }
 
     private var displayModeBinding: Binding<FloatingAssistantDisplayMode> {

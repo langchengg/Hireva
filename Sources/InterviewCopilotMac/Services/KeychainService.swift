@@ -37,7 +37,7 @@ enum KeychainError: LocalizedError {
 
 /// User-facing state for an API key without exposing the raw key.
 enum KeychainAPIKeyAccessState: Equatable {
-    case available(maskedKey: String)
+    case available(maskedKey: String, keyLengthCategory: String)
     case missing
     case authorizationRequired(String)
     case unreadable(String)
@@ -49,7 +49,7 @@ enum KeychainAPIKeyAccessState: Equatable {
 
     var maskedDisplay: String {
         switch self {
-        case .available(let maskedKey):
+        case .available(let maskedKey, _):
             return maskedKey
         case .missing:
             return "None"
@@ -68,6 +68,17 @@ enum KeychainAPIKeyAccessState: Equatable {
             return "Missing"
         case .authorizationRequired(let message), .unreadable(let message):
             return message
+        }
+    }
+
+    var keyLengthCategory: String {
+        switch self {
+        case .available(_, let category):
+            return category
+        case .missing:
+            return "empty"
+        case .authorizationRequired, .unreadable:
+            return "unknown"
         }
     }
 }
@@ -117,7 +128,8 @@ final class RealKeychainStore: KeychainStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
         ]
 
         var result: AnyObject?
@@ -211,6 +223,12 @@ final class KeychainService {
             let last4 = String(trimmed.suffix(min(4, trimmed.count)))
             return "****\(last4)"
         }
+    }
+
+    static func keyLengthCategory(_ key: String) -> String {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "empty" }
+        return trimmed.count < 20 ? "short" : "present"
     }
 
     func performMigrationIfNeeded() {
@@ -361,7 +379,10 @@ final class KeychainService {
                 return .missing
             }
             lastReadStatus = "Success"
-            return .available(maskedKey: KeychainService.maskKey(trimmed))
+            return .available(
+                maskedKey: KeychainService.maskKey(trimmed),
+                keyLengthCategory: KeychainService.keyLengthCategory(trimmed)
+            )
         } catch {
             let message = KeychainService.keychainReadStatusMessage(for: error)
             lastReadStatus = message

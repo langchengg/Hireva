@@ -34,7 +34,7 @@ extension AppState {
         defer {
             lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)
         }
-        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
+        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | textLength = \(segment.text.count) | finalization = \(segment.asrFinalizationReason ?? "unknown")")
         liveState = .transcribing
         recordASRTranscriptRuntimeEvent(for: segment)
         if segment.asrFinalizationReason != "partial" {
@@ -174,7 +174,7 @@ extension AppState {
                         let similarity = Double(intersection.count) / Double(union.count)
                         if similarity >= 0.5 { // 50% Jaccard word overlap indicates interviewer echo leak
                             isEchoLeakage = true
-                            print("[EchoProtection] Detected interviewer leakage in mic stream: \"\(segment.text)\" matches recent system: \"\(record.text)\" with similarity \(String(format: "%.2f", similarity)). Question detection bypassed.")
+                            print("[EchoProtection] Detected interviewer leakage in mic stream: segmentID = \(segment.id) | micTextLength = \(segment.text.count) | systemTextLength = \(record.text.count) | similarity = \(String(format: "%.2f", similarity)). Question detection bypassed.")
                             break
                         }
                     }
@@ -274,7 +274,7 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.generationTriggered = false
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
             lastQuestionDetectionResult = "Waiting for final interviewer transcript before generating an answer."
-            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | text: \"\(segment.text)\"")
+            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | textLength = \(segment.text.count)")
             liveState = .listening
             return
         }
@@ -307,13 +307,23 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.generationTriggered = false
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
             lastQuestionDetectionResult = "Waiting for a complete interviewer question before generating an answer."
-            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | text: \"\(segment.text)\"")
+            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | textLength = \(segment.text.count)")
             liveState = .listening
             return
         }
 
         if shouldTriggerDetection, isASRPartial {
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = true
+        }
+
+        if shouldTriggerDetection,
+           shouldUseExtractedSystemAudioQuestions(extractedSystemAudioQuestions, classification: systemAudioClassification),
+           currentSession == nil {
+            let reason = "current_session_not_bound"
+            recordAnswerRequestSkipped(reason: reason, sessionID: segment.sessionID, text: questionExtractionSegment?.text ?? segment.text)
+            lastQuestionDetectionResult = "Generation skipped: current session is not bound for the finalized transcript."
+            liveState = .listening
+            return
         }
 
         if shouldTriggerDetection,
@@ -351,6 +361,13 @@ extension AppState {
                 segment,
                 classification: systemAudioClassification
             )
+            if isSystemLikeDetectionAudio, !isASRPartial {
+                recordAnswerRequestSkipped(
+                    reason: ignoredReasonCode(for: systemAudioClassification.intent),
+                    sessionID: segment.sessionID,
+                    text: segment.text
+                )
+            }
             liveState = .listening
             return
         }
@@ -371,6 +388,16 @@ extension AppState {
                segment.speaker == .candidate,
                questionDetectionService.isLikelyQuestion(segment.text).shouldTrigger {
                 ignoredCandidateQuestionCount += 1
+            }
+            if isSystemLikeDetectionAudio, !isASRPartial, !skipReason.isEmpty {
+                recordAnswerRequestSkipped(
+                    reason: skipReason,
+                    blockedReasonCode: lastTranscriptQuestionGenerationTrace.generationBlockedReason.isEmpty
+                        ? nil
+                        : lastTranscriptQuestionGenerationTrace.generationBlockedReason,
+                    sessionID: segment.sessionID,
+                    text: segment.text
+                )
             }
             liveState = .listening
         }

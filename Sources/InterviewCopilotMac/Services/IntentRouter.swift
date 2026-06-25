@@ -7,6 +7,9 @@ enum IntentRouter {
         if isDecoderComparisonQuestion(text) {
             return .decoderComparison
         }
+        if isRobotPerceptionToNavigationQuestion(text) {
+            return .systemIntegrationDebugging
+        }
         if isPerceptionDebuggingQuestion(text) {
             return .perceptionDebugging
         }
@@ -210,5 +213,22 @@ enum IntentRouter {
             "recovery"
         ].filter { text.contains($0) }.count
         return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
+    }
+
+    static func isRobotPerceptionToNavigationQuestion(_ text: String) -> Bool {
+        let mentionsDetector = text.contains("yolov8") ||
+            text.contains("detector") ||
+            text.contains("detection") ||
+            text.contains("object detection")
+        let mentionsTargetSelection = text.contains("identify") ||
+            text.contains("target object") ||
+            text.contains("target pose") ||
+            text.contains("target poses") ||
+            text.contains("object before")
+        let mentionsDownstreamMotion = (
+            text.contains("localization") ||
+            text.contains("localisation")
+        ) && text.contains("navigation")
+        return mentionsDetector && mentionsTargetSelection && mentionsDownstreamMotion
     }
 }

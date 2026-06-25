@@ -285,6 +285,33 @@ final class AppleSpeechTranscriptionSession: NSObject {
             }
         }
     }
+
+    #if DEBUG
+    @MainActor
+    func startSimulatedRecognitionForDiagnostic() {
+        stop()
+        self.partialTranscriptBuffer = ""
+        self.totalBuffersAppended = 0
+        self.lastBufferReceivedAt = nil
+        self.lastError = nil
+        self.lastPartialTranscript = ""
+        self.lastPartialTranscriptUpdatedAt = nil
+        self.lastFinalTranscript = ""
+        self.bestTranscriptUsed = ""
+        self.finalizationReason = ""
+        self.utteranceID = UUID().uuidString
+        self.recognitionTaskID = UUID().uuidString
+        self.recognitionEventSequence = 0
+        self.sessionStartedAt = Date()
+        self.firstPartialReceivedAt = nil
+        self.firstFinalReceivedAt = nil
+        resetUtteranceLatency()
+        self.serviceState = .running
+        self.simulatedTaskActive = true
+        self.request = SFSpeechAudioBufferRecognitionRequest()
+        self.onRuntimeEvent?(.audioStarted(sessionID: parentSessionID, timestamp: Date()))
+    }
+    #endif
     
     func appendBuffer(_ buffer: AVAudioPCMBuffer) {
         #if DEBUG
@@ -572,6 +599,33 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
             }
         }
     }
+
+    #if DEBUG
+    @MainActor
+    func startDiagnosticSystemAudioSession(sessionID: String) {
+        stop()
+        self.currentParentSessionID = sessionID
+        self.captureMode = .systemAudioOnly
+        self.isRecording = true
+
+        let systemSessionID = AudioTranscriptionSessionID(source: .systemAudio)
+        let session = AppleSpeechTranscriptionSession(
+            sessionID: systemSessionID,
+            parentSessionID: sessionID,
+            onEmit: { [weak self] segment in
+                self?.continuation?.yield(segment)
+            },
+            onStateChange: { [weak self] in
+                self?.onSessionStateChanged?()
+            },
+            onRuntimeEvent: { [weak self] event in
+                self?.onRuntimeEvent?(event)
+            }
+        )
+        self.systemAudioSession = session
+        session.startSimulatedRecognitionForDiagnostic()
+    }
+    #endif
     
     func stop() {
         isRecording = false

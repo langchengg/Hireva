@@ -294,6 +294,7 @@ struct RuntimePathSingleSourceOfTruthTests {
     func singleFinalizedSystemAudioQuestionReachesUIBoundAnswerLifecycle() async throws {
         let traceURL = temporaryTraceURL("runtime-single-clean-question-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
         var settings = appState.settings
         settings.audioCaptureMode = .systemAudioOnly
@@ -416,6 +417,324 @@ struct RuntimePathSingleSourceOfTruthTests {
             ],
             trace: trace
         )
+        #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
+    func liveSystemAudioFinalCallbackBindsSessionAcceptsQuestionAndStartsGeneration() async throws {
+        let traceURL = temporaryTraceURL("runtime-live-service-final-callback-trace")
+        let (appState, _, client) = try makeAppState(traceURL: traceURL)
+        appState.currentSession = nil
+        appState.delayProvider = RealDelayProvider()
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+
+        await appState.runLiveSystemAudioFinalCallbackDiagnostic(
+            question: "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        )
+
+        try await waitUntil(timeout: 60.0) {
+            appState.currentSession != nil &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("YOLOv8 detection") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") } &&
+                appState.activeGenerationID != nil &&
+                client.streamCallCount > 0
+        }
+
+        let session = try #require(appState.currentSession)
+        let card = try #require(appState.currentSuggestion)
+        #expect(card.sessionID == session.id)
+        #expect(card.detectedQuestionID == appState.activeQuestionID)
+        #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
+        #expect(appState.micCaptureRunning == false)
+        #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
+
+        try await waitUntil(timeout: 10.0) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+        }
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(rows.count == 1)
+        #expect(rows.first?.detectedQuestionID == card.detectedQuestionID)
+        let detectedQuestionID = try #require(card.detectedQuestionID)
+        let generationID = try #require(card.generationID)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        try assertTraceContainsEventsInOrder(
+            [
+                "transcript.partial",
+                "transcript.final",
+                "question.detected",
+                "question.accepted",
+                "answer.request.started",
+                "answer.first_token",
+                "answer.ui.rendered",
+                "answer.stream.completed"
+            ],
+            trace: trace
+        )
+        #expect(trace.contains("\"question_id\":\"\(detectedQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(generationID)\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.skipped\"") == false)
+        #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
+    func cumulativeSystemAudioPartialsDoNotSuppressNovelFinalMitigationQuestion() async throws {
+        let traceURL = temporaryTraceURL("runtime-cumulative-partial-final-mitigation-trace")
+        let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.delayProvider = RealDelayProvider()
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+
+        let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        let mitigationQuestion = "What made real-world execution harder than a clean simulation or demo environment and how did you mitigate those issues?"
+        let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
+        let taskID = "runtime-cumulative-partial-final-task"
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-cumulative-first-final",
+            sessionID: session.id,
+            text: firstQuestion,
+            asrFinalizationReason: "final is longer or similar",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 1,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: firstQuestion.utf16.count
+        ))
+
+        try await waitUntil(timeout: 60.0) {
+            appState.currentSuggestion?.questionText == firstQuestion &&
+                appState.generationUIState.isTerminal
+        }
+
+        let partialCumulative = "\(firstQuestion) What made real-world execution harder than a clean simulation or demo environment"
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-cumulative-second",
+            sessionID: session.id,
+            text: partialCumulative,
+            asrFinalizationReason: "partial",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 2,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: partialCumulative.utf16.count
+        ))
+
+        let finalCumulative = "\(firstQuestion) \(mitigationQuestion)"
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-cumulative-second",
+            sessionID: session.id,
+            text: finalCumulative,
+            asrFinalizationReason: "final is longer or similar",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 3,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: finalCumulative.utf16.count
+        ))
+
+        try await waitUntil(timeout: 60.0) {
+            appState.currentSuggestion?.questionText == expectedMitigationQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
+                appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
+                client.streamCallCount >= 2
+        }
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        try assertTraceContainsEventsInOrder(
+            [
+                "transcript.final",
+                "question.accepted",
+                "answer.request.started",
+                "answer.first_token",
+                "answer.ui.rendered",
+                "answer.stream.completed"
+            ],
+            trace: trace
+        )
+        #expect(appState.currentSuggestion?.questionText == expectedMitigationQuestion)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("mitigat") == true)
+        #expect(trace.contains("consumed_source_span_overlap") == false)
+        #expect(trace.contains("\"event_type\":\"answer.request.skipped\"") == false)
+    }
+
+    @Test
+    func visibleStageATextIsPersistedWhenProviderStreamDoesNotFinish() async throws {
+        let traceURL = temporaryTraceURL("runtime-stage-a-visible-timeout-trace")
+        let (appState, _, client) = try makeAppState(traceURL: traceURL)
+        appState.currentSession = nil
+        appState.delayProvider = RealDelayProvider()
+        appState.stageATimeoutSeconds = 0.4
+        appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
+        client.stageAStreamHangAfterTokenByNeedle["connect YOLOv8 detection"] = 14
+        client.fullCardStreamHangByNeedle.insert("connect YOLOv8 detection")
+        let expectedQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+
+        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
+
+        try await waitUntil(timeout: 10.0) {
+            appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.streamFirstTokenAt != nil &&
+                client.streamCallCount > 0
+        }
+
+        try await waitUntil(timeout: 10.0) {
+            let sessionID = appState.currentSession?.id ?? ""
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: sessionID)) ?? []
+            return appState.generationUIState.isTerminal &&
+                !appState.shouldShowBlockingAnswerSpinner &&
+                rows.count == 1
+        }
+
+        let session = try #require(appState.currentSession)
+        let card = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first)
+        #expect(card.detectedQuestionID == appState.activeQuestionID)
+        #expect(card.questionText == expectedQuestion)
+        #expect(card.promptPrimaryQuestion == expectedQuestion)
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.keyPoints.isEmpty == false)
+        #expect(card.stageATimedOut == true)
+        #expect(card.stageBStatus == "timed_out")
+        #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
+        #expect(appState.visibleAssistantRenderState.isGenerating == false)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        try assertTraceContainsEventsInOrder(
+            [
+                "transcript.final",
+                "question.detected",
+                "question.accepted",
+                "answer.request.started",
+                "answer.first_token",
+                "answer.ui.rendered",
+                "answer.stream.completed"
+            ],
+            trace: trace
+        )
+        #expect(trace.contains("\"event_type\":\"generationTimedOut\""))
+        #expect(trace.contains("visible_answer_ready_after_timeout"))
+        #expect(trace.contains("\"event_type\":\"answer.request.skipped\"") == false)
+        #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
+    func timedOutRejectedProviderPreviewPersistsLocalFallbackForCurrentQuestion() async throws {
+        let traceURL = temporaryTraceURL("runtime-rejected-provider-preview-fallback-trace")
+        let (appState, _, client) = try makeAppState(traceURL: traceURL)
+        appState.currentSession = nil
+        appState.delayProvider = RealDelayProvider()
+        appState.stageATimeoutSeconds = 0.4
+        appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
+        client.stageAStreamHangAfterTokenByNeedle["YOLOv8 detection help your robot identify"] = 18
+        client.fullCardStreamHangByNeedle.insert("YOLOv8 detection help your robot identify")
+        let expectedQuestion = "How did YOLOv8 detection help your robot identify the target object before localization and navigation?"
+
+        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
+
+        try await waitUntil(timeout: 5.0) {
+            appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.streamFirstTokenAt != nil &&
+                client.streamCallCount > 0
+        }
+
+        try await waitUntil(timeout: 5.0) {
+            let sessionID = appState.currentSession?.id ?? ""
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: sessionID)) ?? []
+            return appState.generationUIState.isTerminal &&
+                !appState.shouldShowBlockingAnswerSpinner &&
+                rows.count == 1
+        }
+        try await waitUntil(timeout: 5.0) {
+            guard let trace = try? String(contentsOf: traceURL, encoding: .utf8) else {
+                return false
+            }
+            return trace.contains("\"event_type\":\"persistenceSucceeded\"")
+        }
+
+        let session = try #require(appState.currentSession)
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        let card = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(card.detectedQuestionID == appState.activeQuestionID)
+        #expect(card.questionText == expectedQuestion)
+        #expect(card.promptPrimaryQuestion == expectedQuestion)
+        #expect(card.stageBStatus == "timed_out")
+        #expect(["local_timeout_fallback", "rag_template_soft_fallback"].contains(card.finalVisibleSource ?? ""))
+        #expect(card.isLocal)
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.keyPoints.isEmpty == false)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"answer.first_token\""))
+        #expect(trace.contains("\"event_type\":\"persistenceSucceeded\""))
+        #expect(trace.contains("\"event_type\":\"persistenceRejected\"") == false)
+    }
+
+    @Test
+    func liveSystemAudioFinalCallbackDoesNotRemainEmptyWhenProviderYieldsNoFirstToken() async throws {
+        let traceURL = temporaryTraceURL("runtime-no-first-token-fallback-trace")
+        let (appState, _, client) = try makeAppState(traceURL: traceURL)
+        appState.currentSession = nil
+        appState.delayProvider = RealDelayProvider()
+        appState.stageATimeoutSeconds = 0.4
+        appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
+        client.stageAStreamNeverYieldsByNeedle.insert("connect YOLOv8 detection")
+        client.fullCardStreamHangByNeedle.insert("connect YOLOv8 detection")
+        let expectedQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+
+        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
+
+        try await waitUntil(timeout: 5.0) {
+            appState.visibleAssistantRenderState.questionText == expectedQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("No answer yet") == false &&
+                appState.visibleAssistantRenderState.keyPoints.isEmpty == false
+        }
+
+        try await waitUntil(timeout: 5.0) {
+            let sessionID = appState.currentSession?.id ?? ""
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: sessionID)) ?? []
+            return appState.generationUIState.isTerminal &&
+                !appState.shouldShowBlockingAnswerSpinner &&
+                rows.count == 1
+        }
+        try await waitUntil(timeout: 5.0) {
+            guard let trace = try? String(contentsOf: traceURL, encoding: .utf8) else {
+                return false
+            }
+            return trace.contains("\"event_type\":\"persistenceSucceeded\"")
+        }
+
+        let session = try #require(appState.currentSession)
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        let card = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(card.detectedQuestionID == appState.activeQuestionID)
+        #expect(card.questionText == expectedQuestion)
+        #expect(card.promptPrimaryQuestion == expectedQuestion)
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.keyPoints.isEmpty == false)
+        #expect(card.stageBStatus == "timed_out")
+        #expect(["local_timeout_fallback", "rag_template_soft_fallback"].contains(card.finalVisibleSource ?? ""))
+        #expect(card.isLocal)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        try assertTraceContainsEventsInOrder(
+            [
+                "transcript.final",
+                "question.detected",
+                "question.accepted",
+                "answer.request.started",
+                "answer.ui.rendered",
+                "generationTimedOut",
+                "persistenceSucceeded"
+            ],
+            trace: trace
+        )
+        #expect(trace.contains("\"event_type\":\"answer.first_token\"") == false)
+        #expect(trace.contains("\"event_type\":\"persistenceRejected\"") == false)
+        #expect(client.streamCallCount > 0)
         #expect(client.detectionCallCount == 0)
     }
 
@@ -1129,7 +1448,11 @@ struct RuntimePathSingleSourceOfTruthTests {
         id: String,
         sessionID: String,
         text: String,
-        asrFinalizationReason: String = "final_accepted"
+        asrFinalizationReason: String = "final_accepted",
+        recognitionTaskID: String? = nil,
+        recognitionEventSequence: Int? = nil,
+        sourceTextStartUTF16: Int? = nil,
+        sourceTextEndUTF16: Int? = nil
     ) -> TranscriptSegment {
         TranscriptSegment(
             id: id,
@@ -1139,7 +1462,12 @@ struct RuntimePathSingleSourceOfTruthTests {
             text: text,
             createdAt: Date(),
             confidence: 1.0,
-            asrFinalizationReason: asrFinalizationReason
+            asrFinalizationReason: asrFinalizationReason,
+            recognitionTaskID: recognitionTaskID,
+            recognitionEventSequence: recognitionEventSequence,
+            sourceTextStartUTF16: sourceTextStartUTF16,
+            sourceTextEndUTF16: sourceTextEndUTF16,
+            recognitionIsFinal: asrFinalizationReason != "partial"
         )
     }
 
@@ -1231,6 +1559,9 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
     private var answerCalls = 0
     private var streamCalls = 0
     var stageAStreamDelayByNeedle = [String: UInt64]()
+    var stageAStreamHangAfterTokenByNeedle = [String: Int]()
+    var stageAStreamNeverYieldsByNeedle = Set<String>()
+    var fullCardStreamHangByNeedle = Set<String>()
 
     var detectionCallCount: Int { lock.withLock { detectionCalls } }
     var answerCallCount: Int { lock.withLock { answerCalls } }
@@ -1270,7 +1601,21 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
 
         lock.withLock { answerCalls += 1 }
         let content: String
-        if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
+        let currentQuestion = currentQuestion(from: prompt)
+        if isMitigationQuestion(currentQuestion) {
+            content = """
+            {
+              "strategy": "Real-world mitigation answer",
+              "say_first": "Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline.",
+              "key_points": ["Lighting, calibration, timing, localization, and contact effects were less controlled than simulation.", "I used logs and timestamp checks to isolate where the pipeline drifted.", "Validation gates and recovery behaviors kept failures from silently propagating.", "The mitigation was system-level debugging, not only retraining perception."],
+              "follow_up_ready": ["I can also give a concrete example of one failure and how I isolated it."],
+              "confidence": 0.9,
+              "caution": "None",
+              "evidence_used": [],
+              "risk_level": "low"
+            }
+            """
+        } else if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
             prompt.localizedCaseInsensitiveContains("recovery behaviors") {
             content = """
             {
@@ -1400,8 +1745,24 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
         return AsyncThrowingStream { continuation in
             let prompt = messages.map(\.content).joined(separator: "\n")
             let isFullCardPrompt = prompt.contains("Return plain text sections only")
+            let currentQuestion = self.currentQuestion(from: prompt)
             let text: String
-            if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
+            if self.isMitigationQuestion(currentQuestion) {
+                if isFullCardPrompt {
+                    text = """
+                    SAY_FIRST: Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline.
+                    KEY_POINTS:
+                    - Lighting, calibration, timing, localization, and contact effects were less controlled than simulation.
+                    - Logs and timestamp checks isolated where the pipeline drifted.
+                    - Validation gates and recovery behaviors prevented failures from silently propagating.
+                    - The mitigation was system-level debugging, not only retraining perception.
+                    FOLLOW_UP:
+                    - I can also give a concrete example of one failure and how I isolated it.
+                    """
+                } else {
+                    text = "Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline."
+                }
+            } else if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
                 prompt.localizedCaseInsensitiveContains("recovery behaviors") {
                 if isFullCardPrompt {
                     text = """
@@ -1511,14 +1872,40 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
                 text = "In my MuJoCo VLA evaluation, diffusion was strongest at about 7/10 successful grasps because it denoised a continuous action trajectory, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors."
             }
             let delay = self.stageAStreamDelay(for: prompt)
-            Task {
+            let stageAHangAfterToken = isFullCardPrompt ? nil : self.stageAStreamHangAfterTokenCount(for: prompt)
+            let stageANeverYields = !isFullCardPrompt && self.stageAStreamShouldNeverYield(for: prompt)
+            let fullCardShouldHang = isFullCardPrompt && self.fullCardStreamShouldHang(for: prompt)
+            let task = Task {
                 if delay > 0 {
                     try? await Task.sleep(nanoseconds: delay)
                 }
+                if stageANeverYields {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    return
+                }
+                if fullCardShouldHang {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    return
+                }
+                var yieldedTokens = 0
                 for token in text.split(separator: " ") {
                     continuation.yield(String(token) + " ")
+                    yieldedTokens += 1
+                    if let stageAHangAfterToken, yieldedTokens >= stageAHangAfterToken {
+                        while !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+                        }
+                        return
+                    }
                 }
                 continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }
@@ -1543,6 +1930,13 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
         return prompt
     }
 
+    private func isMitigationQuestion(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("real-world execution") &&
+            lower.contains("simulation") &&
+            lower.contains("mitigat")
+    }
+
     private static func jsonString(_ value: String) -> String {
         guard let data = try? JSONEncoder().encode(value),
               let encoded = String(data: data, encoding: .utf8) else {
@@ -1557,6 +1951,24 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             return delay
         }
         return 0
+    }
+
+    private func stageAStreamHangAfterTokenCount(for prompt: String) -> Int? {
+        let lower = prompt.lowercased()
+        for (needle, tokenCount) in stageAStreamHangAfterTokenByNeedle where lower.contains(needle.lowercased()) {
+            return tokenCount
+        }
+        return nil
+    }
+
+    private func stageAStreamShouldNeverYield(for prompt: String) -> Bool {
+        let lower = prompt.lowercased()
+        return stageAStreamNeverYieldsByNeedle.contains { lower.contains($0.lowercased()) }
+    }
+
+    private func fullCardStreamShouldHang(for prompt: String) -> Bool {
+        let lower = prompt.lowercased()
+        return fullCardStreamHangByNeedle.contains { lower.contains($0.lowercased()) }
     }
 }
 

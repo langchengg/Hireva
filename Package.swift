@@ -20,7 +20,10 @@ let package = Package(
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
-            path: "Sources/InterviewCopilotMac"
+            path: "Sources/InterviewCopilotMac",
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug))
+            ]
         ),
         .executableTarget(
             name: "InterviewCopilotMacRunner",

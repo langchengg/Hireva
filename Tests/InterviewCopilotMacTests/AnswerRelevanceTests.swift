@@ -152,6 +152,167 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func realWorldDifficultyMitigationFallbackAnswersBothHalvesAndPersists() {
+        let questionText = "What made real-world execution harder than a clean simulation or demo environment and how did you mitigate those issues?"
+        let question = makeQuestion(questionText)
+
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .technicalChallenge)
+
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let answer = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        #expect(answer.localizedCaseInsensitiveContains("real-world") || answer.localizedCaseInsensitiveContains("real world"))
+        #expect(answer.localizedCaseInsensitiveContains("simulation"))
+        #expect(answer.localizedCaseInsensitiveContains("mitigated") || answer.localizedCaseInsensitiveContains("mitigation"))
+        #expect(answer.localizedCaseInsensitiveContains("recovery"))
+
+        let card = SuggestionCard(
+            id: "real-world-difficulty-fallback",
+            sessionID: question.sessionID,
+            questionID: question.id,
+            strategy: "RAG Template Fallback",
+            sayFirst: fallback.sayFirst,
+            keyPoints: fallback.keyPoints,
+            followUpReady: [],
+            confidence: 0.5,
+            caution: "Fast fallback shown; DeepSeek failed.",
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "rag-fallback",
+            promptVersion: "fallback-v1",
+            providerKind: nil,
+            providerName: "RAG Template Fallback",
+            providerBaseURL: "",
+            latencyMS: 0,
+            isLocal: true,
+            rawJSON: nil,
+            createdAt: Date(),
+            questionText: questionText,
+            questionIntent: .technicalChallenge,
+            promptQuestionText: questionText,
+            promptPrimaryQuestion: questionText,
+            sayFirstSource: "rag_template_fallback",
+            stageATimedOut: true,
+            stageBCompleted: false,
+            stageBStatus: "timed_out",
+            finalVisibleSource: "rag_template_fallback"
+        )
+
+        let result = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card)
+        #expect(result.accepted)
+    }
+
+    @Test
+    func realWorldExecutionQuestionRejectsSimulationOnlyAnswerWithoutRealRobotGrounding() {
+        let questionText = "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+        let providerAnswer = """
+        The hard part was that a clean simulation keeps perception, timing, calibration, and module integration much more controlled. In practice, detections were noisy, localisation could drift, and the navigation-to-manipulation handoff needed recovery behaviour when the target pose was uncertain.
+        """
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: providerAnswer,
+            sayFirst: providerAnswer,
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.reason.localizedCaseInsensitiveContains("real-world/physical-robot grounding"))
+    }
+
+    @Test
+    func semanticGuardReplacesMismatchedExistingProviderPreviewWithFallback() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "RealWorldPreviewFallback")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion(
+            "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?",
+            sessionID: session.id
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        var providerPreview = SuggestionCard(
+            id: "provider-preview",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek preview",
+            sayFirst: "A clean simulation keeps perception, timing, calibration, and module integration more controlled, while detections can be noisy and recovery is needed.",
+            keyPoints: ["Noisy detections", "Calibration drift", "Recovery behaviour"],
+            followUpReady: [],
+            confidence: 0.7,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        providerPreview.questionText = question.questionText
+        providerPreview.promptPrimaryQuestion = question.questionText
+        providerPreview.stageBCompleted = true
+        providerPreview.finalVisibleSource = "deepseek_stream"
+        appState.currentSuggestion = providerPreview
+
+        var finalProviderCard = providerPreview
+        finalProviderCard.id = "provider-final"
+
+        #expect(appState.applySuggestionIfAlignedForTesting(finalProviderCard, question: question, generationID: nil) == false)
+        let fallback = try #require(appState.currentSuggestion)
+        #expect(fallback.id != "provider-preview")
+        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("real-world") || fallback.sayFirst.localizedCaseInsensitiveContains("real world"))
+        #expect(fallback.alignmentVerdict == .aligned)
+    }
+
+    @Test
+    func projectComparisonRejectsSayFirstWithoutConcreteVisibleContrast() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "ProjectComparisonSayFirst")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion(
+            "Can you explain the difference between your VLA project and your LeoRover project?",
+            sessionID: session.id
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        var providerCard = SuggestionCard(
+            id: "project-comparison-provider",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek",
+            sayFirst: "The main difference is that VLA was focused on learned policy evaluation, while LeoRover was a robotics integration project.",
+            keyPoints: [
+                "VLA used DROID trajectories in a MuJoCo Franka simulation to compare decoders.",
+                "LeoRover used ROS2, YOLOv8, localisation, navigation, manipulation, and recovery on a real robot.",
+                "The contrast was learning-policy research in simulation versus real-world perception-to-action deployment."
+            ],
+            followUpReady: [],
+            confidence: 0.8,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        providerCard.questionText = question.questionText
+        providerCard.promptPrimaryQuestion = question.questionText
+        providerCard.stageBCompleted = true
+        providerCard.finalVisibleSource = "deepseek_stream"
+
+        #expect(appState.applySuggestionIfAlignedForTesting(providerCard, question: question, generationID: nil) == false)
+        let fallback = try #require(appState.currentSuggestion)
+        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("MuJoCo"))
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("real-robot") || fallback.sayFirst.localizedCaseInsensitiveContains("real robot"))
+        #expect(fallback.alignmentVerdict == .aligned)
+    }
+
+    @Test
     func modelComparisonRejectsGenericVisibleSayFirstEvenWhenKeyPointsMatch() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceGenericSayFirst")
         let appState = AppState(database: database)
@@ -345,6 +506,47 @@ struct AnswerRelevanceTests {
         let fallback = try #require(appState.currentSuggestion)
         #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
         #expect(fallback.sayFirst.filter { $0 == "?" }.count >= 2)
+        #expect(fallback.alignmentVerdict == .aligned)
+    }
+
+    @Test
+    func engineeringTeamFitQuestionRequiresWorkflowOrInfrastructureCoverage() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "TeamFitQuestionQuality")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion(
+            "What would you ask the engineering team to understand whether this robotics role is a good fit?",
+            sessionID: session.id
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        var providerCard = SuggestionCard(
+            id: "team-fit-provider-card",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek",
+            sayFirst: "I would ask what success looks like in the first three months, what deployment challenges the robotics team is facing, and how responsibilities are split across perception, autonomy, and product engineering.",
+            keyPoints: ["First three month success", "Deployment challenges", "Team structure and responsibilities", "Simulation and data infrastructure workflow"],
+            followUpReady: [],
+            confidence: 0.8,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        providerCard.questionText = question.questionText
+        providerCard.promptPrimaryQuestion = question.questionText
+        providerCard.stageBCompleted = true
+        providerCard.finalVisibleSource = "deepseek_stream"
+
+        #expect(appState.applySuggestionIfAlignedForTesting(providerCard, question: question, generationID: nil) == false)
+        let fallback = try #require(appState.currentSuggestion)
+        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("workflow") || fallback.sayFirst.localizedCaseInsensitiveContains("workflows"))
         #expect(fallback.alignmentVerdict == .aligned)
     }
 

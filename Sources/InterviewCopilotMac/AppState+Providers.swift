@@ -108,7 +108,7 @@ extension AppState {
         let cleanedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedAccount.isEmpty else { return "No account configured" }
         switch keychainService.apiKeyAccessState(account: cleanedAccount) {
-        case .available(let maskedKey):
+        case .available(let maskedKey, _):
             return maskedKey
         case .missing:
             return "Missing"
