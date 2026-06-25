@@ -554,7 +554,11 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(appState.currentSuggestion?.questionText == expectedMitigationQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("mitigat") == true)
         #expect(trace.contains("consumed_source_span_overlap") == false)
-        #expect(trace.contains("\"event_type\":\"answer.request.skipped\"") == false)
+        #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
+        #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)
+        if trace.contains("\"event_type\":\"answer.request.skipped\"") {
+            #expect(trace.contains("\"rejection_reason\":\"request_inflight\""))
+        }
     }
 
     @Test

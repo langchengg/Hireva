@@ -240,8 +240,7 @@ extension AppState {
             questionID: latestQuestion.id,
             text: latestQuestion.questionText
         )
-        pendingAcceptedQuestions.removeAll()
-        launchAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
+        launchOrQueueAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
     }
 
     // internal for AppState extension access only
@@ -764,8 +763,7 @@ extension AppState {
             )
             return
         }
-        pendingAcceptedQuestions.removeAll()
-        launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
+        launchOrQueueAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
     }
 
     // internal for AppState extension access only
@@ -999,6 +997,21 @@ extension AppState {
             requestStart: controller.startedAt,
             triggerPath: controller.triggerPath
         )
+    }
+
+    private func launchOrQueueAutoSuggestionGeneration(
+        for acceptedQuestion: DetectedQuestion,
+        session: InterviewSession,
+        transcript: String
+    ) {
+        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion),
+           visibleAnswerExists,
+           currentSuggestion != nil {
+            queueAcceptedAutoQuestion(acceptedQuestion, session: session, transcript: transcript)
+            return
+        }
+        pendingAcceptedQuestions.removeAll()
+        launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
     }
 
     private func launchAutoSuggestionGeneration(

@@ -393,8 +393,10 @@ struct ReleaseValidationTests {
         #expect(initialRows.count == 2)
         #expect(initialRows.map(\.questionText) == [questionA, questionB])
         #expect(Set(initialRows.compactMap(\.detectedQuestionID)).count == 2)
-        #expect(initialRows[0].stageBStatus == "superseded")
-        #expect(initialRows[0].finalVisibleSource == "local_superseded_question_snapshot")
+        #expect(initialRows[0].stageBStatus == "queued_next_question")
+        #expect(initialRows[0].finalVisibleSource == "rag_template_soft_fallback")
+        #expect(initialRows[0].stageBCompleted == false)
+        #expect(initialRows[0].sayFirst.isEmpty == false)
         #expect(initialRows[1].finalVisibleSource == "deepseek_stream")
         #expect(appState.currentSuggestion?.questionText == questionB)
 
