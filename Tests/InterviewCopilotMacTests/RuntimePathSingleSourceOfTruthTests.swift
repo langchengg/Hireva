@@ -301,7 +301,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         appState.saveSettings(settings)
         let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
-        let expectedQuestion = "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+        let expectedQuestion = "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "single-clean-system-audio-question",
             sessionID: session.id,
@@ -324,7 +324,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             appState.visibleAssistantRenderState.questionText == expectedQuestion &&
                 appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("real") &&
                 appState.streamFirstTokenAt != nil
         }
         #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
@@ -347,8 +347,8 @@ struct RuntimePathSingleSourceOfTruthTests {
             appState.saveSettings(modeSettings)
             let render = appState.visibleAssistantRenderState
             #expect(render.questionText == expectedQuestion, "mode \(mode.rawValue)")
-            #expect(render.answerText.localizedCaseInsensitiveContains("YOLOv8"), "mode \(mode.rawValue)")
-            #expect(render.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") }, "mode \(mode.rawValue)")
+            #expect(render.answerText.localizedCaseInsensitiveContains("real"), "mode \(mode.rawValue)")
+            #expect(render.keyPoints.isEmpty == false, "mode \(mode.rawValue)")
             #expect(render.generationErrorText == nil, "mode \(mode.rawValue)")
         }
 
@@ -388,24 +388,25 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             appState.currentSession?.id == session.id &&
                 appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("YOLOv8") &&
-                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("recovery") &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("real world execution") &&
+                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("mitigate those issues") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
                 client.streamCallCount > 0
         }
 
         let card = try #require(appState.currentSuggestion)
         #expect(card.sessionID == session.id)
-        #expect(card.questionText?.localizedCaseInsensitiveContains("YOLOv8 detection") == true)
-        #expect(card.questionIntent == .systemIntegrationDebugging)
+        #expect(card.questionText?.localizedCaseInsensitiveContains("real world execution") == true)
+        #expect(card.questionText?.localizedCaseInsensitiveContains("mitigate those issues") == true)
+        #expect(card.questionIntent == .technicalChallenge)
         #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
 
         try await waitUntil(timeout: 10.0) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 2
         }
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.count == 1)
-        #expect(rows.first?.detectedQuestionID == card.detectedQuestionID)
+        #expect(rows.count == 2)
+        #expect(rows.last?.detectedQuestionID == card.detectedQuestionID)
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         try assertTraceContainsEventsInOrder(
@@ -480,6 +481,84 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func liveSystemAudioSecondQuestionAfterSuccessfulAnswerStartsGeneration() async throws {
+        let traceURL = temporaryTraceURL("runtime-live-second-question-after-answer-trace")
+        let (appState, _, client) = try makeAppState(traceURL: traceURL)
+        appState.currentSession = nil
+        appState.delayProvider = RealDelayProvider()
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+
+        let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        let mitigationQuestion = "What made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"
+        let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
+
+        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: firstQuestion)
+
+        try await waitUntil(timeout: 60.0) {
+            appState.visibleAssistantRenderState.questionText == firstQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
+                client.streamCallCount > 0
+        }
+
+        let firstCard = try #require(appState.currentSuggestion)
+        let firstQuestionID = try #require(firstCard.detectedQuestionID)
+        let firstGenerationID = try #require(firstCard.generationID)
+        let q1StreamCalls = client.streamCallCount
+
+        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: mitigationQuestion)
+
+        try await waitUntil(timeout: 60.0) {
+            appState.visibleAssistantRenderState.questionText == expectedMitigationQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
+                appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
+                appState.visibleAssistantRenderState.generationErrorText == nil &&
+                client.streamCallCount > q1StreamCalls
+        }
+
+        let session = try #require(appState.currentSession)
+        let secondCard = try #require(appState.currentSuggestion)
+        let secondQuestionID = try #require(secondCard.detectedQuestionID)
+        let secondGenerationID = try #require(secondCard.generationID)
+        #expect(secondCard.questionText == expectedMitigationQuestion)
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("mitigat"))
+        #expect(secondQuestionID != firstQuestionID)
+        #expect(secondGenerationID != firstGenerationID)
+        #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
+        #expect(appState.micCaptureRunning == false)
+
+        try await waitUntil(timeout: 10.0) {
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+            return rows.count == 2 &&
+                rows.map(\.questionText) == [firstQuestion, expectedMitigationQuestion] &&
+                Set(rows.compactMap(\.detectedQuestionID)).count == 2
+        }
+
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(rows.count == 2)
+        #expect(rows.map(\.questionText) == [firstQuestion, expectedMitigationQuestion])
+        #expect(rows.last?.detectedQuestionID == secondQuestionID)
+        #expect(rows.last?.generationID == secondGenerationID)
+        let persistedSecondQuestion = (rows.last?.questionText ?? "")
+            .replacingOccurrences(of: "-", with: " ")
+        #expect(persistedSecondQuestion.localizedCaseInsensitiveContains("and how did you mitigate those issues"))
+        #expect(persistedSecondQuestion.localizedCaseInsensitiveContains("What made real world execution harder"))
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
+        #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
+        #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
+        #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)
+        if trace.contains("\"event_type\":\"answer.request.skipped\"") {
+            #expect(trace.contains("\"rejection_reason\":\"request_inflight\""))
+        }
+    }
+
+    @Test
     func cumulativeSystemAudioPartialsDoNotSuppressNovelFinalMitigationQuestion() async throws {
         let traceURL = temporaryTraceURL("runtime-cumulative-partial-final-mitigation-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
@@ -507,7 +586,7 @@ struct RuntimePathSingleSourceOfTruthTests {
                 appState.generationUIState.isTerminal
         }
 
-        let partialCumulative = "\(firstQuestion) What made real-world execution harder than a clean simulation or demo environment"
+        let partialCumulative = "\(firstQuestion) What made real world execution harder than a clean simulation or demo environment"
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "runtime-cumulative-second",
             sessionID: session.id,
@@ -553,6 +632,10 @@ struct RuntimePathSingleSourceOfTruthTests {
         )
         #expect(appState.currentSuggestion?.questionText == expectedMitigationQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("mitigat") == true)
+        let normalizedExpectedMitigationQuestion = expectedMitigationQuestion
+            .replacingOccurrences(of: "-", with: " ")
+        #expect(normalizedExpectedMitigationQuestion.localizedCaseInsensitiveContains("What made real world execution harder"))
+        #expect(normalizedExpectedMitigationQuestion.localizedCaseInsensitiveContains("how did you mitigate those issues"))
         #expect(trace.contains("consumed_source_span_overlap") == false)
         #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
         #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)

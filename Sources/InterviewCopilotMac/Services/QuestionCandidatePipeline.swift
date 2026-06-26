@@ -163,6 +163,7 @@ enum MultiQuestionSplitter {
             "\\bwalk\\s+me\\s+through\\b",
             "\\bwhat\\s+did\\b",
             "\\bwhat\\s+questions\\b",
+            "\\bwhat\\s+made\\s+real[-\\s]+world\\s+execution\\b",
             "\\bwhat\\s+was\\b",
             "\\bwhat\\s+would\\b",
             "\\bwhich\\s+part\\s+of\\s+the\\s+pipeline\\b",
@@ -275,8 +276,12 @@ enum MultiQuestionSplitter {
         let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.hasPrefix("and how did you mitigate") ||
             trimmed.hasPrefix("how did you mitigate") ||
+            trimmed.hasPrefix("and how did mitigate") ||
+            trimmed.hasPrefix("how did mitigate") ||
             trimmed.hasPrefix("and how would you mitigate") ||
-            trimmed.hasPrefix("how would you mitigate")
+            trimmed.hasPrefix("how would you mitigate") ||
+            trimmed.hasPrefix("and how would mitigate") ||
+            trimmed.hasPrefix("how would mitigate")
     }
 }
 

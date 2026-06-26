@@ -30,6 +30,7 @@ enum ASRCanonicalizer {
         canonical = replaceYOLOv8Variants(in: canonical)
         canonical = replaceModelVariants(in: canonical)
         canonical = replaceSimToRealVariants(in: canonical)
+        canonical = replaceMitigationTailVariants(in: canonical)
         canonical = QuestionTextUtilities.regexReplace(#"\bfrom\s+n\s+to\s+end\b"#, in: canonical, with: "from end to end")
         canonical = QuestionTextUtilities.regexReplace(#"\bfrom\s+end\s+to\s+end\b"#, in: canonical, with: "from end to end")
         return QuestionTextUtilities.collapse(canonical)
@@ -103,6 +104,15 @@ enum ASRCanonicalizer {
         result = QuestionTextUtilities.regexReplace(#"\bseem\s+real\b"#, in: result, with: "sim-to-real")
         result = QuestionTextUtilities.regexReplace(#"\bsim\s+real\b"#, in: result, with: "sim-to-real")
         result = QuestionTextUtilities.regexReplace(#"\bsim[-\s]+to[-\s]+real\b"#, in: result, with: "sim-to-real")
+        return result
+    }
+
+    private static func replaceMitigationTailVariants(in text: String) -> String {
+        var result = text
+        result = QuestionTextUtilities.regexReplace(#"\band\s+how\s+did\s+mitigate\b"#, in: result, with: "and how did you mitigate")
+        result = QuestionTextUtilities.regexReplace(#"\bhow\s+did\s+mitigate\b"#, in: result, with: "how did you mitigate")
+        result = QuestionTextUtilities.regexReplace(#"\band\s+how\s+would\s+mitigate\b"#, in: result, with: "and how would you mitigate")
+        result = QuestionTextUtilities.regexReplace(#"\bhow\s+would\s+mitigate\b"#, in: result, with: "how would you mitigate")
         return result
     }
 }

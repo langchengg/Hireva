@@ -32,13 +32,14 @@ struct QuestionCandidatePipelineTests {
     @Test
     func asrCanonicalizerNormalizesAdditionalRuntimeVariantsBeforeSplitting() {
         let canonical = ASRCanonicalizer.canonicalizeTerms(
-            "Muji Mooji Mugi Mu G Mouko Moko MoCo Muko Moco Mojave Muja Cove with yo love eight on the layover and a sim real issue"
+            "Muji Mooji Mugi Mu G Mouko Moko MoCo Muko Moco Mojave Muja Cove with yo love eight on the layover and a sim real issue and how did mitigate those issues"
         )
 
         #expect(canonical.components(separatedBy: "MuJoCo").count >= 12)
         #expect(canonical.localizedCaseInsensitiveContains("YOLOv8"))
         #expect(canonical.localizedCaseInsensitiveContains("LeoRover"))
         #expect(canonical.localizedCaseInsensitiveContains("sim-to-real"))
+        #expect(canonical.localizedCaseInsensitiveContains("and how did you mitigate those issues"))
     }
 
     @Test
@@ -114,32 +115,38 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
-    func relatedWhatMadeFollowUpStaysInOneCompoundQuestion() {
+    func relatedWhatMadeFollowUpSplitsIntoSeparateCurrentQuestion() {
         let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+            "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?",
+            "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
         ])
-        #expect(candidates.first?.answerRelevanceIntent == .systemIntegrationDebugging)
+        #expect(candidates.map(\.answerRelevanceIntent) == [.systemIntegrationDebugging, .technicalChallenge])
     }
 
     @Test
     func realScreenshotUnpunctuatedArchitectureTranscriptCanonicalizesAndExtracts() throws {
         let candidates = QuestionCandidatePipeline.extract(
-            from: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
+            from: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"
         )
         let candidate = try #require(candidates.first)
 
-        #expect(candidates.count == 1)
+        #expect(candidates.count == 2)
         #expect(candidate.text.localizedCaseInsensitiveContains("YOLOv8 detection"))
         #expect(candidate.text.localizedCaseInsensitiveContains("localization"))
         #expect(candidate.text.localizedCaseInsensitiveContains("navigation"))
         #expect(candidate.text.localizedCaseInsensitiveContains("manipulation"))
         #expect(candidate.text.localizedCaseInsensitiveContains("recovery"))
-        #expect(candidate.text.localizedCaseInsensitiveContains("mitigate those issues"))
         #expect(candidate.answerRelevanceIntent == .systemIntegrationDebugging)
+        let mitigationCandidate = try #require(candidates.last)
+        let normalizedMitigationCandidate = mitigationCandidate.text
+            .replacingOccurrences(of: "-", with: " ")
+        #expect(normalizedMitigationCandidate.localizedCaseInsensitiveContains("What made real world execution harder"))
+        #expect(mitigationCandidate.text.localizedCaseInsensitiveContains("how did you mitigate those issues"))
+        #expect(mitigationCandidate.answerRelevanceIntent == .technicalChallenge)
     }
 
     @Test
