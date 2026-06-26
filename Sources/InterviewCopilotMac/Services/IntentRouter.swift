@@ -7,6 +7,11 @@ enum IntentRouter {
         if isDecoderComparisonQuestion(text) {
             return .decoderComparison
         }
+        if isVisualDetectionToPhysicalActionQuestion(text) ||
+            isRobotDecisionInformationQuestion(text) ||
+            isPerceptionControlReliabilityQuestion(text) {
+            return .systemIntegrationDebugging
+        }
         if isRobotPerceptionToNavigationQuestion(text) {
             return .systemIntegrationDebugging
         }
@@ -117,6 +122,9 @@ enum IntentRouter {
             lower.contains("droid") ||
             lower.contains("sim-to-real") ||
             lower.contains("continuous action") ||
+            isVisualDetectionToPhysicalActionQuestion(normalize(lower)) ||
+            isRobotDecisionInformationQuestion(normalize(lower)) ||
+            isPerceptionControlReliabilityQuestion(normalize(lower)) ||
             isRobotSystemArchitectureQuestion(normalize(lower)) ||
             lower.contains("fragile") ||
             lower.contains("real-world execution") ||
@@ -213,6 +221,51 @@ enum IntentRouter {
             "recovery"
         ].filter { text.contains($0) }.count
         return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
+    }
+
+    static func isVisualDetectionToPhysicalActionQuestion(_ text: String) -> Bool {
+        let mentionsVisualDetection = text.contains("visual detection") ||
+            text.contains("visual detections") ||
+            text.contains("object detection") ||
+            text.contains("detections")
+        let asksTransformation = text.contains("transformed") ||
+            text.contains("transform") ||
+            text.contains("turn") ||
+            text.contains("converted") ||
+            text.contains("map")
+        let mentionsPhysicalAction = text.contains("physical action") ||
+            text.contains("physical actions") ||
+            text.contains("real world") ||
+            text.contains("real-world") ||
+            text.contains("robot")
+        return mentionsVisualDetection && asksTransformation && mentionsPhysicalAction
+    }
+
+    static func isRobotDecisionInformationQuestion(_ text: String) -> Bool {
+        let asksInformation = text.contains("what information") ||
+            text.contains("information did the robot need") ||
+            text.contains("robot need before")
+        let mentionsMove = text.contains("where to move") ||
+            text.contains("move") ||
+            text.contains("navigation target")
+        let mentionsGrasp = text.contains("what to grasp") ||
+            text.contains("grasp") ||
+            text.contains("pick")
+        return asksInformation && mentionsMove && mentionsGrasp
+    }
+
+    static func isPerceptionControlReliabilityQuestion(_ text: String) -> Bool {
+        let mentionsPerception = text.contains("perception") ||
+            text.contains("visual") ||
+            text.contains("detection")
+        let mentionsControl = text.contains("control") ||
+            text.contains("controller") ||
+            text.contains("action")
+        let asksReliability = text.contains("difficult") ||
+            text.contains("reliable") ||
+            text.contains("reliability") ||
+            text.contains("why was")
+        return mentionsPerception && mentionsControl && asksReliability
     }
 
     static func isRobotPerceptionToNavigationQuestion(_ text: String) -> Bool {

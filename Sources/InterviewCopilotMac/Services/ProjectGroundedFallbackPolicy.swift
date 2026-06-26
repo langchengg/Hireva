@@ -61,6 +61,25 @@ enum ProjectGroundedFallbackPolicy {
                 keyPoints: ["VLA: DROID trajectories, MuJoCo/Franka, learned visuomotor policies, and decoder comparison.", "LeoRover: ROS2, YOLOv8, localisation, navigation, manipulation, and recovery on a real robot.", "Main difference: model-learning research in simulation versus real-world system integration and deployment."]
             )
         case .systemIntegrationDebugging:
+            let normalizedQuestion = IntentRouter.normalize(question.questionText)
+            if IntentRouter.isRobotDecisionInformationQuestion(normalizedQuestion) {
+                return IntentFallbackAnswer(
+                    sayFirst: "Before LeoRover could decide where to move and what to grasp, it needed the target object identity, the object pose or location in the robot/world frame, confidence that the detection was stable, distance and reachability information, and a navigation target that kept the manipulator in a feasible grasping position.",
+                    keyPoints: ["Needed object identity plus a validated target pose or location.", "Used robot state, distance, reachability, and spatial consistency before acting.", "Navigation and grasp decisions depended on a feasible handoff from perception to manipulation."]
+                )
+            }
+            if IntentRouter.isVisualDetectionToPhysicalActionQuestion(normalizedQuestion) {
+                return IntentFallbackAnswer(
+                    sayFirst: "In my LeoRover project, visual detections became physical actions by turning object detections into target poses, validating them against robot state, then handing that target through ROS2 to localisation, navigation, manipulation, and recovery behaviours when the real robot could not execute the first attempt reliably.",
+                    keyPoints: ["Object detections were converted into target poses for the robot pipeline.", "Localisation and navigation used the target pose to move into a feasible position.", "Manipulation and recovery depended on validation, robot state, and retry behaviour."]
+                )
+            }
+            if IntentRouter.isPerceptionControlReliabilityQuestion(normalizedQuestion) {
+                return IntentFallbackAnswer(
+                    sayFirst: "I combined perception and control by turning camera detections and robot-state estimates into target poses or action goals, then letting the navigation/manipulation controller execute only after the pose, timing, and confidence checks were consistent. The hard part was reliability: small calibration errors, latency, noisy detections, or a bad frame transform could turn a good perception result into the wrong physical motion.",
+                    keyPoints: ["Perception produced target poses or action goals, not just labels.", "Control used validated robot state, timing, and confidence before moving.", "Reliability was hard because latency, calibration, and noisy detections affected real motion."]
+                )
+            }
             return IntentFallbackAnswer(
                 sayFirst: "On LeoRover, YOLOv8 detections fed the ROS2 perception pipeline, which turned object detections into target poses for localisation, navigation, and manipulation. I treated it as a system integration problem: I compared logs and timestamps across modules, then added validation and recovery behaviour so the robot could retry when detection, localisation, or execution was uncertain.",
                 keyPoints: ["YOLOv8 detection produced target information for localisation and navigation.", "Manipulation depended on validated perception and robot-state handoffs.", "Recovery behaviour handled missed detections, bad poses, and execution uncertainty.", "Lesson: logs, timestamps, and handoff checks matter as much as individual model accuracy."]

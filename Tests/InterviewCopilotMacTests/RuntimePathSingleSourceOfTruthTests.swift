@@ -645,6 +645,111 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func visualActionQuestionThenInformationNeedQuestionSplitGenerateAndPersistSeparately() async throws {
+        let traceURL = temporaryTraceURL("runtime-visual-action-information-trace")
+        let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.delayProvider = RealDelayProvider()
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        client.stageAStreamDelayByNeedle["What information did the robot need"] = 250_000_000
+
+        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world"
+        let secondQuestion = "What information did the robot need before it could decide where to move and what to grasp"
+        let taskID = "runtime-visual-action-information-task"
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-visual-action-first",
+            sessionID: session.id,
+            text: firstQuestion,
+            asrFinalizationReason: "final is longer or similar",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 1,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: firstQuestion.utf16.count
+        ))
+
+        try await waitUntil(timeout: 60.0) {
+            appState.currentSuggestion?.questionText == firstQuestion &&
+                appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("target pose") &&
+                appState.generationUIState.isTerminal
+        }
+
+        let firstCard = try #require(appState.currentSuggestion)
+        let firstQuestionID = try #require(firstCard.detectedQuestionID)
+        let firstGenerationID = try #require(firstCard.generationID)
+        let firstAnswer = firstCard.sayFirst
+        #expect(firstAnswer.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(firstAnswer.localizedCaseInsensitiveContains("visual") || firstAnswer.localizedCaseInsensitiveContains("detections"))
+        #expect(firstAnswer.localizedCaseInsensitiveContains("navigation"))
+        #expect(firstAnswer.localizedCaseInsensitiveContains("manipulation") || firstAnswer.localizedCaseInsensitiveContains("grasp"))
+
+        let cumulative = "\(firstQuestion) \(secondQuestion)"
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-visual-action-second",
+            sessionID: session.id,
+            text: cumulative,
+            asrFinalizationReason: "final is longer or similar",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 2,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: cumulative.utf16.count
+        ))
+
+        try await waitUntil(timeout: 5.0) {
+            appState.lastDetectedQuestion?.questionText == secondQuestion &&
+                appState.activeQuestionID == appState.lastDetectedQuestion?.id
+        }
+        #expect(appState.visibleAssistantRenderState.questionText == secondQuestion)
+        #expect(appState.visibleAssistantRenderState.answerText != firstAnswer)
+        #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("transformed visual detections") == false)
+
+        try await waitUntil(timeout: 60.0) {
+            appState.currentSuggestion?.questionText == secondQuestion &&
+                appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("object identity") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("grasp") &&
+                appState.generationUIState.isTerminal &&
+                client.streamCallCount >= 2
+        }
+
+        let secondCard = try #require(appState.currentSuggestion)
+        let secondQuestionID = try #require(secondCard.detectedQuestionID)
+        let secondGenerationID = try #require(secondCard.generationID)
+        #expect(secondQuestionID != firstQuestionID)
+        #expect(secondGenerationID != firstGenerationID)
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("object identity") || secondCard.sayFirst.localizedCaseInsensitiveContains("target object"))
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("pose") || secondCard.sayFirst.localizedCaseInsensitiveContains("location") || secondCard.sayFirst.localizedCaseInsensitiveContains("position"))
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("navigation"))
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("grasp"))
+
+        try await waitUntil(timeout: 60.0) {
+            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+            return detected.count == 2 &&
+                rows.count == 2 &&
+                rows.map(\.questionText) == [firstQuestion, secondQuestion]
+        }
+
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(rows.map(\.questionText) == [firstQuestion, secondQuestion])
+        #expect(Set(rows.compactMap(\.detectedQuestionID)).count == 2)
+        #expect(rows.allSatisfy { ($0.questionText ?? "").localizedCaseInsensitiveContains("real world what information") == false })
+        #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
+        #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == [firstQuestion, secondQuestion])
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"question.accepted\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+        #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
+        #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
+        #expect(trace.contains("\"question_intent\":\"generic\"") == false)
+        #expect(trace.contains("real world what information") == false)
+    }
+
+    @Test
     func visibleStageATextIsPersistedWhenProviderStreamDoesNotFinish() async throws {
         let traceURL = temporaryTraceURL("runtime-stage-a-visible-timeout-trace")
         let (appState, _, client) = try makeAppState(traceURL: traceURL)
@@ -1716,6 +1821,32 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
               "risk_level": "low"
             }
             """
+        } else if currentQuestion.localizedCaseInsensitiveContains("What information did the robot need") {
+            content = """
+            {
+              "strategy": "Robot decision information answer",
+              "say_first": "The robot needed object identity, target pose or location, distance, spatial relationship to the robot, reachability, and a navigation target before it could decide where to move and what to grasp.",
+              "key_points": ["Object identity and target pose defined what to act on.", "Distance, spatial relationship, and reachability checked whether action was feasible.", "Navigation and grasp decisions used the same validated target state."],
+              "follow_up_ready": ["I can also explain how I validated the handoff before acting."],
+              "confidence": 0.9,
+              "caution": "None",
+              "evidence_used": [],
+              "risk_level": "low"
+            }
+            """
+        } else if currentQuestion.localizedCaseInsensitiveContains("visual detections into physical actions") {
+            content = """
+            {
+              "strategy": "Visual detection to action answer",
+              "say_first": "In LeoRover, visual detections became physical actions by converting object detections into target poses, validating the pose against robot state, then passing that target through ROS2 to localization, navigation, manipulation, and recovery behaviors.",
+              "key_points": ["Visual detections were converted into target poses.", "Localization and navigation moved the robot toward a feasible manipulation pose.", "Manipulation and recovery behavior handled grasp attempts, missed detections, and bad poses."],
+              "follow_up_ready": ["I can also describe one failure where validation stopped a bad handoff."],
+              "confidence": 0.9,
+              "caution": "None",
+              "evidence_used": [],
+              "risk_level": "low"
+            }
+            """
         } else if prompt.localizedCaseInsensitiveContains("YOLOv8") ||
             prompt.localizedCaseInsensitiveContains("confident but wrong") ||
             prompt.localizedCaseInsensitiveContains("detector") {
@@ -1864,6 +1995,34 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
                     """
                 } else {
                     text = "My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain."
+                }
+            } else if currentQuestion.localizedCaseInsensitiveContains("What information did the robot need") {
+                if isFullCardPrompt {
+                    text = """
+                    SAY_FIRST: The robot needed object identity, target pose or location, distance, spatial relationship to the robot, reachability, and a navigation target before it could decide where to move and what to grasp.
+                    KEY_POINTS:
+                    - Object identity and target pose defined what to act on.
+                    - Distance, spatial relationship, and reachability checked whether action was feasible.
+                    - Navigation and grasp decisions used the same validated target state.
+                    FOLLOW_UP:
+                    - I can also explain how I validated the handoff before acting.
+                    """
+                } else {
+                    text = "The robot needed object identity, target pose or location, distance, spatial relationship to the robot, reachability, and a navigation target before it could decide where to move and what to grasp."
+                }
+            } else if currentQuestion.localizedCaseInsensitiveContains("visual detections into physical actions") {
+                if isFullCardPrompt {
+                    text = """
+                    SAY_FIRST: In LeoRover, visual detections became physical actions by converting object detections into target poses, validating the pose against robot state, then passing that target through ROS2 to localization, navigation, manipulation, and recovery behaviors.
+                    KEY_POINTS:
+                    - Visual detections were converted into target poses.
+                    - Localization and navigation moved the robot toward a feasible manipulation pose.
+                    - Manipulation and recovery behavior handled grasp attempts, missed detections, and bad poses.
+                    FOLLOW_UP:
+                    - I can also describe one failure where validation stopped a bad handoff.
+                    """
+                } else {
+                    text = "In LeoRover, visual detections became physical actions by converting object detections into target poses, validating the pose against robot state, then passing that target through ROS2 to localization, navigation, manipulation, and recovery behaviors."
                 }
             } else if prompt.localizedCaseInsensitiveContains("YOLOv8") ||
                 prompt.localizedCaseInsensitiveContains("confident but wrong") ||

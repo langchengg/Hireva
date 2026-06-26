@@ -270,7 +270,16 @@ enum QuestionAnswerAlignmentEvaluator {
 
         if questionIntent == .systemIntegrationDebugging {
             let hasConcreteProject: Bool
-            if isRobotSystemArchitectureQuestion(normalizedQuestion) {
+            if isRobotDecisionInformationQuestion(normalizedQuestion) {
+                hasConcreteProject = containsAny(normalizedAnswer, ["object identity", "target object", "target", "object pose", "target pose", "location", "position"]) &&
+                    containsAny(normalizedAnswer, ["navigation", "where to move", "move", "reachability", "reachable", "grasp", "manipulation", "action"])
+            } else if isVisualDetectionToPhysicalActionQuestion(normalizedQuestion) {
+                hasConcreteProject = containsAny(normalizedAnswer, ["yolov8", "yolo", "visual detection", "object detection", "detections", "detector"]) &&
+                    containsAny(normalizedAnswer, ["target pose", "target poses", "object pose", "localisation", "localization", "navigation", "manipulation", "grasp"])
+            } else if isPerceptionControlReliabilityQuestion(normalizedQuestion) {
+                hasConcreteProject = containsAny(normalizedAnswer, ["perception", "visual", "detection", "camera"]) &&
+                    containsAny(normalizedAnswer, ["control", "controller", "action", "motion", "navigation", "manipulation"])
+            } else if isRobotSystemArchitectureQuestion(normalizedQuestion) {
                 hasConcreteProject = containsAny(normalizedAnswer, ["yolov8", "yolo", "detection", "detector"]) &&
                     containsAny(normalizedAnswer, ["ros2", "target pose", "target poses", "localisation", "localization", "navigation"])
             } else {
@@ -278,10 +287,10 @@ enum QuestionAnswerAlignmentEvaluator {
                     normalizedAnswer.contains("ros2")
             }
             let hasIntegrationWork = containsAny(normalizedAnswer, ["perception", "navigation", "manipulation", "handoff", "module", "pipeline"])
-            let hasStarEvidence = containsAny(normalizedAnswer, ["situation", "task", "action", "result", "reproduced", "isolated", "added validation", "recovery"])
+            let hasStarEvidence = containsAny(normalizedAnswer, ["situation", "task", "action", "result", "reproduced", "isolated", "added validation", "validation", "validated", "before acting", "handoff", "recovery"])
             if !hasConcreteProject || !hasIntegrationWork || !hasStarEvidence {
                 verdict = .mismatched
-                finalReason += " Rejected system-integration debugging answer without concrete LeoRover/ROS2 STAR-style evidence."
+                finalReason += " Rejected system-integration answer without concrete perception-to-action, robot-state, or recovery evidence."
             }
         }
 
@@ -540,6 +549,54 @@ enum QuestionAnswerAlignmentEvaluator {
                     Theme(name: "core difference", alternatives: ["difference", "while", "versus", "whereas", "learning-policy evaluation", "system integration", "simulation", "real-world", "real world"])
                 ],
                 wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
+        if isRobotDecisionInformationQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "object identity / target", alternatives: ["object identity", "target object", "target", "object"]),
+                    Theme(name: "pose / position / location", alternatives: ["pose", "position", "location", "target pose", "object pose"]),
+                    Theme(name: "spatial relationship / distance", alternatives: ["spatial", "distance", "frame", "robot state", "world frame"]),
+                    Theme(name: "reachability", alternatives: ["reachability", "reachable", "feasible"]),
+                    Theme(name: "navigation target", alternatives: ["navigation", "where to move", "move"]),
+                    Theme(name: "grasp / action decision", alternatives: ["grasp", "manipulation", "action", "before acting"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
+                ]
+            )
+        }
+
+        if isVisualDetectionToPhysicalActionQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "visual / object detection", alternatives: ["visual detection", "visual detections", "object detection", "detections", "yolov8", "detector"]),
+                    Theme(name: "target / object", alternatives: ["target object", "target", "object"]),
+                    Theme(name: "pose / localisation", alternatives: ["target pose", "object pose", "localisation", "localization", "position", "location"]),
+                    Theme(name: "navigation / movement", alternatives: ["navigation", "navigate", "move"]),
+                    Theme(name: "manipulation / grasp", alternatives: ["manipulation", "grasp", "pick"]),
+                    Theme(name: "action/control pipeline", alternatives: ["physical action", "actions", "control", "pipeline", "ros2"]),
+                    Theme(name: "validation / recovery", alternatives: ["validation", "validated", "recovery", "retry", "before acting"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
+                ]
+            )
+        }
+
+        if isPerceptionControlReliabilityQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "perception signal", alternatives: ["perception", "visual", "detection", "camera"]),
+                    Theme(name: "control/action execution", alternatives: ["control", "controller", "action", "motion", "navigation", "manipulation"]),
+                    Theme(name: "target state", alternatives: ["target pose", "action goal", "robot state", "pose", "state estimate"]),
+                    Theme(name: "validation/timing", alternatives: ["validation", "validated", "confidence", "timing", "latency", "before moving", "before acting"]),
+                    Theme(name: "reliability challenge", alternatives: ["reliable", "reliability", "difficult", "calibration", "noisy", "frame transform"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
+                ]
             )
         }
 
@@ -987,6 +1044,11 @@ enum QuestionAnswerAlignmentEvaluator {
         if isRobotSystemArchitectureQuestion(answer) {
             return .systemIntegrationDebugging
         }
+        if isVisualDetectionToPhysicalActionQuestion(answer) ||
+            isRobotDecisionInformationQuestion(answer) ||
+            isPerceptionControlReliabilityQuestion(answer) {
+            return .systemIntegrationDebugging
+        }
         if (answer.contains("yolov8") || answer.contains("detector")) &&
             (answer.contains("wrong prediction") || answer.contains("false positive") || answer.contains("confident but wrong") || answer.contains("debug")) {
             return .perceptionDebugging
@@ -1094,6 +1156,51 @@ enum QuestionAnswerAlignmentEvaluator {
             "recovery"
         ].filter { question.contains($0) }.count
         return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
+    }
+
+    private static func isVisualDetectionToPhysicalActionQuestion(_ question: String) -> Bool {
+        let mentionsVisualDetection = question.contains("visual detection") ||
+            question.contains("visual detections") ||
+            question.contains("object detection") ||
+            question.contains("detections")
+        let asksTransformation = question.contains("transformed") ||
+            question.contains("transform") ||
+            question.contains("turn") ||
+            question.contains("converted") ||
+            question.contains("map")
+        let mentionsPhysicalAction = question.contains("physical action") ||
+            question.contains("physical actions") ||
+            question.contains("real world") ||
+            question.contains("real-world") ||
+            question.contains("robot")
+        return mentionsVisualDetection && asksTransformation && mentionsPhysicalAction
+    }
+
+    private static func isRobotDecisionInformationQuestion(_ question: String) -> Bool {
+        let asksInformation = question.contains("what information") ||
+            question.contains("information did the robot need") ||
+            question.contains("robot need before")
+        let mentionsMove = question.contains("where to move") ||
+            question.contains("move") ||
+            question.contains("navigation target")
+        let mentionsGrasp = question.contains("what to grasp") ||
+            question.contains("grasp") ||
+            question.contains("pick")
+        return asksInformation && mentionsMove && mentionsGrasp
+    }
+
+    private static func isPerceptionControlReliabilityQuestion(_ question: String) -> Bool {
+        let mentionsPerception = question.contains("perception") ||
+            question.contains("visual") ||
+            question.contains("detection")
+        let mentionsControl = question.contains("control") ||
+            question.contains("controller") ||
+            question.contains("action")
+        let asksReliability = question.contains("difficult") ||
+            question.contains("reliable") ||
+            question.contains("reliability") ||
+            question.contains("why was")
+        return mentionsPerception && mentionsControl && asksReliability
     }
 
     private static func isRealWorldExecutionChallengeQuestion(_ question: String) -> Bool {

@@ -128,6 +128,26 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func visualDetectionActionThenWhatInformationQuestionSplitsIntoTwoCandidates() {
+        let q1 = "Can you explain how your robot transformed visual detections into physical actions in the real world"
+        let q2 = "What information did the robot need before it could decide where to move and what to grasp"
+        let candidates = QuestionCandidatePipeline.extract(from: "\(q1) \(q2)")
+
+        #expect(candidates.map(\.text) == [q1, q2])
+        #expect(candidates.map(\.answerRelevanceIntent) == [.systemIntegrationDebugging, .systemIntegrationDebugging])
+        #expect(!candidates.contains { $0.text.localizedCaseInsensitiveContains("real world what information") })
+    }
+
+    @Test
+    func compoundPerceptionControlQuestionIsNotSplitAtRelatedWhyTail() {
+        let question = "How did you combine perception and control, and why was that connection difficult to make reliable?"
+        let candidates = QuestionCandidatePipeline.extract(from: question)
+
+        #expect(candidates.map(\.text) == [question])
+        #expect(candidates.first?.answerRelevanceIntent == .systemIntegrationDebugging)
+    }
+
+    @Test
     func realScreenshotUnpunctuatedArchitectureTranscriptCanonicalizesAndExtracts() throws {
         let candidates = QuestionCandidatePipeline.extract(
             from: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"

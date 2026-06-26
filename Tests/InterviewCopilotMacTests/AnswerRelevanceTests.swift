@@ -453,6 +453,82 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func visualDetectionToPhysicalActionFallbackIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("Can you explain how your robot transformed visual detections into physical actions in the real world")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("visual") || combined.localizedCaseInsensitiveContains("detection"))
+        #expect(combined.localizedCaseInsensitiveContains("target pose") || combined.localizedCaseInsensitiveContains("object pose"))
+        #expect(combined.localizedCaseInsensitiveContains("navigation"))
+        #expect(combined.localizedCaseInsensitiveContains("manipulation") || combined.localizedCaseInsensitiveContains("grasp"))
+        #expect(combined.localizedCaseInsensitiveContains("recovery") || combined.localizedCaseInsensitiveContains("retry"))
+        #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Direct answer first") == false)
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func robotDecisionInformationFallbackIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("What information did the robot need before it could decide where to move and what to grasp")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("object identity") || combined.localizedCaseInsensitiveContains("target object"))
+        #expect(combined.localizedCaseInsensitiveContains("pose") || combined.localizedCaseInsensitiveContains("location") || combined.localizedCaseInsensitiveContains("position"))
+        #expect(combined.localizedCaseInsensitiveContains("distance") || combined.localizedCaseInsensitiveContains("spatial"))
+        #expect(combined.localizedCaseInsensitiveContains("reachability") || combined.localizedCaseInsensitiveContains("feasible"))
+        #expect(combined.localizedCaseInsensitiveContains("navigation"))
+        #expect(combined.localizedCaseInsensitiveContains("grasp"))
+        #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Concrete example from experience") == false)
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func genericCoachingTemplateIsRejectedForVisualActionQuestions() {
+        let questionText = "Can you explain how your robot transformed visual detections into physical actions in the real world"
+        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
+
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+    }
+
+    @Test
+    func perceptionControlReliabilityFallbackIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("How did you combine perception and control, and why was that connection difficult to make reliable")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("perception"))
+        #expect(combined.localizedCaseInsensitiveContains("control"))
+        #expect(combined.localizedCaseInsensitiveContains("target pose") || combined.localizedCaseInsensitiveContains("action goal"))
+        #expect(combined.localizedCaseInsensitiveContains("latency") || combined.localizedCaseInsensitiveContains("calibration") || combined.localizedCaseInsensitiveContains("timing"))
+        #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Outcome or lesson learned") == false)
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func genericCoachingTemplateIsRejectedForPerceptionControlReliabilityQuestion() {
+        let questionText = "How did you combine perception and control, and why was that connection difficult to make reliable"
+        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
+
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+    }
+
+    @Test
     func interviewerQuestionsFallbackOutputsActualQuestions() {
         let question = makeQuestion("What questions would you ask us about the team or the role before accepting an offer?")
         let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
@@ -831,6 +907,21 @@ struct AnswerRelevanceTests {
             question: "Tell me about a time you had to debug a system integration problem.",
             intent: .systemIntegrationDebugging,
             mustContain: ["system integration", "logs", "timestamps", "recovery"]
+        ),
+        Fixture(
+            question: "Can you explain how your robot transformed visual detections into physical actions in the real world",
+            intent: .systemIntegrationDebugging,
+            mustContain: ["target pose", "navigation", "manipulation", "recovery"]
+        ),
+        Fixture(
+            question: "What information did the robot need before it could decide where to move and what to grasp",
+            intent: .systemIntegrationDebugging,
+            mustContain: ["object identity", "location", "reachability", "navigation", "grasp"]
+        ),
+        Fixture(
+            question: "How did you combine perception and control, and why was that connection difficult to make reliable",
+            intent: .systemIntegrationDebugging,
+            mustContain: ["perception", "control", "target pose", "latency"]
         ),
         Fixture(
             question: "Why do you want to join our team?",

@@ -162,6 +162,7 @@ enum MultiQuestionSplitter {
             "\\btell\\s+me\\s+about\\b",
             "\\bwalk\\s+me\\s+through\\b",
             "\\bwhat\\s+did\\b",
+            "\\bwhat\\s+information\\s+did\\b",
             "\\bwhat\\s+questions\\b",
             "\\bwhat\\s+made\\s+real[-\\s]+world\\s+execution\\b",
             "\\bwhat\\s+was\\b",
