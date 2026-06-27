@@ -1080,6 +1080,12 @@ extension AppState {
                 candidate: candidate,
                 timestamp: Date()
             ))
+            recordLifecycleTrace(
+                "question.detected",
+                sessionID: question.sessionID,
+                questionID: accepted.question.id,
+                text: candidate.text
+            )
             recordTranscriptRuntimeEvent(.utteranceBufferConsumed(
                 sessionID: question.sessionID,
                 questionID: accepted.question.id,

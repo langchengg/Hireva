@@ -29,6 +29,7 @@ enum ASRCanonicalizer {
         canonical = replaceLeoRoverVariants(in: canonical)
         canonical = replaceYOLOv8Variants(in: canonical)
         canonical = replaceModelVariants(in: canonical)
+        canonical = replaceSkillTermVariants(in: canonical)
         canonical = replaceSimToRealVariants(in: canonical)
         canonical = replaceMitigationTailVariants(in: canonical)
         canonical = QuestionTextUtilities.regexReplace(#"\bfrom\s+n\s+to\s+end\b"#, in: canonical, with: "from end to end")
@@ -95,6 +96,15 @@ enum ASRCanonicalizer {
         result = QuestionTextUtilities.regexReplace(#"\bflow\s*matching\b"#, in: result, with: "flow-matching")
         result = QuestionTextUtilities.regexReplace(#"\bflow[-\s]+matching\b"#, in: result, with: "flow-matching")
         result = QuestionTextUtilities.regexReplace(#"\bdiffusion[-\s]+based\s+policy\b"#, in: result, with: "diffusion policy")
+        return result
+    }
+
+    private static func replaceSkillTermVariants(in text: String) -> String {
+        var result = text
+        result = QuestionTextUtilities.regexReplace(#"\bpython\s+c\s+and\s+(?:rose|ros)\s+two\b"#, in: result, with: "Python, C++, and ROS2")
+        result = QuestionTextUtilities.regexReplace(#"\bc\s+plus\s+plus\b"#, in: result, with: "C++")
+        result = QuestionTextUtilities.regexReplace(#"\b(?:rose|ros)\s+two\b"#, in: result, with: "ROS2")
+        result = QuestionTextUtilities.regexReplace(#"\bros\s*2\b"#, in: result, with: "ROS2")
         return result
     }
 

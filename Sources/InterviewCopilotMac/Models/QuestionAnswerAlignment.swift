@@ -79,6 +79,10 @@ struct SuggestionAlignmentRecord: Identifiable, Equatable {
 /// persistence, with stricter handling for technical/model-comparison questions
 /// where `unknown` should not be accepted as good enough.
 enum QuestionAnswerAlignmentEvaluator {
+    static func containsGenericCoachingTemplate(_ text: String) -> Bool {
+        !genericCoachingIndicators(in: normalize(text)).isEmpty
+    }
+
     static func isAnswerComplete(_ answer: String) -> Bool {
         incompleteAnswerReason(answer) == nil
     }
@@ -205,25 +209,14 @@ enum QuestionAnswerAlignmentEvaluator {
         let missing = profile.themes.filter { theme in
             !theme.alternatives.contains { normalizedAnswer.contains($0) }
         }.map(\.name)
-        let wrong = profile.wrongIndicators.filter { indicator in
+        var wrong = profile.wrongIndicators.filter { indicator in
             indicator.alternatives.contains { normalizedAnswer.contains($0) }
         }.map(\.name)
-
-        let score = profile.themes.isEmpty ? 0.0 : Double(matched.count) / Double(profile.themes.count)
-        var verdict: AnswerAlignmentVerdict
-        if !wrong.isEmpty && score < 0.35 {
-            verdict = .mismatched
-        } else if score >= 0.45 {
-            verdict = .aligned
-        } else if score >= 0.20 {
-            verdict = .weaklyAligned
-        } else if !wrong.isEmpty {
-            verdict = .mismatched
-        } else {
-            verdict = .unknown
+        for indicator in genericCoachingIndicators(in: normalizedAnswer + " " + normalize(sayFirst))
+            where !wrong.contains(indicator) {
+            wrong.append(indicator)
         }
 
-        var finalReason = ""
         let isTechnical = questionIntent == .technicalChallenge ||
                           questionIntent == .modelComparison ||
                           questionIntent == .decoderComparison ||
@@ -237,12 +230,38 @@ enum QuestionAnswerAlignmentEvaluator {
                           questionIntent == .errorHandling ||
                           questionIntent == .skillComfort
 
+        let hasThemeProfile = !profile.themes.isEmpty
+        let score = hasThemeProfile ? Double(matched.count) / Double(profile.themes.count) : (wrong.isEmpty && !isTechnical ? 1.0 : 0.0)
+        var verdict: AnswerAlignmentVerdict
+        if !wrong.isEmpty && score < 0.35 {
+            verdict = .mismatched
+        } else if !hasThemeProfile && !isTechnical {
+            // Some manual/free-form questions do not map to a durable product
+            // profile. Treat them as acceptable only after the generic coaching,
+            // completeness, ownership, and explicit technical-family guards run.
+            verdict = .aligned
+        } else if score >= 0.45 {
+            verdict = .aligned
+        } else if score >= 0.20 {
+            verdict = .weaklyAligned
+        } else if !wrong.isEmpty {
+            verdict = .mismatched
+        } else {
+            verdict = .unknown
+        }
+
+        var finalReason = ""
         if isTechnical && verdict == .unknown {
             // Clear technical questions should either match expected themes or
             // fall back. Accepting "unknown" here reintroduces the no-answer or
             // wrong-answer behavior seen in real runtime testing.
             verdict = .mismatched
             finalReason += " Rejected unknown verdict for clear technical question."
+        }
+
+        if wrong.contains("generic interview coaching") {
+            verdict = .mismatched
+            finalReason += " Rejected generic coaching/meta answer."
         }
 
         if questionIntent == .decoderComparison {
@@ -282,6 +301,12 @@ enum QuestionAnswerAlignmentEvaluator {
             } else if isRobotSystemArchitectureQuestion(normalizedQuestion) {
                 hasConcreteProject = containsAny(normalizedAnswer, ["yolov8", "yolo", "detection", "detector"]) &&
                     containsAny(normalizedAnswer, ["ros2", "target pose", "target poses", "localisation", "localization", "navigation"])
+            } else if isDebuggingReflectionQuestion(normalizedQuestion) {
+                hasConcreteProject = containsAny(normalizedAnswer, ["real robot", "real-robot", "leorover", "leo rover"]) &&
+                    containsAny(normalizedAnswer, ["debugging", "debug", "integration", "handoff", "handoffs", "logs", "timestamps", "recovery", "validation"])
+            } else if isEvaluationReliabilityQuestion(normalizedQuestion) {
+                hasConcreteProject = containsAny(normalizedAnswer, ["system", "pipeline", "perception", "generation", "question", "answer", "stale", "owner", "ownership"]) &&
+                    containsAny(normalizedAnswer, ["validation", "validated", "recovery", "guard", "guarded", "rejected", "discarded", "failure", "safe"])
             } else {
                 hasConcreteProject = containsAny(normalizedAnswer, ["leorover", "leo rover"]) &&
                     normalizedAnswer.contains("ros2")
@@ -394,6 +419,18 @@ enum QuestionAnswerAlignmentEvaluator {
             ) {
                 verdict = .mismatched
                 finalReason += " Rejected real-world execution sayFirst: \(visibleIssue)."
+            }
+
+            if let visibleIssue = systemIntegrationVisibleSayFirstIssue(
+                normalizedQuestion: normalizedQuestion,
+                normalizedSayFirst: normalize(trimmedSayFirst),
+                questionIntent: questionIntent
+            ) {
+                verdict = .mismatched
+                if !wrong.contains("wrong system-integration subfamily") {
+                    wrong.append("wrong system-integration subfamily")
+                }
+                finalReason += " Rejected system-integration sayFirst: \(visibleIssue)."
             }
 
             if let visibleIssue = engineeringTeamFitVisibleSayFirstIssue(
@@ -646,6 +683,43 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
+        if isDebuggingReflectionQuestion(question) {
+            return Profile(
+                themes: [
+                    Theme(name: "real robot debugging lesson", alternatives: ["lesson", "learned", "debugging", "debug"]),
+                    Theme(name: "integration over isolated model accuracy", alternatives: ["integration", "handoff", "handoffs", "not only improving one model", "not just model accuracy"]),
+                    Theme(name: "real robot grounding", alternatives: ["real robot", "real-robot", "leorover"]),
+                    Theme(name: "failure causes", alternatives: ["timing", "calibration", "localisation", "localization", "perception", "navigation", "manipulation", "state mismatch"]),
+                    Theme(name: "instrumentation", alternatives: ["logs", "timestamps", "tracing", "reproducible", "reproduce"]),
+                    Theme(name: "recovery / validation", alternatives: ["recovery", "validation", "validated", "checks", "stop small state mismatches"])
+                ],
+                wrongIndicators: roleMotivationIndicators() + [
+                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
+                ]
+            )
+        }
+
+        if isEvaluationReliabilityQuestion(question),
+           !isRealWorldExecutionChallengeQuestion(question),
+           !question.contains("hardest technical challenge"),
+           !question.contains("hardest challenge"),
+           !question.contains("pipeline was most fragile"),
+           !question.contains("most fragile"),
+           !question.contains("real robot execution"),
+           !question.contains("clean demo"),
+           !question.contains("clean simulation") {
+            return Profile(
+                themes: [
+                    Theme(name: "system or pipeline", alternatives: ["system", "pipeline", "question", "answer", "generation", "perception"]),
+                    Theme(name: "failure or reliability", alternatives: ["failure", "failed", "wrong", "reliability", "reliable", "stale", "overwrite", "overwriting"]),
+                    Theme(name: "guard or validation", alternatives: ["guard", "guarded", "validation", "validated", "check", "checked"]),
+                    Theme(name: "ownership / ordering", alternatives: ["question id", "questionid", "generation id", "generationid", "owner", "ownership", "current question", "late result"]),
+                    Theme(name: "safe outcome", alternatives: ["discarded", "rejected", "recovery", "safe", "prevent", "prevented", "not overwrite"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
         if question.contains("another month") || question.contains("change first") || question.contains("improve first") {
             return Profile(
                 themes: [
@@ -687,7 +761,8 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
-        if question.contains("hardest technical challenge") ||
+        if isRealWorldExecutionChallengeQuestion(question) ||
+            question.contains("hardest technical challenge") ||
             question.contains("hardest challenge") ||
             question.contains("pipeline was most fragile") ||
             question.contains("most fragile") ||
@@ -949,6 +1024,86 @@ enum QuestionAnswerAlignmentEvaluator {
         return "visible answer missing \(missing.joined(separator: ", "))."
     }
 
+    private static func systemIntegrationVisibleSayFirstIssue(
+        normalizedQuestion: String,
+        normalizedSayFirst: String,
+        questionIntent: AnswerRelevanceIntent
+    ) -> String? {
+        guard questionIntent == .systemIntegrationDebugging else { return nil }
+
+        var missing: [String] = []
+        if isRobotDecisionInformationQuestion(normalizedQuestion) {
+            if !containsAny(normalizedSayFirst, ["object identity", "target object", "target", "object"]) {
+                missing.append("object/target identity")
+            }
+            if !containsAny(normalizedSayFirst, ["pose", "position", "location", "state estimate", "robot state"]) {
+                missing.append("pose/location/state estimate")
+            }
+            if !containsAny(normalizedSayFirst, ["navigation", "where to move", "move"]) {
+                missing.append("navigation or movement decision")
+            }
+            if !containsAny(normalizedSayFirst, ["grasp", "manipulation", "reachability", "reachable", "feasible"]) {
+                missing.append("grasp/manipulation feasibility")
+            }
+        } else if isVisualDetectionToPhysicalActionQuestion(normalizedQuestion) {
+            if !containsAny(normalizedSayFirst, ["visual", "detection", "detections", "object detection", "detector", "yolov8", "yolo"]) {
+                missing.append("visual/object detection")
+            }
+            if !containsAny(normalizedSayFirst, ["target pose", "object pose", "pose", "position", "location"]) {
+                missing.append("target/object pose")
+            }
+            if !containsAny(normalizedSayFirst, ["navigation", "navigate", "move", "movement"]) {
+                missing.append("navigation or movement")
+            }
+            if !containsAny(normalizedSayFirst, ["manipulation", "grasp", "physical action", "action", "control"]) {
+                missing.append("manipulation/grasp/action")
+            }
+        } else if isPerceptionControlReliabilityQuestion(normalizedQuestion) {
+            if !containsAny(normalizedSayFirst, ["perception", "visual", "detection", "camera"]) {
+                missing.append("perception signal")
+            }
+            if !containsAny(normalizedSayFirst, ["control", "controller", "action", "motion", "navigation", "manipulation"]) {
+                missing.append("control/action execution")
+            }
+            if !containsAny(normalizedSayFirst, ["reliable", "reliability", "difficult", "latency", "calibration", "timing", "validation"]) {
+                missing.append("reliability mechanism")
+            }
+        } else if isRobotSystemArchitectureQuestion(normalizedQuestion) {
+            if !containsAny(normalizedSayFirst, ["yolov8", "yolo", "detection", "detector"]) {
+                missing.append("YOLOv8/detection")
+            }
+            if !containsAny(normalizedSayFirst, ["localisation", "localization", "navigation"]) {
+                missing.append("localisation/navigation")
+            }
+            if !containsAny(normalizedSayFirst, ["manipulation", "grasp", "recovery", "recover"]) {
+                missing.append("manipulation/recovery")
+            }
+        } else if isDebuggingReflectionQuestion(normalizedQuestion) {
+            if !containsAny(normalizedSayFirst, ["debug", "debugging", "failure", "logs", "timestamps", "instrument", "reproduce"]) {
+                missing.append("debugging evidence")
+            }
+            if !containsAny(normalizedSayFirst, ["real robot", "real-robot", "leorover", "integration", "handoff", "pipeline"]) {
+                missing.append("real robot/integration context")
+            }
+        } else if isEvaluationReliabilityQuestion(normalizedQuestion) {
+            if containsAny(normalizedQuestion, ["wrong perception", "perception decision", "bad perception"]) {
+                if !containsAny(normalizedSayFirst, ["wrong perception", "perception decision", "bad perception", "wrong target", "wrong pose"]) {
+                    missing.append("wrong-perception failure mode")
+                }
+                if !containsAny(normalizedSayFirst, ["validation", "validated", "confidence", "spatial", "recovery", "retry", "safe stop"]) {
+                    missing.append("validation/recovery behavior")
+                }
+            } else if containsAny(normalizedQuestion, ["late result", "overwriting", "overwrite", "stale callback"]) {
+                if !containsAny(normalizedSayFirst, ["questionid", "generationid", "ownership", "stale", "discard", "active question"]) {
+                    missing.append("generation ownership guard")
+                }
+            }
+        }
+
+        guard !missing.isEmpty else { return nil }
+        return "visible answer missing \(missing.joined(separator: ", "))."
+    }
+
     private static func engineeringTeamFitVisibleSayFirstIssue(
         normalizedQuestion: String,
         normalizedSayFirst: String,
@@ -962,6 +1117,36 @@ enum QuestionAnswerAlignmentEvaluator {
             return nil
         }
         return "visible answer missing data/simulation/infrastructure/workflow coverage."
+    }
+
+    private static func genericCoachingIndicators(in normalizedText: String) -> [String] {
+        let coachingPhrases = [
+            "answer this directly",
+            "connect it to a concrete robotics example",
+            "keep the focus on what i did",
+            "why it mattered, and what i learned",
+            "direct answer first",
+            "concrete example from experience",
+            "outcome or lesson learned",
+            "structure the answer",
+            "use a concrete example",
+            "keep it concise"
+        ]
+        let metaAdvicePhrases = [
+            "i would answer this",
+            "i’d answer this",
+            "i'd answer this",
+            "you should answer",
+            "a good answer would",
+            "the answer should",
+            "say first",
+            "key points"
+        ]
+        guard coachingPhrases.contains(where: { normalizedText.contains($0) }) ||
+              metaAdvicePhrases.contains(where: { normalizedText.contains($0) }) else {
+            return []
+        }
+        return ["generic interview coaching"]
     }
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
@@ -1021,6 +1206,25 @@ enum QuestionAnswerAlignmentEvaluator {
             answer.contains("distribution shift") {
             return .simToRealDebugging
         }
+        if (answer.contains("yolov8") || answer.contains("detector")) &&
+            (answer.contains("wrong prediction") || answer.contains("false positive") || answer.contains("confident but wrong") || answer.contains("debug")) {
+            return .perceptionDebugging
+        }
+        if (answer.contains("trade-off") || answer.contains("tradeoff") || answer.contains("trade off")) &&
+            (answer.contains("robustness") || answer.contains("latency") || answer.contains("complexity") || answer.contains("reliability")) {
+            return .technicalTradeoff
+        }
+        if (answer.contains("system integration") || answer.contains("work together") || answer.contains("module boundaries") || answer.contains("handoff")) &&
+            (answer.contains("logs") || answer.contains("timestamps") || answer.contains("reproduced") || answer.contains("isolated") || answer.contains("recovery")) {
+            return .systemIntegrationDebugging
+        }
+        if containsAny(answer, ["real-world", "real world", "physical robot", "real robot"]) &&
+            containsAny(answer, ["simulation", "demo", "clean", "harder", "less predictable", "unpredictable"]) ||
+            answer.contains("hardest technical challenge") ||
+            answer.contains("module integration") ||
+            answer.contains("timing mismatch") {
+            return .technicalChallenge
+        }
         if answer.contains("vla") &&
             answer.contains("leorover") &&
             (answer.contains("difference") ||
@@ -1049,18 +1253,6 @@ enum QuestionAnswerAlignmentEvaluator {
             isPerceptionControlReliabilityQuestion(answer) {
             return .systemIntegrationDebugging
         }
-        if (answer.contains("yolov8") || answer.contains("detector")) &&
-            (answer.contains("wrong prediction") || answer.contains("false positive") || answer.contains("confident but wrong") || answer.contains("debug")) {
-            return .perceptionDebugging
-        }
-        if (answer.contains("trade-off") || answer.contains("tradeoff") || answer.contains("trade off")) &&
-            (answer.contains("robustness") || answer.contains("latency") || answer.contains("complexity") || answer.contains("reliability")) {
-            return .technicalTradeoff
-        }
-        if (answer.contains("system integration") || answer.contains("work together") || answer.contains("module boundaries") || answer.contains("handoff")) &&
-            (answer.contains("logs") || answer.contains("timestamps") || answer.contains("reproduced") || answer.contains("isolated") || answer.contains("recovery")) {
-            return .systemIntegrationDebugging
-        }
         if answer.contains("i’d like to ask") || answer.contains("i would ask") || answer.contains("how your team") || answer.contains("success criteria") {
             return .candidateQuestions
         }
@@ -1072,9 +1264,6 @@ enum QuestionAnswerAlignmentEvaluator {
         }
         if answer.contains("noisy detections") || answer.contains("repeated observations") || answer.contains("recovery behaviour") || answer.contains("recovery behavior") {
             return .errorHandling
-        }
-        if answer.contains("hardest technical challenge") || answer.contains("module integration") || answer.contains("timing mismatch") {
-            return .technicalChallenge
         }
         if answer.contains("leorover") || answer.contains("yolov8") || answer.contains("object retrieval robot") || answer.contains("object retrieval") {
             return .projectWalkthrough
@@ -1105,7 +1294,9 @@ enum QuestionAnswerAlignmentEvaluator {
         questionIntent: AnswerRelevanceIntent,
         answerIntent: AnswerRelevanceIntent
     ) -> String {
-        var parts = ["Matched \(matchedCount) of \(totalCount) expected themes."]
+        var parts = totalCount == 0
+            ? ["No expected theme profile; used generic quality safeguards."]
+            : ["Matched \(matchedCount) of \(totalCount) expected themes."]
         let intentsMatch = questionIntent == answerIntent ||
             (questionIntent == .diffusionPolicy && answerIntent == .modelComparison) ||
             (questionIntent == .modelComparison && answerIntent == .diffusionPolicy) ||
@@ -1141,77 +1332,31 @@ enum QuestionAnswerAlignmentEvaluator {
     }
 
     private static func isRobotSystemArchitectureQuestion(_ question: String) -> Bool {
-        let mentionsDetector = question.contains("yolov8") ||
-            question.contains("detector") ||
-            question.contains("detection")
-        let mentionsSystemFlow = question.contains("connect") ||
-            question.contains("connected") ||
-            question.contains("pipeline") ||
-            question.contains("system")
-        let downstreamModules = [
-            "localization",
-            "localisation",
-            "navigation",
-            "manipulation",
-            "recovery"
-        ].filter { question.contains($0) }.count
-        return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
+        IntentRouter.isRobotSystemArchitectureQuestion(question)
     }
 
     private static func isVisualDetectionToPhysicalActionQuestion(_ question: String) -> Bool {
-        let mentionsVisualDetection = question.contains("visual detection") ||
-            question.contains("visual detections") ||
-            question.contains("object detection") ||
-            question.contains("detections")
-        let asksTransformation = question.contains("transformed") ||
-            question.contains("transform") ||
-            question.contains("turn") ||
-            question.contains("converted") ||
-            question.contains("map")
-        let mentionsPhysicalAction = question.contains("physical action") ||
-            question.contains("physical actions") ||
-            question.contains("real world") ||
-            question.contains("real-world") ||
-            question.contains("robot")
-        return mentionsVisualDetection && asksTransformation && mentionsPhysicalAction
+        IntentRouter.isVisualDetectionToPhysicalActionQuestion(question)
     }
 
     private static func isRobotDecisionInformationQuestion(_ question: String) -> Bool {
-        let asksInformation = question.contains("what information") ||
-            question.contains("information did the robot need") ||
-            question.contains("robot need before")
-        let mentionsMove = question.contains("where to move") ||
-            question.contains("move") ||
-            question.contains("navigation target")
-        let mentionsGrasp = question.contains("what to grasp") ||
-            question.contains("grasp") ||
-            question.contains("pick")
-        return asksInformation && mentionsMove && mentionsGrasp
+        IntentRouter.isRobotDecisionInformationQuestion(question)
     }
 
     private static func isPerceptionControlReliabilityQuestion(_ question: String) -> Bool {
-        let mentionsPerception = question.contains("perception") ||
-            question.contains("visual") ||
-            question.contains("detection")
-        let mentionsControl = question.contains("control") ||
-            question.contains("controller") ||
-            question.contains("action")
-        let asksReliability = question.contains("difficult") ||
-            question.contains("reliable") ||
-            question.contains("reliability") ||
-            question.contains("why was")
-        return mentionsPerception && mentionsControl && asksReliability
+        IntentRouter.isPerceptionControlReliabilityQuestion(question)
+    }
+
+    private static func isDebuggingReflectionQuestion(_ question: String) -> Bool {
+        IntentRouter.isDebuggingReflectionQuestion(question)
+    }
+
+    private static func isEvaluationReliabilityQuestion(_ question: String) -> Bool {
+        IntentRouter.isEvaluationReliabilityQuestion(question)
     }
 
     private static func isRealWorldExecutionChallengeQuestion(_ question: String) -> Bool {
-        containsAny(question, [
-            "real-world execution",
-            "real world execution",
-            "real robot execution",
-            "clean simulation",
-            "demo environment",
-            "clean demo"
-        ])
+        IntentRouter.isRealWorldExecutionQuestion(question)
     }
 
     private static func isEngineeringTeamFitQuestion(_ question: String) -> Bool {
@@ -1220,19 +1365,6 @@ enum QuestionAnswerAlignmentEvaluator {
     }
 
     private static func isRobotPerceptionToNavigationQuestion(_ question: String) -> Bool {
-        let mentionsDetector = question.contains("yolov8") ||
-            question.contains("detector") ||
-            question.contains("detection") ||
-            question.contains("object detection")
-        let mentionsTargetSelection = question.contains("identify") ||
-            question.contains("target object") ||
-            question.contains("target pose") ||
-            question.contains("target poses") ||
-            question.contains("object before")
-        let mentionsDownstreamMotion = (
-            question.contains("localization") ||
-            question.contains("localisation")
-        ) && question.contains("navigation")
-        return mentionsDetector && mentionsTargetSelection && mentionsDownstreamMotion
+        IntentRouter.isRobotPerceptionToNavigationQuestion(question)
     }
 }

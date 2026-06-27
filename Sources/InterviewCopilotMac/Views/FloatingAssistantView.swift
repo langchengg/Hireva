@@ -189,6 +189,8 @@ struct FloatingAssistantView: View {
                     diagnosticRow("selectedProvider", activeCard?.providerName ?? appState.activeRealtimeProvider?.name ?? "None")
                     diagnosticRow("selectedModel", activeCard?.modelName ?? appState.activeRealtimeProvider?.model ?? "None")
                     diagnosticRow("generationStatus", renderState.generationStatus)
+                    diagnosticRow("queuedQuestionId", appState.pendingAcceptedQuestions.first?.question.id ?? "nil")
+                    diagnosticRow("queuedReason", appState.pendingAcceptedQuestions.isEmpty ? "none" : "active_generation_in_progress")
                     diagnosticRow("lastLifecycleEvent", lastLifecycleEvent?.name ?? "None")
                     diagnosticRow("lastLifecycleTimestamp", lastLifecycleEvent.map { diagnosticTime($0.timestamp) } ?? "None")
                     diagnosticRow("lastGenerationSkipReason", emptyAware(appState.transcriptRuntimeDiagnostics.lastGenerationRejectedReason, fallback: "None"))
@@ -197,6 +199,14 @@ struct FloatingAssistantView: View {
                     diagnosticRow("micEnabled", appState.settings.audioCaptureMode == .systemAudioOnly ? "false" : (appState.micCaptureRunning ? "true" : "false"))
                     diagnosticRow("answerOwnerQuestionId", activeCard?.detectedQuestionID ?? activeCard?.questionID ?? renderState.activeQuestionID ?? "nil")
                     diagnosticRow("visibleAnswerNonEmpty", renderState.hasAnswerText ? "true" : "false")
+                    diagnosticRow("fallbackType", activeCard?.finalVisibleSource ?? activeCard?.sayFirstSource ?? "none")
+                    diagnosticRow("answerSource", answerSource)
+                    diagnosticRow("alignmentScore", activeCard?.alignmentScore.map { String(format: "%.2f", $0) } ?? "nil")
+                    diagnosticRow("alignmentDecision", activeCard?.alignmentVerdict?.rawValue ?? "nil")
+                    diagnosticRow("isPlaceholder", isPlaceholderAnswer ? "true" : "false")
+                    diagnosticRow("isProjectGroundedFallback", isProjectGroundedFallback ? "true" : "false")
+                    diagnosticRow("isGenericTemplateRejected", isGenericTemplateRejected ? "true" : "false")
+                    diagnosticRow("historyRowCount", "\(appState.liveSuggestionHistory.count)")
                 }
 
                 diagnosticSection("Provider") {
@@ -443,6 +453,41 @@ struct FloatingAssistantView: View {
 
     private var lastLifecycleEvent: TranscriptRuntimeEventRecord? {
         appState.recentTranscriptRuntimeEvents.last
+    }
+
+    private var answerSource: String {
+        if let source = activeCard?.finalVisibleSource ?? activeCard?.sayFirstSource {
+            return source
+        }
+        if renderState.hasAnswerText {
+            return "stream"
+        }
+        if renderState.generationErrorText != nil {
+            return "error"
+        }
+        if !appState.pendingAcceptedQuestions.isEmpty {
+            return "queued"
+        }
+        return appState.providerStreamActive ? "provider_stream" : "none"
+    }
+
+    private var isPlaceholderAnswer: Bool {
+        activeCard?.sayFirst.isEmpty == false &&
+            QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(activeCard?.sayFirst ?? "")
+    }
+
+    private var isProjectGroundedFallback: Bool {
+        guard let source = activeCard?.finalVisibleSource ?? activeCard?.sayFirstSource else { return false }
+        return source.contains("fallback") &&
+            activeCard?.isLocal == true &&
+            !isPlaceholderAnswer &&
+            activeCard?.alignmentVerdict == .aligned
+    }
+
+    private var isGenericTemplateRejected: Bool {
+        appState.currentSuspectedMismatchReason.localizedCaseInsensitiveContains("generic coaching") ||
+            appState.lastAlignmentError.localizedCaseInsensitiveContains("generic coaching") ||
+            (activeCard?.mismatchReason?.localizedCaseInsensitiveContains("generic coaching") == true)
     }
 
     private func diagnosticTime(_ date: Date) -> String {

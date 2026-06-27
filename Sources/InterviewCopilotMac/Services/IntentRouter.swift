@@ -7,9 +7,26 @@ enum IntentRouter {
         if isDecoderComparisonQuestion(text) {
             return .decoderComparison
         }
-        if isVisualDetectionToPhysicalActionQuestion(text) ||
-            isRobotDecisionInformationQuestion(text) ||
-            isPerceptionControlReliabilityQuestion(text) {
+        if text.contains("sim-to-real") ||
+            text.contains("sim to real") ||
+            text.contains("policy works in mujoco") ||
+            text.contains("fails on a real robot") {
+            return .simToRealDebugging
+        }
+        if isRealWorldExecutionQuestion(text) ||
+            text.contains("hardest technical challenge") ||
+            text.contains("hardest challenge") ||
+            text.contains("pipeline was most fragile") ||
+            text.contains("most fragile") ||
+            text.contains("real-world execution") ||
+            text.contains("real world execution") ||
+            text.contains("clean simulation") ||
+            text.contains("demo environment") ||
+            text.contains("clean demo") ||
+            text.contains("real robot execution") {
+            return .technicalChallenge
+        }
+        if isSystemIntegrationFamilyQuestion(text) {
             return .systemIntegrationDebugging
         }
         if isRobotPerceptionToNavigationQuestion(text) {
@@ -35,17 +52,8 @@ enum IntentRouter {
         if text.contains("droid") && (text.contains("mujoco") || text.contains("franka") || text.contains("trajector")) {
             return .datasetAdaptation
         }
-        if text.contains("sim-to-real") ||
-            text.contains("sim to real") ||
-            text.contains("policy works in mujoco") ||
-            text.contains("fails on a real robot") {
-            return .simToRealDebugging
-        }
         if text.contains("difference between") && text.contains("vla") && text.contains("leorover") {
             return .projectComparison
-        }
-        if isRobotSystemArchitectureQuestion(text) {
-            return .systemIntegrationDebugging
         }
         if text.contains("system integration problem") ||
             text.contains("debug a system integration") {
@@ -68,18 +76,6 @@ enum IntentRouter {
             text.contains("autoregressive") ||
             text.contains("flow matching") {
             return .modelComparison
-        }
-        if text.contains("hardest technical challenge") ||
-            text.contains("hardest challenge") ||
-            text.contains("pipeline was most fragile") ||
-            text.contains("most fragile") ||
-            text.contains("real-world execution") ||
-            text.contains("real world execution") ||
-            text.contains("clean simulation") ||
-            text.contains("demo environment") ||
-            text.contains("clean demo") ||
-            text.contains("real robot execution") {
-            return .technicalChallenge
         }
         if text.contains("about yourself") || text.contains("brought you into robotics") || text.contains("introduce yourself") {
             return .tellMeAboutYourself
@@ -122,10 +118,8 @@ enum IntentRouter {
             lower.contains("droid") ||
             lower.contains("sim-to-real") ||
             lower.contains("continuous action") ||
-            isVisualDetectionToPhysicalActionQuestion(normalize(lower)) ||
-            isRobotDecisionInformationQuestion(normalize(lower)) ||
-            isPerceptionControlReliabilityQuestion(normalize(lower)) ||
-            isRobotSystemArchitectureQuestion(normalize(lower)) ||
+            isSystemIntegrationFamilyQuestion(normalize(lower)) ||
+            isRealWorldExecutionQuestion(normalize(lower)) ||
             lower.contains("fragile") ||
             lower.contains("real-world execution") ||
             lower.contains("real world execution") ||
@@ -223,6 +217,126 @@ enum IntentRouter {
         return mentionsDetector && mentionsSystemFlow && downstreamModules >= 3
     }
 
+    static func isSystemIntegrationFamilyQuestion(_ text: String) -> Bool {
+        isRoboticsPipelineQuestion(text) ||
+            isDecisionRequirementsQuestion(text) ||
+            isPerceptionControlReliabilityQuestion(text) ||
+            isRobotSystemArchitectureQuestion(text) ||
+            isRobotPerceptionToNavigationQuestion(text) ||
+            isDebuggingReflectionQuestion(text) ||
+            isEvaluationReliabilityQuestion(text)
+    }
+
+    static func isRoboticsPipelineQuestion(_ text: String) -> Bool {
+        let mentionsRobotOrPipeline = containsAny(text, [
+            "robot", "robotic", "robotics", "leorover", "leo rover",
+            "pipeline", "system", "end-to-end", "end to end",
+            "detector output", "perception module"
+        ])
+        let mentionsPerception = containsAny(text, [
+            "perception", "visual", "vision", "camera",
+            "detector", "detection", "detections", "object detection",
+            "yolov8", "yolo"
+        ])
+        let mentionsPhysicalAction = containsAny(text, [
+            "physical action", "physical actions", "action", "actions",
+            "move", "movement", "manipulation", "manipulator",
+            "grasp", "pick", "control", "recovery", "recover",
+            "decide what to do", "what to do"
+        ])
+        let asksForHandoff = containsAny(text, [
+            "connect", "connected", "combine", "combined", "transformed",
+            "transform", "turn into", "turned into", "convert", "converted",
+            "map", "mapped", "handoff", "handoffs", "from", "to", "pipeline",
+            "use", "used", "influence", "influenced", "led to"
+        ])
+        return mentionsRobotOrPipeline && mentionsPerception && mentionsPhysicalAction && asksForHandoff
+    }
+
+    static func isDecisionRequirementsQuestion(_ text: String) -> Bool {
+        let asksForRequiredState = containsAny(text, [
+            "what information", "what state", "what data", "what signal",
+            "what signals", "what constraints", "what inputs", "what did the robot need",
+            "what did it need", "needed before", "need before", "need to know",
+            "needed to know", "need to estimate", "needed to estimate",
+            "enough information", "enough state"
+        ])
+        let beforeAction = containsAny(text, ["before", "prior to"]) &&
+            containsAny(text, ["move", "moving", "grasp", "pick", "act", "action", "navigate", "navigation", "manipulate", "manipulation"])
+        let stateTerms = containsAny(text, [
+            "object identity", "target object", "target pose", "object pose",
+            "pose", "position", "location", "world frame", "robot frame",
+            "robot state", "state estimate", "reachability", "reachable",
+            "affordance", "navigation target", "constraint", "constraints"
+        ])
+        let decisionTerms = containsAny(text, [
+            "decide", "decision", "know", "estimate", "choose", "select"
+        ])
+        return (asksForRequiredState && (beforeAction || stateTerms || decisionTerms)) ||
+            (beforeAction && stateTerms && decisionTerms)
+    }
+
+    static func isRealWorldExecutionQuestion(_ text: String) -> Bool {
+        let realWorld = containsAny(text, [
+            "real-world", "real world", "physical robot", "real robot",
+            "hardware", "deployment", "deployed", "lab setup",
+            "field", "cluttered", "hallway", "physical environment"
+        ])
+        let contrast = containsAny(text, [
+            "simulation", "simulator", "sim-to-real", "sim to real",
+            "demo", "clean environment", "clean simulation", "clean demo"
+        ])
+        let difficulty = containsAny(text, [
+            "harder", "difficult", "challenge", "challenging", "fragile",
+            "less predictable", "unpredictable",
+            "uncertain", "uncertainty", "noise", "noisy", "calibration",
+            "latency", "timing", "drift", "failure", "failed", "mitigate",
+            "mitigation", "recover", "recovery"
+        ])
+        return (realWorld && (contrast || difficulty)) || (contrast && difficulty)
+    }
+
+    static func isDebuggingReflectionQuestion(_ text: String) -> Bool {
+        let reflection = containsAny(text, [
+            "lesson", "learned", "learn", "teach", "taught", "takeaway",
+            "what would you do differently", "do differently", "what changed"
+        ])
+        let debugging = containsAny(text, [
+            "debug", "debugging", "failure", "failed", "root cause",
+            "trace", "tracing", "logs", "timestamps", "instrument",
+            "instrumenting", "reproduce", "reproducible"
+        ])
+        let integrationContext = containsAny(text, [
+            "robot", "real robot", "leorover", "leo rover", "system",
+            "integration", "pipeline", "deployment", "simulation",
+            "perception", "navigation", "manipulation"
+        ])
+        return reflection && debugging && integrationContext
+    }
+
+    static func isEvaluationReliabilityQuestion(_ text: String) -> Bool {
+        let reliability = containsAny(text, [
+            "metric", "metrics", "reliability", "reliable", "validation",
+            "validated", "failure", "failed", "failure case", "failure cases",
+            "retry", "recovery behavior", "recovery behaviour", "test methodology",
+            "wrong perception", "perception decision", "bad perception",
+            "late result", "overwriting", "overwrite", "stale callback",
+            "risk", "riskiest", "fragile", "least reliable", "most reliable"
+        ])
+        let systemContext = containsAny(text, [
+            "system", "robot", "pipeline", "perception", "navigation",
+            "manipulation", "localization", "localisation", "recovery",
+            "question", "answer", "generation", "component", "subsystem",
+            "module", "stage"
+        ])
+        let asksAboutBehavior = containsAny(text, [
+            "what happened", "how did", "how would", "how do", "prevent",
+            "measure", "validate", "test", "handle", "which", "what component",
+            "what module", "what subsystem"
+        ])
+        return reliability && systemContext && asksAboutBehavior
+    }
+
     static func isVisualDetectionToPhysicalActionQuestion(_ text: String) -> Bool {
         let mentionsVisualDetection = text.contains("visual detection") ||
             text.contains("visual detections") ||
@@ -238,7 +352,10 @@ enum IntentRouter {
             text.contains("real world") ||
             text.contains("real-world") ||
             text.contains("robot")
-        return mentionsVisualDetection && asksTransformation && mentionsPhysicalAction
+        return !isRobotSystemArchitectureQuestion(text) &&
+            (mentionsVisualDetection && asksTransformation && mentionsPhysicalAction ||
+            isRoboticsPipelineQuestion(text)
+            )
     }
 
     static func isRobotDecisionInformationQuestion(_ text: String) -> Bool {
@@ -251,7 +368,8 @@ enum IntentRouter {
         let mentionsGrasp = text.contains("what to grasp") ||
             text.contains("grasp") ||
             text.contains("pick")
-        return asksInformation && mentionsMove && mentionsGrasp
+        return asksInformation && mentionsMove && mentionsGrasp ||
+            isDecisionRequirementsQuestion(text)
     }
 
     static func isPerceptionControlReliabilityQuestion(_ text: String) -> Bool {
@@ -283,5 +401,9 @@ enum IntentRouter {
             text.contains("localisation")
         ) && text.contains("navigation")
         return mentionsDetector && mentionsTargetSelection && mentionsDownstreamMotion
+    }
+
+    private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
+        needles.contains { text.contains($0) }
     }
 }

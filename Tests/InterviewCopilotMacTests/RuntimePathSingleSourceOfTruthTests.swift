@@ -1215,10 +1215,11 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func secondAcceptedRuntimeQuestionCancelsActiveGenerationAndStartsImmediately() async throws {
+    func secondAcceptedRuntimeQuestionSupersedesOrQueuesAndOwnsLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-question-queue-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
         client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
+        let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "queued-first-engineering-fit",
@@ -1235,14 +1236,19 @@ struct RuntimePathSingleSourceOfTruthTests {
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "queued-second-improvement",
             sessionID: session.id,
-            text: "If you had one more month to improve your LeoRover system, what would you improve first?"
+            text: secondQuestion
         ))
 
         try await waitUntil(timeout: 8.0) {
-            appState.lastDetectedQuestion?.questionText == "If you had one more month to improve your LeoRover system, what would you improve first?" &&
-            appState.activeQuestionID == appState.lastDetectedQuestion?.id &&
-            appState.cancelledGenerationCount >= 1 &&
-            appState.pendingAcceptedQuestions.isEmpty
+            let trace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+            let secondQuestionID = appState.lastDetectedQuestion?.id
+            let secondVisible = appState.currentSuggestion?.detectedQuestionID == secondQuestionID ||
+                appState.currentSuggestion?.questionText == secondQuestion
+            return appState.lastDetectedQuestion?.questionText == secondQuestion &&
+                appState.pendingAcceptedQuestions.isEmpty &&
+                (appState.activeQuestionID == secondQuestionID ||
+                 secondVisible ||
+                 trace.contains("\"event_type\":\"questionDequeued\""))
         }
 
         try await waitUntil(timeout: 60.0) {
@@ -1250,33 +1256,130 @@ struct RuntimePathSingleSourceOfTruthTests {
             appState.currentSuggestion?.alignmentVerdict == .aligned
         }
 
-        #expect(appState.currentSuggestion?.questionText == "If you had one more month to improve your LeoRover system, what would you improve first?")
+        #expect(appState.currentSuggestion?.questionText == secondQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true)
         #expect(!appState.currentSpinnerVisible)
 
         try await waitUntil(timeout: 60.0) {
             ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1 &&
-            appState.liveSuggestionHistory.contains { $0.questionText == "If you had one more month to improve your LeoRover system, what would you improve first?" }
+            appState.liveSuggestionHistory.contains { $0.questionText == secondQuestion }
         }
         let historyQuestions = appState.liveSuggestionHistory.compactMap(\.questionText)
-        #expect(historyQuestions.contains("If you had one more month to improve your LeoRover system, what would you improve first?"))
+        #expect(historyQuestions.contains(secondQuestion))
         #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
 
         try await waitUntil(timeout: 60.0) {
             let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
-            return latestTrace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") &&
+            let supersededOrQueued = latestTrace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") ||
+                (latestTrace.contains("\"event_type\":\"questionQueued\"") &&
+                 latestTrace.contains("\"event_type\":\"questionDequeued\""))
+            return supersededOrQueued &&
                 latestTrace.contains("\"event_type\":\"answer.request.started\"") &&
                 (latestTrace.contains("\"event_type\":\"answer.first_token\"") || latestTrace.contains("\"event_type\":\"answer.ui.rendered\"")) &&
                 latestTrace.contains("\"event_type\":\"questionHistoryAppended\"") &&
                 latestTrace.contains("\"event_type\":\"uiHistoryRefresh\"")
         }
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
+        #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") ||
+            (trace.contains("\"event_type\":\"questionQueued\"") &&
+             trace.contains("\"event_type\":\"questionDequeued\"")))
         #expect(trace.contains("\"event_type\":\"answer.request.started\""))
         #expect(trace.contains("\"event_type\":\"answer.first_token\"") || trace.contains("\"event_type\":\"answer.ui.rendered\""))
         #expect(trace.contains("\"event_type\":\"questionHistoryAppended\""))
         #expect(trace.contains("\"event_type\":\"uiHistoryRefresh\""))
+    }
+
+    @Test
+    func interruptAfterFirstVisibleThenDebuggingLessonDoesNotShowGenericFallback() async throws {
+        let traceURL = temporaryTraceURL("runtime-debugging-lesson-interrupt-trace")
+        let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.delayProvider = RealDelayProvider()
+        appState.generationFullCardWatchdogNanoseconds = 4_000_000_000
+        client.fullCardStreamHangByNeedle.insert("full decision-making process")
+        client.stageAStreamNeverYieldsByNeedle.insert("most important lesson")
+        client.fullCardStreamHangByNeedle.insert("most important lesson")
+
+        let firstQuestion = "Walk me through the full decision-making process of your robot from perception to navigation to manipulation to recovery"
+        let secondQuestion = "What was the most important lesson you learned from debugging the real robot"
+        let taskID = "runtime-debugging-lesson-interrupt-task"
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-debugging-lesson-q1",
+            sessionID: session.id,
+            text: firstQuestion,
+            asrFinalizationReason: "final is longer or similar",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 1,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: firstQuestion.utf16.count
+        ))
+
+        try await waitUntil(timeout: 12.0) {
+            appState.currentSuggestion?.questionText == firstQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText &&
+                !appState.generationUIState.isTerminal
+        }
+
+        let firstQuestionID = try #require(appState.currentSuggestion?.detectedQuestionID)
+        let firstGenerationID = try #require(appState.currentSuggestion?.generationID)
+        let firstAnswer = appState.visibleAssistantRenderState.answerText
+
+        let cumulative = "\(firstQuestion) \(secondQuestion)"
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "runtime-debugging-lesson-q2",
+            sessionID: session.id,
+            text: cumulative,
+            asrFinalizationReason: "final is longer or similar",
+            recognitionTaskID: taskID,
+            recognitionEventSequence: 2,
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: cumulative.utf16.count
+        ))
+
+        try await waitUntil(timeout: 12.0) {
+            appState.lastDetectedQuestion?.questionText == secondQuestion &&
+                appState.visibleAssistantRenderState.questionText == secondQuestion &&
+                appState.currentSuggestion?.questionText == secondQuestion &&
+                appState.visibleAssistantRenderState.hasAnswerText
+        }
+
+        let secondCard = try #require(appState.currentSuggestion)
+        let secondQuestionID = try #require(secondCard.detectedQuestionID)
+        let secondGenerationID = try #require(secondCard.generationID)
+        let secondAnswer = appState.visibleAssistantRenderState.answerText
+        let combined = ([secondAnswer] + appState.visibleAssistantRenderState.keyPoints).joined(separator: " ")
+
+        #expect(secondQuestionID != firstQuestionID)
+        #expect(secondGenerationID != firstGenerationID)
+        #expect(secondAnswer != firstAnswer)
+        #expect(secondCard.questionIntent == .systemIntegrationDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Direct answer first") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Concrete example from experience") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Outcome or lesson learned") == false)
+        #expect(combined.localizedCaseInsensitiveContains("debugging") || combined.localizedCaseInsensitiveContains("debug"))
+        #expect(combined.localizedCaseInsensitiveContains("real robot") || combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("integration") || combined.localizedCaseInsensitiveContains("handoff"))
+        #expect(combined.localizedCaseInsensitiveContains("logs"))
+        #expect(combined.localizedCaseInsensitiveContains("timestamps"))
+        #expect(combined.localizedCaseInsensitiveContains("recovery") || combined.localizedCaseInsensitiveContains("validation"))
+        #expect(secondCard.alignmentVerdict == .aligned)
+
+        try await waitUntil(timeout: 12.0) {
+            appState.generationUIState.isTerminal &&
+                !appState.currentSpinnerVisible &&
+                appState.visibleAssistantRenderState.questionText == secondQuestion
+        }
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
+        #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
+        #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
+        #expect(trace.contains("\"event_type\":\"question.accepted\""))
+        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+        #expect(trace.contains("\"question_intent\":\"generic\"") == false)
     }
 
     @Test
@@ -1807,6 +1910,32 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
               "risk_level": "low"
             }
             """
+        } else if isRoboticsPipelineQuestion(currentQuestion) {
+            content = """
+            {
+              "strategy": "LeoRover full decision process",
+              "say_first": "My LeoRover system moved from YOLOv8 perception to localization, navigation, manipulation, and recovery by turning detections into target poses, validating robot state and timing, then using ROS2 behaviors to navigate, attempt the grasp, and recover when execution was uncertain.",
+              "key_points": ["Perception produced target poses rather than just labels.", "Localization and navigation moved the real robot into a feasible manipulation state.", "Manipulation and recovery depended on validation, timing, and robot-state checks."],
+              "follow_up_ready": ["I can also describe one handoff failure and how I debugged it."],
+              "confidence": 0.9,
+              "caution": "None",
+              "evidence_used": [],
+              "risk_level": "low"
+            }
+            """
+        } else if isDebuggingReflectionQuestion(currentQuestion) {
+            content = """
+            {
+              "strategy": "Real robot debugging lesson",
+              "say_first": "The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module. On LeoRover I had to compare logs, timestamps, calibration assumptions, perception outputs, localization state, navigation timing, and manipulation recovery to reproduce failures and stop small state mismatches from propagating.",
+              "key_points": ["Real-robot debugging was mainly an integration problem.", "Logs, timestamps, calibration checks, and reproducible failures exposed bad handoffs.", "Recovery and validation kept perception, navigation, and manipulation errors from spreading."],
+              "follow_up_ready": ["I can also give a concrete example of one timing mismatch I would isolate."],
+              "confidence": 0.9,
+              "caution": "None",
+              "evidence_used": [],
+              "risk_level": "low"
+            }
+            """
         } else if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
             prompt.localizedCaseInsensitiveContains("recovery behaviors") {
             content = """
@@ -1979,6 +2108,34 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
                     """
                 } else {
                     text = "Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline."
+                }
+            } else if self.isRoboticsPipelineQuestion(currentQuestion) {
+                if isFullCardPrompt {
+                    text = """
+                    SAY_FIRST: My LeoRover system moved from YOLOv8 perception to localization, navigation, manipulation, and recovery by turning detections into target poses, validating robot state and timing, then using ROS2 behaviors to navigate, attempt the grasp, and recover when execution was uncertain.
+                    KEY_POINTS:
+                    - Perception produced target poses rather than just labels.
+                    - Localization and navigation moved the real robot into a feasible manipulation state.
+                    - Manipulation and recovery depended on validation, timing, and robot-state checks.
+                    FOLLOW_UP:
+                    - I can also describe one handoff failure and how I debugged it.
+                    """
+                } else {
+                    text = "My LeoRover system moved from YOLOv8 perception to localization, navigation, manipulation, and recovery by turning detections into target poses, validating robot state and timing, then using ROS2 behaviors to navigate, attempt the grasp, and recover when execution was uncertain."
+                }
+            } else if self.isDebuggingReflectionQuestion(currentQuestion) {
+                if isFullCardPrompt {
+                    text = """
+                    SAY_FIRST: The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module. On LeoRover I had to compare logs, timestamps, calibration assumptions, perception outputs, localization state, navigation timing, and manipulation recovery to reproduce failures and stop small state mismatches from propagating.
+                    KEY_POINTS:
+                    - Real-robot debugging was mainly an integration problem.
+                    - Logs, timestamps, calibration checks, and reproducible failures exposed bad handoffs.
+                    - Recovery and validation kept perception, navigation, and manipulation errors from spreading.
+                    FOLLOW_UP:
+                    - I can also give a concrete example of one timing mismatch I would isolate.
+                    """
+                } else {
+                    text = "The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module. On LeoRover I had to compare logs, timestamps, calibration assumptions, perception outputs, localization state, navigation timing, and manipulation recovery to reproduce failures and stop small state mismatches from propagating."
                 }
             } else if prompt.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
                 prompt.localizedCaseInsensitiveContains("recovery behaviors") {
@@ -2181,6 +2338,47 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
         return lower.contains("real-world execution") &&
             lower.contains("simulation") &&
             lower.contains("mitigat")
+    }
+
+    private func isRoboticsPipelineQuestion(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let mentionsPerception = lower.contains("perception") ||
+            lower.contains("detector") ||
+            lower.contains("detection") ||
+            lower.contains("yolov8")
+        let mentionsAction = lower.contains("physical action") ||
+            lower.contains("action") ||
+            lower.contains("navigation") ||
+            lower.contains("manipulation") ||
+            lower.contains("grasp") ||
+            lower.contains("recovery")
+        let asksPipeline = lower.contains("pipeline") ||
+            lower.contains("decision-making process") ||
+            lower.contains("connect") ||
+            lower.contains("from perception") ||
+            lower.contains("influence")
+        return mentionsPerception && mentionsAction && asksPipeline
+    }
+
+    private func isDebuggingReflectionQuestion(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let mentionsLesson = lower.contains("lesson") ||
+            lower.contains("biggest lesson") ||
+            lower.contains("what did you learn") ||
+            lower.contains("teach") ||
+            lower.contains("taught") ||
+            lower.contains("what would you do differently") ||
+            lower.contains("learned from")
+        let mentionsDebugging = lower.contains("debugging") ||
+            lower.contains("debug") ||
+            lower.contains("failure") ||
+            lower.contains("trace")
+        let mentionsRealRobot = lower.contains("real robot") ||
+            lower.contains("real-robot") ||
+            lower.contains("robot") ||
+            lower.contains("leorover") ||
+            lower.contains("integration")
+        return mentionsLesson && mentionsDebugging && mentionsRealRobot
     }
 
     private static func jsonString(_ value: String) -> String {

@@ -74,6 +74,10 @@ enum QuestionCompletenessGate {
             return words.count <= 4 || !hasSourceAndDestination || !hasQuestionComplement
         }
 
+        if lower.hasPrefix("when ") {
+            return !hasTemporalQuestionComplement(lower)
+        }
+
         let incompleteTails = [
             "which part",
             "which part of",
@@ -179,6 +183,17 @@ enum QuestionCompletenessGate {
             lower.contains("what would you do first") ||
             lower.contains("what would be your first improvement") ||
             lower.contains("what would be the first thing")
+    }
+
+    private static func hasTemporalQuestionComplement(_ lower: String) -> Bool {
+        lower.contains(" how ") ||
+            lower.contains(", how ") ||
+            lower.contains(" what ") ||
+            lower.contains(", what ") ||
+            lower.contains(" which ") ||
+            lower.contains(", which ") ||
+            lower.contains(" why ") ||
+            lower.contains(", why ")
     }
 
     static func isTailOnlyQuestion(_ text: String) -> Bool {

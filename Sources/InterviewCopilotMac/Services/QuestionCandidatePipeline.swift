@@ -155,44 +155,53 @@ enum MultiQuestionSplitter {
     }
 
     static func questionStarts(in lower: String) -> [Int] {
-        let patterns = [
+        let auxiliaryQuestionStarts = [
             "\\bcould\\s+you\\b",
             "\\bcan\\s+you\\b",
             "\\bwould\\s+you\\b",
+            "\\bdo\\s+you\\s+have\\b"
+        ]
+        let imperativeQuestionStarts = [
             "\\btell\\s+me\\s+about\\b",
-            "\\bwalk\\s+me\\s+through\\b",
-            "\\bwhat\\s+did\\b",
-            "\\bwhat\\s+information\\s+did\\b",
-            "\\bwhat\\s+questions\\b",
-            "\\bwhat\\s+made\\s+real[-\\s]+world\\s+execution\\b",
-            "\\bwhat\\s+was\\b",
-            "\\bwhat\\s+would\\b",
-            "\\bwhich\\s+part\\s+of\\s+the\\s+pipeline\\b",
+            "\\bwalk\\s+me\\s+through\\b"
+        ]
+        let conditionalQuestionStarts = [
             "\\balso,?\\s+if\\b",
             "\\bnow,?\\s+if\\b",
             "\\band\\s+if\\b",
             "\\bwhat\\s+about\\s+if\\b",
-            "\\bif\\s+your\\b",
-            "\\bif\\s+you\\s+had\\s+one\\s+more\\s+month\\b",
+            "\\bif\\s+(?:your|you|the|same)\\b",
+            "\\bsuppose\\s+you\\b"
+        ]
+        let whQuestionStarts = [
+            "\\bwhat\\s+happened\\b",
+            "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
+            "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
+            "\\bwhat\\s+(?:[a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
+            "\\bwhich\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|became|created|caused|made|failed|mattered|part|component|module|subsystem|stage|step)\\b",
             "\\band\\s+how\\s+did\\b",
+            "\\bbefore\\b.{0,120}\\bwhat\\s+\\w+\\s+did\\b",
             "\\bhow\\s+did\\b",
+            "\\bhow\\s+do\\b",
             "\\bhow\\s+would\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
-            "\\bwhy\\s+might\\b",
-            "\\bdo\\s+you\\s+have\\b",
-            "\\bsuppose\\s+you\\b",
-            "\\bwhen\\s+you\\s+moved\\b",
-            "\\bwhen\\s+you\\s+move\\b",
-            "\\bif\\s+the\\s+same\\s+issue\\b"
+            "\\bwhy\\s+might\\b"
         ]
+        let temporalQuestionStarts = [
+            "\\bwhen\\b",
+            "\\bwhen\\b.{0,120}\\b(?:how|what|which|why)\\b",
+            "\\bwhen\\s+you\\s+(?:moved|move)\\b"
+        ]
+        let patterns = auxiliaryQuestionStarts +
+            imperativeQuestionStarts +
+            conditionalQuestionStarts +
+            whQuestionStarts +
+            temporalQuestionStarts
 
         var starts = Set<Int>()
         let range = NSRange(location: 0, length: (lower as NSString).length)
-        if lower.hasPrefix("what made ") {
-            starts.insert(0)
-        }
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 continue
@@ -227,6 +236,28 @@ enum MultiQuestionSplitter {
                    !previousClause.contains("?"),
                    isConditionalAntecedent(previousClause),
                    isQuestionTail(currentClause) {
+                    if !antecedentAlreadyContainsQuestionComplement(previousClause) {
+                        continue
+                    }
+                }
+                if start - previous < 180,
+                   !previousClause.contains("?"),
+                   isClauseConnectorExpectingTail(previousClause),
+                   isQuestionTail(currentClause) {
+                    continue
+                }
+                if start - previous < 180,
+                   !previousClause.contains("?"),
+                   isDependentIfClause(currentClause),
+                   !conditionalClauseContainsOwnQuestionComplement(currentClause),
+                   clauseAlreadyStartedQuestion(previousClause) {
+                    continue
+                }
+                if start - previous < 220,
+                   !previousClause.contains("?"),
+                   isDependentTemporalClause(currentClause),
+                   !temporalClauseContainsQuestionComplement(currentClause),
+                   clauseAlreadyStartedQuestion(previousClause) {
                     continue
                 }
                 if start - previous < 260,
@@ -256,18 +287,102 @@ enum MultiQuestionSplitter {
         let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.hasPrefix("if ") ||
             trimmed.contains(" if ") ||
+            trimmed.hasPrefix("before ") ||
             trimmed.hasPrefix("also if ") ||
             trimmed.hasPrefix("and if ") ||
             trimmed.hasPrefix("when ") ||
             trimmed.contains(" when ")
     }
 
+    private static func antecedentAlreadyContainsQuestionComplement(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let complementMarkers = [
+            " what ", ", what ",
+            " how ", ", how ",
+            " which ", ", which ",
+            " why ", ", why "
+        ]
+        return complementMarkers.contains { trimmed.contains($0) }
+    }
+
+    private static func isClauseConnectorExpectingTail(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasSuffix(" and") ||
+            trimmed.hasSuffix(", and") ||
+            trimmed.hasSuffix(" or") ||
+            trimmed.hasSuffix(", or")
+    }
+
+    private static func isDependentIfClause(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("if ")
+    }
+
+    private static func conditionalClauseContainsOwnQuestionComplement(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let complementMarkers = [
+            " how ", ", how ",
+            " what ", ", what ",
+            " which ", ", which "
+        ]
+        guard let complementIndex = firstMarkerIndex(in: trimmed, markers: complementMarkers) else {
+            return false
+        }
+        let laterIndependentStarts = [
+            " why do ", " why did ", " why might ",
+            " how comfortable ",
+            " do you have ",
+            " could you ", " can you ", " would you ",
+            " tell me ", " walk me "
+        ]
+        guard let boundaryIndex = firstMarkerIndex(in: trimmed, markers: laterIndependentStarts) else {
+            return true
+        }
+        return complementIndex < boundaryIndex
+    }
+
+    private static func isDependentTemporalClause(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("when ") ||
+            trimmed.hasPrefix("while ") ||
+            trimmed.hasPrefix("after ") ||
+            trimmed.hasPrefix("before ")
+    }
+
+    private static func temporalClauseContainsQuestionComplement(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let complementMarkers = [
+            " how ", ", how ",
+            " what ", ", what ",
+            " which ", ", which ",
+            " why ", ", why "
+        ]
+        return complementMarkers.contains { trimmed.contains($0) }
+    }
+
+    private static func clauseAlreadyStartedQuestion(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("what ") ||
+            trimmed.hasPrefix("how ") ||
+            trimmed.hasPrefix("why ") ||
+            trimmed.hasPrefix("which ") ||
+            trimmed.hasPrefix("can you ") ||
+            trimmed.hasPrefix("could you ") ||
+            trimmed.hasPrefix("would you ") ||
+            trimmed.hasPrefix("do you ") ||
+            trimmed.hasPrefix("tell me ") ||
+            trimmed.hasPrefix("walk me ")
+    }
+
     private static func isQuestionTail(_ clause: String) -> Bool {
         let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.hasPrefix("how would") ||
             trimmed.hasPrefix("what would") ||
+            trimmed.hasPrefix("what ") ||
+            trimmed.hasPrefix("how ") ||
             trimmed.hasPrefix("would you") ||
             trimmed.hasPrefix("which part") ||
+            trimmed.hasPrefix("which ") ||
             trimmed.hasPrefix("what part") ||
             trimmed.hasPrefix("how did") ||
             trimmed.hasPrefix("why was")
@@ -283,6 +398,12 @@ enum MultiQuestionSplitter {
             trimmed.hasPrefix("how would you mitigate") ||
             trimmed.hasPrefix("and how would mitigate") ||
             trimmed.hasPrefix("how would mitigate")
+    }
+
+    private static func firstMarkerIndex(in text: String, markers: [String]) -> String.Index? {
+        markers
+            .compactMap { text.range(of: $0, options: [.caseInsensitive])?.lowerBound }
+            .min()
     }
 }
 
@@ -316,6 +437,13 @@ enum RawQuestionCleaner {
                 removedPrefix = true
                 break
             }
+        }
+        if lower.hasPrefix("when you when you moved ") {
+            cleaned = "When you moved " + String(cleaned.dropFirst("when you when you moved ".count))
+            lower = cleaned.lowercased()
+        } else if lower.hasPrefix("when you when you move ") {
+            cleaned = "When you move " + String(cleaned.dropFirst("when you when you move ".count))
+            lower = cleaned.lowercased()
         }
 
         cleaned = truncateAtTransitionPhrase(cleaned)

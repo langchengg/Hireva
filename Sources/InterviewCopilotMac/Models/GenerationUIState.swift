@@ -21,6 +21,7 @@ enum GenerationUIState: Equatable {
     case streamingAnswer(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
     case expandingFullAnswer(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
     case answerReady(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
+    case lowConfidenceRejected(questionID: String?, generationID: String?, triggerPath: GenerationTriggerPath?, reason: String)
     case failed(questionID: String?, generationID: String?, triggerPath: GenerationTriggerPath?, reason: String)
     case timeout(questionID: String?, generationID: String?, triggerPath: GenerationTriggerPath?, reason: String)
     case cancelled(questionID: String?, generationID: String?, triggerPath: GenerationTriggerPath?, reason: String)
@@ -41,6 +42,8 @@ enum GenerationUIState: Equatable {
             return "Expanding full answer"
         case .answerReady:
             return "Answer ready"
+        case .lowConfidenceRejected:
+            return "Low-confidence rejected"
         case .failed:
             return "Failed"
         case .timeout:
@@ -62,6 +65,7 @@ enum GenerationUIState: Equatable {
              let .answerReady(_, generationID, _):
             return generationID
         case let .failed(_, generationID, _, _),
+             let .lowConfidenceRejected(_, generationID, _, _),
              let .timeout(_, generationID, _, _),
              let .cancelled(_, generationID, _, _):
             return generationID
@@ -80,6 +84,7 @@ enum GenerationUIState: Equatable {
              let .answerReady(questionID, _, _):
             return questionID
         case let .failed(questionID, _, _, _),
+             let .lowConfidenceRejected(questionID, _, _, _),
              let .timeout(questionID, _, _, _),
              let .cancelled(questionID, _, _, _):
             return questionID
@@ -98,6 +103,7 @@ enum GenerationUIState: Equatable {
              let .answerReady(_, _, triggerPath):
             return triggerPath
         case let .failed(_, _, triggerPath, _),
+             let .lowConfidenceRejected(_, _, triggerPath, _),
              let .timeout(_, _, triggerPath, _),
              let .cancelled(_, _, triggerPath, _):
             return triggerPath
@@ -108,7 +114,7 @@ enum GenerationUIState: Equatable {
         switch self {
         case .preparing, .generatingFirstAnswer:
             return true
-        case .idle, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady, .failed, .timeout, .cancelled:
+        case .idle, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady, .lowConfidenceRejected, .failed, .timeout, .cancelled:
             return false
         }
     }
@@ -128,7 +134,7 @@ enum GenerationUIState: Equatable {
 
     var isTerminal: Bool {
         switch self {
-        case .idle, .answerReady, .failed, .timeout, .cancelled:
+        case .idle, .answerReady, .lowConfidenceRejected, .failed, .timeout, .cancelled:
             return true
         case .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer:
             return false
@@ -137,7 +143,8 @@ enum GenerationUIState: Equatable {
 
     var failureReason: String? {
         switch self {
-        case let .failed(_, _, _, reason),
+        case let .lowConfidenceRejected(_, _, _, reason),
+             let .failed(_, _, _, reason),
              let .timeout(_, _, _, reason),
              let .cancelled(_, _, _, reason):
             return reason

@@ -62,6 +62,12 @@ enum ProjectGroundedFallbackPolicy {
             )
         case .systemIntegrationDebugging:
             let normalizedQuestion = IntentRouter.normalize(question.questionText)
+            if IntentRouter.isDebuggingReflectionQuestion(normalizedQuestion) {
+                return IntentFallbackAnswer(
+                    sayFirst: "The biggest lesson I learned from debugging the real robot was that reliability comes from validating every handoff, not only improving one model. On LeoRover, a perception result could look correct in isolation but still fail after localisation, timing, calibration, navigation, or manipulation assumptions drifted, so I learned to use logs, timestamps, reproducible failures, and recovery checks across the whole pipeline.",
+                    keyPoints: ["Lesson: real-robot debugging is an integration problem, not just model accuracy.", "Checked perception, localisation, timing, calibration, navigation, manipulation, and pipeline handoffs.", "Used logs, timestamps, reproducible failures, and recovery checks to stop small state mismatches from propagating."]
+                )
+            }
             if IntentRouter.isRobotDecisionInformationQuestion(normalizedQuestion) {
                 return IntentFallbackAnswer(
                     sayFirst: "Before LeoRover could decide where to move and what to grasp, it needed the target object identity, the object pose or location in the robot/world frame, confidence that the detection was stable, distance and reachability information, and a navigation target that kept the manipulator in a feasible grasping position.",
@@ -78,6 +84,26 @@ enum ProjectGroundedFallbackPolicy {
                 return IntentFallbackAnswer(
                     sayFirst: "I combined perception and control by turning camera detections and robot-state estimates into target poses or action goals, then letting the navigation/manipulation controller execute only after the pose, timing, and confidence checks were consistent. The hard part was reliability: small calibration errors, latency, noisy detections, or a bad frame transform could turn a good perception result into the wrong physical motion.",
                     keyPoints: ["Perception produced target poses or action goals, not just labels.", "Control used validated robot state, timing, and confidence before moving.", "Reliability was hard because latency, calibration, and noisy detections affected real motion."]
+                )
+            }
+            if IntentRouter.isRobotSystemArchitectureQuestion(normalizedQuestion) {
+                return IntentFallbackAnswer(
+                    sayFirst: "On LeoRover, YOLOv8 detections fed the ROS2 perception pipeline, which turned object detections into target poses for localisation, navigation, and manipulation. I treated it as a system integration problem: I compared logs and timestamps across modules, then added validation and recovery behaviour so the robot could retry when detection, localisation, or execution was uncertain.",
+                    keyPoints: ["YOLOv8 detection produced target information for localisation and navigation.", "Manipulation depended on validated perception and robot-state handoffs.", "Recovery behaviour handled missed detections, bad poses, and execution uncertainty.", "Lesson: logs, timestamps, and handoff checks matter as much as individual model accuracy."]
+                )
+            }
+            if IntentRouter.isEvaluationReliabilityQuestion(normalizedQuestion) {
+                if normalizedQuestion.contains("wrong perception") ||
+                    normalizedQuestion.contains("perception decision") ||
+                    normalizedQuestion.contains("bad perception") {
+                    return IntentFallbackAnswer(
+                        sayFirst: "When the system made a wrong perception decision, the risk was that navigation or manipulation would act on the wrong target or pose. I handled that with validation of confidence, spatial consistency, robot state, and timing before acting, then used logs and recovery behaviours such as retrying or repositioning instead of letting one bad perception output drive the whole pipeline.",
+                        keyPoints: ["Failure mode: a bad perception decision can propagate into navigation or manipulation.", "Guard: validation of confidence, spatial consistency, robot state, and timing before acting.", "Recovery: use logs, retries, repositioning, or a safe stop when the target state is uncertain."]
+                    )
+                }
+                return IntentFallbackAnswer(
+                    sayFirst: "I prevented late or wrong results from corrupting the current answer by treating questionId, generationId, sessionId, and prompt question text as the ownership boundary. A result can update the UI only if those identifiers still match the active question; otherwise it is rejected as stale, while the newer question stays queued, generating, or visible with its own answer.",
+                    keyPoints: ["Every answer mutation checks questionId, generationId, sessionId, and prompt-question ownership.", "Late callbacks are discarded instead of overwriting the current question.", "The UI must show the newer question as queued, generating, errored, or answered by its own card."]
                 )
             }
             return IntentFallbackAnswer(
@@ -111,8 +137,8 @@ enum ProjectGroundedFallbackPolicy {
             )
         case .generic:
             return IntentFallbackAnswer(
-                sayFirst: "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned.",
-                keyPoints: ["Direct answer first.", "Concrete example from experience.", "Outcome or lesson learned."]
+                sayFirst: "",
+                keyPoints: []
             )
         }
     }

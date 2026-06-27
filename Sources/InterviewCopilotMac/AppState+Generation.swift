@@ -548,10 +548,10 @@ public var currentSpinnerVisible: Bool {
 }
 
 public var visibleAnswerExists: Bool {
-    if let card = currentSuggestion, !card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    if let card = currentSuggestion, !displayableAnswerText(card.sayFirst).isEmpty {
         return true
     }
-    return !streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return !displayableAnswerText(streamedSayFirst).isEmpty
 }
 
 public var shouldShowBlockingAnswerSpinner: Bool {
@@ -595,6 +595,8 @@ var currentGenerationErrorText: String? {
         return nil
     }
     switch generationUIState {
+    case .lowConfidenceRejected:
+        return reason
     case .failed:
         return "Generation failed: \(reason)"
     case .timeout:
@@ -612,8 +614,9 @@ var visibleAssistantRenderState: VisibleAssistantRenderState {
     let question = snapshot?.questionText ??
         visibleQuestionText(for: card) ??
         (!displayTranscriptText.isEmpty ? displayTranscriptText : lastTranscriptSnippet)
-    let answer = snapshot?.answerText.isEmpty == false ? snapshot?.answerText ?? "" :
+    let rawAnswer = snapshot?.answerText.isEmpty == false ? snapshot?.answerText ?? "" :
         (card?.sayFirst.isEmpty == false ? card?.sayFirst ?? "" : streamedSayFirst)
+    let answer = displayableAnswerText(rawAnswer)
     let points = card?.keyPoints ?? []
     return VisibleAssistantRenderState(
         questionText: question,
@@ -626,6 +629,16 @@ var visibleAssistantRenderState: VisibleAssistantRenderState {
         activeGenerationID: activeGenerationID,
         activeQuestionID: activeQuestionID
     )
+}
+
+private func displayableAnswerText(_ text: String) -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "" }
+    return QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(trimmed) ? "" : trimmed
+}
+
+private func hasDisplayableSayFirst(_ card: SuggestionCard) -> Bool {
+    !displayableAnswerText(card.sayFirst).isEmpty
 }
 
 /// Returns the question that owns the supplied visible card. Detection state may
@@ -1140,6 +1153,38 @@ func displaySuggestionIfAligned(
         fallbackCard.alignmentScore = fallbackAlignment.score
         fallbackCard.alignmentVerdict = fallbackAlignment.verdict
         fallbackCard.answerIntent = fallbackAlignment.answerIntent
+        fallbackCard.mismatchReason = fallbackAlignment.verdict == .mismatched ? fallbackAlignment.reason : fallbackCard.mismatchReason
+        guard hasDisplayableSayFirst(fallbackCard) else {
+            recordSuggestionAlignment(fallbackCard, question: question, result: fallbackAlignment)
+            recordAlignmentMismatch("Semantic fallback did not align with question; keeping non-answer state. No displayable fallback Say First was available.")
+            return false
+        }
+        guard fallbackAlignment.verdict == .aligned else {
+            recordSuggestionAlignment(fallbackCard, question: question, result: fallbackAlignment)
+            recordAlignmentMismatch("Semantic fallback did not align with question; keeping non-answer state. \(fallbackAlignment.reason)")
+            if let generationID, isActiveGeneration(generationID), !(boundCard.isLocal || boundCard.stageBCompleted == false) {
+                let rejectedReason = "Low-confidence answer rejected. Retry available."
+                providerStreamActive = false
+                fallbackWatchdogActive = false
+                isStreamingSayFirst = false
+                isExpandingSuggestionCard = false
+                clearStageATask(generationID: generationID)
+                clearStageATimeoutTask(generationID: generationID)
+                clearStageBTask(generationID: generationID)
+                clearFullCardWatchdogTask(generationID: generationID)
+                setGenerationUIState(
+                    .lowConfidenceRejected(
+                        questionID: question.id,
+                        generationID: generationID,
+                        triggerPath: triggerPath ?? activeTriggerPath,
+                        reason: rejectedReason
+                    ),
+                    generationID: generationID
+                )
+                failAction(ActionID.generateAnswer, title: "Low-confidence answer rejected", message: rejectedReason)
+            }
+            return false
+        }
         currentSuggestion = fallbackCard
         recordVisibleSuggestionInHistory(fallbackCard)
         recordSuggestionAlignment(fallbackCard, question: question, result: fallbackAlignment)
@@ -1171,6 +1216,12 @@ func displaySuggestionIfAligned(
                 generationID: generationID
             )
         }
+        return false
+    }
+
+    guard hasDisplayableSayFirst(boundCard) else {
+        recordSuggestionAlignment(boundCard, question: question, result: alignment)
+        recordAlignmentMismatch("Aligned answer rejected because it had no displayable Say First content.")
         return false
     }
 
@@ -1214,7 +1265,7 @@ private func makeSemanticFallbackCard(
         strategy: "Semantic Alignment Fallback",
         sayFirst: fallback.sayFirst,
         keyPoints: fallback.keyPoints,
-        followUpReady: card.followUpReady,
+        followUpReady: [],
         confidence: min(card.confidence ?? 0.6, 0.7),
         caution: "Generated answer did not align with question; using fallback.",
         evidenceUsed: card.evidenceUsed,

@@ -380,18 +380,18 @@ final class MockLLMClient: LLMClientProtocol {
             rawJSON = """
             {
                 "strategy": "Project Walkthrough",
-                "say_first": "I adapted large vision language models for robotics by adding an action token mode.",
+                "say_first": "My robotics project was a LeoRover autonomous object retrieval system where I connected ROS2, YOLOv8 perception, localization, navigation, and manipulation so the robot could find and pick up target objects.",
                 "key_points": [
-                    "Adapted visual language models for physical action tokens.",
-                    "Enabled natural language interaction for robotics manipulation.",
-                    "Improved generalizability across physical environments."
+                    "Built a ROS2-based LeoRover object retrieval pipeline.",
+                    "Connected YOLOv8 perception to localization, navigation, and manipulation.",
+                    "Focused on reliable real-robot handoffs and recovery behavior."
                 ],
                 "follow_up_ready": [
-                    "What was the latency of token execution?",
-                    "How did you gather training data for physical tokens?"
+                    "How did you validate the perception-to-action handoff?",
+                    "What recovery behavior did you add?"
                 ],
                 "confidence": 0.95,
-                "caution": "Do not oversell physical tokens execution speed; keep explanations focused on architectural adaptations."
+                "caution": "Keep the answer grounded in the LeoRover project."
             }
             """
         }
@@ -410,5 +410,43 @@ final class MockLLMClient: LLMClientProtocol {
 
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
         return [LLMModelInfo(name: "MockModel", modifiedAt: nil, size: nil)]
+    }
+
+    func chatCompletionStream(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        let isStageB = prompt.contains("Return plain text sections only")
+        let sayFirst = "My robotics project was a LeoRover autonomous object retrieval system where I connected ROS2, YOLOv8 perception, localization, navigation, and manipulation so the robot could find and pick up target objects."
+        let tokens: [String]
+        if isStageB {
+            tokens = [
+                "STRATEGY:\nProject Walkthrough\n",
+                "SAY_FIRST:\n\(sayFirst)\n",
+                "KEY_POINTS:\n",
+                "- Built a ROS2-based LeoRover object retrieval pipeline.\n",
+                "- Connected YOLOv8 perception to localization, navigation, and manipulation.\n",
+                "- Focused on reliable real-robot handoffs and recovery behavior.\n",
+                "FOLLOW_UP_READY:\n",
+                "- How did you validate the perception-to-action handoff?\n",
+                "- What recovery behavior did you add?\n",
+                "CAUTION:\nKeep the answer grounded in the LeoRover project.\n"
+            ]
+        } else {
+            tokens = sayFirst.split(separator: " ", omittingEmptySubsequences: false).map { "\($0) " }
+        }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for token in tokens {
+                    if Task.isCancelled { break }
+                    continuation.yield(token)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }

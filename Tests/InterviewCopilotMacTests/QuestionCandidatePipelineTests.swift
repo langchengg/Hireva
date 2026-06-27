@@ -139,6 +139,97 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func unseenQuestionStartFamiliesSplitAndRouteWithoutExactPhraseRules() {
+        let transcript = [
+            "How did the perception module influence the robot's next physical action",
+            "Before the robot moved, what state did it need to estimate",
+            "What happened when the system made a wrong perception decision",
+            "When localization failed, how did recovery behavior decide whether to retry"
+        ].joined(separator: " ")
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+
+        #expect(candidates.map(\.text) == [
+            "How did the perception module influence the robot's next physical action",
+            "Before the robot moved, what state did it need to estimate",
+            "What happened when the system made a wrong perception decision",
+            "When localization failed, how did recovery behavior decide whether to retry"
+        ])
+        #expect(candidates.map(\.answerRelevanceIntent) == [
+            .systemIntegrationDebugging,
+            .systemIntegrationDebugging,
+            .systemIntegrationDebugging,
+            .systemIntegrationDebugging
+        ])
+    }
+
+    @Test
+    func dependentTemporalClauseStaysAttachedToWhQuestionWithoutExactPhraseRule() {
+        let questions = [
+            "Which subsystem became least reliable when the robot moved from the lab setup into a cluttered hallway",
+            "What component created the biggest risk after the demo environment stopped matching the real robot"
+        ]
+
+        for question in questions {
+            let candidates = QuestionCandidatePipeline.extract(from: question)
+            #expect(candidates.map(\.text) == [question])
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+            #expect(candidates.first?.answerRelevanceIntent != .generic)
+        }
+    }
+
+    @Test
+    func knownFragilityQuestionIsRegressionFixtureNotProductionSpecialCase() {
+        let question = "Which part of the pipeline was most fragile when moving from a clean demo to real robot execution?"
+        let candidates = QuestionCandidatePipeline.extract(from: question)
+
+        #expect(candidates.map(\.text) == ["Which part of the pipeline was most fragile when moving from a clean demo to real robot execution?"])
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        #expect(candidates.first?.answerRelevanceIntent != .generic)
+    }
+
+    @Test
+    func longRuntimeTranscriptSplitsIntoNineIndependentQuestions() {
+        let transcript = "Hi thanks for joining today first could you tell me a little bit about yourself and what brought you into robotics great thanks could you walk me through your Leah Rover project what was the hardest technical challenge you faced how did you handle noisy detections or localization error errors why did the diffusion decoder perform better in your Mouko evaluation what would you change first if you had another month why do you want to join our team how comfortable are you with python C and Rose two do you have any questions for us"
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+
+        #expect(candidates.map(\.text) == [
+            "Could you tell me a little bit about yourself and what brought you into robotics",
+            "Could you walk me through your LeoRover project",
+            "What was the hardest technical challenge you faced",
+            "How did you handle noisy detections or localization error errors",
+            "Why did the diffusion decoder perform better in your MuJoCo evaluation",
+            "What would you change first if you had another month",
+            "Why do you want to join our team",
+            "How comfortable are you with Python, C++, and ROS2",
+            "Do you have any questions for us"
+        ])
+        #expect(candidates.map(\.answerRelevanceIntent) == [
+            .tellMeAboutYourself,
+            .projectWalkthrough,
+            .technicalChallenge,
+            .errorHandling,
+            .modelComparison,
+            .improvementPlan,
+            .whyRole,
+            .skillComfort,
+            .candidateQuestions
+        ])
+    }
+
+    @Test
+    func temporalAnswerClausesAreRejectedButTemporalQuestionsRemainValid() {
+        let answerLikeTranscript = "The system used repeated observations and only acted when the target was stable enough"
+        let temporalQuestion = "When localization failed, how did recovery behavior decide whether to retry"
+
+        #expect(QuestionCandidatePipeline.extract(from: answerLikeTranscript).isEmpty)
+        #expect(QuestionCompletenessGate.isIncompleteFragment("when the target was stable enough"))
+        #expect(QuestionCompletenessGate.isCompleteQuestion(temporalQuestion, isFinal: true))
+        #expect(QuestionCandidatePipeline.extract(from: temporalQuestion).map(\.text) == [temporalQuestion])
+    }
+
+    @Test
     func compoundPerceptionControlQuestionIsNotSplitAtRelatedWhyTail() {
         let question = "How did you combine perception and control, and why was that connection difficult to make reliable?"
         let candidates = QuestionCandidatePipeline.extract(from: question)

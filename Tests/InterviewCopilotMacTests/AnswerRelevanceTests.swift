@@ -453,6 +453,110 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func realRobotDebuggingLessonFallbackIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("What was the most important lesson you learned from debugging the real robot?")
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
+
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
+        #expect(combined.localizedCaseInsensitiveContains("debugging") || combined.localizedCaseInsensitiveContains("debug"))
+        #expect(combined.localizedCaseInsensitiveContains("real robot") || combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("integration") || combined.localizedCaseInsensitiveContains("handoff"))
+        #expect(combined.localizedCaseInsensitiveContains("logs"))
+        #expect(combined.localizedCaseInsensitiveContains("timestamps"))
+        #expect(combined.localizedCaseInsensitiveContains("recovery") || combined.localizedCaseInsensitiveContains("validation"))
+        #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Direct answer first") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Concrete example from experience") == false)
+        #expect(combined.localizedCaseInsensitiveContains("Outcome or lesson learned") == false)
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.answerIntent == .systemIntegrationDebugging)
+    }
+
+    @Test
+    func systemIntegrationIntentFamiliesHandleUnseenParaphrasesWithoutGenericCoaching() {
+        let cases: [(String, [String])] = [
+            (
+                "How did perception become robot action in your LeoRover pipeline?",
+                ["target pose", "navigation", "manipulation", "recovery"]
+            ),
+            (
+                "How did the detector output turn into movement and grasping?",
+                ["target pose", "navigation", "manipulation", "recovery"]
+            ),
+            (
+                "Can you walk me through the pipeline from object detection to manipulation?",
+                ["target pose", "navigation", "manipulation", "recovery"]
+            ),
+            (
+                "How did the perception module influence the robot's next physical action?",
+                ["target pose", "navigation", "manipulation", "recovery"]
+            ),
+            (
+                "Before the robot moved, what state did it need to estimate?",
+                ["object identity", "location", "reachability", "navigation", "grasp"]
+            ),
+            (
+                "How did you know the robot had enough information to attempt a grasp?",
+                ["object identity", "location", "reachability", "navigation", "grasp"]
+            ),
+            (
+                "What did debugging the robot teach you about assumptions in simulation?",
+                ["debugging", "real robot", "integration", "logs", "timestamps", "recovery"]
+            ),
+            (
+                "What happened when the system made a wrong perception decision?",
+                ["wrong perception", "navigation", "manipulation", "validation", "recovery"]
+            )
+        ]
+
+        for (text, expectedTerms) in cases {
+            let question = makeQuestion(text)
+            let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+            let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+            let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+                questionText: question.questionText,
+                answerText: combined,
+                sayFirst: fallback.sayFirst
+            )
+
+            #expect(AnswerRelevancePolicy.intent(for: text) == .systemIntegrationDebugging, "intent for \(text)")
+            #expect(alignment.verdict == .aligned, "alignment for \(text): \(alignment.reason)")
+            #expect(!QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(combined), "generic fallback for \(text)")
+            for term in expectedTerms {
+                #expect(combined.localizedCaseInsensitiveContains(term), "missing \(term) for \(text)")
+            }
+        }
+    }
+
+    @Test
+    func realWorldExecutionIntentFamilyHandlesParaphrases() {
+        let cases = [
+            "Why was deployment on physical hardware less predictable than simulation?",
+            "What made real robot execution fragile compared with a clean demo?",
+            "How did calibration, timing, and noisy perception affect real-world execution?"
+        ]
+
+        for text in cases {
+            let question = makeQuestion(text)
+            let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+            let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+            let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+                questionText: text,
+                answerText: combined,
+                sayFirst: fallback.sayFirst
+            )
+
+            #expect(AnswerRelevancePolicy.intent(for: text) == .technicalChallenge, "intent for \(text)")
+            #expect(combined.localizedCaseInsensitiveContains("real-world") || combined.localizedCaseInsensitiveContains("real world"))
+            #expect(combined.localizedCaseInsensitiveContains("simulation") || combined.localizedCaseInsensitiveContains("demo"))
+            #expect(alignment.verdict == .aligned, "alignment for \(text): \(alignment.reason)")
+            #expect(!QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(combined))
+        }
+    }
+
+    @Test
     func visualDetectionToPhysicalActionFallbackIsSpecificNotGenericCoaching() {
         let question = makeQuestion("Can you explain how your robot transformed visual detections into physical actions in the real world")
         let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
@@ -468,6 +572,28 @@ struct AnswerRelevanceTests {
         #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
         #expect(combined.localizedCaseInsensitiveContains("Direct answer first") == false)
         #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func visualDetectionActionRejectsDebuggingReflectionSayFirstEvenWithRelevantKeyPoints() {
+        let questionText = "Can you explain how your robot transformed visual detections into physical actions in the real world"
+        let wrongSayFirst = "The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module."
+        let relevantKeyPoints = [
+            "Object detections were converted into target poses for the robot pipeline.",
+            "Localisation and navigation used the target pose to move into a feasible position.",
+            "Manipulation and recovery depended on validation, robot state, and retry behaviour."
+        ]
+        let combined = ([wrongSayFirst] + relevantKeyPoints).joined(separator: " ")
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: combined,
+            sayFirst: wrongSayFirst
+        )
+
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.wrongAnswerIndicators.contains("wrong system-integration subfamily"))
+        #expect(alignment.reason.localizedCaseInsensitiveContains("system-integration sayFirst"))
     }
 
     @Test
@@ -526,6 +652,105 @@ struct AnswerRelevanceTests {
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
         #expect(alignment.verdict == .mismatched)
         #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+    }
+
+    @Test
+    func genericCoachingTemplateIsRejectedForRealRobotDebuggingLessonQuestion() {
+        let questionText = "What was the most important lesson you learned from debugging the real robot?"
+        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
+
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
+        #expect(alignment.verdict == .mismatched)
+        #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+    }
+
+    @Test
+    func genericCoachingTemplateIsRejectedAcrossIntentFamilies() {
+        let questions = [
+            "How did the perception module influence the robot's next physical action?",
+            "Before the robot moved, what state did it need to estimate?",
+            "Why was deployment on physical hardware less predictable than simulation?",
+            "What did debugging the robot teach you about assumptions in simulation?",
+            "Can you describe your approach to collaboration in projects?"
+        ]
+        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+
+        for questionText in questions {
+            let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+                questionText: questionText,
+                answerText: generic,
+                sayFirst: generic
+            )
+
+            #expect(alignment.verdict == .mismatched, "generic template accepted for \(questionText)")
+            #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+        }
+    }
+
+    @Test
+    func emptyThemeProfileUsesGenericQualitySafeguardsInsteadOfFailingZeroOfZero() {
+        let questionText = "Edited question text"
+        let concreteAnswer = "I am comfortable with Python and ROS2 from robotics projects, and I am actively improving C++ for performance-critical robotics systems."
+        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned."
+
+        let concreteAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: concreteAnswer,
+            sayFirst: concreteAnswer
+        )
+        let genericAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: generic,
+            sayFirst: generic
+        )
+
+        #expect(concreteAlignment.verdict == .aligned)
+        #expect(concreteAlignment.reason.localizedCaseInsensitiveContains("No expected theme profile"))
+        #expect(genericAlignment.verdict == .mismatched)
+        #expect(genericAlignment.wrongAnswerIndicators.contains("generic interview coaching"))
+    }
+
+    @Test
+    func genericFallbackIsEmptyPlaceholderNotSuccessfulCoachingContent() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "GenericFallbackRejected")
+        let appState = AppState(database: database)
+        let session = try appState.sessionRepository.createSession(mode: .mock)
+        let question = makeQuestion("Can you describe your approach to collaboration in projects?", sessionID: session.id)
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.setActiveQuestionForTesting(question)
+
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .generic)
+        #expect(fallback.sayFirst.isEmpty)
+        #expect(fallback.keyPoints.isEmpty)
+
+        var providerCard = SuggestionCard(
+            id: "generic-provider-card",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek",
+            sayFirst: "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned.",
+            keyPoints: ["Direct answer first.", "Concrete example from experience.", "Outcome or lesson learned."],
+            followUpReady: [],
+            confidence: 0.7,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        providerCard.questionText = question.questionText
+        providerCard.promptPrimaryQuestion = question.questionText
+        providerCard.stageBCompleted = true
+
+        #expect(appState.applySuggestionIfAlignedForTesting(providerCard, question: question, generationID: nil) == false)
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.visibleAssistantRenderState.hasAnswerText == false)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("generic coaching") ||
+            appState.lastAlignmentError.localizedCaseInsensitiveContains("Semantic fallback did not align"))
     }
 
     @Test
@@ -752,7 +977,6 @@ struct AnswerRelevanceTests {
             sayFirst: answer,
             stageBCompleted: true
         )
-
         #expect(alignment.verdict == .aligned)
         #expect(alignment.questionIntent == .projectWalkthrough)
         #expect(alignment.answerIntent == .projectWalkthrough)
@@ -769,7 +993,6 @@ struct AnswerRelevanceTests {
             sayFirst: answer,
             stageBCompleted: true
         )
-
         #expect(alignment.verdict == .aligned)
         #expect(alignment.questionIntent == .technicalChallenge)
         #expect(alignment.answerIntent == .technicalChallenge)
@@ -922,6 +1145,11 @@ struct AnswerRelevanceTests {
             question: "How did you combine perception and control, and why was that connection difficult to make reliable",
             intent: .systemIntegrationDebugging,
             mustContain: ["perception", "control", "target pose", "latency"]
+        ),
+        Fixture(
+            question: "What was the most important lesson you learned from debugging the real robot?",
+            intent: .systemIntegrationDebugging,
+            mustContain: ["debugging", "real robot", "integration", "logs", "timestamps", "recovery"]
         ),
         Fixture(
             question: "Why do you want to join our team?",
