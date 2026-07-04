@@ -418,6 +418,99 @@ struct LLMProviderTests {
     }
 
     @Test
+    func providerRequestUsesInteractiveKeychainPolicyWhenAvailable() throws {
+        final class PolicyTrackingKeychainStore: KeychainStore {
+            var policies: [KeychainAuthenticationPolicy] = []
+
+            func saveGenericPassword(data: Data, service: String, account: String) throws {}
+            func deleteGenericPassword(service: String, account: String) throws {}
+
+            func loadGenericPassword(
+                service: String,
+                account: String,
+                authenticationPolicy: KeychainAuthenticationPolicy
+            ) throws -> String? {
+                policies.append(authenticationPolicy)
+                return "sk-provider-request-abcdefghijklmnopqrstuvwxyz"
+            }
+        }
+
+        let store = PolicyTrackingKeychainStore()
+        let keychain = KeychainService(store: store)
+        let client = OpenAICompatibleLLMClient(apiKeyStore: keychain, session: makeMockSession())
+        let provider = LLMProviderConfiguration.deepSeekDefault()
+
+        _ = try client.makeURLRequest(
+            configuration: provider,
+            messages: [.user("Hi")],
+            responseFormat: nil,
+            options: .default
+        )
+
+        #expect(store.policies == [.allow])
+    }
+
+    @Test
+    func providerRequestPrefersProviderCredentialReadOverStatusRead() throws {
+        final class TrackingAPIKeyStore: APIKeyStore, ProviderRequestAPIKeyStore {
+            var regularReadAccounts: [String] = []
+            var providerReadAccounts: [String] = []
+
+            func saveAPIKey(_ apiKey: String, account: String) throws {}
+            func deleteAPIKey(account: String) throws {}
+
+            func loadAPIKey(account: String) throws -> String? {
+                regularReadAccounts.append(account)
+                return nil
+            }
+
+            func loadAPIKeyForProviderRequest(account: String) throws -> String? {
+                providerReadAccounts.append(account)
+                return "sk-provider-request-abcdefghijklmnopqrstuvwxyz"
+            }
+        }
+
+        let keyStore = TrackingAPIKeyStore()
+        let client = OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession())
+        let provider = LLMProviderConfiguration.deepSeekDefault()
+
+        _ = try client.makeURLRequest(
+            configuration: provider,
+            messages: [.user("Hi")],
+            responseFormat: nil,
+            options: .default
+        )
+
+        #expect(keyStore.regularReadAccounts.isEmpty)
+        #expect(keyStore.providerReadAccounts == [KeychainConstants.deepSeekAccount])
+    }
+
+    @Test
+    func keychainStatusChecksRemainNonInteractive() {
+        final class PolicyTrackingKeychainStore: KeychainStore {
+            var policies: [KeychainAuthenticationPolicy] = []
+
+            func saveGenericPassword(data: Data, service: String, account: String) throws {}
+            func deleteGenericPassword(service: String, account: String) throws {}
+
+            func loadGenericPassword(
+                service: String,
+                account: String,
+                authenticationPolicy: KeychainAuthenticationPolicy
+            ) throws -> String? {
+                policies.append(authenticationPolicy)
+                return "sk-status-check-abcdefghijklmnopqrstuvwxyz"
+            }
+        }
+
+        let store = PolicyTrackingKeychainStore()
+        let keychain = KeychainService(store: store)
+
+        #expect(keychain.apiKeyAccessState(account: KeychainConstants.deepSeekAccount).hasReadableKey)
+        #expect(store.policies == [.skip])
+    }
+
+    @Test
     @MainActor
     func keychainAuthorizationFailureShowsReauthorizationWarning() throws {
         final class AuthorizationFailingKeychainStore: KeychainStore {
@@ -425,7 +518,11 @@ struct LLMProviderTests {
                 throw KeychainError.unexpectedStatus(errSecAuthFailed)
             }
 
-            func loadGenericPassword(service: String, account: String) throws -> String? {
+            func loadGenericPassword(
+                service: String,
+                account: String,
+                authenticationPolicy: KeychainAuthenticationPolicy
+            ) throws -> String? {
                 throw KeychainError.unexpectedStatus(errSecAuthFailed)
             }
 
@@ -449,6 +546,14 @@ struct LLMProviderTests {
         #expect(appState.keychainAuthorizationWarning?.contains("signing identity changed") == true)
         #expect(appState.keychainMismatchStatus.contains("re-authorization"))
         #expect(appState.hasAPIKey == false)
+    }
+
+    @Test
+    func darkWakeKeychainStatusIsTreatedAsLocalAuthorizationFailure() {
+        let error = KeychainError.unexpectedStatus(KeychainConstants.errSecInDarkWake)
+
+        #expect(KeychainService.isAuthorizationOrTrustFailure(error))
+        #expect(KeychainService.keychainReadStatusMessage(for: error).contains("foreground user session"))
     }
 
     @Test

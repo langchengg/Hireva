@@ -148,7 +148,7 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
             throw LLMProviderError.invalidBaseURL(configuration.baseURL)
         }
         guard let account = configuration.apiKeyAccount,
-              let apiKey = try apiKeyStore.loadAPIKey(account: account),
+              let apiKey = try loadAPIKeyForProviderRequest(account: account),
               !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LLMProviderError.missingAPIKey(providerName: configuration.name)
         }
@@ -170,6 +170,13 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try encoder.encode(requestBody)
         return request
+    }
+
+    private func loadAPIKeyForProviderRequest(account: String) throws -> String? {
+        if let providerRequestStore = apiKeyStore as? ProviderRequestAPIKeyStore {
+            return try providerRequestStore.loadAPIKeyForProviderRequest(account: account)
+        }
+        return try apiKeyStore.loadAPIKey(account: account)
     }
 
     private func validateHTTPResponse(_ response: URLResponse, body: String, providerName: String) throws {

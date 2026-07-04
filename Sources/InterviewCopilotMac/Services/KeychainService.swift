@@ -4,6 +4,7 @@
 // ad-hoc signing because each rebuilt binary has a different CDHash.
 
 import Foundation
+import LocalAuthentication
 import Security
 
 /// Normalized Keychain failures surfaced to provider/settings UI.
@@ -31,7 +32,8 @@ enum KeychainError: LocalizedError {
         guard let status else { return false }
         return status == errSecAuthFailed ||
             status == errSecInteractionNotAllowed ||
-            status == errSecUserCanceled
+            status == errSecUserCanceled ||
+            status == KeychainConstants.errSecInDarkWake
     }
 }
 
@@ -85,8 +87,19 @@ enum KeychainAPIKeyAccessState: Equatable {
 
 protocol KeychainStore: AnyObject {
     func saveGenericPassword(data: Data, service: String, account: String) throws
-    func loadGenericPassword(service: String, account: String) throws -> String?
+    func loadGenericPassword(service: String, account: String, authenticationPolicy: KeychainAuthenticationPolicy) throws -> String?
     func deleteGenericPassword(service: String, account: String) throws
+}
+
+extension KeychainStore {
+    func loadGenericPassword(service: String, account: String) throws -> String? {
+        try loadGenericPassword(service: service, account: account, authenticationPolicy: .skip)
+    }
+}
+
+enum KeychainAuthenticationPolicy: Equatable {
+    case skip
+    case allow
 }
 
 /// Real SecItem-backed Keychain adapter.
@@ -122,15 +135,22 @@ final class RealKeychainStore: KeychainStore {
         throw KeychainError.unexpectedStatus(status)
     }
 
-    func loadGenericPassword(service: String, account: String) throws -> String? {
-        let query: [String: Any] = [
+    func loadGenericPassword(
+        service: String,
+        account: String,
+        authenticationPolicy: KeychainAuthenticationPolicy
+    ) throws -> String? {
+        let context = LAContext()
+        context.interactionNotAllowed = authenticationPolicy.interactionNotAllowed
+
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        query[kSecUseAuthenticationContext as String] = context
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -172,7 +192,11 @@ final class InMemoryMockKeychainStore: KeychainStore {
         store[key] = data
     }
 
-    func loadGenericPassword(service: String, account: String) throws -> String? {
+    func loadGenericPassword(
+        service: String,
+        account: String,
+        authenticationPolicy: KeychainAuthenticationPolicy
+    ) throws -> String? {
         let key = makeKey(service: service, account: account)
         guard let data = store[key] else { return nil }
         return String(data: data, encoding: .utf8)
@@ -192,6 +216,18 @@ enum KeychainConstants {
     static let service = "com.langcheng.InterviewCopilotMac.LLMProviderKeys"
     static let deepSeekAccount = "deepseek.default"
     static let defaultEmbeddingAccount = "openai.embedding.default"
+    static let errSecInDarkWake: OSStatus = -25320
+}
+
+extension KeychainAuthenticationPolicy {
+    var interactionNotAllowed: Bool {
+        switch self {
+        case .skip:
+            return true
+        case .allow:
+            return false
+        }
+    }
 }
 
 /// High-level API-key store used by settings, provider tests, and diagnostics.
@@ -340,13 +376,35 @@ final class KeychainService {
 
     func loadAPIKey(account: String) throws -> String? {
         do {
-            let result = try store.loadGenericPassword(service: KeychainConstants.service, account: account)
+            let result = try loadAPIKey(account: account, authenticationPolicy: .skip)
             self.lastReadStatus = "Success"
             return result
         } catch {
             self.lastReadStatus = KeychainService.keychainReadStatusMessage(for: error)
             throw error
         }
+    }
+
+    func loadAPIKeyForProviderRequest(account: String) throws -> String? {
+        do {
+            let result = try loadAPIKey(account: account, authenticationPolicy: .allow)
+            self.lastReadStatus = "Success"
+            return result
+        } catch {
+            self.lastReadStatus = KeychainService.keychainReadStatusMessage(for: error)
+            throw error
+        }
+    }
+
+    private func loadAPIKey(
+        account: String,
+        authenticationPolicy: KeychainAuthenticationPolicy
+    ) throws -> String? {
+        try store.loadGenericPassword(
+            service: KeychainConstants.service,
+            account: account,
+            authenticationPolicy: authenticationPolicy
+        )
     }
 
     func deleteAPIKey(account: String) throws {
@@ -401,8 +459,15 @@ final class KeychainService {
     }
 
     static func keychainReadStatusMessage(for error: Error) -> String {
-        if isAuthorizationOrTrustFailure(error) {
-            return "Keychain access needs re-authorization because the app signing identity changed."
+        guard let keychainError = error as? KeychainError,
+              let status = keychainError.status else {
+            return "Error: \(error.localizedDescription)"
+        }
+        if status == KeychainConstants.errSecInDarkWake {
+            return "Keychain access needs an active foreground user session; macOS reported that no Keychain UI is possible."
+        }
+        if keychainError.isAuthorizationOrTrustFailure {
+            return "Keychain access needs re-authorization because the app signing identity changed or macOS requires user approval."
         }
         return "Error: \(error.localizedDescription)"
     }
@@ -415,3 +480,9 @@ protocol APIKeyStore: AnyObject {
 }
 
 extension KeychainService: APIKeyStore {}
+
+protocol ProviderRequestAPIKeyStore: APIKeyStore {
+    func loadAPIKeyForProviderRequest(account: String) throws -> String?
+}
+
+extension KeychainService: ProviderRequestAPIKeyStore {}
