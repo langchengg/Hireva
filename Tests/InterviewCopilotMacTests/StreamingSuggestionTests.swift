@@ -619,6 +619,7 @@ struct StreamingSoftFallbackTests {
         let mockDelay = MockDelayProvider()
         mockDelay.sleepDuration = 60_000_000_000
         appState.delayProvider = mockDelay
+        appState.stageATimeoutSeconds = 60.0
         // The production watchdog is covered elsewhere. Keep this fixture focused
         // on proving that a fast stream prevents the soft fallback path.
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000

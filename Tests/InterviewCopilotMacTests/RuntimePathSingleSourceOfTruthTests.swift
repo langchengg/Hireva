@@ -427,6 +427,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         let (appState, _, client) = try makeAppState(traceURL: traceURL)
         appState.currentSession = nil
         appState.delayProvider = RealDelayProvider()
+        appState.stageATimeoutSeconds = 60.0
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         await appState.runLiveSystemAudioFinalCallbackDiagnostic(
@@ -440,6 +441,7 @@ struct RuntimePathSingleSourceOfTruthTests {
                 appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
                 appState.visibleAssistantRenderState.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") } &&
                 appState.activeGenerationID != nil &&
+                appState.generationUIState.isTerminal &&
                 client.streamCallCount > 0
         }
 
