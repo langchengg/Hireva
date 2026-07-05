@@ -5,6 +5,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case documents
     case sessions
     case readinessCheck
+    case localModels
     case settings
     case diagnostics
 
@@ -16,6 +17,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .documents: return "Documents"
         case .sessions: return "Sessions"
         case .readinessCheck: return "Readiness Check"
+        case .localModels: return "Setup & Local Models"
         case .settings: return "Settings"
         case .diagnostics: return "Diagnostics"
         }
@@ -27,6 +29,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .documents: return "doc.text"
         case .sessions: return "clock.arrow.circlepath"
         case .readinessCheck: return "checklist.checked"
+        case .localModels: return "square.stack.3d.up"
         case .settings: return "gearshape"
         case .diagnostics: return "stethoscope"
         }

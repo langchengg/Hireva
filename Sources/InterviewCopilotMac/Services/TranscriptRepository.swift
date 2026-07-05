@@ -15,9 +15,10 @@ final class TranscriptRepository {
                 INSERT INTO transcript_segments (
                     id, session_id, speaker, text, start_time, end_time, created_at,
                     source, input_device_name, output_device_name, device_id, confidence,
-                    asr_first_partial_ms, asr_final_ms, asr_best_selected_ms, asr_finalization_reason
+                    asr_first_partial_ms, asr_final_ms, asr_best_selected_ms, asr_finalization_reason,
+                    asr_source
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     session_id = excluded.session_id,
                     speaker = excluded.speaker,
@@ -33,7 +34,8 @@ final class TranscriptRepository {
                     asr_first_partial_ms = excluded.asr_first_partial_ms,
                     asr_final_ms = excluded.asr_final_ms,
                     asr_best_selected_ms = excluded.asr_best_selected_ms,
-                    asr_finalization_reason = excluded.asr_finalization_reason
+                    asr_finalization_reason = excluded.asr_finalization_reason,
+                    asr_source = excluded.asr_source
                 """,
                 arguments: [
                     segment.id,
@@ -51,7 +53,8 @@ final class TranscriptRepository {
                     segment.asrFirstPartialMS,
                     segment.asrFinalMS,
                     segment.asrBestSelectedMS,
-                    segment.asrFinalizationReason
+                    segment.asrFinalizationReason,
+                    segment.asrSource?.rawValue
                 ]
             )
         }
@@ -100,6 +103,7 @@ final class TranscriptRepository {
 
         let sourceStr: String? = row["source"]
         let source = sourceStr.flatMap(AudioSourceType.init(rawValue:)) ?? .microphone
+        let asrSourceStr: String? = row["asr_source"]
 
         let confidence: Double? = row["confidence"]
 
@@ -116,6 +120,7 @@ final class TranscriptRepository {
             outputDeviceName: row["output_device_name"],
             deviceID: row["device_id"],
             confidence: confidence ?? 1.0,
+            asrSource: asrSourceStr.flatMap(ASRSource.init(rawValue:)),
             asrFirstPartialMS: row["asr_first_partial_ms"],
             asrFinalMS: row["asr_final_ms"],
             asrBestSelectedMS: row["asr_best_selected_ms"],

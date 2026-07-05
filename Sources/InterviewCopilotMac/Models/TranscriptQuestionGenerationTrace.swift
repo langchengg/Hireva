@@ -8,6 +8,7 @@ import Foundation
 struct TranscriptQuestionGenerationTrace: Equatable {
     var transcriptSegmentID: String = ""
     var source: String = ""
+    var asrSource: String = ""
     var speaker: String = ""
     var text: String = ""
     var isFinal: Bool = true

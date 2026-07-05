@@ -34,7 +34,7 @@ extension AppState {
         defer {
             lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)
         }
-        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | textLength = \(segment.text.count) | finalization = \(segment.asrFinalizationReason ?? "unknown")")
+        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | asrSource = \(segment.asrSource?.rawValue ?? "unknown") | speaker = \(segment.speaker.rawValue) | textLength = \(segment.text.count) | finalization = \(segment.asrFinalizationReason ?? "unknown")")
         liveState = .transcribing
         recordASRTranscriptRuntimeEvent(for: segment)
         if segment.asrFinalizationReason != "partial" {
@@ -44,6 +44,7 @@ extension AppState {
         lastTranscriptQuestionGenerationTrace = TranscriptQuestionGenerationTrace(
             transcriptSegmentID: segment.id,
             source: segment.source.rawValue,
+            asrSource: segment.asrSource?.rawValue ?? "",
             speaker: segment.speaker.rawValue,
             text: segment.text,
             isFinal: segment.asrFinalizationReason != "partial",

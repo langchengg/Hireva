@@ -453,6 +453,15 @@ final class AppDatabase {
                 """)
         }
 
+        migrator.registerMigration("v14_asr_source_metadata") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(transcript_segments)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+
+            if !columnNames.contains("asr_source") {
+                try db.execute(sql: "ALTER TABLE transcript_segments ADD COLUMN asr_source TEXT")
+            }
+        }
+
         return migrator
     }
 }

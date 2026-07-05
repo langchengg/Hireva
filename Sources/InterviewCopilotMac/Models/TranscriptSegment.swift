@@ -88,6 +88,7 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
     var outputDeviceName: String?
     var deviceID: String?
     var confidence: Double?
+    var asrSource: ASRSource?
 
     // ASR Latency (utterance-level, not session-level)
     var asrFirstPartialMS: Int?
@@ -116,6 +117,7 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         outputDeviceName: String? = nil,
         deviceID: String? = nil,
         confidence: Double? = nil,
+        asrSource: ASRSource? = nil,
         asrFirstPartialMS: Int? = nil,
         asrFinalMS: Int? = nil,
         asrBestSelectedMS: Int? = nil,
@@ -138,6 +140,7 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         self.outputDeviceName = outputDeviceName
         self.deviceID = deviceID
         self.confidence = confidence
+        self.asrSource = asrSource
         self.asrFirstPartialMS = asrFirstPartialMS
         self.asrFinalMS = asrFinalMS
         self.asrBestSelectedMS = asrBestSelectedMS

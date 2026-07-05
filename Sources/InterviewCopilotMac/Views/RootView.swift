@@ -66,6 +66,8 @@ struct RootView: View {
             SessionsView(appState: appState)
         case .readinessCheck:
             ReadinessCheckView(appState: appState)
+        case .localModels:
+            LocalModelsSetupView(appState: appState)
         case .settings:
             SettingsView(appState: appState)
         case .diagnostics:

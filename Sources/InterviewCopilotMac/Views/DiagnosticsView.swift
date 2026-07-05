@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DiagnosticsView: View {
     @ObservedObject var appState: AppState
+    @StateObject private var localModels = LocalModelsSetupViewModel()
 
     var body: some View {
         TabView {
@@ -15,6 +16,11 @@ struct DiagnosticsView: View {
                 providerTab
             }
             .tabItem { Label("Provider", systemImage: "server.rack") }
+
+            diagnosticsPage(title: "Local Models") {
+                localModelsTab
+            }
+            .tabItem { Label("Local", systemImage: "square.stack.3d.up") }
 
             diagnosticsPage(title: "Current Generation") {
                 currentGenerationTab
@@ -49,6 +55,9 @@ struct DiagnosticsView: View {
             .tabItem { Label("Keychain", systemImage: "key.fill") }
         }
         .navigationTitle("Diagnostics")
+        .task {
+            await localModels.refresh(qwenModel: appState.selectedQwenModelName)
+        }
     }
 
     private func diagnosticsPage<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -99,6 +108,45 @@ struct DiagnosticsView: View {
                 diagnosticRow("Question detection model", appState.lastQuestionDetectionModel ?? "None")
                 diagnosticRow("Suggestion provider", appState.lastSuggestionGenerationProvider ?? "None")
                 diagnosticRow("Suggestion model", appState.lastSuggestionGenerationModel ?? "None")
+            }
+        }
+    }
+
+    private var localModelsTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            card("Local Model Readiness", icon: "square.stack.3d.up") {
+                diagnosticRow("Local setup page", "Setup & Local Models")
+                diagnosticRow("selectedQwenModel", appState.selectedQwenModelName)
+                diagnosticRow("ollamaRunning", localModels.qwenHealth.ollamaRunning ? "true" : "false")
+                diagnosticRow("qwenModelInstalled", localModels.qwenHealth.modelInstalled ? "true" : "false")
+                diagnosticRow("localQwenReady", localModels.qwenHealth.isReady ? "true" : "false")
+                diagnosticRow("localQwenProviderMode", appState.selectedAnswerProviderMode.rawValue)
+                diagnosticRow("lastOllamaError", localModels.qwenHealth.lastError ?? "None")
+                diagnosticRow("selectedASRProvider", appState.selectedASRProviderID.rawValue)
+                diagnosticRow("activeASRProvider", appState.activeASRProviderID?.rawValue ?? "None")
+                diagnosticRow("asrModelStatus", localModels.transcriptionStatus.displayName)
+                diagnosticRow("recommendedLocalASR", LocalModelDescriptor.defaultParakeetASR.displayName)
+                diagnosticRow("parakeetModelPath", localModels.modelPath(for: .defaultParakeetASR).path)
+                diagnosticRow("parakeetRuntimeAvailable", localModels.parakeetRuntimeAvailable ? "true" : "false")
+                diagnosticRow("latestTranscriptASRSource", appState.latestTranscriptASRSource)
+                diagnosticRow("Answer source", AnswerSource.ollamaQwen.rawValue)
+                diagnosticRow("ASR sources", ASRSource.allCases.map(\.rawValue).joined(separator: ", "))
+                diagnosticRow("DeepSeek source remains", AnswerSource.deepseekStream.rawValue)
+                diagnosticRow("Default local fallback", "disabled until explicitly selected")
+                Button {
+                    appState.selectSection(.localModels)
+                } label: {
+                    Label("Open Setup & Local Models", systemImage: "arrow.right.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            card("Source Metadata Rules", icon: "tag") {
+                diagnosticRow("Provider success", AnswerSource.deepseekStream.rawValue)
+                diagnosticRow("Local Qwen", AnswerSource.ollamaQwen.rawValue)
+                diagnosticRow("Soft fallback", AnswerSource.ragTemplateSoftFallback.rawValue)
+                diagnosticRow("Timeout fallback", AnswerSource.localTimeoutFallback.rawValue)
+                diagnosticRow("Provider error", AnswerSource.providerError.rawValue)
             }
         }
     }
@@ -154,6 +202,7 @@ struct DiagnosticsView: View {
                 let trace = appState.lastTranscriptQuestionGenerationTrace
                 diagnosticRow("transcriptSegmentID", trace.transcriptSegmentID.isEmpty ? "None" : trace.transcriptSegmentID)
                 diagnosticRow("source", trace.source.isEmpty ? "None" : trace.source)
+                diagnosticRow("asrSource", trace.asrSource.isEmpty ? "None" : trace.asrSource)
                 diagnosticRow("speaker", trace.speaker.isEmpty ? "None" : trace.speaker)
                 diagnosticRow("isFinal", trace.isFinal ? "true" : "false")
                 diagnosticRow("textLength", "\(trace.textLength)")

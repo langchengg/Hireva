@@ -61,15 +61,17 @@ extension AppState {
             }
             if mode == .microphone {
                 let captureMode = settings.audioCaptureMode
+                let requestedASRProvider = selectedASRProviderID
                 // Permission gating is capture-mode specific. Do not collapse
                 // this into a generic "live transcription requires mic" check:
                 // System Audio Only is the user escape hatch when mic access is
                 // denied or unnecessary.
                 let microphoneRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
-                let speechRecognitionRequired = microphoneRequired
+                let speechRecognitionRequired = microphoneRequired && requestedASRProvider == .appleSpeech
                 let systemAudioRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
 
                 print("[StartListening] captureMode = \(captureMode.rawValue)")
+                print("[StartListening] selectedASRProvider = \(requestedASRProvider.rawValue)")
                 print("[StartListening] microphoneRequired = \(microphoneRequired)")
                 print("[StartListening] speechRecognitionRequired = \(speechRecognitionRequired)")
                 print("[StartListening] systemAudioRequired = \(systemAudioRequired)")
@@ -235,7 +237,9 @@ extension AppState {
                 completeAction(ActionID.startInterview, title: "Listening started", message: "Practice capture is active.")
             } else {
                 let captureMode = settings.audioCaptureMode
+                let requestedASRProvider = selectedASRProviderID
                 print("[DualAudio] mode = \(captureMode.rawValue)")
+                print("[DualAudio] selectedASRProvider = \(requestedASRProvider.rawValue)")
 
                 if captureMode == .systemAudioOnly {
                     // Keep System Audio Only isolated from microphone metering.
@@ -246,9 +250,47 @@ extension AppState {
                     print("[DualAudio] Cleaned up buffers & diagnostics for System Audio Only mode")
                 }
 
+                if requestedASRProvider == .localParakeet {
+                    let provider = LocalParakeetASRProvider()
+                    let stream = try await provider.startTranscription(config: ASRConfig(
+                        sessionID: session.id,
+                        captureMode: captureMode
+                    ))
+                    self.appleSpeechService = nil
+                    self.activeTranscriptionProvider = nil
+                    self.markActiveASRProvider(.localParakeet)
+                    self.lastSystemAudioASRError = nil
+                    self.lastSystemAudioASRPartialTranscript = ""
+                    self.lastSystemAudioASRFinalTranscript = ""
+                    ownsSystemAudioCaptureRuntime = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
+
+                    transcriptionTask = Task { [weak self] in
+                        do {
+                            for try await segment in stream {
+                                guard !Task.isCancelled else { return }
+                                await self?.handleTranscriptSegment(segment)
+                            }
+                        } catch {
+                            await MainActor.run {
+                                self?.lastSystemAudioASRError = error.localizedDescription
+                                self?.showError(error.localizedDescription)
+                            }
+                        }
+                    }
+
+                    liveState = .listening
+                    currentCaptureRuntimeState = .listening
+                    addCaptureEvent(name: "listeningActive", stateBefore: "starting", stateAfter: "listening", reason: "localParakeetCaptureActive")
+                    showFloatingAssistant()
+                    completeAction(ActionID.startInterview, title: "Listening started", message: "\(ASRProviderID.localParakeet.displayName) is active.")
+                    startAudioSignalMonitoring()
+                    return
+                }
+
                 let speechService = AppleSpeechTranscriptionService()
                 self.appleSpeechService = speechService
                 self.activeTranscriptionProvider = speechService
+                self.markActiveASRProvider(.appleSpeech)
 
                 speechService.onSessionStateChanged = { [weak self] in
                     Task { @MainActor in
@@ -294,6 +336,7 @@ extension AppState {
                 startAudioSignalMonitoring()
             }
         } catch {
+            markActiveASRProvider(nil)
             ownsSystemAudioCaptureRuntime = false
             let message = userFacing(error)
             liveState = .error(message)
@@ -423,6 +466,7 @@ extension AppState {
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
         appleSpeechService?.stop()
@@ -516,6 +560,7 @@ extension AppState {
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
         // Ensure diagnostics are unregistered
@@ -670,6 +715,7 @@ extension AppState {
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        markActiveASRProvider(nil)
 
         appleSpeechService?.stop()
         appleSpeechService = nil
