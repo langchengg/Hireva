@@ -123,6 +123,23 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
     let isFinal: Bool
     let startTime: TimeInterval?
     let endTime: TimeInterval?
+    let confidence: Double?
+
+    init(
+        segmentId: String,
+        text: String,
+        isFinal: Bool,
+        startTime: TimeInterval?,
+        endTime: TimeInterval?,
+        confidence: Double? = nil
+    ) {
+        self.segmentId = segmentId
+        self.text = text
+        self.isFinal = isFinal
+        self.startTime = startTime
+        self.endTime = endTime
+        self.confidence = confidence
+    }
 }
 
 protocol ParakeetRuntimeClient: AnyObject {
@@ -294,7 +311,7 @@ final class LocalParakeetASRProvider: ASRProvider {
                             startTime: event.startTime,
                             endTime: event.endTime,
                             createdAt: Date(),
-                            confidence: nil,
+                            confidence: event.confidence,
                             asrSource: .localParakeetASR,
                             asrFinalizationReason: event.isFinal ? "final" : "partial",
                             recognitionIsFinal: event.isFinal
