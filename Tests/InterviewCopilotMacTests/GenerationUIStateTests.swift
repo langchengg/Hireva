@@ -664,6 +664,305 @@ struct GenerationUIStateTests {
     }
 
     @Test
+    func completedProviderFirstAnswerIsNotPersistedAsSemanticFallbackWhenStageBExpansionRejected() async throws {
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let question = try makeQuestion(
+            sessionID: session.id,
+            text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
+            suffix: "provider-first-answer-stage-b-rejected"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        let generationID = "generation-provider-first-answer-stage-b-rejected"
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = question
+
+        let providerSayFirst = "I reduced noisy camera input by calibrating the camera and IMU, filtering unstable YOLOv8 detections, fusing them with depth-based localization, and only choosing an object once the perception confidence was stable enough to drive navigation and grasp planning."
+        var currentProviderCard = SuggestionCard(
+            id: "current-provider-completed-first-answer",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek",
+            sayFirst: providerSayFirst,
+            keyPoints: [
+                "Calibrated camera and IMU to reduce noise.",
+                "Filtered unstable YOLOv8 detections.",
+                "Used stable perception confidence before navigation and grasp planning."
+            ],
+            followUpReady: [],
+            confidence: 0.86,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek-v4-flash",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        currentProviderCard.questionText = question.questionText
+        currentProviderCard.promptPrimaryQuestion = question.questionText
+        currentProviderCard.generationID = generationID
+        currentProviderCard.sayFirstSource = "deepseek_stream"
+        currentProviderCard.finalVisibleSource = "deepseek_stream"
+        currentProviderCard.isLocal = false
+        currentProviderCard.softFallbackUsed = false
+        currentProviderCard.stageBCompleted = false
+        currentProviderCard.stageBStatus = "expanding"
+        appState.currentSuggestion = currentProviderCard
+
+        let plan = StageBApplicationPlan(
+            generationID: generationID,
+            detectedQuestionID: question.id,
+            action: .useSemanticFallback,
+            fallbackReason: "Rejected incomplete full-card expansion: missing terminal punctuation.",
+            shouldPersist: true,
+            shouldUpdateVisibleCard: true,
+            safeDiagnostics: [
+                "providerStatus": GenerationProviderStatus.completed.rawValue,
+                "stageBClassification": StageBResultClassification.fallbackRequired.rawValue
+            ],
+            identity: GenerationIdentity(question: question, generationID: generationID)
+        )
+        let rejectedSections = StreamingSuggestionSections(
+            strategy: "DeepSeek",
+            sayFirst: "I would explain the pipeline",
+            keyPoints: [],
+            followUpReady: [],
+            caution: ""
+        )
+
+        try await appState.applyStageBApplicationPlan(
+            plan,
+            sections: rejectedSections,
+            cardID: "local-semantic-fallback-should-not-win",
+            generationID: generationID,
+            question: question,
+            session: session,
+            requestStart: Date(),
+            stageBStreamStartedMS: nil,
+            retrievedChunks: [],
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            preserveFallbackSayFirst: false
+        )
+
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.id == currentProviderCard.id)
+        #expect(visible.stageBStatus == "completed")
+        #expect(visible.stageBCompleted == true)
+        #expect(visible.finalVisibleSource == "deepseek_stream")
+        #expect(visible.sayFirstSource == "deepseek_stream")
+        #expect(visible.isLocal == false)
+        #expect(visible.softFallbackUsed == false)
+        #expect(visible.sayFirst == providerSayFirst)
+        try await waitUntil(timeout: 3.0) {
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id)
+                .filter { $0.questionText == question.questionText }
+                .count) ?? 0) == 1
+        }
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            .filter { $0.questionText == question.questionText }
+        #expect(rows.count == 1)
+        #expect(rows.first?.finalVisibleSource == "deepseek_stream")
+        #expect(rows.first?.isLocal == false)
+        #expect(rows.first?.softFallbackUsed == false)
+        #expect(rows.first?.stageBStatus == "completed")
+        #expect(rows.first?.stageBCompleted == true)
+    }
+
+    @Test
+    func providerStageBSuccessDerivesProviderOwnedKeyPointsWhenSectionMissing() async throws {
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let question = try makeQuestion(
+            sessionID: session.id,
+            text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
+            suffix: "provider-empty-keypoints"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        let generationID = "generation-provider-empty-keypoints"
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = question
+        appState.activeRealtimeProvider = nil
+
+        let providerSayFirst = "I handled noisy camera data by calibrating the sensors and building a robust perception pipeline with YOLOv8, which filtered out sensor noise and produced stable object detections, enabling the robot to confidently decide which object to approach even under varying lighting and occlusion."
+        var currentProviderCard = SuggestionCard(
+            id: "current-provider-empty-keypoints",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek",
+            sayFirst: providerSayFirst,
+            keyPoints: [],
+            followUpReady: [],
+            confidence: 0.85,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .medium,
+            modelName: "deepseek-v4-flash",
+            promptVersion: "test",
+            rawJSON: nil,
+            createdAt: Date()
+        )
+        currentProviderCard.questionText = question.questionText
+        currentProviderCard.promptPrimaryQuestion = question.questionText
+        currentProviderCard.generationID = generationID
+        currentProviderCard.sayFirstSource = "deepseek_stream"
+        currentProviderCard.finalVisibleSource = "deepseek_stream"
+        currentProviderCard.isLocal = false
+        appState.currentSuggestion = currentProviderCard
+
+        let plan = StageBApplicationPlan(
+            generationID: generationID,
+            detectedQuestionID: question.id,
+            action: .applyFullCard,
+            fallbackReason: nil,
+            shouldPersist: true,
+            shouldUpdateVisibleCard: true,
+            safeDiagnostics: [:],
+            identity: GenerationIdentity(question: question, generationID: generationID)
+        )
+        let sections = StreamingSuggestionSections(
+            strategy: "DeepSeek",
+            sayFirst: providerSayFirst,
+            keyPoints: [],
+            followUpReady: [],
+            caution: ""
+        )
+
+        try await appState.applyStageBApplicationPlan(
+            plan,
+            sections: sections,
+            cardID: "provider-empty-keypoints-card",
+            generationID: generationID,
+            question: question,
+            session: session,
+            requestStart: Date(),
+            stageBStreamStartedMS: nil,
+            retrievedChunks: [],
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            preserveFallbackSayFirst: false
+        )
+
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.stageBStatus == "completed")
+        #expect(visible.finalVisibleSource == "deepseek_stream")
+        #expect(visible.sayFirstSource == "deepseek_stream")
+        #expect(visible.isLocal == false)
+        #expect(visible.softFallbackUsed == false)
+        #expect(visible.keyPoints.isEmpty == false)
+        #expect(visible.keyPoints.joined(separator: " ").localizedCaseInsensitiveContains("YOLOv8") ||
+            visible.keyPoints.joined(separator: " ").localizedCaseInsensitiveContains("sensor noise"))
+    }
+
+    @Test
+    func substantiveProviderFirstAnswerMissingOnlyPeriodDoesNotBecomeTimeoutFallback() async throws {
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let question = try makeQuestion(
+            sessionID: session.id,
+            text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
+            suffix: "provider-timeout-period"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        let generationID = "provider-timeout-period-generation"
+        let requestStart = Date()
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: requestStart,
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+
+        var card = SuggestionCard(
+            id: "provider-timeout-period-card",
+            sessionID: session.id,
+            questionID: question.id,
+            strategy: "DeepSeek First Answer",
+            sayFirst: "I used a ROS2 perception-to-action pipeline combining YOLOv8 object detection and vision-guided localization, then calibrated the camera and IMU inputs to mitigate sensor noise and perception drift, which allowed the robot to confidently decide which object to approach even in cluttered environments",
+            keyPoints: [],
+            followUpReady: [],
+            confidence: 0.9,
+            caution: nil,
+            evidenceUsed: [],
+            riskLevel: .low,
+            modelName: "deepseek-v4-flash",
+            promptVersion: "test",
+            providerKind: .deepSeek,
+            providerName: "DeepSeek",
+            providerBaseURL: "https://api.deepseek.com",
+            latencyMS: 2_700,
+            isLocal: false,
+            rawJSON: nil,
+            createdAt: Date(),
+            sayFirstSource: "deepseek_stream_timeout"
+        )
+        card.questionText = question.questionText
+        card.promptQuestionText = question.questionText
+        card.promptPrimaryQuestion = question.questionText
+        card.generationID = generationID
+        card.finalVisibleSource = "deepseek_stream_timeout"
+        card.softFallbackUsed = true
+        card.stageBCompleted = false
+        card.stageBStatus = "timed_out"
+        card.deepseekFirstTokenMS = 2_600
+        card.deepseekFirstVisibleMS = 2_700
+        appState.currentSuggestion = card
+
+        let finished = appState.finishGenerationWithVisibleCard(
+            card,
+            generationID: generationID,
+            question: question,
+            session: session,
+            requestStart: requestStart,
+            retrievedChunks: [],
+            triggerPath: .autoDetect,
+            timedOut: true
+        )
+
+        #expect(finished)
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.sayFirst.hasSuffix("."))
+        #expect(visible.finalVisibleSource == "deepseek_stream")
+        #expect(visible.sayFirstSource == "deepseek_stream")
+        #expect(visible.providerName == "DeepSeek")
+        #expect(visible.modelName == "deepseek-v4-flash")
+        #expect(visible.isLocal == false)
+        #expect(visible.softFallbackUsed == false)
+        #expect(visible.stageBCompleted == true)
+        #expect(visible.stageBStatus == "completed")
+        #expect(visible.keyPoints.isEmpty == false)
+        #expect(visible.alignmentVerdict == .aligned)
+
+        try await waitUntil(timeout: 5.0) {
+            guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == card.id }) else {
+                return false
+            }
+            return persisted.finalVisibleSource == "deepseek_stream" &&
+                persisted.sayFirstSource == "deepseek_stream" &&
+                persisted.isLocal == false &&
+                persisted.softFallbackUsed == false &&
+                persisted.stageBCompleted == true &&
+                persisted.keyPoints.isEmpty == false
+        }
+    }
+
+    @Test
     func lateFirstProviderCardCannotOverwriteSecondCurrentCard() throws {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let traceURL = FileManager.default.temporaryDirectory

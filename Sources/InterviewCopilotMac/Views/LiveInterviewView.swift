@@ -126,9 +126,9 @@ struct LiveInterviewView: View {
                 controlSize: .large,
                 disabled: !appState.liveState.canAnswerNow || appState.liveBlockedReason != nil
             ) {
-                appState.manualAnswerNow()
+                appState.answerCurrentQuestionOrTranscriptNow()
             }
-            .help("Fallback: manually trigger generation from the recent transcript.")
+            .help("Fallback: manually trigger generation from the current question when available, otherwise from the recent transcript.")
         }
 
         ActionButton(

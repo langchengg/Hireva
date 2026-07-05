@@ -812,16 +812,16 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func timedOutRejectedProviderPreviewPersistsLocalFallbackForCurrentQuestion() async throws {
+    func timedOutRejectedProviderPreviewPersistsSemanticFallbackReason() async throws {
         let traceURL = temporaryTraceURL("runtime-rejected-provider-preview-fallback-trace")
         let (appState, _, client) = try makeAppState(traceURL: traceURL)
         appState.currentSession = nil
         appState.delayProvider = RealDelayProvider()
         appState.stageATimeoutSeconds = 0.4
         appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
-        client.stageAStreamHangAfterTokenByNeedle["YOLOv8 detection help your robot identify"] = 18
-        client.fullCardStreamHangByNeedle.insert("YOLOv8 detection help your robot identify")
-        let expectedQuestion = "How did YOLOv8 detection help your robot identify the target object before localization and navigation?"
+        client.stageAStreamHangAfterTokenByNeedle["connect YOLOv8 detection"] = 22
+        client.fullCardStreamHangByNeedle.insert("connect YOLOv8 detection")
+        let expectedQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
 
         await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
 
@@ -853,13 +853,15 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(card.questionText == expectedQuestion)
         #expect(card.promptPrimaryQuestion == expectedQuestion)
         #expect(card.stageBStatus == "timed_out")
-        #expect(["local_timeout_fallback", "rag_template_soft_fallback"].contains(card.finalVisibleSource ?? ""))
-        #expect(card.isLocal)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.sayFirstSource == "semantic_intent_fallback")
+        #expect(card.finalVisibleSource == "semantic_intent_fallback")
+        #expect(card.isLocal == true)
+        #expect(card.deepseekFirstTokenMS != nil)
         #expect(card.keyPoints.isEmpty == false)
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"answer.first_token\""))
+        #expect(trace.contains("\"event_type\":\"partialAnswerRejectedIncomplete\"") || trace.contains("\"event_type\":\"fallbackUsedForIncompleteStream\""))
         #expect(trace.contains("\"event_type\":\"persistenceSucceeded\""))
         #expect(trace.contains("\"event_type\":\"persistenceRejected\"") == false)
     }
@@ -930,6 +932,189 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(trace.contains("\"event_type\":\"persistenceRejected\"") == false)
         #expect(client.streamCallCount > 0)
         #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
+    func regenerateUsesCurrentVisibleQuestionInsteadOfCumulativeTranscript() async throws {
+        let (appState, session, client) = try makeAppState()
+        let delay = MockDelayProvider()
+        delay.sleepDuration = 60_000_000_000
+        appState.delayProvider = delay
+        appState.stageATimeoutSeconds = 60.0
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        appState.hasCV = true
+        appState.hasJD = true
+
+        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
+        let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
+        appState.transcriptSegments = [
+            systemAudioSegment(id: "regen-q1", sessionID: session.id, text: firstQuestion),
+            systemAudioSegment(id: "regen-q2", sessionID: session.id, text: currentQuestion)
+        ]
+        appState.rawTranscriptText = [firstQuestion, currentQuestion].joined(separator: " ")
+        let acceptedQuestion = detectedQuestion(
+            sessionID: session.id,
+            text: currentQuestion,
+            intent: .technical,
+            strategy: .technicalExplanation
+        )
+        var savedAcceptedQuestion = acceptedQuestion
+        savedAcceptedQuestion.id = "regen-current-q2"
+        savedAcceptedQuestion.transcriptSegmentID = nil
+        try appState.suggestionRepository.saveDetectedQuestion(savedAcceptedQuestion)
+        let initialCard = suggestionCard(
+            sessionID: session.id,
+            questionID: "regen-current-q2",
+            questionText: currentQuestion,
+            sayFirst: "Previous visible answer."
+        )
+        appState.currentSuggestion = initialCard
+        #expect(appState.claimSuggestionPersistence(initialCard, generationID: initialCard.generationID))
+        try appState.suggestionRepository.saveSuggestionCard(initialCard)
+
+        appState.regenerateVisibleSuggestion()
+
+        try? await waitUntil(timeout: 5.0) {
+            appState.lastRegenerateNewGenerationID != nil || !appState.lastRegenerateRejectionReason.isEmpty
+        }
+
+        let completed: Void? = try? await waitUntil(timeout: 30.0) {
+            appState.lastRegenerateNewGenerationID != nil &&
+                appState.currentSuggestion?.questionText == currentQuestion &&
+                appState.currentSuggestion?.stageBCompleted == true &&
+                appState.generationUIState.isTerminal
+        }
+        #expect(completed != nil, """
+        regenerate timed out: newGenerationId=\(appState.lastRegenerateNewGenerationID ?? "nil") \
+        rejection=\(appState.lastRegenerateRejectionReason) \
+        streamCalls=\(client.streamCallCount) \
+        ui=\(appState.generationUIState.displayName) \
+        currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil") \
+        source=\(appState.currentSuggestion?.finalVisibleSource ?? "nil") \
+        stageB=\(appState.currentSuggestion?.stageBStatus ?? "nil") \
+        alignment=\(appState.currentSuggestion?.alignmentVerdict?.rawValue ?? "nil") \
+        lastAlignmentError=\(appState.lastAlignmentError)
+        """)
+
+        let card = try #require(appState.currentSuggestion)
+        #expect(client.detectionCallCount == 0)
+        #expect(client.streamCallCount > 0)
+        #expect(card.detectedQuestionID == "regen-current-q2")
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("object identity"), "sayFirst=\(card.sayFirst)")
+        #expect(card.finalVisibleSource == "deepseek_stream")
+        #expect(card.isLocal == false)
+        #expect(appState.lastRegenerateQuestionID == "regen-current-q2")
+        #expect(appState.lastRegenerateSourceTextKind == "accepted_question")
+        #expect(appState.lastRegenerateOldGenerationID == "runtime-path-generation")
+        #expect(appState.lastRegenerateNewGenerationID != nil)
+        #expect(appState.lastRegenerateRejectionReason.isEmpty)
+        #expect(appState.lastRegenerateRejectionReason != QuestionRuntimeRejectionReason.multipleQuestionsNeedSegmentation.rawValue)
+
+        try await waitUntil(timeout: 5.0) {
+            guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == initialCard.id }) else {
+                return false
+            }
+            return persisted.generationID == appState.lastRegenerateNewGenerationID &&
+                persisted.finalVisibleSource == "deepseek_stream" &&
+                persisted.isLocal == false &&
+                persisted.softFallbackUsed == false
+        }
+        let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == initialCard.id })
+        #expect(persisted.generationID == appState.lastRegenerateNewGenerationID)
+        #expect(persisted.finalVisibleSource == "deepseek_stream")
+        #expect(persisted.isLocal == false)
+        #expect(persisted.softFallbackUsed == false)
+        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).filter { $0.questionText == currentQuestion }.count == 1)
+    }
+
+    @Test
+    func manualGenerateButtonUsesAcceptedQuestionBeforeRecentTranscript() async throws {
+        let (appState, session, client) = try makeAppState()
+        let delay = MockDelayProvider()
+        delay.sleepDuration = 60_000_000_000
+        appState.delayProvider = delay
+        appState.stageATimeoutSeconds = 60.0
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        appState.hasCV = true
+        appState.hasJD = true
+
+        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
+        let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
+        appState.transcriptSegments = [
+            systemAudioSegment(id: "manual-generate-q1", sessionID: session.id, text: firstQuestion),
+            systemAudioSegment(id: "manual-generate-q2", sessionID: session.id, text: currentQuestion)
+        ]
+        appState.rawTranscriptText = [firstQuestion, currentQuestion].joined(separator: " ")
+
+        var acceptedQuestion = detectedQuestion(
+            sessionID: session.id,
+            text: currentQuestion,
+            intent: .technical,
+            strategy: .technicalExplanation
+        )
+        acceptedQuestion.id = "manual-generate-current-q2"
+        acceptedQuestion.transcriptSegmentID = nil
+        try appState.suggestionRepository.saveDetectedQuestion(acceptedQuestion)
+        appState.lastDetectedQuestion = acceptedQuestion
+        appState.lastDetectedQuestionText = currentQuestion
+        appState.lastDetectedQuestionSource = AudioSourceType.systemAudio.rawValue
+        appState.lastDetectedQuestionSpeaker = SpeakerRole.interviewer.rawValue
+
+        let initialCard = suggestionCard(
+            sessionID: session.id,
+            questionID: acceptedQuestion.id,
+            questionText: currentQuestion,
+            sayFirst: "Previous visible answer."
+        )
+        appState.currentSuggestion = initialCard
+        #expect(appState.claimSuggestionPersistence(initialCard, generationID: initialCard.generationID))
+        try appState.suggestionRepository.saveSuggestionCard(initialCard)
+
+        appState.answerCurrentQuestionOrTranscriptNow()
+
+        let completed: Void? = try? await waitUntil(timeout: 30.0) {
+            appState.lastRegenerateNewGenerationID != nil &&
+                appState.currentSuggestion?.questionText == currentQuestion &&
+                appState.currentSuggestion?.stageBCompleted == true &&
+                appState.generationUIState.isTerminal
+        }
+        #expect(completed != nil, """
+        manual generate timed out: newGenerationId=\(appState.lastRegenerateNewGenerationID ?? "nil") \
+        rejection=\(appState.lastRegenerateRejectionReason) \
+        streamCalls=\(client.streamCallCount) \
+        detectionCalls=\(client.detectionCallCount) \
+        ui=\(appState.generationUIState.displayName) \
+        currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil")
+        """)
+
+        let card = try #require(appState.currentSuggestion)
+        #expect(client.detectionCallCount == 0)
+        #expect(client.streamCallCount > 0)
+        #expect(card.detectedQuestionID == acceptedQuestion.id)
+        #expect(card.questionText == currentQuestion)
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("object identity"), "sayFirst=\(card.sayFirst)")
+        #expect(card.finalVisibleSource == "deepseek_stream")
+        #expect(card.isLocal == false)
+        #expect(appState.lastRegenerateQuestionID == acceptedQuestion.id)
+        #expect(appState.lastRegenerateSourceTextKind == "accepted_question")
+        #expect(appState.lastRegenerateRejectionReason.isEmpty)
+        #expect(appState.lastRegenerateRejectionReason != QuestionRuntimeRejectionReason.multipleQuestionsNeedSegmentation.rawValue)
+
+        try await waitUntil(timeout: 5.0) {
+            guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == initialCard.id }) else {
+                return false
+            }
+            return persisted.generationID == appState.lastRegenerateNewGenerationID &&
+                persisted.finalVisibleSource == "deepseek_stream" &&
+                persisted.isLocal == false &&
+                persisted.softFallbackUsed == false
+        }
+        let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == initialCard.id })
+        #expect(persisted.generationID == appState.lastRegenerateNewGenerationID)
+        #expect(persisted.finalVisibleSource == "deepseek_stream")
+        #expect(persisted.isLocal == false)
+        #expect(persisted.softFallbackUsed == false)
+        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).filter { $0.questionText == currentQuestion }.count == 1)
     }
 
     @Test
@@ -2320,6 +2505,13 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
     }
 
     private func currentQuestion(from prompt: String) -> String {
+        if let range = prompt.range(of: "CURRENT QUESTION TO ANSWER:") {
+            let questionLine = String(prompt[range.upperBound...])
+                .components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\""))) }
+                .first { !$0.isEmpty }
+            return questionLine ?? prompt
+        }
         if let range = prompt.range(of: "Current interviewer question:") {
             return String(prompt[range.upperBound...])
                 .components(separatedBy: "\n")

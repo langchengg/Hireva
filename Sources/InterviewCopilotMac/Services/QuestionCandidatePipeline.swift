@@ -180,7 +180,7 @@ enum MultiQuestionSplitter {
             "\\bwhat\\s+(?:[a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
             "\\bwhich\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|became|created|caused|made|failed|mattered|part|component|module|subsystem|stage|step)\\b",
             "\\band\\s+how\\s+did\\b",
-            "\\bbefore\\b.{0,120}\\bwhat\\s+\\w+\\s+did\\b",
+            "\\bbefore\\b.{0,140}\\bwhat\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|needed|mattered|failed)\\b",
             "\\bhow\\s+did\\b",
             "\\bhow\\s+do\\b",
             "\\bhow\\s+would\\b",
@@ -192,7 +192,8 @@ enum MultiQuestionSplitter {
         let temporalQuestionStarts = [
             "\\bwhen\\b",
             "\\bwhen\\b.{0,120}\\b(?:how|what|which|why)\\b",
-            "\\bwhen\\s+you\\s+(?:moved|move)\\b"
+            "\\bwhen\\s+you\\s+(?:moved|move)\\b",
+            "\\bbefore\\b.{0,140}\\b(?:how|what|which|why)\\b"
         ]
         let patterns = auxiliaryQuestionStarts +
             imperativeQuestionStarts +
@@ -213,23 +214,35 @@ enum MultiQuestionSplitter {
 
         var filtered: [Int] = []
         for start in starts.sorted() {
+            let currentIndex = String.Index(utf16Offset: start, in: lower)
+            let currentClause = String(lower[currentIndex...])
+            if isBeforeInterviewerPrefaceBeforeIndependentQuestion(currentClause) {
+                continue
+            }
             if let previous = filtered.last {
                 if start - previous < 18 {
                     continue
                 }
                 let previousIndex = String.Index(utf16Offset: previous, in: lower)
-                let currentIndex = String.Index(utf16Offset: start, in: lower)
                 let previousClause = String(lower[previousIndex..<currentIndex])
                 if start - previous < 140, previousClause.contains("suppose you") {
                     continue
                 }
-                let currentClause = String(lower[currentIndex...])
                 if start - previous < 140,
                    (previousClause.contains("when you moved") || previousClause.contains("when you move")),
                    !currentClause.hasPrefix("why do") {
                     continue
                 }
+                if isBeforeGerundPhraseBeforeIndependentQuestion(currentClause) {
+                    continue
+                }
                 if start - previous < 140, previousClause.contains("if the same issue") {
+                    continue
+                }
+                if start - previous < 220,
+                   !previousClause.contains("?"),
+                   isInlineTemporalTail(currentClause),
+                   clauseAlreadyStartedQuestion(previousClause) {
                     continue
                 }
                 if start - previous < 220,
@@ -349,6 +362,43 @@ enum MultiQuestionSplitter {
             trimmed.hasPrefix("before ")
     }
 
+    private static func isInlineTemporalTail(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("before it ") ||
+            trimmed.hasPrefix("before they ") ||
+            trimmed.hasPrefix("before that ") ||
+            trimmed.hasPrefix("before this ") ||
+            trimmed.hasPrefix("after it ") ||
+            trimmed.hasPrefix("after they ") ||
+            trimmed.hasPrefix("when it ") ||
+            trimmed.hasPrefix("when they ") ||
+            trimmed.hasPrefix("while it ") ||
+            trimmed.hasPrefix("while they ")
+    }
+
+    private static func isBeforeGerundPhraseBeforeIndependentQuestion(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("before ") else { return false }
+        let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count >= 3, words[1].hasSuffix("ing") else { return false }
+        return [" how ", " what ", " which ", " why "].contains { trimmed.contains($0) }
+    }
+
+    private static func isBeforeInterviewerPrefaceBeforeIndependentQuestion(_ clause: String) -> Bool {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startsWithPreface = trimmed.hasPrefix("before i ask") ||
+            trimmed.hasPrefix("before we ask") ||
+            trimmed.hasPrefix("before i explain") ||
+            trimmed.hasPrefix("before we explain") ||
+            trimmed.hasPrefix("before i tell") ||
+            trimmed.hasPrefix("before we tell")
+        guard startsWithPreface else { return false }
+        return [
+            " can you ", " could you ", " would you ",
+            " what ", " how ", " why ", " which "
+        ].contains { trimmed.contains($0) }
+    }
+
     private static func temporalClauseContainsQuestionComplement(_ clause: String) -> Bool {
         let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
         let complementMarkers = [
@@ -455,6 +505,7 @@ enum RawQuestionCleaner {
             cleaned.removeLast()
             cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        cleaned = normalizeDependentTemporalQuestion(cleaned)
         return normalizeLeadingCapitalization(cleaned)
     }
 
@@ -515,5 +566,32 @@ enum RawQuestionCleaner {
     private static func normalizeLeadingCapitalization(_ text: String) -> String {
         guard let first = text.first, first.isLowercase else { return text }
         return first.uppercased() + text.dropFirst()
+    }
+
+    private static func normalizeDependentTemporalQuestion(_ text: String) -> String {
+        var cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = cleaned.lowercased()
+        guard lower.hasPrefix("before ") else { return cleaned }
+
+        let markers = [" what ", " how ", " which ", " why "]
+        guard let markerRange = markers
+            .compactMap({ cleaned.range(of: $0, options: [.caseInsensitive]) })
+            .min(by: { $0.lowerBound < $1.lowerBound })
+        else { return cleaned }
+
+        let prefix = String(cleaned[..<markerRange.lowerBound])
+        if !prefix.contains(",") {
+            cleaned.insert(",", at: markerRange.lowerBound)
+        }
+
+        let normalized = cleaned.lowercased()
+        let asksQuestion = [
+            " did ", " does ", " do ", " was ", " were ",
+            " would ", " could ", " should ", " needed "
+        ].contains { normalized.contains($0) }
+        if asksQuestion, !cleaned.hasSuffix("?") {
+            cleaned.append("?")
+        }
+        return cleaned
     }
 }

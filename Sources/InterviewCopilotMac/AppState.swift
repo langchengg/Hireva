@@ -413,6 +413,11 @@ final class AppState: ObservableObject {
     @Published public var deepseekFirstTokenMS: Int? = nil
     @Published public var deepseekFirstVisibleMS: Int? = nil
     @Published public var finalVisibleSource: String? = nil
+    @Published public var lastRegenerateQuestionID: String? = nil
+    @Published public var lastRegenerateSourceTextKind: String = ""
+    @Published public var lastRegenerateOldGenerationID: String? = nil
+    @Published public var lastRegenerateNewGenerationID: String? = nil
+    @Published public var lastRegenerateRejectionReason: String = ""
     @Published public var currentGenerationID: String? = nil
     // internal for AppState extension access only
     @Published public internal(set) var activeGenerationID: String? = nil
@@ -1156,6 +1161,17 @@ final class AppState: ObservableObject {
         let preGenerationGuard = QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(question)
         guard preGenerationGuard.accepted else {
             let reason = preGenerationGuard.reason ?? .pipelineRejected
+            if lastRegenerateQuestionID == question.id {
+                lastRegenerateRejectionReason = reason.rawValue
+                recordLifecycleTrace(
+                    "regenerate.rejected",
+                    sessionID: session.id,
+                    questionID: question.id,
+                    generationID: lastRegenerateOldGenerationID,
+                    text: question.questionText,
+                    reason: "sourceTextKind=\(lastRegenerateSourceTextKind.isEmpty ? "unknown" : lastRegenerateSourceTextKind) rejectionReason=\(reason.rawValue)"
+                )
+            }
             recordTranscriptRuntimeEvent(.generationRejected(
                 sessionID: session.id,
                 question: question.questionText,
@@ -1195,8 +1211,23 @@ final class AppState: ObservableObject {
         self.floatingPanelUpdated = false
 
         let requestStart = Date()
-        let cardID = UUID().uuidString
+        let isAcceptedQuestionRegenerate = lastRegenerateQuestionID == question.id &&
+            lastRegenerateSourceTextKind == "accepted_question"
+        let cardID = isAcceptedQuestionRegenerate ? (currentSuggestion?.id ?? UUID().uuidString) : UUID().uuidString
         let generationID = UUID().uuidString
+        if isAcceptedQuestionRegenerate {
+            intentionalRepeatQuestionIDs.insert(question.id)
+            lastRegenerateNewGenerationID = generationID
+            lastRegenerateRejectionReason = ""
+            recordLifecycleTrace(
+                "regenerate.generation.started",
+                sessionID: session.id,
+                questionID: question.id,
+                generationID: generationID,
+                text: question.questionText,
+                reason: "sourceTextKind=accepted_question oldGenerationId=\(lastRegenerateOldGenerationID ?? "nil") newGenerationId=\(generationID)"
+            )
+        }
         recordTranscriptRuntimeEvent(.generationStarted(
             sessionID: session.id,
             questionID: question.id,
@@ -1783,6 +1814,21 @@ final class AppState: ObservableObject {
                         self.recordStaleGenerationDiscard()
                         return
                     }
+                    if let completed = self.completeSubstantiveProviderFirstAnswerAfterTimeout(
+                        current,
+                        question: localQuestion,
+                        requestStart: requestStart
+                    ) {
+                        self.currentSuggestion = completed
+                        self.persistSuggestionInBackground(
+                            completed,
+                            chunks: self.currentSuggestionRetrievedChunks,
+                            generationID: generationID,
+                            requestStart: requestStart
+                        )
+                        self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "Full answer expansion failed. The DeepSeek answer was kept.")
+                        return
+                    }
                     if self.replaceIncompleteVisibleAnswerWithFallbackIfNeeded(
                         card: current,
                         question: localQuestion,
@@ -1927,7 +1973,10 @@ final class AppState: ObservableObject {
                 return
             }
 
-            if var current = self.currentSuggestion,
+            let streamed = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if streamed.isEmpty,
+               var current = self.currentSuggestion,
                self.visibleCardMatchesGeneration(
                     card: current,
                     generationID: generationID,
@@ -1963,7 +2012,6 @@ final class AppState: ObservableObject {
                 return
             }
 
-            let streamed = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !streamed.isEmpty else { return }
 
             var streamCard = createRAGFallbackCard(isSoft: true)
@@ -1982,7 +2030,7 @@ final class AppState: ObservableObject {
             streamCard.source = telemetrySource?.rawValue
             streamCard.speaker = telemetrySpeaker?.rawValue
             streamCard.triggerPath = triggerPath
-            streamCard.sayFirstSource = "deepseek_stream_timeout"
+            self.markProviderStreamOwnership(&streamCard, source: "deepseek_stream_timeout", modelName: self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model)
             streamCard.stageATimedOut = true
             streamCard.stageBCompleted = false
             streamCard.stageBStatus = "timed_out"
@@ -1990,7 +2038,6 @@ final class AppState: ObservableObject {
             streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
             streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
             streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
-            streamCard.finalVisibleSource = "deepseek_stream_timeout"
             streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
             if !streamCard.keyPoints.isEmpty {
                 streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS
@@ -2071,10 +2118,9 @@ final class AppState: ObservableObject {
                             generationID: generationID,
                             detectedQuestionID: localQuestion.id,
                             promptPrimaryQuestion: localQuestion.questionText
-                       ) {
+                        ) {
                         current.sayFirst = fastSayFirst
-                        current.sayFirstSource = "deepseek_stream"
-                        current.finalVisibleSource = "deepseek_stream"
+                        self.markProviderStreamOwnership(&current)
                         let validated = await self.validateAndRewriteIfNeeded(current, generationID: generationID)
                         guard self.isActiveGeneration(generationID), !Task.isCancelled else {
                             self.recordStaleGenerationDiscard()
@@ -2109,8 +2155,7 @@ final class AppState: ObservableObject {
                     } else {
                         var updated = createRAGFallbackCard(isSoft: true)
                         updated.sayFirst = fastSayFirst
-                        updated.sayFirstSource = "deepseek_stream"
-                        updated.finalVisibleSource = "deepseek_stream"
+                        self.markProviderStreamOwnership(&updated)
                         updated.caution = "DeepSeek answer updated. Expanding details..."
                         updated.firstVisibleAnswerMS = updated.firstVisibleAnswerMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
                         self.finalVisibleSource = "deepseek_stream"
@@ -2245,7 +2290,10 @@ final class AppState: ObservableObject {
             self.isStreamingSayFirst = false
             clearFallbackWatchdogTask(generationID: generationID)
 
-            if var current = self.currentSuggestion,
+            let streamedTimeoutText = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if streamedTimeoutText.isEmpty,
+               var current = self.currentSuggestion,
                self.visibleCardMatchesGeneration(
                     card: current,
                     generationID: generationID,
@@ -2282,7 +2330,6 @@ final class AppState: ObservableObject {
                 return
             }
 
-            let streamedTimeoutText = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
             if !streamedTimeoutText.isEmpty {
                 var streamCard = createRAGFallbackCard(isSoft: true)
                 streamCard.strategy = "DeepSeek First Answer"
@@ -2300,7 +2347,7 @@ final class AppState: ObservableObject {
                 streamCard.source = telemetrySource?.rawValue
                 streamCard.speaker = telemetrySpeaker?.rawValue
                 streamCard.triggerPath = triggerPath
-                streamCard.sayFirstSource = "deepseek_stream_timeout"
+                self.markProviderStreamOwnership(&streamCard, source: "deepseek_stream_timeout", modelName: self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model)
                 streamCard.stageATimedOut = true
                 streamCard.stageBCompleted = false
                 streamCard.stageBStatus = "timed_out"
@@ -2308,7 +2355,6 @@ final class AppState: ObservableObject {
                 streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
                 streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
                 streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
-                streamCard.finalVisibleSource = "deepseek_stream_timeout"
                 streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
                 if !streamCard.keyPoints.isEmpty {
                     streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS

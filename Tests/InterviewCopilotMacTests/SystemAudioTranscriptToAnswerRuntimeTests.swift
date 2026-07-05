@@ -72,7 +72,7 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
     @Test
     func latestRealDatabaseTranscriptFixtureExtractsQuestionsIfAvailable() async throws {
         let (appState, _, session, _) = try makeAppState()
-        let transcript = Self.latestRealDatabaseSystemAudioTranscript() ?? Self.realRuntimeLongTranscriptFixture
+        let transcript = Self.gatedRealDatabaseSystemAudioTranscript() ?? Self.realRuntimeLongTranscriptFixture
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "real-db-replay-transcript",
@@ -166,7 +166,10 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         }
     }
 
-    private static func latestRealDatabaseSystemAudioTranscript() -> String? {
+    private static func gatedRealDatabaseSystemAudioTranscript() -> String? {
+        guard ProcessInfo.processInfo.environment["REAL_APP_DB_TESTS"] == "1" else {
+            return nil
+        }
         let dbURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/InterviewCopilotMac/interview_copilot.sqlite")
         guard FileManager.default.fileExists(atPath: dbURL.path),

@@ -111,7 +111,7 @@ struct HomeView: View {
                         isProminent: true,
                         disabled: !appState.liveState.canAnswerNow
                     ) {
-                        appState.manualAnswerNow()
+                        appState.answerCurrentQuestionOrTranscriptNow()
                     }
                 }
             }

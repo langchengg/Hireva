@@ -139,6 +139,13 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func inlineBeforeTailInsideWhatInformationQuestionDoesNotSplit() {
+        let question = "What information did the robot need before it could decide where to move and what to grasp?"
+
+        #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+    }
+
+    @Test
     func unseenQuestionStartFamiliesSplitAndRouteWithoutExactPhraseRules() {
         let transcript = [
             "How did the perception module influence the robot's next physical action",
@@ -151,7 +158,7 @@ struct QuestionCandidatePipelineTests {
 
         #expect(candidates.map(\.text) == [
             "How did the perception module influence the robot's next physical action",
-            "Before the robot moved, what state did it need to estimate",
+            "Before the robot moved, what state did it need to estimate?",
             "What happened when the system made a wrong perception decision",
             "When localization failed, how did recovery behavior decide whether to retry"
         ])
@@ -227,6 +234,29 @@ struct QuestionCandidatePipelineTests {
         #expect(QuestionCompletenessGate.isIncompleteFragment("when the target was stable enough"))
         #expect(QuestionCompletenessGate.isCompleteQuestion(temporalQuestion, isFinal: true))
         #expect(QuestionCandidatePipeline.extract(from: temporalQuestion).map(\.text) == [temporalQuestion])
+    }
+
+    @Test
+    func dependentBeforeFollowUpPreservesAntecedentContext() {
+        let question = "Before the robot moved toward the object, what safety or confidence checks did it need to pass?"
+        let unpunctuated = "Before the robot moved toward the object what safety or confidence checks did it need to pass"
+
+        #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+        #expect(QuestionCandidatePipeline.extract(from: unpunctuated).map(\.text) == [
+            "Before the robot moved toward the object, what safety or confidence checks did it need to pass?"
+        ])
+    }
+
+    @Test
+    func beforeInterviewerPrefaceDoesNotBecomeQuestionCandidate() {
+        let candidates = QuestionCandidatePipeline.extract(
+            from: "Before I ask the next question, let me explain a little bit about what this role involves. We work with deployed robotics systems, perception, edge AI, and reliability in real environments. With that context, can you explain how your previous robotics experience prepares you for this role?"
+        )
+
+        #expect(candidates.map(\.text) == [
+            "Can you explain how your previous robotics experience prepares you for this role?"
+        ])
+        #expect(candidates.first?.answerRelevanceIntent == .whyRole)
     }
 
     @Test

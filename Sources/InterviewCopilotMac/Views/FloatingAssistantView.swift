@@ -235,6 +235,11 @@ struct FloatingAssistantView: View {
                     diagnosticRow("activeElapsedMs", appState.activeGenerationElapsedMs.map { "\($0)" } ?? "nil")
                     diagnosticRow("activeTaskSummary", appState.activeTaskSummary)
                     diagnosticRow("previousGenerationID", appState.previousGenerationID ?? "nil")
+                    diagnosticRow("regenerate.questionId", appState.lastRegenerateQuestionID ?? "nil")
+                    diagnosticRow("regenerate.sourceTextKind", appState.lastRegenerateSourceTextKind.isEmpty ? "nil" : appState.lastRegenerateSourceTextKind)
+                    diagnosticRow("regenerate.oldGenerationId", appState.lastRegenerateOldGenerationID ?? "nil")
+                    diagnosticRow("regenerate.newGenerationId", appState.lastRegenerateNewGenerationID ?? "nil")
+                    diagnosticRow("regenerate.rejectionReason", appState.lastRegenerateRejectionReason.isEmpty ? "nil" : appState.lastRegenerateRejectionReason)
                     diagnosticRow("visibleAnswerExists", appState.visibleAnswerExists ? "true" : "false")
                     diagnosticRow("currentSpinnerVisible", appState.currentSpinnerVisible ? "true" : "false")
                     diagnosticRow("fallbackWatchdogActive", appState.fallbackWatchdogActive ? "true" : "false")
@@ -568,8 +573,8 @@ struct FloatingAssistantView: View {
             appState.regenerateManualSuggestion()
             appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "Manual capture answer is being refreshed.")
         } else {
-            appState.manualAnswerNow()
-            appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "A new answer is being generated from the current transcript.")
+            appState.regenerateVisibleSuggestion()
+            appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "A new answer is being generated from the current question.")
         }
     }
 

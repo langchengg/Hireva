@@ -469,7 +469,7 @@ struct StreamingSoftFallbackTests {
     
     @MainActor
     @Test
-    func softFallbackKeepsCompletedStageBCardWhenLateStageAWouldReplace() async throws {
+    func providerStageBSuccessOverridesSoftFallbackOwnership() async throws {
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
@@ -515,6 +515,11 @@ struct StreamingSoftFallbackTests {
             llmRouter: router,
             contextRetrievalService: SlowStreamingContextRetrievalService(delayNanoseconds: 30_000_000)
         )
+        // Regression: a rebuilt app can stream through the router while the
+        // published provider cache is not hydrated yet. Provider success must
+        // still overwrite fallback ownership instead of preserving fallback
+        // provider/model/isLocal metadata.
+        appState.activeRealtimeProvider = nil
         
         // Inject MockDelayProvider which fires the 1.5s timer immediately (5ms sleep)
         let mockDelay = MockDelayProvider()
@@ -553,16 +558,32 @@ struct StreamingSoftFallbackTests {
         }
         
         // Assertions
-        #expect(appState.softFallbackUsed == true)
         #expect(mockDelay.delayCalledWithNanoseconds.contains(1_500_000_000))
         #expect(appState.currentSuggestion != nil)
         
         let finalCard = appState.currentSuggestion!
-        #expect(finalCard.softFallbackUsed == true)
+        #expect(appState.softFallbackUsed == false)
+        #expect(finalCard.softFallbackUsed == false)
         #expect(finalCard.stageBCompleted == true)
         #expect(finalCard.stageBStatus == "completed")
         #expect(finalCard.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
         #expect(finalCard.keyPoints.contains("ROS2, YOLOv8, navigation and localisation"))
+        #expect(finalCard.providerName == "DeepSeek")
+        #expect(finalCard.modelName.localizedCaseInsensitiveContains("deepseek"))
+        #expect(finalCard.sayFirstSource == "deepseek_stream")
+        #expect(finalCard.finalVisibleSource == "deepseek_stream")
+        #expect(finalCard.isLocal == false)
+
+        try await waitUntil(timeout: 5.0) {
+            (try? suggestionRepo.suggestions(sessionID: session.id).first?.finalVisibleSource) == "deepseek_stream"
+        }
+        let persisted = try #require(try suggestionRepo.suggestions(sessionID: session.id).first)
+        #expect(persisted.providerName == "DeepSeek")
+        #expect(persisted.modelName.localizedCaseInsensitiveContains("deepseek"))
+        #expect(persisted.finalVisibleSource == "deepseek_stream")
+        #expect(persisted.sayFirstSource == "deepseek_stream")
+        #expect(persisted.isLocal == false)
+        #expect(persisted.softFallbackUsed == false)
     }
     
     @MainActor
@@ -651,7 +672,9 @@ struct StreamingSoftFallbackTests {
         let finalCard = appState.currentSuggestion!
         #expect(appState.softFallbackUsed == false)
         #expect(finalCard.softFallbackUsed == false)
-        #expect(["deepseek_stream", "deepseek_section_stream"].contains(finalCard.sayFirstSource ?? ""))
+        #expect(finalCard.sayFirstSource == "deepseek_stream")
+        #expect(finalCard.finalVisibleSource == "deepseek_stream")
+        #expect(finalCard.isLocal == false)
     }
     
     @MainActor
