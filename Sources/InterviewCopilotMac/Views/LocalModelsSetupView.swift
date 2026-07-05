@@ -317,7 +317,7 @@ struct LocalModelsSetupView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 Button {
-                    answerProviderMode = AnswerProviderMode.deepSeekPrimary.rawValue
+                    setAnswerProviderMode(.deepSeekPrimary)
                     selectedStep = .provider
                 } label: {
                     Label("Continue with DeepSeek only", systemImage: "cloud")
@@ -340,12 +340,44 @@ struct LocalModelsSetupView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+                .onChange(of: answerProviderMode) { _, newValue in
+                    appState.setSelectedAnswerProviderMode(AnswerProviderMode(storedValue: newValue))
+                }
+
+                HStack {
+                    Button {
+                        setAnswerProviderMode(.deepSeekPrimary)
+                    } label: {
+                        Label("Use DeepSeek", systemImage: "cloud")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(providerMode == .deepSeekPrimary ? .accentColor : .secondary)
+
+                    Button {
+                        setAnswerProviderMode(.deepSeekWithLocalQwenFallback)
+                    } label: {
+                        Label("Enable Qwen Fallback", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(providerMode == .deepSeekWithLocalQwenFallback ? .accentColor : .secondary)
+                    .disabled(!viewModel.qwenHealth.isReady)
+
+                    Button {
+                        setAnswerProviderMode(.localQwenPrimary)
+                    } label: {
+                        Label("Use Qwen Primary", systemImage: "cpu")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(providerMode == .localQwenPrimary ? .accentColor : .secondary)
+                    .disabled(!viewModel.qwenHealth.isReady)
+                }
 
                 Divider()
 
                 diagnosticRow("DeepSeek configured", appState.hasAPIKey ? "true" : "false")
                 diagnosticRow("Local Qwen ready", viewModel.qwenHealth.isReady ? "true" : "false")
                 diagnosticRow("Selected Qwen model", selectedQwenModel)
+                diagnosticRow("Qwen selection status", viewModel.qwenHealth.isReady ? "enabled" : "model_not_ready")
                 diagnosticRow("Local source", AnswerSource.ollamaQwen.rawValue)
                 diagnosticRow("Default behavior changed", providerMode == .deepSeekPrimary ? "false" : "only after explicit selection")
 
@@ -563,6 +595,11 @@ struct LocalModelsSetupView: View {
 
     private var providerMode: AnswerProviderMode {
         AnswerProviderMode(storedValue: answerProviderMode)
+    }
+
+    private func setAnswerProviderMode(_ mode: AnswerProviderMode) {
+        answerProviderMode = mode.rawValue
+        appState.setSelectedAnswerProviderMode(mode)
     }
 
     private func permissionCard(

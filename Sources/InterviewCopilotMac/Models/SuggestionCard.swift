@@ -74,6 +74,7 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var deepseekFirstTokenMS: Int? = nil
     var deepseekFirstVisibleMS: Int? = nil
     var finalVisibleSource: String? = nil
+    var fallbackReason: String? = nil
 
     // Pipeline Latency Metrics (v8)
     var ragRetrievalLatencyMS: Int? = nil

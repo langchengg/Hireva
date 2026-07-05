@@ -15,6 +15,8 @@ set -euo pipefail
 
 MODE="${1:-run}"
 REQUESTED_SIGNING_IDENTITY="${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}"
+REQUESTED_SWIFTPM_BUILD_PATH="${INTERVIEW_COPILOT_SWIFTPM_BUILD_PATH:-}"
+REQUESTED_PREBUILT_BINARY="${INTERVIEW_COPILOT_PREBUILT_BINARY:-}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="InterviewCopilotMac"                    # .app bundle name
@@ -101,9 +103,20 @@ if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/
 fi
 
 # --- Build ---
-echo "[build] Building $SPM_PRODUCT_NAME ..."
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$SPM_PRODUCT_NAME"
+if [[ -n "$REQUESTED_PREBUILT_BINARY" ]]; then
+    echo "[build] Using prebuilt binary: $REQUESTED_PREBUILT_BINARY"
+    BUILD_BINARY="$REQUESTED_PREBUILT_BINARY"
+else
+    echo "[build] Building $SPM_PRODUCT_NAME ..."
+    SWIFTPM_BUILD_ARGS=()
+    if [[ -n "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
+        mkdir -p "$REQUESTED_SWIFTPM_BUILD_PATH"
+        SWIFTPM_BUILD_ARGS=(--build-path "$REQUESTED_SWIFTPM_BUILD_PATH")
+        echo "[build] Using SwiftPM build path: $REQUESTED_SWIFTPM_BUILD_PATH"
+    fi
+    swift build "${SWIFTPM_BUILD_ARGS[@]}"
+    BUILD_BINARY="$(swift build "${SWIFTPM_BUILD_ARGS[@]}" --show-bin-path)/$SPM_PRODUCT_NAME"
+fi
 
 if [[ ! -f "$BUILD_BINARY" ]]; then
     echo "[build] ERROR: Built binary not found at $BUILD_BINARY" >&2

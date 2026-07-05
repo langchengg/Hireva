@@ -462,6 +462,15 @@ final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v15_suggestion_fallback_reason") { db in
+            let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(suggestion_cards)")
+            let columnNames = rows.compactMap { $0["name"] as? String }
+
+            if !columnNames.contains("fallback_reason") {
+                try db.execute(sql: "ALTER TABLE suggestion_cards ADD COLUMN fallback_reason TEXT")
+            }
+        }
+
         return migrator
     }
 }

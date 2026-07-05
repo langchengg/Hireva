@@ -91,7 +91,7 @@ final class SuggestionRepository {
                     say_first_source, stage_a_timed_out, stage_b_completed, stage_b_status,
                     latency_first_token_ms, latency_first_visible_ms, latency_full_card_ms,
                     soft_fallback_used, soft_fallback_latency_ms, deepseek_first_token_ms,
-                    deepseek_first_visible_ms, final_visible_source,
+                    deepseek_first_visible_ms, final_visible_source, fallback_reason,
                     rag_retrieval_latency_ms, question_asr_first_partial_ms,
                     question_asr_final_ms, question_asr_best_selected_ms,
                     first_visible_answer_ms, first_key_point_visible_ms,
@@ -99,7 +99,7 @@ final class SuggestionRepository {
                     full_card_visible_ms, db_persisted_ms,
                     stage_b_stream_started_ms, stage_b_first_section_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     session_id = excluded.session_id,
                     question_id = excluded.question_id,
@@ -146,6 +146,7 @@ final class SuggestionRepository {
                     deepseek_first_token_ms = excluded.deepseek_first_token_ms,
                     deepseek_first_visible_ms = excluded.deepseek_first_visible_ms,
                     final_visible_source = excluded.final_visible_source,
+                    fallback_reason = excluded.fallback_reason,
                     rag_retrieval_latency_ms = excluded.rag_retrieval_latency_ms,
                     question_asr_first_partial_ms = excluded.question_asr_first_partial_ms,
                     question_asr_final_ms = excluded.question_asr_final_ms,
@@ -207,6 +208,7 @@ final class SuggestionRepository {
                     card.deepseekFirstTokenMS,
                     card.deepseekFirstVisibleMS,
                     card.finalVisibleSource,
+                    card.fallbackReason,
                     card.ragRetrievalLatencyMS,
                     card.questionASRFirstPartialMS,
                     card.questionASRFinalMS,
@@ -470,6 +472,7 @@ final class SuggestionRepository {
             deepseekFirstTokenMS: row["deepseek_first_token_ms"],
             deepseekFirstVisibleMS: row["deepseek_first_visible_ms"],
             finalVisibleSource: row["final_visible_source"],
+            fallbackReason: row["fallback_reason"],
             ragRetrievalLatencyMS: row["rag_retrieval_latency_ms"],
             questionASRFirstPartialMS: row["question_asr_first_partial_ms"],
             questionASRFinalMS: row["question_asr_final_ms"],

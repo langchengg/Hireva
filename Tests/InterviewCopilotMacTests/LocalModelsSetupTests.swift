@@ -303,6 +303,110 @@ struct LocalModelsSetupTests {
         #expect(qwen.persistedSource == AnswerSource.ollamaQwen.rawValue)
     }
 
+    @Test @MainActor
+    func localQwenPrimaryRecordsOllamaQwenSource() async throws {
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
+        let provider = MockLocalLLMProvider(tokens: [
+            "I would debug a confident but wrong YOLOv8 prediction on the LeoRover by reproducing the exact frames, inspecting logs, bounding boxes, classes, and confidence, then checking calibration, lighting, occlusion, motion blur, and spatial consistency before deciding whether retraining is needed."
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: generationID,
+            cardID: "qwen-primary-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished == true)
+        let card = try #require(appState.currentSuggestion)
+        #expect(card.providerKind == .ollamaLocal)
+        #expect(card.providerName == "Ollama Qwen")
+        #expect(card.isLocal == true)
+        #expect(card.sayFirstSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(card.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(card.softFallbackUsed == false)
+        #expect(card.fallbackReason == nil)
+        #expect(appState.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.deepseekFirstTokenMS == nil)
+        #expect(appState.deepseekFirstVisibleMS == nil)
+    }
+
+    @Test @MainActor
+    func localQwenFallbackPersistsFallbackReasonWithoutDeepSeekSource() async throws {
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
+        let provider = MockLocalLLMProvider(tokens: [
+            "I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the frames, checking logs, bounding boxes, classes, confidence, calibration, lighting, occlusion, and then adding validation or recovery behavior before retraining."
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: generationID,
+            cardID: "qwen-fallback-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: "deepseek_failed_before_first_token"
+        )
+
+        #expect(finished == true)
+        let card = try #require(appState.currentSuggestion)
+        #expect(card.sayFirstSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(card.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(card.finalVisibleSource != AnswerSource.deepseekStream.rawValue)
+        #expect(card.softFallbackUsed == true)
+        #expect(card.fallbackReason == "deepseek_failed_before_first_token")
+
+        try appState.suggestionRepository.saveSuggestionCard(card)
+        let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == card.id })
+        #expect(persisted.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(persisted.fallbackReason == "deepseek_failed_before_first_token")
+        #expect(persisted.providerKind == .ollamaLocal)
+        #expect(persisted.isLocal == true)
+    }
+
+    @Test
+    func realOllamaQwenProviderSmokeWhenExplicitlyEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["INTERVIEW_COPILOT_REAL_OLLAMA_SMOKE"] == "1" else {
+            return
+        }
+        let provider = OllamaQwenProvider()
+        let health = await provider.healthCheck(modelName: "qwen3.5:4b")
+        #expect(health.isReady == true)
+
+        let stream = try await provider.generateAnswer(request: LocalLLMRequest(
+            prompt: "Answer in one sentence: what is the role of localization in a robot pipeline?",
+            systemPrompt: "You are a concise interview answer helper.",
+            modelName: "qwen3.5:4b",
+            temperature: 0.1,
+            numPredict: 48
+        ))
+        var answer = ""
+        for try await token in stream {
+            #expect(token.source == .ollamaQwen)
+            answer += token.text
+        }
+        #expect(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+    }
+
     private func temporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -320,6 +424,77 @@ struct LocalModelsSetupTests {
             UserDefaults.standard.set(value, forKey: key)
         } else {
             UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    @MainActor
+    private func makeLocalQwenRuntimeState() throws -> (AppState, InterviewSession, DetectedQuestion, String, Date) {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        let question = DetectedQuestion(
+            id: "qwen-question-\(UUID().uuidString)",
+            sessionID: session.id,
+            transcriptSegmentID: nil,
+            questionText: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
+            intent: .technical,
+            answerStrategy: .technicalExplanation,
+            confidence: 0.95,
+            reason: "test",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "test",
+            promptVersion: "test",
+            createdAt: Date()
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        let generationID = "qwen-generation-\(UUID().uuidString)"
+        let requestStart = Date()
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .manualGenerate,
+            requestStart: requestStart,
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        return (appState, session, question, generationID, requestStart)
+    }
+}
+
+private final class MockLocalLLMProvider: LocalLLMProvider {
+    let id = "mock_ollama_qwen"
+    let displayName = "Mock Ollama Qwen"
+    let tokens: [String]
+
+    init(tokens: [String]) {
+        self.tokens = tokens
+    }
+
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        LocalLLMHealth(
+            ollamaRunning: true,
+            selectedModel: modelName,
+            modelInstalled: true,
+            providerSource: .ollamaQwen,
+            lastError: nil
+        )
+    }
+
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.completed(modelID: modelName, totalBytes: nil))
+            continuation.finish()
+        }
+    }
+
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        let tokens = tokens
+        return AsyncThrowingStream { continuation in
+            for token in tokens {
+                continuation.yield(LLMToken(text: token, source: .ollamaQwen, modelName: request.modelName))
+            }
+            continuation.finish()
         }
     }
 }

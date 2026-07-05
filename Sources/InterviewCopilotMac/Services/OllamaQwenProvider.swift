@@ -23,6 +23,21 @@ struct LocalLLMRequest: Equatable {
     let systemPrompt: String?
     let modelName: String
     let temperature: Double?
+    let numPredict: Int?
+
+    init(
+        prompt: String,
+        systemPrompt: String?,
+        modelName: String,
+        temperature: Double?,
+        numPredict: Int? = nil
+    ) {
+        self.prompt = prompt
+        self.systemPrompt = systemPrompt
+        self.modelName = modelName
+        self.temperature = temperature
+        self.numPredict = numPredict
+    }
 }
 
 struct LLMToken: Equatable {
@@ -74,8 +89,8 @@ final class OllamaQwenProvider: LocalLLMProvider {
 
     private static func defaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 2.5
-        configuration.timeoutIntervalForResource = 8
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 3_600
         return URLSession(configuration: configuration)
     }
 
@@ -107,6 +122,7 @@ final class OllamaQwenProvider: LocalLLMProvider {
                     var request = URLRequest(url: baseURL.appendingPathComponent("api/pull"))
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.timeoutInterval = 3_600
                     request.httpBody = try JSONEncoder().encode(OllamaPullRequest(model: modelName, stream: true))
 
                     let (bytes, response) = try await session.bytes(for: request)
@@ -153,12 +169,17 @@ final class OllamaQwenProvider: LocalLLMProvider {
         var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 300
         request.httpBody = try JSONEncoder().encode(OllamaGenerateRequest(
             model: localRequest.modelName,
             prompt: localRequest.prompt,
             system: localRequest.systemPrompt,
             stream: true,
-            options: localRequest.temperature.map { ["temperature": $0] }
+            think: false,
+            options: OllamaGenerateOptions(
+                temperature: localRequest.temperature,
+                numPredict: localRequest.numPredict
+            )
         ))
 
         return AsyncThrowingStream { continuation in
@@ -269,7 +290,18 @@ private struct OllamaGenerateRequest: Encodable {
     let prompt: String
     let system: String?
     let stream: Bool
-    let options: [String: Double]?
+    let think: Bool?
+    let options: OllamaGenerateOptions?
+}
+
+private struct OllamaGenerateOptions: Encodable {
+    let temperature: Double?
+    let numPredict: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case temperature
+        case numPredict = "num_predict"
+    }
 }
 
 private struct OllamaGenerateResponse: Decodable {

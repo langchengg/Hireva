@@ -1476,7 +1476,40 @@ final class AppState: ObservableObject {
         
         // Create references for background task capture
         let localTrace = trace
-        
+
+        if selectedAnswerProviderMode == .localQwenPrimary {
+            clearFallbackWatchdogTask(generationID: generationID)
+            markProviderOperation("Local Qwen primary generation started")
+            do {
+                let finished = try await finishWithLocalQwenAnswer(
+                    question: localQuestion,
+                    session: localSession,
+                    transcript: localTranscript,
+                    context: optimizedContext,
+                    retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
+                    cvSummary: cvSummary,
+                    jdSummary: jdSummary,
+                    generationID: generationID,
+                    cardID: cardID,
+                    requestStart: requestStart,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker,
+                    fallbackReason: nil
+                )
+                if finished { return }
+                throw LLMProviderError.emptyResponse(providerName: "Ollama Qwen")
+            } catch {
+                markGenerationFailed(
+                    generationID: generationID,
+                    reason: error.localizedDescription,
+                    providerError: error.localizedDescription
+                )
+                failAction(ActionID.generateAnswer, title: "Generation failed", message: "Local Qwen did not produce an answer. \(userFacing(error))")
+                throw error
+            }
+        }
+
         // Helper to construct a local fallback card
         func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
             let fallback = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion)
@@ -2289,6 +2322,41 @@ final class AppState: ObservableObject {
             print("[StreamingASR] Stage A Fast Say-First timed out or failed: \(error.localizedDescription)")
             self.isStreamingSayFirst = false
             clearFallbackWatchdogTask(generationID: generationID)
+
+            if self.selectedAnswerProviderMode == .deepSeekWithLocalQwenFallback,
+               self.streamFirstTokenAt == nil {
+                self.markProviderOperation("Local Qwen fallback generation started")
+                self.cancelActiveStageBTask(generationID: generationID)
+                do {
+                    let finished = try await self.finishWithLocalQwenAnswer(
+                        question: localQuestion,
+                        session: localSession,
+                        transcript: localTranscript,
+                        context: optimizedContext,
+                        retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
+                        cvSummary: cvSummary,
+                        jdSummary: jdSummary,
+                        generationID: generationID,
+                        cardID: cardID,
+                        requestStart: requestStart,
+                        triggerPath: triggerPath,
+                        source: telemetrySource,
+                        speaker: telemetrySpeaker,
+                        fallbackReason: "deepseek_failed_before_first_token"
+                    )
+                    if finished {
+                        self.warnAction(
+                            ActionID.generateAnswer,
+                            title: "Local Qwen fallback used",
+                            message: "DeepSeek did not produce a first token. The local Qwen answer is visible."
+                        )
+                        return
+                    }
+                } catch {
+                    self.currentGenerationTelemetry.providerError = error.localizedDescription
+                    print("[LocalQwen] Fallback failed: \(error.localizedDescription)")
+                }
+            }
 
             let streamedTimeoutText = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
 
