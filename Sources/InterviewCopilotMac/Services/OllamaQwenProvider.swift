@@ -89,7 +89,7 @@ final class OllamaQwenProvider: LocalLLMProvider {
 
     private static func defaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForRequest = 120
         configuration.timeoutIntervalForResource = 3_600
         return URLSession(configuration: configuration)
     }
@@ -166,11 +166,7 @@ final class OllamaQwenProvider: LocalLLMProvider {
             throw OllamaQwenProviderError.modelNotReady(localRequest.modelName)
         }
 
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 300
-        request.httpBody = try JSONEncoder().encode(OllamaGenerateRequest(
+        let payload = OllamaGenerateRequest(
             model: localRequest.modelName,
             prompt: localRequest.prompt,
             system: localRequest.systemPrompt,
@@ -180,7 +176,8 @@ final class OllamaQwenProvider: LocalLLMProvider {
                 temperature: localRequest.temperature,
                 numPredict: localRequest.numPredict
             )
-        ))
+        )
+        let request = try makeGenerateRequest(payload)
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -189,20 +186,36 @@ final class OllamaQwenProvider: LocalLLMProvider {
                     try Self.validate(response)
 
                     var bufferedLine = ""
+                    var yieldedTokenCount = 0
                     for try await byte in bytes {
                         try Task.checkCancellation()
                         let scalar = UnicodeScalar(Int(byte))
                         guard let scalar else { continue }
                         let char = Character(scalar)
                         if char == "\n" {
-                            try emitGenerateLine(bufferedLine, modelName: localRequest.modelName, continuation: continuation)
+                            if try emitGenerateLine(bufferedLine, modelName: localRequest.modelName, continuation: continuation) {
+                                yieldedTokenCount += 1
+                            }
                             bufferedLine.removeAll(keepingCapacity: true)
                         } else {
                             bufferedLine.append(char)
                         }
                     }
                     if !bufferedLine.isEmpty {
-                        try emitGenerateLine(bufferedLine, modelName: localRequest.modelName, continuation: continuation)
+                        if try emitGenerateLine(bufferedLine, modelName: localRequest.modelName, continuation: continuation) {
+                            yieldedTokenCount += 1
+                        }
+                    }
+
+                    if yieldedTokenCount == 0,
+                       let fallbackText = try await generateNonStreamingAnswer(
+                        payload: payload.withStream(false)
+                       ) {
+                        continuation.yield(LLMToken(
+                            text: fallbackText,
+                            source: .ollamaQwen,
+                            modelName: localRequest.modelName
+                        ))
                     }
                     continuation.finish()
                 } catch {
@@ -214,6 +227,30 @@ final class OllamaQwenProvider: LocalLLMProvider {
                 task.cancel()
             }
         }
+    }
+
+    private func makeGenerateRequest(_ payload: OllamaGenerateRequest) throws -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 300
+        request.httpBody = try JSONEncoder().encode(payload)
+        return request
+    }
+
+    private func generateNonStreamingAnswer(
+        payload: OllamaGenerateRequest
+    ) async throws -> String? {
+        let request = try makeGenerateRequest(payload)
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response)
+        let event = try decoder.decode(OllamaGenerateResponse.self, from: data)
+        if let error = event.error, !error.isEmpty {
+            throw OllamaQwenProviderError.invalidResponse(error)
+        }
+        let text = (event.response ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return text
     }
 
     private func listModels() async throws -> [String] {
@@ -249,13 +286,19 @@ final class OllamaQwenProvider: LocalLLMProvider {
         _ line: String,
         modelName: String,
         continuation: AsyncThrowingStream<LLMToken, Error>.Continuation
-    ) throws {
+    ) throws -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         let event = try decoder.decode(OllamaGenerateResponse.self, from: Data(trimmed.utf8))
-        if !event.response.isEmpty {
-            continuation.yield(LLMToken(text: event.response, source: .ollamaQwen, modelName: modelName))
+        if let error = event.error, !error.isEmpty {
+            throw OllamaQwenProviderError.invalidResponse(error)
         }
+        let text = event.response ?? ""
+        if !text.isEmpty {
+            continuation.yield(LLMToken(text: text, source: .ollamaQwen, modelName: modelName))
+            return true
+        }
+        return false
     }
 
     private static func validate(_ response: URLResponse) throws {
@@ -292,6 +335,17 @@ private struct OllamaGenerateRequest: Encodable {
     let stream: Bool
     let think: Bool?
     let options: OllamaGenerateOptions?
+
+    func withStream(_ stream: Bool) -> OllamaGenerateRequest {
+        OllamaGenerateRequest(
+            model: model,
+            prompt: prompt,
+            system: system,
+            stream: stream,
+            think: think,
+            options: options
+        )
+    }
 }
 
 private struct OllamaGenerateOptions: Encodable {
@@ -305,6 +359,15 @@ private struct OllamaGenerateOptions: Encodable {
 }
 
 private struct OllamaGenerateResponse: Decodable {
-    let response: String
+    let response: String?
     let done: Bool?
+    let doneReason: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case response
+        case done
+        case doneReason = "done_reason"
+        case error
+    }
 }

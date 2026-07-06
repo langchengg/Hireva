@@ -38,25 +38,37 @@ extension AppState {
         Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
         """
         let userPrompt = promptSnapshot.prompt + "\n\nAnswer the current question now:"
-        let tokenStream = try await localProvider.generateAnswer(request: LocalLLMRequest(
+        let localRequest = LocalLLMRequest(
             prompt: userPrompt,
             systemPrompt: systemPrompt,
             modelName: modelName,
             temperature: 0.1,
-            numPredict: 420
-        ))
+            numPredict: 180
+        )
 
-        var answer = ""
-        for try await token in tokenStream {
-            guard isActiveGeneration(generationID, questionID: question.id), !Task.isCancelled else {
-                recordStaleGenerationDiscard()
-                return false
+        var cleanedAnswer = ""
+        let maxAttempts = 2
+        for attempt in 1...maxAttempts {
+            var answer = ""
+            let tokenStream = try await localProvider.generateAnswer(request: localRequest)
+            for try await token in tokenStream {
+                guard isActiveGeneration(generationID, questionID: question.id), !Task.isCancelled else {
+                    recordStaleGenerationDiscard()
+                    return false
+                }
+                answer += token.text
             }
-            answer += token.text
-        }
 
-        let cleanedAnswer = AnswerQualityValidator.localCleanupAnswer(answer)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            cleanedAnswer = AnswerQualityValidator.localCleanupAnswer(answer)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanedAnswer.isEmpty {
+                break
+            }
+            if attempt < maxAttempts {
+                markProviderOperation("Local Qwen returned an empty stream; retrying once")
+                try await Task.sleep(nanoseconds: 150_000_000)
+            }
+        }
         guard !cleanedAnswer.isEmpty else {
             throw LLMProviderError.emptyResponse(providerName: "Ollama Qwen")
         }

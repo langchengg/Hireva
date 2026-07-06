@@ -609,6 +609,9 @@ final class AppState: ObservableObject {
     var appleSpeechService: AppleSpeechTranscriptionService?
     // internal for AppState extension access only
     var activeTranscriptionProvider: TranscriptionProvider?
+    // Retains local ASR providers whose audio delegates are weakly held by the
+    // capture services.
+    var activeASRProviderRuntime: (any ASRProvider)?
     // internal for AppState extension access only
     var ownsSystemAudioCaptureRuntime = false
     // internal for AppState extension access only
@@ -714,7 +717,11 @@ final class AppState: ObservableObject {
         let recaps = RecapRepository(database: database)
         let settings = SettingsRepository(database: database)
         let keychain = keychainService
-        keychain.performMigrationIfNeeded()
+        if keychain.store is RealKeychainStore {
+            keychain.lastReadStatus = "Deferred"
+        } else {
+            keychain.performMigrationIfNeeded()
+        }
         let router = llmRouter ?? LLMRouter(settingsRepository: settings, apiKeyStore: keychain)
 
 
@@ -760,6 +767,7 @@ final class AppState: ObservableObject {
         // Initialize notifications and refresh permissions on startup and when application didBecomeActive
         refreshAll(loadKeychain: !(keychain.store is RealKeychainStore))
         clearStaleActiveASRProviderOnLaunch()
+        runLaunchASRProviderDefaultMigrationIfNeeded()
         runLaunchLocalQwenDefaultMigrationIfNeeded()
         installLiveSystemAudioDiagnosticNotificationObserver()
         runLaunchLiveSystemAudioDiagnosticIfRequested()

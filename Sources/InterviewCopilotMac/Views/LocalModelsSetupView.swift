@@ -219,11 +219,11 @@ struct LocalModelsSetupView: View {
             setupCard(
                 icon: "checklist",
                 title: "Local-first setup, optional by default",
-                status: "DeepSeek remains primary unless you choose otherwise.",
+                status: "Local Qwen is primary; Apple Speech is the default ASR.",
                 tint: .blue
             ) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Local Qwen is the recommended default answer provider. Local Parakeet is selected by default, but it only becomes active after the model and runtime are both ready.")
+                    Text("Local Qwen is the default answer provider. Apple Speech is the default transcription provider; Local Parakeet remains experimental until both model files and runtime are ready.")
                         .foregroundStyle(.secondary)
                     HStack {
                         Button {
@@ -303,7 +303,7 @@ struct LocalModelsSetupView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     diagnosticRow("Recommended ASR", viewModel.transcriptionModel.displayName)
                     diagnosticRow("Recommended LLM", LocalModelDescriptor.defaultQwenLocalLLM.id)
-                    diagnosticRow("Runtime defaults", "Local Qwen primary, Local Parakeet selected")
+                    diagnosticRow("Runtime defaults", "Local Qwen primary, Apple Speech ASR")
                     Button {
                         viewModel.installRecommended(qwenModel: selectedQwenModel)
                     } label: {
@@ -410,7 +410,7 @@ struct LocalModelsSetupView: View {
                 tint: .teal
             ) {
                 VStack(alignment: .leading, spacing: 10) {
-                    diagnosticRow("Selected default", ASRProviderID.localParakeet.displayName)
+                    diagnosticRow("Selected default", ASRProviderID.appleSpeech.displayName)
                     diagnosticRow("Recommended local ASR", ASRProviderID.localParakeet.displayName)
                     diagnosticRow("Parakeet model status", viewModel.transcriptionStatus.displayName)
                     diagnosticRow("Parakeet runtime status", viewModel.parakeetRuntimeStatusText)
@@ -441,7 +441,7 @@ struct LocalModelsSetupView: View {
                         .disabled(!viewModel.canEnableParakeet())
                     }
                 }
-                Text("Local Parakeet will not become active unless both the model files and sidecar runtime are ready. Apple Speech is an explicit fallback selection.")
+                Text("Apple Speech is the safe default. Local Parakeet will not become active unless both the model files and sidecar runtime are ready.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

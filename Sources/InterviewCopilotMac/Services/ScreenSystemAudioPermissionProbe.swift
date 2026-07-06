@@ -2,6 +2,7 @@ import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import AVFoundation
+import OSLog
 
 struct ScreenSystemAudioPermissionProbeResult: Hashable {
     let preflightGranted: Bool
@@ -14,6 +15,10 @@ struct ScreenSystemAudioPermissionProbeResult: Hashable {
 final class ScreenSystemAudioPermissionProbe {
     static let shared = ScreenSystemAudioPermissionProbe()
     static var mockProbe: (() async -> ScreenSystemAudioPermissionProbeResult)?
+    private let logger = Logger(
+        subsystem: "com.langcheng.InterviewCopilotMac",
+        category: "ScreenSystemAudioPermissionProbe"
+    )
 
     private init() {}
 
@@ -72,17 +77,19 @@ final class ScreenSystemAudioPermissionProbe {
             let streamHelper = StreamAudioProbeHelper()
             streamSucceeded = await streamHelper.runProbe(display: display)
             if !streamSucceeded {
-                errorDescription = "Audio stream started but timed out waiting for audio sample buffers."
+                errorDescription = "Audio stream failed to start."
             }
         }
         
-        return ScreenSystemAudioPermissionProbeResult(
+        let result = ScreenSystemAudioPermissionProbeResult(
             preflightGranted: preflight,
             shareableContentProbeSucceeded: shareableSucceeded,
             streamAudioProbeSucceeded: streamSucceeded,
             errorDescription: errorDescription,
             likelyIdentityMismatch: likelyIdentityMismatch
         )
+        logger.info("probe preflight=\(result.preflightGranted) shareable=\(result.shareableContentProbeSucceeded) stream=\(result.streamAudioProbeSucceeded) identityMismatch=\(result.likelyIdentityMismatch) error=\(result.errorDescription ?? "nil", privacy: .public)")
+        return result
     }
 }
 
@@ -94,9 +101,12 @@ fileprivate final class StreamAudioProbeHelper: NSObject, SCStreamOutput {
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
         config.capturesAudio = true
+        config.sampleRate = 48000
+        config.channelCount = 2
+        config.queueDepth = 3
         config.width = 16
         config.height = 16
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 10)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 2)
         
         let queue = DispatchQueue(label: "com.langcheng.InterviewCopilotMac.streamProbeQueue")
         
@@ -106,14 +116,16 @@ fileprivate final class StreamAudioProbeHelper: NSObject, SCStreamOutput {
             do {
                 let stream = SCStream(filter: filter, configuration: config, delegate: nil)
                 self.stream = stream
+                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
                 try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
                 
                 Task {
                     do {
                         try await stream.startCapture()
-                        // Wait up to 1.5 seconds for at least one audio sample buffer callback
-                        try? await Task.sleep(for: .milliseconds(1500))
-                        self.finish(succeeded: false)
+                        // This is a permission/startup probe, not an audio
+                        // activity meter. The live capture service has its
+                        // own watchdog for "stream started but no samples".
+                        self.finish(succeeded: true)
                     } catch {
                         self.finish(succeeded: false)
                     }

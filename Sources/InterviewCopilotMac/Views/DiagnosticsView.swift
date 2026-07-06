@@ -125,7 +125,7 @@ struct DiagnosticsView: View {
                 diagnosticRow("lastOllamaError", localModels.qwenHealth.lastError ?? "None")
                 diagnosticRow("selectedASRProvider", appState.selectedASRProviderID.rawValue)
                 diagnosticRow("activeASRProvider", appState.activeASRProviderID?.rawValue ?? "None")
-                diagnosticRow("defaultASRSelection", ASRProviderID.localParakeet.rawValue)
+                diagnosticRow("defaultASRSelection", ASRProviderID.appleSpeech.rawValue)
                 diagnosticRow("asrModelStatus", localModels.transcriptionStatus.displayName)
                 diagnosticRow("recommendedLocalASR", LocalModelDescriptor.defaultParakeetASR.displayName)
                 diagnosticRow("parakeetModelPath", localModels.modelPath(for: .defaultParakeetASR).path)
@@ -134,7 +134,7 @@ struct DiagnosticsView: View {
                 diagnosticRow("Answer source", AnswerSource.ollamaQwen.rawValue)
                 diagnosticRow("ASR sources", ASRSource.allCases.map(\.rawValue).joined(separator: ", "))
                 diagnosticRow("DeepSeek source remains", AnswerSource.deepseekStream.rawValue)
-                diagnosticRow("Apple Speech fallback", "explicit selection only")
+                diagnosticRow("Apple Speech fallback", "default provider")
                 Button {
                     appState.selectSection(.localModels)
                 } label: {

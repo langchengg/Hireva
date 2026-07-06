@@ -5,9 +5,10 @@ extension AppState {
     private static var activeASRProviderKey: String { "InterviewCopilot.activeASRProvider" }
     private static var selectedQwenModelKey: String { "InterviewCopilot.selectedQwenModel" }
     private static var answerProviderModeKey: String { "InterviewCopilot.answerProviderMode" }
+    private static var appleSpeechASRDefaultMigrationKey: String { "InterviewCopilot.asrDefaultMigration.appleSpeech.20260706" }
 
     var selectedASRProviderID: ASRProviderID {
-        ASRProviderID(rawValue: UserDefaults.standard.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .localParakeet
+        ASRProviderID(rawValue: UserDefaults.standard.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .appleSpeech
     }
 
     var selectedTranscriptionProviderMode: TranscriptionProviderMode {
@@ -65,6 +66,21 @@ extension AppState {
     func clearStaleActiveASRProviderOnLaunch() {
         UserDefaults.standard.removeObject(forKey: Self.activeASRProviderKey)
         objectWillChange.send()
+    }
+
+    func migrateStoredASRProviderToAppleSpeechDefaultIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.appleSpeechASRDefaultMigrationKey) else { return }
+        defer {
+            UserDefaults.standard.set(true, forKey: Self.appleSpeechASRDefaultMigrationKey)
+        }
+        let rawValue = UserDefaults.standard.string(forKey: Self.selectedASRProviderKey)
+        guard rawValue == ASRProviderID.localParakeet.rawValue else { return }
+        setSelectedASRProvider(.appleSpeech)
+    }
+
+    func runLaunchASRProviderDefaultMigrationIfNeeded() {
+        guard !isRunningUnderTestOrAutomation() else { return }
+        migrateStoredASRProviderToAppleSpeechDefaultIfNeeded()
     }
 
     func migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: Bool) {

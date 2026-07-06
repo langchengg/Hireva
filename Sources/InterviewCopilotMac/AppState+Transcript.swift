@@ -506,6 +506,7 @@ extension AppState {
                     outputDeviceName: current.outputDeviceName,
                     deviceID: current.deviceID,
                     confidence: current.confidence,
+                    asrSource: current.asrSource,
                     asrFirstPartialMS: current.asrFirstPartialMS,
                     asrFinalMS: current.asrFinalMS,
                     asrBestSelectedMS: current.asrBestSelectedMS,

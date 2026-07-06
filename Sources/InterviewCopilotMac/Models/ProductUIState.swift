@@ -225,7 +225,7 @@ extension AppState {
     }
 
     var speechRecognitionRequired: Bool {
-        microphoneRequired || systemAudioRequired
+        selectedASRProviderID == .appleSpeech && (microphoneRequired || systemAudioRequired)
     }
 
     var requiredPermissionsReady: Bool {

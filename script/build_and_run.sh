@@ -114,8 +114,13 @@ else
         SWIFTPM_BUILD_ARGS=(--build-path "$REQUESTED_SWIFTPM_BUILD_PATH")
         echo "[build] Using SwiftPM build path: $REQUESTED_SWIFTPM_BUILD_PATH"
     fi
-    swift build "${SWIFTPM_BUILD_ARGS[@]}"
-    BUILD_BINARY="$(swift build "${SWIFTPM_BUILD_ARGS[@]}" --show-bin-path)/$SPM_PRODUCT_NAME"
+    if [[ ${#SWIFTPM_BUILD_ARGS[@]} -gt 0 ]]; then
+        swift build "${SWIFTPM_BUILD_ARGS[@]}"
+        BUILD_BINARY="$(swift build "${SWIFTPM_BUILD_ARGS[@]}" --show-bin-path)/$SPM_PRODUCT_NAME"
+    else
+        swift build
+        BUILD_BINARY="$(swift build --show-bin-path)/$SPM_PRODUCT_NAME"
+    fi
 fi
 
 if [[ ! -f "$BUILD_BINARY" ]]; then

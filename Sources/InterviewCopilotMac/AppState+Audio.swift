@@ -258,6 +258,7 @@ extension AppState {
                     ))
                     self.appleSpeechService = nil
                     self.activeTranscriptionProvider = nil
+                    self.activeASRProviderRuntime = provider
                     self.markActiveASRProvider(.localParakeet)
                     self.lastSystemAudioASRError = nil
                     self.lastSystemAudioASRPartialTranscript = ""
@@ -290,6 +291,7 @@ extension AppState {
                 let speechService = AppleSpeechTranscriptionService()
                 self.appleSpeechService = speechService
                 self.activeTranscriptionProvider = speechService
+                self.activeASRProviderRuntime = nil
                 self.markActiveASRProvider(.appleSpeech)
 
                 speechService.onSessionStateChanged = { [weak self] in
@@ -466,6 +468,9 @@ extension AppState {
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        let asrProviderRuntime = activeASRProviderRuntime
+        activeASRProviderRuntime = nil
+        Task { await asrProviderRuntime?.stopTranscription() }
         markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
@@ -560,6 +565,9 @@ extension AppState {
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        let asrProviderRuntime = activeASRProviderRuntime
+        activeASRProviderRuntime = nil
+        Task { await asrProviderRuntime?.stopTranscription() }
         markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
@@ -715,6 +723,9 @@ extension AppState {
 
         activeTranscriptionProvider?.stop()
         activeTranscriptionProvider = nil
+        let asrProviderRuntime = activeASRProviderRuntime
+        activeASRProviderRuntime = nil
+        Task { await asrProviderRuntime?.stopTranscription() }
         markActiveASRProvider(nil)
 
         appleSpeechService?.stop()

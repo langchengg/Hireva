@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 @testable import InterviewCopilotMac
@@ -22,7 +23,7 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
-    func runtimeDefaultsUseLocalQwenAndLocalParakeetSelection() throws {
+    func runtimeDefaultsUseLocalQwenAndAppleSpeechSelection() throws {
         let previousASR = UserDefaults.standard.object(forKey: "InterviewCopilot.selectedASRProvider")
         let previousActiveASR = UserDefaults.standard.object(forKey: "InterviewCopilot.activeASRProvider")
         let previousMode = UserDefaults.standard.object(forKey: "InterviewCopilot.answerProviderMode")
@@ -39,8 +40,8 @@ struct LocalModelsSetupTests {
         UserDefaults.standard.removeObject(forKey: "InterviewCopilot.selectedQwenModel")
         let appState = try AppState(database: AppDatabase(inMemory: true))
 
-        #expect(appState.selectedASRProviderID == .localParakeet)
-        #expect(appState.selectedASRProviderID.source == .localParakeetASR)
+        #expect(appState.selectedASRProviderID == .appleSpeech)
+        #expect(appState.selectedASRProviderID.source == .appleASR)
         #expect(appState.activeASRProviderID == nil)
         #expect(appState.selectedAnswerProviderMode == .localQwenPrimary)
         #expect(appState.selectedQwenModelName == "qwen3.5:4b")
@@ -61,6 +62,27 @@ struct LocalModelsSetupTests {
 
         appState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: true)
         #expect(appState.selectedAnswerProviderMode == .localQwenPrimary)
+    }
+
+    @Test @MainActor
+    func legacyLocalParakeetASRSelectionMigratesToAppleSpeechDefaultOnce() throws {
+        let selectedKey = "InterviewCopilot.selectedASRProvider"
+        let migrationKey = "InterviewCopilot.asrDefaultMigration.appleSpeech.20260706"
+        let previousASR = UserDefaults.standard.object(forKey: selectedKey)
+        let previousMigration = UserDefaults.standard.object(forKey: migrationKey)
+        defer {
+            restoreUserDefault(previousASR, forKey: selectedKey)
+            restoreUserDefault(previousMigration, forKey: migrationKey)
+        }
+
+        UserDefaults.standard.set(ASRProviderID.localParakeet.rawValue, forKey: selectedKey)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+
+        appState.migrateStoredASRProviderToAppleSpeechDefaultIfNeeded()
+
+        #expect(appState.selectedASRProviderID == .appleSpeech)
+        #expect(UserDefaults.standard.bool(forKey: migrationKey) == true)
     }
 
     @Test
@@ -241,6 +263,84 @@ struct LocalModelsSetupTests {
     }
 
     @Test
+    func ollamaGenerateFallsBackToNonStreamingWhenStreamIsEmpty() async throws {
+        var generateCallCount = 0
+        MockURLProtocol.handlers = [
+            "http://localhost:11434/api/tags": { request in
+                let data = Data(#"{"models":[{"name":"qwen3.5:4b"}]}"#.utf8)
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+            },
+            "http://localhost:11434/api/generate": { request in
+                generateCallCount += 1
+                let data: Data
+                if generateCallCount == 1 {
+                    data = Data(#"{"response":"","done":true}"#.utf8)
+                } else {
+                    data = Data(#"{"response":"I recovered by retreating, re-localizing, checking grasp confidence, and retrying with adjusted pose control.","done":true}"#.utf8)
+                }
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+            }
+        ]
+        defer { MockURLProtocol.handlers = [:] }
+
+        let provider = OllamaQwenProvider(session: makeMockSession())
+        let stream = try await provider.generateAnswer(request: LocalLLMRequest(
+            prompt: "Answer this",
+            systemPrompt: nil,
+            modelName: "qwen3.5:4b",
+            temperature: 0.1,
+            numPredict: 80
+        ))
+
+        var tokens: [LLMToken] = []
+        for try await token in stream {
+            tokens.append(token)
+        }
+
+        #expect(tokens.map(\.text).joined().contains("I recovered by retreating"))
+        #expect(tokens.allSatisfy { $0.source == .ollamaQwen })
+        #expect(generateCallCount == 2)
+    }
+
+    @Test
+    func transcriptReconcilerPreservesASRSourceForAppleSpeechNovelSpan() {
+        var reconciler = TranscriptReconciler()
+        let first = TranscriptSegment(
+            id: "apple-1",
+            sessionID: "session",
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "How did the robot estimate pose?",
+            asrSource: .appleASR,
+            asrFinalizationReason: "partial",
+            recognitionTaskID: "task-1",
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: 32,
+            recognitionIsFinal: false
+        )
+        let second = TranscriptSegment(
+            id: "apple-1",
+            sessionID: "session",
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "How did the robot estimate pose? What happened when confidence was low?",
+            asrSource: .appleASR,
+            asrFinalizationReason: "stable_partial",
+            recognitionTaskID: "task-1",
+            sourceTextStartUTF16: 0,
+            sourceTextEndUTF16: 69,
+            recognitionIsFinal: true
+        )
+
+        _ = reconciler.segmentForQuestionExtraction(first)
+        let novel = reconciler.segmentForQuestionExtraction(second)
+
+        #expect(novel?.text == "What happened when confidence was low?")
+        #expect(novel?.asrSource == .appleASR)
+        #expect(novel?.asrFinalizationReason == "stable_partial")
+    }
+
+    @Test
     func ollamaPullReportsProgress() async throws {
         MockURLProtocol.handlers = [
             "http://localhost:11434/api/pull": { request in
@@ -341,6 +441,47 @@ struct LocalModelsSetupTests {
         #expect(await provider.isAvailable() == true)
     }
 
+    @Test
+    func parakeetSidecarRuntimeAvailabilityRequiresExecutablePath() async throws {
+        let missing = ParakeetSidecarRuntimeClient(executableURLProvider: { nil })
+        #expect(await missing.isRuntimeAvailable() == false)
+
+        let executable = temporaryDirectory().appendingPathComponent("fake-sidecar.sh")
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let ready = ParakeetSidecarRuntimeClient(executableURLProvider: { executable })
+        #expect(await ready.isRuntimeAvailable() == true)
+    }
+
+    @Test
+    func parakeetSidecarRuntimeReadsJSONLEventsFromProcess() async throws {
+        let executable = temporaryDirectory().appendingPathComponent("fake-sidecar.sh")
+        try """
+        #!/bin/sh
+        printf '%s\\n' '{"segmentId":"fake-p1","text":"How did the robot decide which object to approach?","isFinal":true,"startTime":0.0,"endTime":2.5,"confidence":null,"source":"local_parakeet_asr"}'
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { executable })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "sidecar-test", captureMode: .systemAudioOnly)
+        )
+        var events: [ParakeetTranscriptEvent] = []
+        for try await event in stream {
+            events.append(event)
+        }
+
+        #expect(events.count == 1)
+        #expect(events[0].segmentId == "fake-p1")
+        #expect(events[0].source == ASRSource.localParakeetASR.rawValue)
+        #expect(events[0].isFinal == true)
+    }
+
     @Test @MainActor
     func parakeetMockRuntimeEmitsLocalASRSourceAndCanEnterQuestionDetection() async throws {
         let provider = LocalParakeetASRProvider(
@@ -434,6 +575,39 @@ struct LocalModelsSetupTests {
         #expect(appState.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
         #expect(appState.deepseekFirstTokenMS == nil)
         #expect(appState.deepseekFirstVisibleMS == nil)
+    }
+
+    @Test @MainActor
+    func localQwenPrimaryRetriesOnceAfterEmptyStream() async throws {
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [
+            [],
+            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the camera frames, checking bounding boxes, classes, confidence, calibration, lighting, occlusion, and spatial consistency before retraining or adding recovery behavior."]
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: generationID,
+            cardID: "qwen-retry-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished == true)
+        #expect(provider.generateCallCount == 2)
+        #expect(appState.currentSuggestion?.providerName == "Ollama Qwen")
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.currentSuggestion?.softFallbackUsed == false)
     }
 
     @Test @MainActor
@@ -602,6 +776,46 @@ private final class MockLocalLLMProvider: LocalLLMProvider {
     }
 }
 
+private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
+    let id = "mock_ollama_qwen_sequence"
+    let displayName = "Mock Ollama Qwen Sequence"
+    private let tokenBatches: [[String]]
+    private(set) var generateCallCount = 0
+
+    init(tokenBatches: [[String]]) {
+        self.tokenBatches = tokenBatches
+    }
+
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        LocalLLMHealth(
+            ollamaRunning: true,
+            selectedModel: modelName,
+            modelInstalled: true,
+            providerSource: .ollamaQwen,
+            lastError: nil
+        )
+    }
+
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.completed(modelID: modelName, totalBytes: nil))
+            continuation.finish()
+        }
+    }
+
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        generateCallCount += 1
+        let index = min(generateCallCount - 1, max(tokenBatches.count - 1, 0))
+        let tokens = tokenBatches.isEmpty ? [] : tokenBatches[index]
+        return AsyncThrowingStream { continuation in
+            for token in tokens {
+                continuation.yield(LLMToken(text: token, source: .ollamaQwen, modelName: request.modelName))
+            }
+            continuation.finish()
+        }
+    }
+}
+
 private final class MockParakeetRuntimeClient: ParakeetRuntimeClient {
     let isAvailable: Bool
     let events: [ParakeetTranscriptEvent]
@@ -627,6 +841,8 @@ private final class MockParakeetRuntimeClient: ParakeetRuntimeClient {
             continuation.finish()
         }
     }
+
+    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) {}
 
     func stop() async {}
 }

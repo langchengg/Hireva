@@ -36,7 +36,29 @@ The app launches a sidecar process from `PARAKEET_ASR_SIDECAR_PATH` or the
 --jsonl
 ```
 
-The sidecar must write newline-delimited JSON transcript events to stdout:
+The app sends newline-delimited JSON audio events to the sidecar on stdin.
+Audio events contain mono Float32 little-endian PCM samples encoded as base64:
+
+```json
+{
+  "type": "audio",
+  "sequence": 1,
+  "sampleRate": 48000.0,
+  "channels": 1,
+  "encoding": "float32le",
+  "audio": "base64..."
+}
+```
+
+The sidecar may also receive control events:
+
+```json
+{"type": "flush"}
+{"type": "stop"}
+```
+
+The sidecar must run real ASR inference and write newline-delimited JSON
+transcript events to stdout:
 
 ```json
 {
@@ -45,7 +67,8 @@ The sidecar must write newline-delimited JSON transcript events to stdout:
   "isFinal": true,
   "startTime": 0.0,
   "endTime": 1.2,
-  "confidence": 0.91
+  "confidence": 0.91,
+  "source": "local_parakeet_asr"
 }
 ```
 
@@ -53,6 +76,52 @@ The sidecar must write newline-delimited JSON transcript events to stdout:
 to `TranscriptSegment(asrSource: .localParakeetASR)` and sends it through the
 same transcript, question detection, and answer generation pipeline used by
 Apple Speech.
+
+The project-owned reference sidecar is:
+
+```text
+scripts/parakeet_asr_sidecar.py
+```
+
+It uses the `sherpa-onnx` Python package and the downloaded Parakeet
+encoder/decoder/joiner/tokens files. Install the runtime without sudo:
+
+```bash
+python3 -m pip install --user sherpa-onnx
+```
+
+Direct WAV validation:
+
+```bash
+say -o /tmp/parakeet_test.aiff "How did the robot decide which object to approach?"
+afconvert -f WAVE -d LEI16@16000 /tmp/parakeet_test.aiff /tmp/parakeet_test.wav
+scripts/parakeet_asr_sidecar.py \
+  --model-dir "$HOME/Library/Application Support/InterviewCopilotMac/LocalModels/asr/parakeet-tdt-0.6b-v3-int8" \
+  --session-id direct-test \
+  --capture-mode systemAudioOnly \
+  --jsonl \
+  --wav /tmp/parakeet_test.wav
+```
+
+Configure the app for launch:
+
+```bash
+export PARAKEET_ASR_SIDECAR_PATH="$PWD/scripts/parakeet_asr_sidecar.py"
+```
+
+or persist the path for the app bundle domain:
+
+```bash
+defaults write com.langcheng.InterviewCopilotMac InterviewCopilot.parakeetSidecarPath "$PWD/scripts/parakeet_asr_sidecar.py"
+```
+
+## Limitations
+
+The current sidecar uses sherpa-onnx offline transducer inference with local
+silence-based utterance segmentation. It emits final transcript events after an
+utterance boundary, not low-latency partials. It does not use Apple Speech and
+must not be treated as active unless the app receives transcript events whose
+source is `local_parakeet_asr`.
 
 ## Current blocker
 

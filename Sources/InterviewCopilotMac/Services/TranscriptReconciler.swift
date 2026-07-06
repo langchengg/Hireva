@@ -116,6 +116,7 @@ struct TranscriptReconciler {
             outputDeviceName: segment.outputDeviceName,
             deviceID: segment.deviceID,
             confidence: segment.confidence,
+            asrSource: segment.asrSource,
             asrFirstPartialMS: segment.asrFirstPartialMS,
             asrFinalMS: segment.asrFinalMS,
             asrBestSelectedMS: segment.asrBestSelectedMS,

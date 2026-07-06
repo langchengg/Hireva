@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 enum ASRProviderID: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -124,6 +125,7 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
     let startTime: TimeInterval?
     let endTime: TimeInterval?
     let confidence: Double?
+    let source: String?
 
     init(
         segmentId: String,
@@ -131,7 +133,8 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
         isFinal: Bool,
         startTime: TimeInterval?,
         endTime: TimeInterval?,
-        confidence: Double? = nil
+        confidence: Double? = nil,
+        source: String? = nil
     ) {
         self.segmentId = segmentId
         self.text = text
@@ -139,12 +142,14 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
         self.startTime = startTime
         self.endTime = endTime
         self.confidence = confidence
+        self.source = source
     }
 }
 
 protocol ParakeetRuntimeClient: AnyObject {
     func isRuntimeAvailable() async -> Bool
     func startTranscription(modelDirectory: URL, config: ASRConfig) async throws -> AsyncThrowingStream<ParakeetTranscriptEvent, Error>
+    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime)
     func stop() async
 }
 
@@ -173,6 +178,9 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
 
     private let executableURLProvider: () -> URL?
     private var process: Process?
+    private var stdinHandle: FileHandle?
+    private let inputQueue = DispatchQueue(label: "com.interviewcopilot.parakeet.sidecar.stdin")
+    private var audioSequence = 0
 
     init(executableURLProvider: @escaping () -> URL? = {
         if let envPath = ProcessInfo.processInfo.environment["PARAKEET_ASR_SIDECAR_PATH"], !envPath.isEmpty {
@@ -188,7 +196,8 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
 
     func isRuntimeAvailable() async -> Bool {
         guard let executableURL = executableURLProvider() else { return false }
-        return FileManager.default.isExecutableFile(atPath: executableURL.path)
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else { return false }
+        return Self.sidecarHealthCheck(executableURL: executableURL)
     }
 
     func startTranscription(modelDirectory: URL, config: ASRConfig) async throws -> AsyncThrowingStream<ParakeetTranscriptEvent, Error> {
@@ -208,8 +217,10 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
 
         let stdout = Pipe()
         let stderr = Pipe()
+        let stdin = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        process.standardInput = stdin
 
         do {
             try process.run()
@@ -217,9 +228,17 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             throw ParakeetSidecarError.launchFailed(error.localizedDescription)
         }
         self.process = process
+        self.stdinHandle = stdin.fileHandleForWriting
 
         return AsyncThrowingStream { continuation in
             let stdoutHandle = stdout.fileHandleForReading
+            let stderrHandle = stderr.fileHandleForReading
+            let stderrTask = Task {
+                for try await line in stderrHandle.bytes.lines {
+                    guard !line.isEmpty else { continue }
+                    print("[ParakeetSidecar] \(line)")
+                }
+            }
             let task = Task {
                 do {
                     for try await line in stdoutHandle.bytes.lines {
@@ -243,26 +262,106 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
 
             continuation.onTermination = { [weak self] _ in
                 task.cancel()
+                stderrTask.cancel()
                 Task { await self?.stop() }
             }
         }
     }
 
+    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) {
+        guard let audioEvent = Self.audioEventData(from: buffer, sequence: nextAudioSequence()) else { return }
+        inputQueue.async { [weak self] in
+            guard let self, let stdinHandle = self.stdinHandle else { return }
+            do {
+                try stdinHandle.write(contentsOf: audioEvent)
+                try stdinHandle.write(contentsOf: Data([0x0A]))
+            } catch {
+                print("[ParakeetSidecar] Failed to write audio chunk: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func stop() async {
+        inputQueue.sync {
+            try? stdinHandle?.close()
+            stdinHandle = nil
+        }
         if let process, process.isRunning {
             process.terminate()
         }
         process = nil
     }
+
+    private func nextAudioSequence() -> Int {
+        inputQueue.sync {
+            audioSequence += 1
+            return audioSequence
+        }
+    }
+
+    private static func audioEventData(from buffer: AVAudioPCMBuffer, sequence: Int) -> Data? {
+        guard let channelData = buffer.floatChannelData else { return nil }
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+        guard channelCount > 0, frameLength > 0 else { return nil }
+
+        var monoSamples = [Float]()
+        monoSamples.reserveCapacity(frameLength)
+        for frame in 0..<frameLength {
+            var sample: Float = 0
+            for channel in 0..<channelCount {
+                sample += channelData[channel][frame]
+            }
+            monoSamples.append(sample / Float(channelCount))
+        }
+
+        let audioData = monoSamples.withUnsafeBufferPointer { pointer in
+            Data(buffer: pointer)
+        }
+        let payload: [String: Any] = [
+            "type": "audio",
+            "sequence": sequence,
+            "sampleRate": buffer.format.sampleRate,
+            "channels": 1,
+            "encoding": "float32le",
+            "audio": audioData.base64EncodedString()
+        ]
+        return try? JSONSerialization.data(withJSONObject: payload)
+    }
+
+    private static func sidecarHealthCheck(executableURL: URL) -> Bool {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = ["--health"]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+
+        let deadline = Date().addingTimeInterval(3)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if process.isRunning {
+            process.terminate()
+            return false
+        }
+        return process.terminationStatus == 0
+    }
 }
 
-final class LocalParakeetASRProvider: ASRProvider {
+final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, SystemAudioBufferDelegate {
     let id: ASRProviderID = .localParakeet
     let displayName = ASRProviderID.localParakeet.displayName
 
     private let modelManager: any LocalModelManager
     private let model: LocalModelDescriptor
     private let runtimeClient: any ParakeetRuntimeClient
+    private var captureMode: AudioCaptureMode?
 
     init(
         model: LocalModelDescriptor = .defaultParakeetASR,
@@ -296,10 +395,20 @@ final class LocalParakeetASRProvider: ASRProvider {
             modelDirectory: modelManager.fileURL(for: model),
             config: config
         )
+        do {
+            try await startAudioCapture(config.captureMode)
+        } catch {
+            await runtimeClient.stop()
+            throw error
+        }
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for try await event in eventStream {
+                        if let source = event.source,
+                           source != ASRSource.localParakeetASR.rawValue {
+                            throw ASRProviderError.providerUnavailable("Parakeet sidecar emitted unexpected source: \(source)")
+                        }
                         let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !text.isEmpty else { continue }
                         continuation.yield(TranscriptSegment(
@@ -331,7 +440,69 @@ final class LocalParakeetASRProvider: ASRProvider {
     }
 
     func stopTranscription() async {
+        stopAudioCapture()
         await runtimeClient.stop()
+    }
+
+    private func startAudioCapture(_ mode: AudioCaptureMode) async throws {
+        captureMode = mode
+        switch mode {
+        case .microphoneOnly:
+            AudioEngineManager.shared.register(self)
+        case .systemAudioOnly:
+            ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
+            try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
+        case .microphoneAndSystem:
+            AudioEngineManager.shared.register(self)
+            ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
+            try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
+        }
+    }
+
+    private func stopAudioCapture() {
+        guard let captureMode else { return }
+        switch captureMode {
+        case .microphoneOnly:
+            AudioEngineManager.shared.unregister(self)
+        case .systemAudioOnly:
+            ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
+            ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
+        case .microphoneAndSystem:
+            AudioEngineManager.shared.unregister(self)
+            ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
+            ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
+        }
+        self.captureMode = nil
+    }
+
+    func audioEngineManager(
+        _ manager: AudioEngineManager,
+        didReceive buffer: AVAudioPCMBuffer,
+        at time: AVAudioTime
+    ) {
+        runtimeClient.appendAudioBuffer(buffer, at: time)
+    }
+
+    func audioEngineManager(
+        _ manager: AudioEngineManager,
+        didFailWith error: Error
+    ) {
+        print("[LocalParakeetASRProvider] Microphone capture failed: \(error.localizedDescription)")
+    }
+
+    func systemAudioCaptureService(
+        _ service: ScreenCaptureKitSystemAudioCaptureService,
+        didReceive buffer: AVAudioPCMBuffer,
+        at time: AVAudioTime
+    ) {
+        runtimeClient.appendAudioBuffer(buffer, at: time)
+    }
+
+    func systemAudioCaptureService(
+        _ service: ScreenCaptureKitSystemAudioCaptureService,
+        didFailWithError error: Error
+    ) {
+        print("[LocalParakeetASRProvider] System audio capture failed: \(error.localizedDescription)")
     }
 
     private static func audioSource(for captureMode: AudioCaptureMode) -> AudioSourceType {
