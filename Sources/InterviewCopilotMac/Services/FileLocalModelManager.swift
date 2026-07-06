@@ -68,22 +68,48 @@ final class FileLocalModelManager: LocalModelManager {
                         withIntermediateDirectories: true
                     )
 
-                    if sourceURL.isFileURL {
-                        try await copyLocalFile(
-                            from: sourceURL,
-                            to: destinationURL,
-                            model: model,
-                            continuation: continuation
-                        )
+                    if isArchiveDownload(sourceURL) {
+                        let archiveURL = destinationURL.deletingLastPathComponent()
+                            .appendingPathComponent(".\(model.id)-\(UUID().uuidString).download", isDirectory: false)
+                        defer { try? fileManager.removeItem(at: archiveURL) }
+                        if sourceURL.isFileURL {
+                            try await copyLocalFile(
+                                from: sourceURL,
+                                to: archiveURL,
+                                model: model,
+                                continuation: continuation
+                            )
+                        } else {
+                            try await downloadRemoteFile(
+                                from: sourceURL,
+                                to: archiveURL,
+                                model: model,
+                                continuation: continuation
+                            )
+                        }
+                        try extractArchive(archiveURL, for: model, to: destinationURL)
                     } else {
-                        try await downloadRemoteFile(
-                            from: sourceURL,
-                            to: destinationURL,
-                            model: model,
-                            continuation: continuation
-                        )
+                        if sourceURL.isFileURL {
+                            try await copyLocalFile(
+                                from: sourceURL,
+                                to: destinationURL,
+                                model: model,
+                                continuation: continuation
+                            )
+                        } else {
+                            try await downloadRemoteFile(
+                                from: sourceURL,
+                                to: destinationURL,
+                                model: model,
+                                continuation: continuation
+                            )
+                        }
                     }
 
+                    setActiveStatus(nil, for: model.id)
+                    guard await modelStatus(model).isReady else {
+                        throw LocalModelManagerError.downloadFailed("Downloaded model did not pass required file verification.")
+                    }
                     setActiveStatus(.installed, for: model.id)
                     continuation.yield(.completed(modelID: model.id, totalBytes: model.sizeBytes))
                     continuation.finish()
@@ -97,6 +123,11 @@ final class FileLocalModelManager: LocalModelManager {
                 task.cancel()
             }
         }
+    }
+
+    private func isArchiveDownload(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        return path.hasSuffix(".tar.bz2") || path.hasSuffix(".tbz2") || path.hasSuffix(".tar.gz") || path.hasSuffix(".tgz")
     }
 
     private func copyLocalFile(
@@ -178,6 +209,81 @@ final class FileLocalModelManager: LocalModelManager {
                 startedAt: startedAt,
                 continuation: continuation
             )
+        }
+    }
+
+    private func extractArchive(_ archiveURL: URL, for model: LocalModelDescriptor, to destinationURL: URL) throws {
+        let extractionRoot = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(model.id)-\(UUID().uuidString)-extract", isDirectory: true)
+        defer { try? fileManager.removeItem(at: extractionRoot) }
+
+        try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        process.arguments = ["-xf", archiveURL.path, "-C", extractionRoot.path]
+        let stderr = Pipe()
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            throw LocalModelManagerError.downloadFailed("Failed to start model extraction: \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw LocalModelManagerError.downloadFailed("Model extraction failed with exit \(process.terminationStatus): \(errorText ?? "unknown tar error")")
+        }
+
+        guard let sourceDirectory = extractedModelDirectory(in: extractionRoot, for: model) else {
+            throw LocalModelManagerError.downloadFailed("Extracted archive did not contain the required Parakeet model files.")
+        }
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        if sourceDirectory == extractionRoot {
+            try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+            let items = try fileManager.contentsOfDirectory(at: extractionRoot, includingPropertiesForKeys: nil)
+            for item in items {
+                try fileManager.moveItem(
+                    at: item,
+                    to: destinationURL.appendingPathComponent(item.lastPathComponent, isDirectory: item.hasDirectoryPath)
+                )
+            }
+        } else {
+            try fileManager.moveItem(at: sourceDirectory, to: destinationURL)
+        }
+    }
+
+    private func extractedModelDirectory(in extractionRoot: URL, for model: LocalModelDescriptor) -> URL? {
+        if directory(extractionRoot, containsRequiredFilesFor: model) {
+            return extractionRoot
+        }
+
+        guard let items = try? fileManager.contentsOfDirectory(
+            at: extractionRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        return items.first { item in
+            (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
+                directory(item, containsRequiredFilesFor: model)
+        }
+    }
+
+    private func directory(_ directoryURL: URL, containsRequiredFilesFor model: LocalModelDescriptor) -> Bool {
+        guard !model.requiredFiles.isEmpty else { return true }
+        return model.requiredFiles.allSatisfy { requirement in
+            fileManager.fileExists(atPath: directoryURL.appendingPathComponent(requirement.relativePath).path)
         }
     }
 

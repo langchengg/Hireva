@@ -10,19 +10,19 @@ the model files and a sidecar executable are present.
 - Display name: `Parakeet TDT 0.6B`
 - ASR source metadata: `local_parakeet_asr`
 - Local path: `~/Library/Application Support/InterviewCopilotMac/LocalModels/asr/parakeet-tdt-0.6b-v3-int8`
-- Download URL: not configured
+- Download URL: `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2`
 - Checksum: not configured
 
 Required files under the local path:
 
-- `encoder-model.int8.onnx`, minimum 580 MB
-- `decoder_joint-model.int8.onnx`, minimum 8 MB
-- `nemo128.onnx`, minimum 100 KB
-- `vocab.txt`, minimum 5 KB
+- `encoder.int8.onnx`, minimum 652 MB
+- `decoder.int8.onnx`, minimum 11.8 MB
+- `joiner.int8.onnx`, minimum 6.3 MB
+- `tokens.txt`, minimum 90 KB
 
 Readiness currently verifies required file presence and minimum sizes. It does
-not perform cryptographic checksum verification because the descriptor has no
-checksum.
+not perform cryptographic checksum verification because the upstream release
+does not publish a single checksum manifest for this app to verify.
 
 ## Runtime contract
 
@@ -60,7 +60,9 @@ On a clean local machine, Parakeet remains inactive until:
 
 1. The required ONNX/vocabulary files exist in the Application Support path.
 2. A real sidecar executable is installed and executable.
-3. The user explicitly selects Local Parakeet after both readiness checks pass.
+3. The selected ASR provider is Local Parakeet and both readiness checks pass.
 
 If either the model or runtime is missing, the app reports `model_not_ready` or
-`local_asr_runtime_not_implemented` and keeps Apple Speech as the active ASR.
+`local_asr_runtime_not_implemented`. Apple Speech is available only when the
+user explicitly selects it; the app must not silently run Apple Speech while
+labeling transcripts as Parakeet.

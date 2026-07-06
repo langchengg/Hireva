@@ -13,30 +13,54 @@ struct LocalModelsSetupTests {
 
         #expect(LocalModelDescriptor.defaultParakeetASR.id == "parakeet-tdt-0.6b-v3-int8")
         #expect(LocalModelDescriptor.defaultParakeetASR.displayName == "Parakeet TDT 0.6B")
-        #expect(LocalModelDescriptor.defaultParakeetASR.downloadURL == nil)
-        #expect(LocalModelDescriptor.defaultParakeetASR.requiredFiles.map(\.relativePath).contains("encoder-model.int8.onnx"))
+        #expect(LocalModelDescriptor.defaultParakeetASR.downloadURL?.absoluteString.contains("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2") == true)
+        #expect(LocalModelDescriptor.defaultParakeetASR.requiredFiles.map(\.relativePath).contains("encoder.int8.onnx"))
+        #expect(LocalModelDescriptor.defaultParakeetASR.requiredFiles.map(\.relativePath).contains("decoder.int8.onnx"))
+        #expect(LocalModelDescriptor.defaultParakeetASR.requiredFiles.map(\.relativePath).contains("joiner.int8.onnx"))
+        #expect(LocalModelDescriptor.defaultParakeetASR.requiredFiles.map(\.relativePath).contains("tokens.txt"))
         #expect(LocalModelDescriptor.ollamaQwen == .defaultQwenLocalLLM)
     }
 
     @Test @MainActor
-    func runtimeDefaultsRemainDeepSeekAndAppleSpeech() throws {
+    func runtimeDefaultsUseLocalQwenAndLocalParakeetSelection() throws {
         let previousASR = UserDefaults.standard.object(forKey: "InterviewCopilot.selectedASRProvider")
+        let previousActiveASR = UserDefaults.standard.object(forKey: "InterviewCopilot.activeASRProvider")
         let previousMode = UserDefaults.standard.object(forKey: "InterviewCopilot.answerProviderMode")
         let previousQwen = UserDefaults.standard.object(forKey: "InterviewCopilot.selectedQwenModel")
         defer {
             restoreUserDefault(previousASR, forKey: "InterviewCopilot.selectedASRProvider")
+            restoreUserDefault(previousActiveASR, forKey: "InterviewCopilot.activeASRProvider")
             restoreUserDefault(previousMode, forKey: "InterviewCopilot.answerProviderMode")
             restoreUserDefault(previousQwen, forKey: "InterviewCopilot.selectedQwenModel")
         }
         UserDefaults.standard.removeObject(forKey: "InterviewCopilot.selectedASRProvider")
+        UserDefaults.standard.set(ASRProviderID.appleSpeech.rawValue, forKey: "InterviewCopilot.activeASRProvider")
         UserDefaults.standard.removeObject(forKey: "InterviewCopilot.answerProviderMode")
         UserDefaults.standard.removeObject(forKey: "InterviewCopilot.selectedQwenModel")
         let appState = try AppState(database: AppDatabase(inMemory: true))
 
-        #expect(appState.selectedASRProviderID == .appleSpeech)
-        #expect(appState.selectedASRProviderID.source == .appleASR)
-        #expect(appState.selectedAnswerProviderMode == .deepSeekPrimary)
+        #expect(appState.selectedASRProviderID == .localParakeet)
+        #expect(appState.selectedASRProviderID.source == .localParakeetASR)
+        #expect(appState.activeASRProviderID == nil)
+        #expect(appState.selectedAnswerProviderMode == .localQwenPrimary)
         #expect(appState.selectedQwenModelName == "qwen3.5:4b")
+    }
+
+    @Test @MainActor
+    func legacyDeepSeekPreferenceMigratesOnlyWhenQwenReady() throws {
+        let previousMode = UserDefaults.standard.object(forKey: "InterviewCopilot.answerProviderMode")
+        defer {
+            restoreUserDefault(previousMode, forKey: "InterviewCopilot.answerProviderMode")
+        }
+
+        UserDefaults.standard.set("deepSeek", forKey: "InterviewCopilot.answerProviderMode")
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+
+        appState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: false)
+        #expect(appState.selectedAnswerProviderMode == .deepSeekPrimary)
+
+        appState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: true)
+        #expect(appState.selectedAnswerProviderMode == .localQwenPrimary)
     }
 
     @Test
@@ -101,6 +125,47 @@ struct LocalModelsSetupTests {
 
         try await manager.deleteModel(descriptor)
         #expect(await manager.modelStatus(descriptor) == .notInstalled)
+    }
+
+    @Test
+    func fileLocalModelManagerDownloadsExtractsAndVerifiesArchiveDirectoryModel() async throws {
+        let root = temporaryDirectory().appendingPathComponent("models", isDirectory: true)
+        let sourceRoot = temporaryDirectory()
+        let sourceModelDir = sourceRoot.appendingPathComponent("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceModelDir, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 32).write(to: sourceModelDir.appendingPathComponent("encoder.int8.onnx"))
+        try Data(repeating: 2, count: 16).write(to: sourceModelDir.appendingPathComponent("decoder.int8.onnx"))
+        try Data(repeating: 3, count: 12).write(to: sourceModelDir.appendingPathComponent("joiner.int8.onnx"))
+        try Data("a 0\nb 1\n".utf8).write(to: sourceModelDir.appendingPathComponent("tokens.txt"))
+        let archiveURL = sourceRoot.appendingPathComponent("parakeet-test.tar.bz2")
+        try makeTarBz2Archive(sourceDirectoryName: sourceModelDir.lastPathComponent, parentDirectory: sourceRoot, archiveURL: archiveURL)
+
+        let descriptor = LocalModelDescriptor(
+            id: "parakeet-archive-test",
+            displayName: "Parakeet Archive Test",
+            kind: .transcription,
+            sizeBytes: nil,
+            downloadURL: archiveURL,
+            checksum: nil,
+            storageRelativePath: "asr/parakeet-archive-test",
+            requiredFiles: [
+                LocalModelFileRequirement(relativePath: "encoder.int8.onnx", minimumBytes: 32),
+                LocalModelFileRequirement(relativePath: "decoder.int8.onnx", minimumBytes: 16),
+                LocalModelFileRequirement(relativePath: "joiner.int8.onnx", minimumBytes: 12),
+                LocalModelFileRequirement(relativePath: "tokens.txt", minimumBytes: 4)
+            ]
+        )
+        let manager = FileLocalModelManager(rootDirectory: root)
+
+        var progressEvents: [ModelDownloadProgress] = []
+        for try await progress in manager.downloadModel(descriptor) {
+            progressEvents.append(progress)
+        }
+
+        #expect(progressEvents.isEmpty == false)
+        #expect(await manager.modelStatus(descriptor) == .installed)
+        #expect(try await manager.verifyModel(descriptor) == true)
+        #expect(FileManager.default.fileExists(atPath: manager.fileURL(for: descriptor).appendingPathComponent("encoder.int8.onnx").path))
     }
 
     @Test
@@ -253,6 +318,29 @@ struct LocalModelsSetupTests {
         }
     }
 
+    @Test
+    func selectingParakeetWhenModelMissingShowsModelNotReady() async {
+        let provider = LocalParakeetASRProvider(
+            modelManager: StaticLocalModelManager(status: .notInstalled),
+            runtimeClient: MockParakeetRuntimeClient(isAvailable: true)
+        )
+
+        #expect(await provider.isAvailable() == false)
+        await #expect(throws: ASRProviderError.modelNotReady(.localParakeet)) {
+            _ = try await provider.startTranscription(config: ASRConfig(sessionID: "s1", captureMode: .systemAudioOnly))
+        }
+    }
+
+    @Test
+    func selectingParakeetWhenModelAndRuntimeReadyChangesActiveProviderEligibility() async {
+        let provider = LocalParakeetASRProvider(
+            modelManager: StaticLocalModelManager(status: .installed),
+            runtimeClient: MockParakeetRuntimeClient(isAvailable: true)
+        )
+
+        #expect(await provider.isAvailable() == true)
+    }
+
     @Test @MainActor
     func parakeetMockRuntimeEmitsLocalASRSourceAndCanEnterQuestionDetection() async throws {
         let provider = LocalParakeetASRProvider(
@@ -270,7 +358,10 @@ struct LocalModelsSetupTests {
                 ]
             )
         )
-        let stream = try await provider.startTranscription(config: ASRConfig(sessionID: "s1", captureMode: .systemAudioOnly))
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        let stream = try await provider.startTranscription(config: ASRConfig(sessionID: session.id, captureMode: .systemAudioOnly))
         var emitted: [TranscriptSegment] = []
         for try await segment in stream {
             emitted.append(segment)
@@ -282,11 +373,14 @@ struct LocalModelsSetupTests {
         #expect(emitted[0].asrSource == .localParakeetASR)
         #expect(emitted[0].recognitionIsFinal == true)
 
-        let appState = try AppState(database: AppDatabase(inMemory: true))
         await appState.handleTranscriptSegment(emitted[0])
         #expect(appState.lastTranscriptQuestionGenerationTrace.asrSource == ASRSource.localParakeetASR.rawValue)
         #expect(appState.lastTranscriptQuestionGenerationTrace.source == AudioSourceType.systemAudio.rawValue)
         #expect(appState.lastTranscriptQuestionGenerationTrace.questionCandidate == true)
+
+        try appState.transcriptRepository.saveSegment(emitted[0])
+        let persisted = try #require(try appState.transcriptRepository.segmentByID("p1"))
+        #expect(persisted.asrSource == .localParakeetASR)
     }
 
     @Test
@@ -425,6 +519,15 @@ struct LocalModelsSetupTests {
         } else {
             UserDefaults.standard.removeObject(forKey: key)
         }
+    }
+
+    private func makeTarBz2Archive(sourceDirectoryName: String, parentDirectory: URL, archiveURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        process.arguments = ["-cjf", archiveURL.path, "-C", parentDirectory.path, sourceDirectoryName]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
     }
 
     @MainActor

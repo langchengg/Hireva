@@ -1828,6 +1828,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             llmRouter: router,
             contextRetrievalService: RuntimePathEmptyContextRetrievalService()
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         if let traceURL {
             appState.runtimeTranscriptTraceLogURL = traceURL
         }

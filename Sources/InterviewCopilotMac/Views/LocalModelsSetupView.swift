@@ -125,7 +125,7 @@ final class LocalModelsSetupViewModel: ObservableObject {
         Task {
             await refresh(qwenModel: qwenModel)
             if transcriptionStatus.isReady == false {
-                lastError = "Parakeet model download is not wired yet. Place the ONNX files in \(modelPath(for: transcriptionModel).path)."
+                downloadTranscriptionModel()
             }
             if qwenHealth.ollamaRunning && !qwenHealth.modelInstalled {
                 pullQwen(modelName: qwenModel)
@@ -143,6 +143,10 @@ final class LocalModelsSetupViewModel: ObservableObject {
     func canEnableParakeet() -> Bool {
         transcriptionStatus.isReady && parakeetRuntimeAvailable
     }
+
+    var parakeetRuntimeStatusText: String {
+        parakeetRuntimeAvailable ? "Runtime Ready" : "Runtime Missing"
+    }
 }
 
 struct LocalModelsSetupView: View {
@@ -151,7 +155,7 @@ struct LocalModelsSetupView: View {
     @State private var selectedStep: LocalSetupStep = .welcome
     @State private var permissionsSkipped = false
     @AppStorage("InterviewCopilot.selectedQwenModel") private var selectedQwenModel = LocalModelDescriptor.defaultQwenLocalLLM.id
-    @AppStorage("InterviewCopilot.answerProviderMode") private var answerProviderMode = AnswerProviderMode.deepSeekPrimary.rawValue
+    @AppStorage("InterviewCopilot.answerProviderMode") private var answerProviderMode = AnswerProviderMode.localQwenPrimary.rawValue
 
     var body: some View {
         ScrollView {
@@ -186,6 +190,8 @@ struct LocalModelsSetupView: View {
         .task {
             appState.refreshPermissions()
             await viewModel.refresh(qwenModel: selectedQwenModel)
+            appState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: viewModel.qwenHealth.isReady)
+            answerProviderMode = appState.selectedAnswerProviderMode.rawValue
         }
     }
 
@@ -193,7 +199,7 @@ struct LocalModelsSetupView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Setup & Local Models")
                 .font(.largeTitle.weight(.bold))
-            Text("Prepare permissions, optional local models, and provider mode without changing the default DeepSeek pipeline.")
+            Text("Prepare the recommended local Qwen answer model and local Parakeet transcription path with truthful readiness checks.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
@@ -217,7 +223,7 @@ struct LocalModelsSetupView: View {
                 tint: .blue
             ) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("This flow adds local model readiness and clearer permissions. It does not enable Local Qwen or Local ASR automatically.")
+                    Text("Local Qwen is the recommended default answer provider. Local Parakeet is selected by default, but it only becomes active after the model and runtime are both ready.")
                         .foregroundStyle(.secondary)
                     HStack {
                         Button {
@@ -297,7 +303,7 @@ struct LocalModelsSetupView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     diagnosticRow("Recommended ASR", viewModel.transcriptionModel.displayName)
                     diagnosticRow("Recommended LLM", LocalModelDescriptor.defaultQwenLocalLLM.id)
-                    diagnosticRow("Runtime defaults", "DeepSeek primary, Apple Speech active")
+                    diagnosticRow("Runtime defaults", "Local Qwen primary, Local Parakeet selected")
                     Button {
                         viewModel.installRecommended(qwenModel: selectedQwenModel)
                     } label: {
@@ -379,7 +385,7 @@ struct LocalModelsSetupView: View {
                 diagnosticRow("Selected Qwen model", selectedQwenModel)
                 diagnosticRow("Qwen selection status", viewModel.qwenHealth.isReady ? "enabled" : "model_not_ready")
                 diagnosticRow("Local source", AnswerSource.ollamaQwen.rawValue)
-                diagnosticRow("Default behavior changed", providerMode == .deepSeekPrimary ? "false" : "only after explicit selection")
+                diagnosticRow("Default answer provider", AnswerProviderMode.localQwenPrimary.rawValue)
 
                 HStack {
                     Button {
@@ -404,10 +410,10 @@ struct LocalModelsSetupView: View {
                 tint: .teal
             ) {
                 VStack(alignment: .leading, spacing: 10) {
-                    diagnosticRow("Runtime default", ASRProviderID.appleSpeech.displayName)
+                    diagnosticRow("Selected default", ASRProviderID.localParakeet.displayName)
                     diagnosticRow("Recommended local ASR", ASRProviderID.localParakeet.displayName)
                     diagnosticRow("Parakeet model status", viewModel.transcriptionStatus.displayName)
-                    diagnosticRow("Parakeet runtime available", viewModel.parakeetRuntimeAvailable ? "true" : "false")
+                    diagnosticRow("Parakeet runtime status", viewModel.parakeetRuntimeStatusText)
                     diagnosticRow("Selected ASR source", appState.selectedASRProviderID.source.rawValue)
                     diagnosticRow("Active ASR provider", appState.activeASRProviderDisplayName)
                     HStack {
@@ -435,7 +441,7 @@ struct LocalModelsSetupView: View {
                         .disabled(!viewModel.canEnableParakeet())
                     }
                 }
-                Text("Apple Speech remains active until Parakeet model readiness and the sidecar runtime are both available, then the user explicitly enables Local Parakeet.")
+                Text("Local Parakeet will not become active unless both the model files and sidecar runtime are ready. Apple Speech is an explicit fallback selection.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -499,7 +505,7 @@ struct LocalModelsSetupView: View {
             diagnosticRow("Model id", viewModel.transcriptionModel.id)
             diagnosticRow("Model path", viewModel.modelPath(for: viewModel.transcriptionModel).path)
             diagnosticRow("ASR source when active", ASRSource.localParakeetASR.rawValue)
-            diagnosticRow("Runtime integration", viewModel.parakeetRuntimeAvailable ? "Available" : "Pending sidecar")
+            diagnosticRow("Runtime integration", viewModel.parakeetRuntimeStatusText)
             HStack {
                 Button {
                     viewModel.downloadTranscriptionModel()

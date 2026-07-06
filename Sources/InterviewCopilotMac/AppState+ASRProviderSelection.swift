@@ -7,7 +7,7 @@ extension AppState {
     private static var answerProviderModeKey: String { "InterviewCopilot.answerProviderMode" }
 
     var selectedASRProviderID: ASRProviderID {
-        ASRProviderID(rawValue: UserDefaults.standard.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .appleSpeech
+        ASRProviderID(rawValue: UserDefaults.standard.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .localParakeet
     }
 
     var selectedTranscriptionProviderMode: TranscriptionProviderMode {
@@ -20,7 +20,10 @@ extension AppState {
     }
 
     var selectedAnswerProviderMode: AnswerProviderMode {
-        AnswerProviderMode(storedValue: UserDefaults.standard.string(forKey: Self.answerProviderModeKey))
+        if let answerProviderModeOverride {
+            return answerProviderModeOverride
+        }
+        return AnswerProviderMode(storedValue: UserDefaults.standard.string(forKey: Self.answerProviderModeKey))
     }
 
     var activeASRProviderID: ASRProviderID? {
@@ -57,5 +60,36 @@ extension AppState {
             UserDefaults.standard.removeObject(forKey: Self.activeASRProviderKey)
         }
         objectWillChange.send()
+    }
+
+    func clearStaleActiveASRProviderOnLaunch() {
+        UserDefaults.standard.removeObject(forKey: Self.activeASRProviderKey)
+        objectWillChange.send()
+    }
+
+    func migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: Bool) {
+        guard qwenReady else { return }
+        let rawValue = UserDefaults.standard.string(forKey: Self.answerProviderModeKey)
+        let isUnset = rawValue == nil || rawValue == ""
+        let isLegacyDeepSeek = rawValue == "deepSeek" || rawValue == AnswerProviderMode.deepSeekPrimary.rawValue
+        guard isUnset || isLegacyDeepSeek else { return }
+        setSelectedAnswerProviderMode(.localQwenPrimary)
+    }
+
+    func runLaunchLocalQwenDefaultMigrationIfNeeded() {
+        guard !isRunningUnderTestOrAutomation() else { return }
+        let rawValue = UserDefaults.standard.string(forKey: Self.answerProviderModeKey)
+        let shouldProbe = rawValue == nil ||
+            rawValue == "" ||
+            rawValue == "deepSeek" ||
+            rawValue == AnswerProviderMode.deepSeekPrimary.rawValue
+        guard shouldProbe else { return }
+        let modelName = selectedQwenModelName
+        Task { [weak self] in
+            let health = await OllamaQwenProvider().healthCheck(modelName: modelName)
+            await MainActor.run {
+                self?.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: health.isReady)
+            }
+        }
     }
 }

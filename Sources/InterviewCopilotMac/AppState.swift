@@ -627,6 +627,7 @@ final class AppState: ObservableObject {
     var activeDetectionTask: Task<Void, Never>?
     // internal for AppState extension access only
     var activeAITask: Task<Void, Never>?
+    var answerProviderModeOverride: AnswerProviderMode?
     // internal for AppState extension access only
     var lastDetectionAt: Date?
     // internal for AppState extension access only
@@ -758,6 +759,8 @@ final class AppState: ObservableObject {
         
         // Initialize notifications and refresh permissions on startup and when application didBecomeActive
         refreshAll(loadKeychain: !(keychain.store is RealKeychainStore))
+        clearStaleActiveASRProviderOnLaunch()
+        runLaunchLocalQwenDefaultMigrationIfNeeded()
         installLiveSystemAudioDiagnosticNotificationObserver()
         runLaunchLiveSystemAudioDiagnosticIfRequested()
 

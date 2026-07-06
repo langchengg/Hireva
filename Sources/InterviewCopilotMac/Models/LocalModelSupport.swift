@@ -80,15 +80,15 @@ struct LocalModelDescriptor: Codable, Hashable, Identifiable {
         id: "parakeet-tdt-0.6b-v3-int8",
         displayName: "Parakeet TDT 0.6B",
         kind: .transcription,
-        sizeBytes: 670_000_000,
-        downloadURL: nil,
+        sizeBytes: 671_145_061,
+        downloadURL: URL(string: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"),
         checksum: nil,
         storageRelativePath: "asr/parakeet-tdt-0.6b-v3-int8",
         requiredFiles: [
-            LocalModelFileRequirement(relativePath: "encoder-model.int8.onnx", minimumBytes: 580_000_000),
-            LocalModelFileRequirement(relativePath: "decoder_joint-model.int8.onnx", minimumBytes: 8_000_000),
-            LocalModelFileRequirement(relativePath: "nemo128.onnx", minimumBytes: 100_000),
-            LocalModelFileRequirement(relativePath: "vocab.txt", minimumBytes: 5_000)
+            LocalModelFileRequirement(relativePath: "encoder.int8.onnx", minimumBytes: 652_000_000),
+            LocalModelFileRequirement(relativePath: "decoder.int8.onnx", minimumBytes: 11_800_000),
+            LocalModelFileRequirement(relativePath: "joiner.int8.onnx", minimumBytes: 6_300_000),
+            LocalModelFileRequirement(relativePath: "tokens.txt", minimumBytes: 90_000)
         ]
     )
 
@@ -114,7 +114,7 @@ enum LocalModelStatus: Equatable {
         case .downloading:
             return "Downloading"
         case .installed:
-            return "Ready"
+            return "Model Ready"
         case .verifying:
             return "Verifying"
         case .failed:
@@ -191,12 +191,16 @@ enum AnswerProviderMode: String, Codable, CaseIterable, Identifiable {
 
     init(storedValue: String?) {
         switch storedValue {
+        case nil, "":
+            self = .localQwenPrimary
         case Self.localQwenPrimary.rawValue, "localQwen":
             self = .localQwenPrimary
+        case Self.deepSeekPrimary.rawValue, "deepSeek":
+            self = .deepSeekPrimary
         case Self.deepSeekWithLocalQwenFallback.rawValue, "deepSeekWithLocalFallback":
             self = .deepSeekWithLocalQwenFallback
         default:
-            self = .deepSeekPrimary
+            self = .localQwenPrimary
         }
     }
 }
