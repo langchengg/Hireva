@@ -252,7 +252,9 @@ extension AppState {
         finalVisibleSource: String,
         caution: String,
         modelName: String,
-        promptVersion: String
+        promptVersion: String,
+        stageBCompleted: Bool = true,
+        softFallbackUsed: Bool = true
     ) {
         let requestStart = Date()
         let generationID = UUID().uuidString
@@ -289,12 +291,12 @@ extension AppState {
         card.mismatchReason = nil
         card.sayFirstSource = finalVisibleSource
         card.stageATimedOut = false
-        card.stageBCompleted = true
+        card.stageBCompleted = stageBCompleted
         card.stageBStatus = stageBStatus
         card.latencyFirstVisibleMS = 0
         card.latencyFullCardMS = 0
-        card.softFallbackUsed = true
-        card.softFallbackLatencyMS = 0
+        card.softFallbackUsed = softFallbackUsed
+        card.softFallbackLatencyMS = softFallbackUsed ? 0 : nil
         card.finalVisibleSource = finalVisibleSource
         card.firstVisibleAnswerMS = 0
         card.firstKeyPointVisibleMS = card.keyPoints.isEmpty ? nil : 0

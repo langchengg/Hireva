@@ -82,8 +82,8 @@ enum ProjectGroundedFallbackPolicy {
             }
             if IntentRouter.isPerceptionControlReliabilityQuestion(normalizedQuestion) {
                 return IntentFallbackAnswer(
-                    sayFirst: "I combined perception and control by turning camera detections and robot-state estimates into target poses or action goals, then letting the navigation/manipulation controller execute only after the pose, timing, and confidence checks were consistent. The hard part was reliability: small calibration errors, latency, noisy detections, or a bad frame transform could turn a good perception result into the wrong physical motion.",
-                    keyPoints: ["Perception produced target poses or action goals, not just labels.", "Control used validated robot state, timing, and confidence before moving.", "Reliability was hard because latency, calibration, and noisy detections affected real motion."]
+                    sayFirst: "Localization influenced manipulation by turning camera detections and robot-state estimates into target poses or action goals, then letting the navigation/manipulation controller execute only after the pose, timing, and confidence checks were consistent. That handoff was hard to make reliable because small calibration errors, latency, noisy detections, or a bad frame transform could turn a good perception result into the wrong physical motion.",
+                    keyPoints: ["Localization and perception produced target poses or action goals, not just labels.", "Manipulation used validated robot state, timing, and confidence before moving.", "Reliability was hard because latency, calibration, noisy detections, and frame transforms affected real motion."]
                 )
             }
             if IntentRouter.isRobotSystemArchitectureQuestion(normalizedQuestion) {

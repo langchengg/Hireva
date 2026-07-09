@@ -49,9 +49,12 @@ final class AppState: ObservableObject {
     @Published var finalTranscriptText: String = ""
     @Published var displayTranscriptText: String = ""
     @Published var lastAcceptedQuestionText: String = ""
-    @Published var transcriptRuntimeDiagnostics: TranscriptRuntimeDiagnostics = .empty
+    // Audio-buffer callbacks update this diagnostic on every PCM buffer. Keep
+    // the counter in memory without invalidating every AppState-observing view.
+    var transcriptRuntimeDiagnostics: TranscriptRuntimeDiagnostics = .empty
     @Published var recentTranscriptRuntimeEvents: [TranscriptRuntimeEventRecord] = []
     var runtimeTranscriptTraceLogURL: URL = AppPaths.runtimeTranscriptTraceURL
+    var persistedHighFrequencyRuntimeEventAt: [String: Date] = [:]
     @Published var isFloatingAssistantVisible = false
     @Published var errorMessage: String?
     @Published var activeActionFeedbacks: [ActionFeedback] = []
@@ -169,7 +172,7 @@ final class AppState: ObservableObject {
     }
     @Published var isRecoveringAudioRoute: Bool = false
     @Published var audioRouteError: String?
-    @Published var lastAudioBufferAt: Date?
+    var lastAudioBufferAt: Date?
     @Published var noAudioWarningVisible: Bool = false
 
     @Published public var lastSystemAudioTranscript: String = ""
@@ -195,7 +198,7 @@ final class AppState: ObservableObject {
 
     // --- System Audio ASR Diagnostics ---
     @Published public var systemASRTaskRunning: Bool = false
-    @Published public var totalSystemAudioASRBuffersAppended: Int = 0
+    public var totalSystemAudioASRBuffersAppended: Int = 0
     @Published public var lastSystemAudioASRPartialTranscript: String = ""
     @Published public var lastSystemAudioASRFinalTranscript: String = ""
     @Published public var lastSystemTranscript: String = ""
@@ -361,8 +364,10 @@ final class AppState: ObservableObject {
     @Published public var floatingPanelUpdated: Bool = false
     @Published public var generationUIState: GenerationUIState = .idle
     @Published public var currentGenerationTelemetry: GenerationTelemetry = .idle
-    @Published public var mainThreadHeartbeatAt: Date? = nil
-    @Published public var mainThreadHeartbeatDelayMs: Int = 0
+    // Heartbeat diagnostics update twice per second. They remain queryable by
+    // Diagnostics without invalidating every AppState-observing product view.
+    public var mainThreadHeartbeatAt: Date? = nil
+    public var mainThreadHeartbeatDelayMs: Int = 0
     @Published public var lastGenerationStateChangeAt: Date? = nil
     @Published public var activeTaskSummary: String = "Idle"
     @Published public var lastLongOperationName: String = "None"
@@ -820,7 +825,7 @@ final class AppState: ObservableObject {
             .store(in: &cancellables)
 
         ScreenCaptureKitSystemAudioCaptureService.shared.$lastBufferReceivedAt
-            .receive(on: DispatchQueue.main)
+            .throttle(for: .seconds(1), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
@@ -1269,14 +1274,17 @@ final class AppState: ObservableObject {
         )
         autoSuggestionLaunchPending = false
         setGenerationUIState(.generatingFirstAnswer(questionID: question.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-        startFullCardWatchdog(
-            generationID: generationID,
-            cardID: cardID,
-            question: question,
-            session: session,
-            requestStart: requestStart,
-            triggerPath: triggerPath
-        )
+        let useFirstAnswerFallbackWatchdogs = shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider
+        if useFirstAnswerFallbackWatchdogs {
+            startFullCardWatchdog(
+                generationID: generationID,
+                cardID: cardID,
+                question: question,
+                session: session,
+                requestStart: requestStart,
+                triggerPath: triggerPath
+            )
+        }
 
         self.streamRequestStartAt = requestStart
         self.streamFirstTokenAt = nil
@@ -1306,62 +1314,65 @@ final class AppState: ObservableObject {
         let localSession = session
         let localTranscript = transcript
 
-        // This watchdog covers the whole answer pipeline, including RAG retrieval.
-        // The later RAG/DeepSeek paths replace it with more specific content.
-        let initialFallbackTask = Task { [weak self] in
-            guard let self = self else { return }
-            do {
-                try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
-            } catch {
-                return
+        // This watchdog covers the remote answer pipeline, including RAG
+        // retrieval. Local Qwen primary must either produce ollama_qwen or fail;
+        // it must not publish template fallback as the default local path.
+        if useFirstAnswerFallbackWatchdogs {
+            let initialFallbackTask = Task { [weak self] in
+                guard let self = self else { return }
+                do {
+                    try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
+                } catch {
+                    return
+                }
+                guard self.currentGenerationID == generationID else { return }
+                guard self.currentSuggestion == nil, self.streamFirstVisibleTextAt == nil else { return }
+                let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
+                self.softFallbackUsed = true
+                self.softFallbackLatencyMS = elapsed
+                self.softFallbackShownAt = Date()
+                self.finalVisibleSource = "local_first_answer_fallback"
+                var fallbackCard = self.makeInitialFirstAnswerFallbackCard(
+                    cardID: cardID,
+                    question: localQuestion,
+                    session: localSession,
+                    requestStart: requestStart
+                )
+                fallbackCard.firstVisibleAnswerMS = elapsed
+                if !fallbackCard.keyPoints.isEmpty {
+                    fallbackCard.firstKeyPointVisibleMS = elapsed
+                    fallbackCard.allKeyPointsVisibleMS = elapsed
+                }
+                if !fallbackCard.followUpReady.isEmpty {
+                    fallbackCard.followUpVisibleMS = elapsed
+                }
+                guard self.displaySuggestionIfAligned(
+                    fallbackCard,
+                    question: localQuestion,
+                    generationID: generationID,
+                    triggerPath: triggerPath,
+                    source: telemetrySource,
+                    speaker: telemetrySpeaker
+                ) else { return }
+                self.currentSuggestionSetAt = Date()
+                self.isStreamingSayFirst = false
+                self.isExpandingSuggestionCard = true
+                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
+                self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+                self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Local first answer is visible while the full answer expands.", autoDismissAfter: 3.0)
+                print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
+                if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
+                    generationID: generationID,
+                    question: localQuestion,
+                    session: localSession,
+                    requestStart: requestStart,
+                    triggerPath: triggerPath
+                ) {
+                    return
+                }
             }
-            guard self.currentGenerationID == generationID else { return }
-            guard self.currentSuggestion == nil, self.streamFirstVisibleTextAt == nil else { return }
-            let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
-            self.softFallbackUsed = true
-            self.softFallbackLatencyMS = elapsed
-            self.softFallbackShownAt = Date()
-            self.finalVisibleSource = "local_first_answer_fallback"
-            var fallbackCard = self.makeInitialFirstAnswerFallbackCard(
-                cardID: cardID,
-                question: localQuestion,
-                session: localSession,
-                requestStart: requestStart
-            )
-            fallbackCard.firstVisibleAnswerMS = elapsed
-            if !fallbackCard.keyPoints.isEmpty {
-                fallbackCard.firstKeyPointVisibleMS = elapsed
-                fallbackCard.allKeyPointsVisibleMS = elapsed
-            }
-            if !fallbackCard.followUpReady.isEmpty {
-                fallbackCard.followUpVisibleMS = elapsed
-            }
-            guard self.displaySuggestionIfAligned(
-                fallbackCard,
-                question: localQuestion,
-                generationID: generationID,
-                triggerPath: triggerPath,
-                source: telemetrySource,
-                speaker: telemetrySpeaker
-            ) else { return }
-            self.currentSuggestionSetAt = Date()
-            self.isStreamingSayFirst = false
-            self.isExpandingSuggestionCard = true
-            self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
-            self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-            self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Local first answer is visible while the full answer expands.", autoDismissAfter: 3.0)
-            print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
-            if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
-                generationID: generationID,
-                question: localQuestion,
-                session: localSession,
-                requestStart: requestStart,
-                triggerPath: triggerPath
-            ) {
-                return
-            }
+            registerFallbackWatchdogTask(initialFallbackTask, generationID: generationID)
         }
-        registerFallbackWatchdogTask(initialFallbackTask, generationID: generationID)
         applyPendingIgnoredSystemAudioFallbackIfNeeded(for: question)
         
         var retrievedContext: RetrievedContext? = nil

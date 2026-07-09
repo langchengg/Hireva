@@ -379,11 +379,30 @@ enum IntentRouter {
         let mentionsControl = text.contains("control") ||
             text.contains("controller") ||
             text.contains("action")
+        let mentionsLocalizationManipulationHandoff = (
+            text.contains("localization") ||
+            text.contains("localisation") ||
+            text.contains("pose") ||
+            text.contains("robot state")
+        ) && (
+            text.contains("manipulation") ||
+            text.contains("manipulator") ||
+            text.contains("grasp") ||
+            text.contains("pick")
+        ) && (
+            text.contains("handoff") ||
+            text.contains("handoffs") ||
+            text.contains("influence") ||
+            text.contains("influenced") ||
+            text.contains("connect") ||
+            text.contains("connected")
+        )
         let asksReliability = text.contains("difficult") ||
             text.contains("reliable") ||
             text.contains("reliability") ||
             text.contains("why was")
-        return mentionsPerception && mentionsControl && asksReliability
+        return (mentionsPerception && mentionsControl && asksReliability) ||
+            (mentionsLocalizationManipulationHandoff && asksReliability)
     }
 
     static func isRobotPerceptionToNavigationQuestion(_ text: String) -> Bool {

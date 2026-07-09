@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import InterviewCopilotMac
@@ -230,6 +231,25 @@ struct GenerationUIStateTests {
         #expect(appState.mainThreadHeartbeatDelayMs < 2_000)
         #expect(appState.activeTaskSummary.localizedCaseInsensitiveContains("generation"))
         #expect(appState.lastRAGOperation.localizedCaseInsensitiveContains("retrieval"))
+    }
+
+    @Test
+    func mainThreadHeartbeatDoesNotInvalidateProductUI() async throws {
+        let (appState, _, _, _) = try makeAppState(client: StreamingMockLLMClient())
+        appState.startMainThreadHeartbeat()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        var publishedChangeCount = 0
+        let subscription = appState.objectWillChange.sink {
+            publishedChangeCount += 1
+        }
+
+        try await Task.sleep(nanoseconds: 650_000_000)
+
+        #expect(appState.mainThreadHeartbeatAt != nil)
+        #expect(appState.mainThreadHeartbeatDelayMs < 2_000)
+        #expect(publishedChangeCount == 0)
+        withExtendedLifetime(subscription) {}
     }
 
     @Test
@@ -561,6 +581,7 @@ struct GenerationUIStateTests {
         #expect(visible.questionText == secondQuestion.questionText)
         #expect(visible.sayFirst.localizedCaseInsensitiveContains("first project") == false)
         #expect(appState.staleAnswerDiscardCount >= 1)
+        try await waitForTraceEvent("currentCardRegressionRejected", at: traceURL)
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"staleGenerationResultRejected\""))
         #expect(trace.contains("\"event_type\":\"currentCardRegressionRejected\""))
@@ -963,7 +984,7 @@ struct GenerationUIStateTests {
     }
 
     @Test
-    func lateFirstProviderCardCannotOverwriteSecondCurrentCard() throws {
+    func lateFirstProviderCardCannotOverwriteSecondCurrentCard() async throws {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let traceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("stale-provider-\(UUID().uuidString).jsonl")
@@ -1023,6 +1044,7 @@ struct GenerationUIStateTests {
         #expect(applied == false)
         #expect(appState.currentSuggestion?.id == secondCard.id)
         #expect(appState.currentSuggestion?.questionText == secondQuestion.questionText)
+        try await waitForTraceEvent("currentCardRegressionRejected", at: traceURL)
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"staleGenerationResultRejected\""))
         #expect(trace.contains("\"event_type\":\"currentCardRegressionRejected\""))
@@ -1150,7 +1172,7 @@ struct GenerationUIStateTests {
     }
 
     @Test
-    func asrTraceDoesNotInheritActiveGenerationIdentity() throws {
+    func asrTraceDoesNotInheritActiveGenerationIdentity() async throws {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let traceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("asr-provenance-\(UUID().uuidString).jsonl")
@@ -1180,6 +1202,7 @@ struct GenerationUIStateTests {
 
         appState.recordASRTranscriptRuntimeEvent(for: segment)
 
+        try await waitForTraceEvent("asrFinal", at: traceURL)
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         #expect(trace.contains("\"event_type\":\"asrFinal\""))
         #expect(trace.contains("\"generation_id\":\"\""))
@@ -1457,6 +1480,7 @@ struct GenerationUIStateTests {
             llmRouter: router,
             contextRetrievalService: contextRetrievalService
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let delayProvider = MockDelayProvider()
         appState.delayProvider = delayProvider
 
@@ -1513,6 +1537,26 @@ struct GenerationUIStateTests {
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+    }
+
+    private func waitForTraceEvent(
+        _ eventType: String,
+        at traceURL: URL,
+        timeout: TimeInterval = 2.0
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let trace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+            if trace.contains("\"event_type\":\"\(eventType)\"") {
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        throw NSError(
+            domain: "GenerationUIStateTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for trace event \(eventType)."]
+        )
     }
 }
 

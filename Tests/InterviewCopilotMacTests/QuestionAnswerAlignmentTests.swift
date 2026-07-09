@@ -412,6 +412,42 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func localizationManipulationHandoffQuestionUsesSystemIntegrationFallback() {
+        let question = "How did localization influence manipulation, and why was that handoff difficult to make reliable?"
+        #expect(IntentRouter.answerIntent(for: question) == .systemIntegrationDebugging)
+
+        let detectedQuestion = DetectedQuestion(
+            id: "localization-manipulation-handoff",
+            sessionID: "alignment-test-session",
+            transcriptSegmentID: nil,
+            questionText: question,
+            intent: .technical,
+            answerStrategy: .technicalExplanation,
+            confidence: 0.93,
+            reason: "test",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "test",
+            promptVersion: "test",
+            createdAt: Date(),
+            ingressIdentity: nil
+        )
+        let fallback = ProjectGroundedFallbackPolicy.fallbackAnswer(for: detectedQuestion)
+        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: combined,
+            sayFirst: fallback.sayFirst,
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .aligned)
+        #expect(alignment.questionIntent == .systemIntegrationDebugging)
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("localization") || fallback.sayFirst.localizedCaseInsensitiveContains("localisation"))
+        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("manipulation"))
+    }
+
+    @Test
     func interviewerQuestionsRequireActualUsefulQuestions() {
         let aligned = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "What questions would you ask us about the team or the role before accepting an offer?",

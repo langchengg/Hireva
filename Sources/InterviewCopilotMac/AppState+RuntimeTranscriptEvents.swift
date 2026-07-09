@@ -20,7 +20,6 @@ extension AppState {
             if frameCount > 0 {
                 totalSystemAudioASRBuffersAppended = max(totalSystemAudioASRBuffersAppended, diagnostics.audioBufferCount)
             }
-            recordLifecycleTrace("audio.received", sessionID: sessionID, text: "frames=\(frameCount)")
         case let .asrPartial(sessionID, text, _, _, _, _, _, timestamp):
             diagnostics.audioSessionID = sessionID
             diagnostics.audioIsRunning = true
@@ -133,12 +132,61 @@ extension AppState {
         }
         transcriptRuntimeDiagnostics = diagnostics
 
-        let record = enrichedRuntimeTranscriptRecord(event.record)
+        // Audio buffers are represented by aggregate counters above. Keeping or
+        // enriching one record per PCM buffer would still burden the main actor.
+        if case .audioBufferReceived = event {
+            return
+        }
+
+        let shouldPersist = shouldPersistRuntimeTranscriptEvent(event)
+        let record = shouldPersist ? enrichedRuntimeTranscriptRecord(event.record) : event.record
         recentTranscriptRuntimeEvents.append(record)
         if recentTranscriptRuntimeEvents.count > 40 {
             recentTranscriptRuntimeEvents.removeFirst(recentTranscriptRuntimeEvents.count - 40)
         }
-        appendRuntimeTranscriptTraceLog(record)
+        if shouldPersist {
+            appendRuntimeTranscriptTraceLog(record)
+        }
+    }
+
+    private func shouldPersistRuntimeTranscriptEvent(_ event: TranscriptRuntimeEvent) -> Bool {
+        switch event {
+        case .audioBufferReceived:
+            return false
+        case let .asrPartial(sessionID, _, recognitionTaskID, _, _, _, _, timestamp):
+            return claimHighFrequencyRuntimeEventKey(
+                "asrPartial|\(sessionID)|\(recognitionTaskID ?? "session")",
+                timestamp: timestamp
+            )
+        case let .partialAnswerRejectedIncomplete(sessionID, questionID, generationID, _, _, timestamp):
+            return claimHighFrequencyRuntimeEventKey(
+                "partialAnswerRejectedIncomplete|\(sessionID)|\(generationID ?? questionID ?? "unknown")",
+                timestamp: timestamp
+            )
+        case let .visibleCurrentSuggestionUpdated(sessionID, questionID, generationID, _, timestamp):
+            return claimHighFrequencyRuntimeEventKey(
+                "visibleCurrentSuggestionUpdated|\(sessionID)|\(generationID ?? questionID ?? "unknown")",
+                timestamp: timestamp
+            )
+        case let .lifecycle(eventName, sessionID, questionID, generationID, _, _, _, _, _, timestamp)
+            where eventName == "transcript.partial" ||
+                  eventName == "answer.ui.rendered":
+            return claimHighFrequencyRuntimeEventKey(
+                "\(eventName)|\(sessionID)|\(generationID ?? questionID ?? "session")",
+                timestamp: timestamp
+            )
+        default:
+            return true
+        }
+    }
+
+    private func claimHighFrequencyRuntimeEventKey(_ key: String, timestamp: Date) -> Bool {
+        if let lastPersistedAt = persistedHighFrequencyRuntimeEventAt[key],
+           timestamp.timeIntervalSince(lastPersistedAt) < 1.0 {
+            return false
+        }
+        persistedHighFrequencyRuntimeEventAt[key] = timestamp
+        return true
     }
 
     // internal for AppState extension access only
@@ -201,6 +249,7 @@ extension AppState {
         transcriptRuntimeDiagnostics = .empty
         if clearEvents {
             recentTranscriptRuntimeEvents = []
+            persistedHighFrequencyRuntimeEventAt = [:]
         }
     }
 
@@ -271,24 +320,9 @@ extension AppState {
     }
 
     private func appendRuntimeTranscriptTraceLog(_ record: TranscriptRuntimeEventRecord) {
-        do {
-            let directory = runtimeTranscriptTraceLogURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-            let line = record.jsonLine() + "\n"
-            guard let data = line.data(using: .utf8) else { return }
-            if FileManager.default.fileExists(atPath: runtimeTranscriptTraceLogURL.path) {
-                let handle = try FileHandle(forWritingTo: runtimeTranscriptTraceLogURL)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: data)
-            } else {
-                try data.write(to: runtimeTranscriptTraceLogURL, options: .atomic)
-            }
-        } catch {
-            lastSQLiteOperation = "Runtime transcript trace write failed: \(error.localizedDescription)"
-        }
+        RuntimeTranscriptTraceStore.shared.append(
+            line: record.jsonLine(),
+            to: runtimeTranscriptTraceLogURL
+        )
     }
 }

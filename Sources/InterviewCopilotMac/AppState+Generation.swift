@@ -10,6 +10,10 @@
 import Foundation
 
 extension AppState {
+var shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider: Bool {
+    selectedAnswerProviderMode != .localQwenPrimary
+}
+
 // MARK: - Manual Entry Points
 
 func manualAnswerNow() {
@@ -239,6 +243,17 @@ func showDuplicateQuestionNotice(for question: DetectedQuestion, session: Interv
 // internal for AppState extension access only
 @discardableResult
 func showImmediateFallbackForActiveGenerationIfNeeded(reason: String) -> Bool {
+    guard shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider else {
+        recordLifecycleTrace(
+            "fallback.skipped",
+            questionID: activeQuestionID,
+            generationID: activeGenerationID,
+            text: lastDetectedQuestionText,
+            reason: "local_qwen_primary_no_template_fallback",
+            skipped: true
+        )
+        return false
+    }
     guard let controller = activeGenerationController,
           currentGenerationID == controller.generationID,
           generationUIState.isLoadingWithoutVisibleAnswer,
@@ -910,7 +925,9 @@ private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
         finalVisibleSource: "local_superseded_question_snapshot",
         caution: "Generation was superseded by a newer accepted question before provider completion.",
         modelName: "local-replaced-generation-snapshot",
-        promptVersion: "replaced-generation-snapshot-v1"
+        promptVersion: "replaced-generation-snapshot-v1",
+        stageBCompleted: false,
+        softFallbackUsed: false
     )
 }
 
@@ -1274,6 +1291,20 @@ func displaySuggestionIfAligned(
             ))
         }
         recordAlignmentMismatch("Generated answer did not align with question; using fallback. \(alignment.reason)")
+        if selectedAnswerProviderMode == .localQwenPrimary ||
+            boundCard.finalVisibleSource == AnswerSource.ollamaQwen.rawValue ||
+            boundCard.sayFirstSource == AnswerSource.ollamaQwen.rawValue {
+            recordLifecycleTrace(
+                "semantic_fallback.skipped",
+                sessionID: boundCard.sessionID,
+                questionID: question.id,
+                generationID: generationID,
+                text: question.questionText,
+                reason: "local_qwen_primary_requires_ollama_qwen_source",
+                skipped: true
+            )
+            return false
+        }
         if let existing = currentSuggestion,
            existing.detectedQuestionID == question.id,
            !existing.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1373,13 +1404,6 @@ func displaySuggestionIfAligned(
     }
 
     currentSuggestion = boundCard
-    recordLifecycleTrace(
-        "answer.ui.rendered",
-        sessionID: boundCard.sessionID,
-        questionID: boundCard.detectedQuestionID,
-        generationID: boundCard.generationID,
-        text: boundCard.questionText ?? question.questionText
-    )
     recordVisibleSuggestionInHistory(boundCard)
     lastAlignmentError = ""
     currentAnswerQuestionIntent = alignment.questionIntent

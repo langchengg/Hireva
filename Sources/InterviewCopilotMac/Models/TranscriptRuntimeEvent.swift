@@ -656,30 +656,30 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             timestamp: ISO8601DateFormatter().string(from: timestamp),
             sessionID: sessionID,
             eventType: name,
-            rawText: rawText,
-            canonicalText: canonicalText,
-            candidateText: candidateText,
-            splitCandidates: splitCandidates,
-            completenessResult: completenessResult,
-            questionIntent: questionIntent,
-            intentResult: intentResult,
-            duplicateKey: duplicateKey,
-            acceptanceStatus: acceptanceStatus,
-            rejectionReason: rejectionReason,
-            generationRejectedReason: generationRejectedReason,
+            rawText: traceLimited(rawText),
+            canonicalText: traceLimited(canonicalText),
+            candidateText: traceLimited(candidateText),
+            splitCandidates: Array(splitCandidates.prefix(10)).map(traceLimited),
+            completenessResult: traceLimited(completenessResult),
+            questionIntent: traceLimited(questionIntent),
+            intentResult: traceLimited(intentResult),
+            duplicateKey: traceLimited(duplicateKey),
+            acceptanceStatus: traceLimited(acceptanceStatus),
+            rejectionReason: traceLimited(rejectionReason),
+            generationRejectedReason: traceLimited(generationRejectedReason),
             generationID: generationID ?? "",
             questionID: questionID ?? "",
             generationStarted: generationStarted,
             persistenceStarted: persistenceStarted,
-            uiTranscriptText: uiTranscriptText,
-            visibleQuestionText: visibleQuestionText,
+            uiTranscriptText: traceLimited(uiTranscriptText),
+            visibleQuestionText: traceLimited(visibleQuestionText),
             oldGenerationID: oldGenerationID,
             currentGenerationID: currentGenerationID,
-            oldQuestionText: oldQuestionText,
-            currentQuestionText: currentQuestionText,
+            oldQuestionText: traceLimited(oldQuestionText),
+            currentQuestionText: traceLimited(currentQuestionText),
             oldAcceptedQuestionID: oldAcceptedQuestionID,
             currentAcceptedQuestionID: currentAcceptedQuestionID,
-            sourceCallback: sourceCallback,
+            sourceCallback: traceLimited(sourceCallback),
             recognitionTaskID: recognitionTaskID,
             recognitionEventSequence: recognitionEventSequence,
             sourceTextStartUTF16: sourceTextStartUTF16,
@@ -687,10 +687,10 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             recognitionIsFinal: recognitionIsFinal,
             oldRecognitionTaskID: oldRecognitionTaskID,
             newRecognitionTaskID: newRecognitionTaskID,
-            oldSourceSpan: oldSourceSpan,
-            newSourceSpan: newSourceSpan,
+            oldSourceSpan: traceLimited(oldSourceSpan),
+            newSourceSpan: traceLimited(newSourceSpan),
             overlapScore: overlapScore,
-            currentState: currentState,
+            currentState: traceLimited(currentState),
             cancelled: cancelled,
             skipped: skipped
         )
@@ -699,6 +699,11 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             return "{}"
         }
         return line
+    }
+
+    private func traceLimited(_ value: String) -> String {
+        guard value.count > 300 else { return value }
+        return String(value.prefix(300))
     }
 }
 

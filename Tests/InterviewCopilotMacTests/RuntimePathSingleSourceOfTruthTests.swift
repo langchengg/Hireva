@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import InterviewCopilotMac
@@ -1180,6 +1181,185 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func audioBufferDiagnosticsDoNotPersistHighFrequencyTraceRows() async throws {
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("audio-buffer-trace-\(UUID().uuidString).jsonl")
+        let (appState, session, _) = try makeAppState(traceURL: traceURL)
+
+        let startedAt = Date()
+        appState.recordTranscriptRuntimeEvent(.audioStarted(sessionID: session.id, timestamp: startedAt))
+        for offset in 1...25 {
+            appState.recordTranscriptRuntimeEvent(.audioBufferReceived(
+                sessionID: session.id,
+                frameCount: 960,
+                timestamp: startedAt.addingTimeInterval(Double(offset) * 0.02)
+            ))
+        }
+
+        #expect(appState.transcriptRuntimeDiagnostics.audioBufferCount == 25)
+        #expect(appState.transcriptRuntimeDiagnostics.lastAudioBufferAt != nil)
+
+        try await waitUntil(timeout: 2.0) {
+            ((try? String(contentsOf: traceURL, encoding: .utf8)) ?? "")
+                .contains("\"event_type\":\"audioStarted\"")
+        }
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"audioStarted\""))
+        #expect(!trace.contains("\"event_type\":\"audioBufferReceived\""))
+        #expect(!trace.contains("\"event_type\":\"audio.received\""))
+    }
+
+    @Test
+    func audioBufferDiagnosticsDoNotPublishPerBufferViewInvalidations() throws {
+        let (appState, session, _) = try makeAppState()
+        let startedAt = Date()
+        appState.recordTranscriptRuntimeEvent(.audioStarted(
+            sessionID: session.id,
+            timestamp: startedAt
+        ))
+
+        var publishedChangeCount = 0
+        let subscription = appState.objectWillChange.sink {
+            publishedChangeCount += 1
+        }
+
+        for offset in 1...25 {
+            appState.recordTranscriptRuntimeEvent(.audioBufferReceived(
+                sessionID: session.id,
+                frameCount: 960,
+                timestamp: startedAt.addingTimeInterval(Double(offset) * 0.02)
+            ))
+        }
+
+        #expect(appState.transcriptRuntimeDiagnostics.audioBufferCount == 25)
+        #expect(appState.lastAudioBufferAt != nil)
+        #expect(appState.totalSystemAudioASRBuffersAppended == 25)
+        #expect(publishedChangeCount == 0)
+        withExtendedLifetime(subscription) {}
+    }
+
+    @Test
+    func systemAudioBufferPublisherIsThrottledBeforeInvalidatingAppState() throws {
+        let service = ScreenCaptureKitSystemAudioCaptureService.shared
+        let originalTimestamp = service.lastBufferReceivedAt
+        defer { service.lastBufferReceivedAt = originalTimestamp }
+
+        let (appState, _, _) = try makeAppState()
+        var publishedChangeCount = 0
+        let subscription = appState.objectWillChange.sink {
+            publishedChangeCount += 1
+        }
+
+        let startedAt = Date()
+        for offset in 1...25 {
+            service.lastBufferReceivedAt = startedAt.addingTimeInterval(Double(offset) * 0.02)
+        }
+
+        #expect(publishedChangeCount <= 1)
+        withExtendedLifetime(subscription) {}
+    }
+
+    @Test
+    func runtimeTraceRotatesAtTwentyFiveMiBAndKeepsAtMostFiveFiles() async throws {
+        let traceURL = temporaryTraceURL("runtime-rotation-trace")
+        let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        FileManager.default.createFile(atPath: traceURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: traceURL)
+        try handle.truncate(atOffset: UInt64(25 * 1_024 * 1_024 + 1))
+        try handle.close()
+
+        for index in 1...5 {
+            let archivedURL = rotatedTraceURL(traceURL, index: index)
+            try Data("archive-\(index)".utf8).write(to: archivedURL)
+        }
+
+        appState.recordTranscriptRuntimeEvent(.audioStarted(
+            sessionID: session.id,
+            timestamp: Date()
+        ))
+
+        let firstArchiveURL = rotatedTraceURL(traceURL, index: 1)
+        try await waitUntil(timeout: 2.0) {
+            FileManager.default.fileExists(atPath: firstArchiveURL.path) &&
+                ((try? traceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) < 1_024
+        }
+
+        let prefix = traceURL.deletingPathExtension().lastPathComponent
+        let traceFiles = try FileManager.default.contentsOfDirectory(
+            at: traceURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(prefix) }
+        #expect(traceFiles.count <= 5)
+        #expect(!FileManager.default.fileExists(atPath: rotatedTraceURL(traceURL, index: 5).path))
+    }
+
+    @Test
+    func runtimeTraceTruncatesLongQuestionFieldsAndOmitsSensitiveContextFields() async throws {
+        let traceURL = temporaryTraceURL("runtime-truncation-trace")
+        let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        let longQuestion = "Q" + String(repeating: " detail", count: 180)
+
+        appState.recordTranscriptRuntimeEvent(.questionRejected(
+            sessionID: session.id,
+            text: longQuestion,
+            reason: .incompleteFragment,
+            timestamp: Date()
+        ))
+
+        try await waitUntil(timeout: 2.0) {
+            FileManager.default.fileExists(atPath: traceURL.path)
+        }
+        let line = try #require(String(contentsOf: traceURL, encoding: .utf8).split(separator: "\n").first)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        )
+        #expect((object["raw_text"] as? String)?.count ?? 0 <= 300)
+        #expect((object["canonical_text"] as? String)?.count ?? 0 <= 300)
+        #expect((object["candidate_text"] as? String)?.count ?? 0 <= 300)
+        #expect(object["prompt"] == nil)
+        #expect(object["context"] == nil)
+        #expect(object["api_key"] == nil)
+    }
+
+    @Test
+    func repeatedPartialAndUIRenderEventsArePersistedAtMostOncePerIdentity() async throws {
+        let traceURL = temporaryTraceURL("runtime-throttle-trace")
+        let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        let now = Date()
+
+        for sequence in 1...20 {
+            appState.recordTranscriptRuntimeEvent(.asrPartial(
+                sessionID: session.id,
+                text: "How did the robot decide which object to approach partial \(sequence)",
+                recognitionTaskID: "partial-task",
+                eventSequence: sequence,
+                sourceStartUTF16: 0,
+                sourceEndUTF16: sequence,
+                isFinal: false,
+                timestamp: now.addingTimeInterval(Double(sequence) * 0.01)
+            ))
+            appState.recordLifecycleTrace(
+                "answer.ui.rendered",
+                sessionID: session.id,
+                questionID: "question-1",
+                generationID: "generation-1",
+                text: "How did the robot decide which object to approach?"
+            )
+        }
+
+        try await waitUntil(timeout: 2.0) {
+            let trace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+            return trace.contains("\"event_type\":\"asrPartial\"") &&
+                trace.contains("\"event_type\":\"answer.ui.rendered\"")
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.components(separatedBy: "\"event_type\":\"asrPartial\"").count - 1 == 1)
+        #expect(trace.components(separatedBy: "\"event_type\":\"transcript.partial\"").count - 1 == 1)
+        #expect(trace.components(separatedBy: "\"event_type\":\"answer.ui.rendered\"").count - 1 == 1)
+    }
+
+    @Test
     func prePersistenceGuardBlocksBadFinalDecoderAnswerRows() async throws {
         let (appState, session, _) = try makeAppState()
         var card = suggestionCard(
@@ -1853,6 +2033,10 @@ struct RuntimePathSingleSourceOfTruthTests {
     private func temporaryTraceURL(_ prefix: String) -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString).jsonl")
+    }
+
+    private func rotatedTraceURL(_ traceURL: URL, index: Int) -> URL {
+        traceURL.deletingPathExtension().appendingPathExtension("\(index).jsonl")
     }
 
     private func configuredSettingsRepository(_ database: AppDatabase) throws -> SettingsRepository {

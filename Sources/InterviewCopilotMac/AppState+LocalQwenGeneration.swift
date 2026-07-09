@@ -34,39 +34,73 @@ extension AppState {
             stage: .firstAnswer
         )
         let systemPrompt = """
+        /no_think
         You are a real-time interview helper running locally. Answer as the candidate in first person.
         Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
         """
         let userPrompt = promptSnapshot.prompt + "\n\nAnswer the current question now:"
-        let localRequest = LocalLLMRequest(
+        let primaryRequest = LocalLLMRequest(
             prompt: userPrompt,
             systemPrompt: systemPrompt,
             modelName: modelName,
             temperature: 0.1,
             numPredict: 180
         )
+        let previousQuestionContext = localQwenPreviousQuestionContext(excluding: question)
+        let compactRecoveryRequest = compactLocalQwenRequest(
+            question: question,
+            context: context,
+            cvSummary: cvSummary,
+            jdSummary: jdSummary,
+            modelName: modelName,
+            previousQuestionContext: previousQuestionContext
+        )
+        let groundedRecoveryRequest = groundedLocalQwenRecoveryRequest(
+            question: question,
+            cvSummary: cvSummary,
+            jdSummary: jdSummary,
+            modelName: modelName,
+            previousQuestionContext: previousQuestionContext
+        )
 
         var cleanedAnswer = ""
-        let maxAttempts = 2
-        for attempt in 1...maxAttempts {
-            var answer = ""
-            let tokenStream = try await localProvider.generateAnswer(request: localRequest)
-            for try await token in tokenStream {
-                guard isActiveGeneration(generationID, questionID: question.id), !Task.isCancelled else {
-                    recordStaleGenerationDiscard()
-                    return false
+        let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
+        for requestIndex in requests.indices {
+            let request = requests[requestIndex]
+            let maxAttempts = requestIndex == 0 ? 2 : 1
+            for attempt in 1...maxAttempts {
+                var answer = ""
+                let tokenStream = try await localProvider.generateAnswer(request: request)
+                for try await token in tokenStream {
+                    guard isActiveGeneration(generationID, questionID: question.id), !Task.isCancelled else {
+                        recordStaleGenerationDiscard()
+                        return false
+                    }
+                    answer += token.text
                 }
-                answer += token.text
-            }
 
-            cleanedAnswer = AnswerQualityValidator.localCleanupAnswer(answer)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                cleanedAnswer = AnswerQualityValidator.localCleanupAnswer(answer)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleanedAnswer.isEmpty {
+                    guard isUsableLocalQwenAnswer(cleanedAnswer, question: question) else {
+                        markProviderOperation("Local Qwen returned a non-aligned answer; retrying with recovery prompt")
+                        cleanedAnswer = ""
+                        continue
+                    }
+                    break
+                }
+                if attempt < maxAttempts {
+                    markProviderOperation("Local Qwen returned an empty stream; retrying once")
+                    try await Task.sleep(nanoseconds: 150_000_000)
+                }
+            }
             if !cleanedAnswer.isEmpty {
                 break
             }
-            if attempt < maxAttempts {
-                markProviderOperation("Local Qwen returned an empty stream; retrying once")
-                try await Task.sleep(nanoseconds: 150_000_000)
+            if requestIndex == 0 {
+                markProviderOperation("Local Qwen returned empty twice; retrying with compact prompt")
+            } else if requestIndex == 1 {
+                markProviderOperation("Local Qwen compact prompt returned empty; retrying with grounded prompt")
             }
         }
         guard !cleanedAnswer.isEmpty else {
@@ -177,5 +211,110 @@ extension AppState {
             return Array(sentences)
         }
         return Array(fallback.prefix(3))
+    }
+
+    private func isUsableLocalQwenAnswer(_ answer: String, question: DetectedQuestion) -> Bool {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question.questionText,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true
+        )
+        guard alignment.verdict == .aligned else { return false }
+        return !QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer)
+    }
+
+    private func compactLocalQwenRequest(
+        question: DetectedQuestion,
+        context: RetrievedContext,
+        cvSummary: String,
+        jdSummary: String,
+        modelName: String,
+        previousQuestionContext: String?
+    ) -> LocalLLMRequest {
+        let evidence = ContextBudgeter.limitWords(context.promptText, maxWords: 160)
+        let previousContext = previousQuestionContext
+            .map { "Previous answered question for pronoun resolution only:\n\($0)" }
+            ?? "No previous answered question is available."
+        let compactPrompt = """
+        /no_think
+        Current interview question:
+        \(question.questionText)
+
+        Conversation context:
+        \(previousContext)
+
+        Candidate/project summary:
+        \(ContextBudgeter.limitWords(cvSummary, maxWords: 90))
+
+        Role summary:
+        \(ContextBudgeter.limitWords(jdSummary, maxWords: 60))
+
+        Relevant local evidence:
+        \(evidence.isEmpty ? "No compact evidence available." : evidence)
+
+        Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
+        Use the conversation context only to resolve pronouns such as it, that, or this.
+        Start with "I" and output only the final spoken answer.
+        """
+        return LocalLLMRequest(
+            prompt: compactPrompt,
+            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.",
+            modelName: modelName,
+            temperature: 0.1,
+            numPredict: 180
+        )
+    }
+
+    private func localQwenPreviousQuestionContext(excluding question: DetectedQuestion) -> String? {
+        let currentKey = QuestionIntentPromptPolicy.normalizedQuestionText(for: question.questionText)
+        let candidates = ([currentSuggestion].compactMap { $0 } + liveSuggestionHistory.reversed())
+        for card in candidates {
+            let text = (card.questionText ?? card.promptPrimaryQuestion ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            guard QuestionIntentPromptPolicy.normalizedQuestionText(for: text) != currentKey else { continue }
+            return ContextBudgeter.limitWords(text, maxWords: 40)
+        }
+        return nil
+    }
+
+    private func groundedLocalQwenRecoveryRequest(
+        question: DetectedQuestion,
+        cvSummary: String,
+        jdSummary: String,
+        modelName: String,
+        previousQuestionContext: String?
+    ) -> LocalLLMRequest {
+        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let previousContext = previousQuestionContext
+            .map { "Previous answered question for pronoun resolution only:\n\($0)" }
+            ?? "No previous answered question is available."
+        let projectFacts = ([fallback.sayFirst] + fallback.keyPoints)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n- ")
+        let prompt = """
+        /no_think
+        Question:
+        \(question.questionText)
+
+        Previous question context, only if needed for pronouns:
+        \(previousContext)
+
+        Project facts to ground the answer:
+        - \(projectFacts.isEmpty ? "LeoRover used perception, localization, navigation, and manipulation handoffs." : projectFacts)
+
+        Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
+        Use concrete robotics terms from the project facts, especially localization, manipulation, handoff reliability, validation, timing, or recovery when relevant.
+        Do not say that context is missing. Do not mention this prompt or the reference facts.
+        Start with "I" and output only the final spoken answer.
+        """
+        return LocalLLMRequest(
+            prompt: prompt,
+            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.",
+            modelName: modelName,
+            temperature: 0.0,
+            numPredict: 220
+        )
     }
 }

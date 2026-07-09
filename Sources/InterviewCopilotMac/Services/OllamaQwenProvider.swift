@@ -166,51 +166,10 @@ final class OllamaQwenProvider: LocalLLMProvider {
             throw OllamaQwenProviderError.modelNotReady(localRequest.modelName)
         }
 
-        let payload = OllamaGenerateRequest(
-            model: localRequest.modelName,
-            prompt: localRequest.prompt,
-            system: localRequest.systemPrompt,
-            stream: true,
-            think: false,
-            options: OllamaGenerateOptions(
-                temperature: localRequest.temperature,
-                numPredict: localRequest.numPredict
-            )
-        )
-        let request = try makeGenerateRequest(payload)
-
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let (bytes, response) = try await session.bytes(for: request)
-                    try Self.validate(response)
-
-                    var bufferedLine = ""
-                    var yieldedTokenCount = 0
-                    for try await byte in bytes {
-                        try Task.checkCancellation()
-                        let scalar = UnicodeScalar(Int(byte))
-                        guard let scalar else { continue }
-                        let char = Character(scalar)
-                        if char == "\n" {
-                            if try emitGenerateLine(bufferedLine, modelName: localRequest.modelName, continuation: continuation) {
-                                yieldedTokenCount += 1
-                            }
-                            bufferedLine.removeAll(keepingCapacity: true)
-                        } else {
-                            bufferedLine.append(char)
-                        }
-                    }
-                    if !bufferedLine.isEmpty {
-                        if try emitGenerateLine(bufferedLine, modelName: localRequest.modelName, continuation: continuation) {
-                            yieldedTokenCount += 1
-                        }
-                    }
-
-                    if yieldedTokenCount == 0,
-                       let fallbackText = try await generateNonStreamingAnswer(
-                        payload: payload.withStream(false)
-                       ) {
+                    if let fallbackText = try await generateChatAnswer(request: localRequest) {
                         continuation.yield(LLMToken(
                             text: fallbackText,
                             source: .ollamaQwen,
@@ -229,8 +188,8 @@ final class OllamaQwenProvider: LocalLLMProvider {
         }
     }
 
-    private func makeGenerateRequest(_ payload: OllamaGenerateRequest) throws -> URLRequest {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
+    private func makeChatRequest(_ payload: OllamaChatRequest) throws -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/chat"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
@@ -238,17 +197,32 @@ final class OllamaQwenProvider: LocalLLMProvider {
         return request
     }
 
-    private func generateNonStreamingAnswer(
-        payload: OllamaGenerateRequest
-    ) async throws -> String? {
-        let request = try makeGenerateRequest(payload)
+    private func generateChatAnswer(request localRequest: LocalLLMRequest) async throws -> String? {
+        var messages: [OllamaChatMessage] = []
+        if let systemPrompt = localRequest.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !systemPrompt.isEmpty {
+            messages.append(OllamaChatMessage(role: "system", content: systemPrompt))
+        }
+        messages.append(OllamaChatMessage(role: "user", content: localRequest.prompt))
+
+        let payload = OllamaChatRequest(
+            model: localRequest.modelName,
+            messages: messages,
+            stream: false,
+            think: false,
+            options: OllamaGenerateOptions(
+                temperature: localRequest.temperature,
+                numPredict: localRequest.numPredict
+            )
+        )
+        let request = try makeChatRequest(payload)
         let (data, response) = try await session.data(for: request)
         try Self.validate(response)
-        let event = try decoder.decode(OllamaGenerateResponse.self, from: data)
+        let event = try decoder.decode(OllamaChatResponse.self, from: data)
         if let error = event.error, !error.isEmpty {
             throw OllamaQwenProviderError.invalidResponse(error)
         }
-        let text = (event.response ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (event.message?.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return text
     }
@@ -328,23 +302,23 @@ private struct OllamaPullResponse: Decodable {
     let total: Int?
 }
 
-private struct OllamaGenerateRequest: Encodable {
+private struct OllamaChatRequest: Encodable {
     let model: String
-    let prompt: String
-    let system: String?
+    let messages: [OllamaChatMessage]
     let stream: Bool
     let think: Bool?
     let options: OllamaGenerateOptions?
+}
 
-    func withStream(_ stream: Bool) -> OllamaGenerateRequest {
-        OllamaGenerateRequest(
-            model: model,
-            prompt: prompt,
-            system: system,
-            stream: stream,
-            think: think,
-            options: options
-        )
+private struct OllamaChatMessage: Encodable, Decodable {
+    let role: String
+    let content: String
+    let thinking: String?
+
+    init(role: String, content: String, thinking: String? = nil) {
+        self.role = role
+        self.content = content
+        self.thinking = thinking
     }
 }
 
@@ -355,6 +329,20 @@ private struct OllamaGenerateOptions: Encodable {
     enum CodingKeys: String, CodingKey {
         case temperature
         case numPredict = "num_predict"
+    }
+}
+
+private struct OllamaChatResponse: Decodable {
+    let message: OllamaChatMessage?
+    let done: Bool?
+    let doneReason: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case message
+        case done
+        case doneReason = "done_reason"
+        case error
     }
 }
 

@@ -48,6 +48,20 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
+    func localQwenPrimaryDoesNotUseTemplateFallbackWatchdogs() throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+
+        appState.answerProviderModeOverride = .localQwenPrimary
+        #expect(appState.shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider == false)
+
+        appState.answerProviderModeOverride = .deepSeekPrimary
+        #expect(appState.shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider == true)
+
+        appState.answerProviderModeOverride = .deepSeekWithLocalQwenFallback
+        #expect(appState.shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider == true)
+    }
+
+    @Test @MainActor
     func legacyDeepSeekPreferenceMigratesOnlyWhenQwenReady() throws {
         let previousMode = UserDefaults.standard.object(forKey: "InterviewCopilot.answerProviderMode")
         defer {
@@ -233,12 +247,12 @@ struct LocalModelsSetupTests {
                 let data = Data(#"{"models":[{"name":"qwen3.5:4b"}]}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             },
-            "http://localhost:11434/api/generate": { request in
-                let data = Data("""
-                {"response":"hello","done":false}
-                {"response":" world","done":false}
-                {"response":"","done":true}
-                """.utf8)
+            "http://localhost:11434/api/chat": { request in
+                let body = try requestBodyData(for: request)
+                let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                #expect(json["think"] as? Bool == false)
+                #expect(json["stream"] as? Bool == false)
+                let data = Data(#"{"message":{"role":"assistant","content":"hello world"},"done":true}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             }
         ]
@@ -263,21 +277,23 @@ struct LocalModelsSetupTests {
     }
 
     @Test
-    func ollamaGenerateFallsBackToNonStreamingWhenStreamIsEmpty() async throws {
-        var generateCallCount = 0
+    func ollamaChatUsesThinkFalseAndReadsMessageContent() async throws {
+        var chatCallCount = 0
         MockURLProtocol.handlers = [
             "http://localhost:11434/api/tags": { request in
                 let data = Data(#"{"models":[{"name":"qwen3.5:4b"}]}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             },
-            "http://localhost:11434/api/generate": { request in
-                generateCallCount += 1
-                let data: Data
-                if generateCallCount == 1 {
-                    data = Data(#"{"response":"","done":true}"#.utf8)
-                } else {
-                    data = Data(#"{"response":"I recovered by retreating, re-localizing, checking grasp confidence, and retrying with adjusted pose control.","done":true}"#.utf8)
-                }
+            "http://localhost:11434/api/chat": { request in
+                chatCallCount += 1
+                let body = try requestBodyData(for: request)
+                let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                #expect(json["think"] as? Bool == false)
+                #expect(json["stream"] as? Bool == false)
+                let messages = try #require(json["messages"] as? [[String: Any]])
+                #expect(messages.contains { ($0["role"] as? String) == "system" })
+                #expect(messages.contains { ($0["role"] as? String) == "user" && (($0["content"] as? String)?.contains("Answer this") ?? false) })
+                let data = Data(#"{"message":{"role":"assistant","content":"I recovered by retreating, re-localizing, checking grasp confidence, and retrying with adjusted pose control."},"done":true,"done_reason":"stop"}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             }
         ]
@@ -286,7 +302,7 @@ struct LocalModelsSetupTests {
         let provider = OllamaQwenProvider(session: makeMockSession())
         let stream = try await provider.generateAnswer(request: LocalLLMRequest(
             prompt: "Answer this",
-            systemPrompt: nil,
+            systemPrompt: "System prompt",
             modelName: "qwen3.5:4b",
             temperature: 0.1,
             numPredict: 80
@@ -299,7 +315,7 @@ struct LocalModelsSetupTests {
 
         #expect(tokens.map(\.text).joined().contains("I recovered by retreating"))
         #expect(tokens.allSatisfy { $0.source == .ollamaQwen })
-        #expect(generateCallCount == 2)
+        #expect(chatCallCount == 1)
     }
 
     @Test
@@ -578,6 +594,82 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
+    func interruptedQwenQuestionPersistsSupersededSnapshotWithoutFallbackContamination() async throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        let q4A = localQwenQuestion(
+            id: "q4a-superseded",
+            sessionID: session.id,
+            text: "Walk me through one complete robot task from perception to action."
+        )
+        let q4B = localQwenQuestion(
+            id: "q4b-current",
+            sessionID: session.id,
+            text: "What did real-world testing teach you about debugging robot behavior?"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(q4A)
+        try appState.suggestionRepository.saveDetectedQuestion(q4B)
+        appState.activateGeneration(
+            question: q4A,
+            generationID: "q4a-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.activateGeneration(
+            question: q4B,
+            generationID: "q4b-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+
+        let provider = MockLocalLLMProvider(tokens: [
+            "Real-world testing taught me to debug the robot as a timed system: correlate camera, localization, navigation, and manipulation logs, reproduce the exact handoff, then validate one recovery behavior at a time on the LeoRover."
+        ])
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: q4B,
+            session: session,
+            transcript: q4B.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: "q4b-generation",
+            cardID: "q4b-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+        #expect(finished == true)
+
+        try await waitUntil(timeout: 2.0) {
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+            return rows.contains { $0.detectedQuestionID == q4A.id }
+        }
+        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        let q4ARow = try #require(rows.first { $0.detectedQuestionID == q4A.id })
+        #expect(q4ARow.stageBStatus == "superseded")
+        #expect(q4ARow.stageBCompleted == false)
+        #expect(q4ARow.finalVisibleSource == "local_superseded_question_snapshot")
+        #expect(q4ARow.softFallbackUsed == false)
+        #expect(q4ARow.softFallbackLatencyMS == nil)
+
+        let q4BCard = try #require(appState.currentSuggestion)
+        #expect(q4BCard.detectedQuestionID == q4B.id)
+        #expect(q4BCard.generationID == "q4b-generation")
+        #expect(q4BCard.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(q4BCard.softFallbackUsed == false)
+        #expect(appState.activeQuestionID == q4B.id)
+    }
+
+    @Test @MainActor
     func localQwenPrimaryRetriesOnceAfterEmptyStream() async throws {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [
@@ -605,6 +697,110 @@ struct LocalModelsSetupTests {
 
         #expect(finished == true)
         #expect(provider.generateCallCount == 2)
+        #expect(appState.currentSuggestion?.providerName == "Ollama Qwen")
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.currentSuggestion?.softFallbackUsed == false)
+    }
+
+    @Test @MainActor
+    func localQwenPrimaryUsesCompactPromptAfterRepeatedEmptyStreams() async throws {
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [
+            [],
+            [],
+            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the camera frames, checking bounding boxes, labels, confidence, calibration, lighting, occlusion, and the downstream pose handoff before changing the model or adding recovery behavior."]
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: generationID,
+            cardID: "qwen-compact-recovery-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished == true)
+        #expect(provider.generateCallCount == 3)
+        #expect(appState.currentSuggestion?.providerName == "Ollama Qwen")
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.currentSuggestion?.softFallbackUsed == false)
+    }
+
+    @Test @MainActor
+    func localQwenPrimaryUsesGroundedRecoveryAfterCompactEmptyStream() async throws {
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [
+            [],
+            [],
+            [],
+            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the exact camera frames, checking the predicted class, box, confidence, calibration, lighting, occlusion, and temporal consistency, then adding validation or retraining only after isolating the failure mode."]
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: generationID,
+            cardID: "qwen-grounded-recovery-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished == true)
+        #expect(provider.generateCallCount == 4)
+        #expect(appState.currentSuggestion?.providerName == "Ollama Qwen")
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.currentSuggestion?.softFallbackUsed == false)
+    }
+
+    @Test @MainActor
+    func localQwenPrimaryRetriesAfterNonAlignedNonEmptyAnswer() async throws {
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [
+            ["I cannot answer because the required context is missing."],
+            [],
+            [],
+            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the exact camera frames, checking classes, boxes, confidence, calibration, lighting, occlusion, and temporal consistency, then adding validation or retraining after isolating the cause."]
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robotics CV",
+            jdSummary: "Robotics role",
+            generationID: generationID,
+            cardID: "qwen-nonaligned-retry-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished == true)
+        #expect(provider.generateCallCount == 4)
         #expect(appState.currentSuggestion?.providerName == "Ollama Qwen")
         #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
         #expect(appState.currentSuggestion?.softFallbackUsed == false)
@@ -687,6 +883,33 @@ struct LocalModelsSetupTests {
         return URLSession(configuration: configuration)
     }
 
+    private func requestBodyData(for request: URLRequest) throws -> Data {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            Issue.record("Expected request body for \(request.url?.absoluteString ?? "unknown URL")")
+            return Data()
+        }
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        let bufferSize = 4096
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: bufferSize)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else if count < 0 {
+                throw stream.streamError ?? URLError(.cannotDecodeRawData)
+            } else {
+                break
+            }
+        }
+        return data
+    }
+
     private func restoreUserDefault(_ value: Any?, forKey key: String) {
         if let value {
             UserDefaults.standard.set(value, forKey: key)
@@ -736,6 +959,42 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
         return (appState, session, question, generationID, requestStart)
+    }
+
+    @MainActor
+    private func localQwenQuestion(id: String, sessionID: String, text: String) -> DetectedQuestion {
+        DetectedQuestion(
+            id: id,
+            sessionID: sessionID,
+            transcriptSegmentID: nil,
+            questionText: text,
+            intent: .technical,
+            answerStrategy: .technicalExplanation,
+            confidence: 0.95,
+            reason: "test",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "test",
+            promptVersion: "test",
+            createdAt: Date()
+        )
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: TimeInterval,
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        throw NSError(
+            domain: "LocalModelsSetupTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for local model state."]
+        )
     }
 }
 
