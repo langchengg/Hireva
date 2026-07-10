@@ -1259,12 +1259,29 @@ func displaySuggestionIfAligned(
         sayFirst: boundCard.sayFirst,
         stageBCompleted: boundCard.stageBCompleted ?? true
     )
-    boundCard.alignmentScore = alignment.score
-    boundCard.alignmentVerdict = alignment.verdict
-    boundCard.answerIntent = alignment.answerIntent
-    boundCard.mismatchReason = alignment.verdict == .mismatched ? alignment.reason : boundCard.mismatchReason
+    let phdQuality: PhDAnswerQualityResult? = {
+        guard interviewContextMode == .phdRobotics,
+              PhDInterviewRubricPolicy.rubric(for: question.questionText) != nil else {
+            return nil
+        }
+        return PhDInterviewRubricPolicy.evaluate(question: question.questionText, answer: answerText)
+    }()
+    let effectiveAlignmentPassed = phdQuality?.passed ?? (alignment.verdict == .aligned)
+    var effectiveAlignment = alignment
+    if effectiveAlignmentPassed, phdQuality != nil {
+        effectiveAlignment.score = max(alignment.score, 0.9)
+        effectiveAlignment.verdict = .aligned
+        effectiveAlignment.reason = "Specialized PhD evidence rubric passed."
+        effectiveAlignment.wrongAnswerIndicators = []
+    }
+    boundCard.alignmentScore = effectiveAlignment.score
+    boundCard.alignmentVerdict = effectiveAlignment.verdict
+    boundCard.answerIntent = effectiveAlignment.answerIntent
+    boundCard.mismatchReason = effectiveAlignmentPassed
+        ? nil
+        : (alignment.verdict == .mismatched ? alignment.reason : boundCard.mismatchReason)
 
-    if alignment.verdict != .aligned {
+    if !effectiveAlignmentPassed {
         currentAnswerQuestionIntent = alignment.questionIntent
         currentAnswerIntent = alignment.answerIntent
         currentExpectedThemesMatched = alignment.matchedThemes
@@ -1406,11 +1423,11 @@ func displaySuggestionIfAligned(
     currentSuggestion = boundCard
     recordVisibleSuggestionInHistory(boundCard)
     lastAlignmentError = ""
-    currentAnswerQuestionIntent = alignment.questionIntent
-    currentAnswerIntent = alignment.answerIntent
-    currentExpectedThemesMatched = alignment.matchedThemes
+    currentAnswerQuestionIntent = effectiveAlignment.questionIntent
+    currentAnswerIntent = effectiveAlignment.answerIntent
+    currentExpectedThemesMatched = effectiveAlignment.matchedThemes
     currentSuspectedMismatchReason = ""
-    recordSuggestionAlignment(boundCard, question: question, result: alignment)
+    recordSuggestionAlignment(boundCard, question: question, result: effectiveAlignment)
     return true
 }
 
@@ -3138,7 +3155,11 @@ func persistSuggestionInBackground(
         )
         return
     }
-    let persistenceGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card)
+    let specializedAlignmentOverride = phdPersistenceAlignmentOverride(for: card)
+    let persistenceGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(
+        card,
+        alignmentOverride: specializedAlignmentOverride
+    )
     guard persistenceGuard.accepted else {
         if let fallback = localTimeoutFallbackForRejectedPersistence(
             card: card,
@@ -3214,7 +3235,10 @@ func persistSuggestionInBackground(
                 generationID: generationID,
                 sourceCallback: "detached_persistence_validation"
             )) else { return }
-            let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(persistedCard)
+            let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(
+                persistedCard,
+                alignmentOverride: specializedAlignmentOverride
+            )
             guard detachedGuard.accepted else {
                 await MainActor.run { [weak self] in
                     self?.recordSuggestionPersistenceRejected(detachedGuard, generationID: generationID)
@@ -3295,6 +3319,29 @@ func persistSuggestionInBackground(
             }
         }
     }
+}
+
+private func phdPersistenceAlignmentOverride(for card: SuggestionCard) -> AnswerAlignmentResult? {
+    guard interviewContextMode == .phdRobotics else { return nil }
+    let questionText = card.questionText ?? card.promptPrimaryQuestion ?? card.promptQuestionText ?? ""
+    guard PhDInterviewRubricPolicy.rubric(for: questionText) != nil else { return nil }
+
+    let answerText = ([card.sayFirst] + card.keyPoints + card.followUpReady).joined(separator: " ")
+    guard PhDInterviewRubricPolicy.evaluate(question: questionText, answer: answerText).passed else {
+        return nil
+    }
+
+    var alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+        questionText: questionText,
+        answerText: answerText,
+        sayFirst: card.sayFirst,
+        stageBCompleted: card.stageBCompleted ?? true
+    )
+    alignment.score = max(alignment.score, 0.9)
+    alignment.verdict = .aligned
+    alignment.reason = "Specialized PhD evidence rubric passed."
+    alignment.wrongAnswerIndicators = []
+    return alignment
 }
 
 private func localTimeoutFallbackForRejectedPersistence(

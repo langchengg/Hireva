@@ -594,6 +594,124 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
+    func phdLocalQwenPromptExcludesUnrelatedJobDescriptionEvidence() async throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        appState.interviewContextMode = .phdRobotics
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        let question = localQwenQuestion(
+            id: "phd-publication-question",
+            sessionID: session.id,
+            text: "What experimental evidence would convince you that your semantic and geometric grasp re-ranking method is strong enough to support a publication?"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.activateGeneration(
+            question: question,
+            generationID: "phd-publication-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        let cvChunk = localDocumentChunk(
+            id: "phd-grasp-evidence",
+            type: .cv,
+            content: "Current MSc work compares semantic grounding, geometric feasibility, clearance, collision risk, and grasp re-ranking."
+        )
+        let jdChunk = localDocumentChunk(
+            id: "unrelated-dexory-jd",
+            type: .jobDescription,
+            content: "Dexory robotics commissioning role in warehouse logistics."
+        )
+        let provider = MockLocalLLMProvider(tokens: [
+            "I think publication would be possible if the dissertation benchmark shows repeatable improvements in semantic and geometric grasp re-ranking, and I would align those results with my supervisor before making a claim."
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [cvChunk], jobDescriptionChunks: [jdChunk]),
+            retrievedChunks: [localRetrievedChunk(cvChunk), localRetrievedChunk(jdChunk)],
+            cvSummary: cvChunk.content,
+            jdSummary: jdChunk.content,
+            generationID: "phd-publication-generation",
+            cardID: "phd-publication-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished)
+        let prompt = try #require(provider.requests.first?.prompt)
+        #expect(prompt.localizedCaseInsensitiveContains("semantic grounding"))
+        #expect(!prompt.localizedCaseInsensitiveContains("Dexory"))
+        #expect(appState.currentSuggestion?.ragChunkIDs.contains(jdChunk.id) == false)
+        #expect(appState.currentSuggestion?.evidenceUsed.contains(jdChunk.id) == false)
+    }
+
+    @Test @MainActor
+    func phdLocalQwenUsesSpecializedRubricForGroundedArchitectureAnswer() async throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        appState.interviewContextMode = .phdRobotics
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        let question = localQwenQuestion(
+            id: "phd-architecture-question",
+            sessionID: session.id,
+            text: "Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution."
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.activateGeneration(
+            question: question,
+            generationID: "phd-architecture-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        let provider = MockLocalLLMProvider(tokens: [
+            "I used a ROS2-based control architecture where perception outputs a target pose, which I passed to planning and arm-control components for execution. Feedback validated the motion and triggered recovery if timing or localization errors occurred."
+        ])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Robot perception and ROS2 experience.",
+            jdSummary: "",
+            generationID: "phd-architecture-generation",
+            cardID: "phd-architecture-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 1)
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        try await waitUntil(timeout: 1.0) {
+            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+            return rows.contains { $0.id == "phd-architecture-card" }
+        }
+        let persisted = try #require(
+            try appState.suggestionRepository.suggestions(sessionID: session.id)
+                .first { $0.id == "phd-architecture-card" }
+        )
+        #expect(persisted.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(persisted.sayFirstSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(persisted.softFallbackUsed == false)
+    }
+
+    @Test @MainActor
     func interruptedQwenQuestionPersistsSupersededSnapshotWithoutFallbackContamination() async throws {
         let appState = try AppState(database: AppDatabase(inMemory: true))
         let session = try appState.sessionRepository.createSession(mode: .microphone)
@@ -980,6 +1098,40 @@ struct LocalModelsSetupTests {
         )
     }
 
+    private func localDocumentChunk(id: String, type: DocumentType, content: String) -> DocumentChunk {
+        DocumentChunk(
+            id: id,
+            documentID: "\(type.rawValue)-document",
+            documentType: type,
+            chunkIndex: 0,
+            content: content,
+            keywords: TextChunker.tokenize(content),
+            sectionTitle: id,
+            wordCount: content.split(whereSeparator: \.isWhitespace).count,
+            metadataJSON: nil,
+            createdAt: Date()
+        )
+    }
+
+    private func localRetrievedChunk(_ chunk: DocumentChunk) -> RetrievedChunk {
+        RetrievedChunk(
+            id: chunk.id,
+            documentID: chunk.documentID,
+            documentType: chunk.documentType,
+            chunkIndex: chunk.chunkIndex,
+            contentPreview: String(chunk.content.prefix(80)),
+            fullContent: chunk.content,
+            keywords: chunk.keywords,
+            score: 1,
+            keywordOverlapCount: 1,
+            contentOverlapCount: 1,
+            rank: 1,
+            isIncludedInPrompt: true,
+            sectionTitle: chunk.sectionTitle,
+            wordCount: chunk.wordCount
+        )
+    }
+
     @MainActor
     private func waitUntil(
         timeout: TimeInterval,
@@ -1002,6 +1154,7 @@ private final class MockLocalLLMProvider: LocalLLMProvider {
     let id = "mock_ollama_qwen"
     let displayName = "Mock Ollama Qwen"
     let tokens: [String]
+    private(set) var requests: [LocalLLMRequest] = []
 
     init(tokens: [String]) {
         self.tokens = tokens
@@ -1025,6 +1178,7 @@ private final class MockLocalLLMProvider: LocalLLMProvider {
     }
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        requests.append(request)
         let tokens = tokens
         return AsyncThrowingStream { continuation in
             for token in tokens {

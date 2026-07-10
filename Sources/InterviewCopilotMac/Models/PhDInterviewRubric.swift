@@ -10,6 +10,7 @@ enum PhDQuestionIntent: String, Codable, CaseIterable {
     case realRobotExperience = "real_robot_experience"
     case robotArchitecture = "robot_architecture"
     case rosControl = "ros_control"
+    case graspResearch = "grasp_research"
 }
 
 struct PhDInterviewRubric: Equatable {
@@ -35,10 +36,18 @@ struct PhDAnswerQualityResult: Equatable {
 enum PhDInterviewRubricPolicy {
     static func intent(for question: String) -> PhDQuestionIntent? {
         let lower = normalize(question)
-        if lower.contains("tactile"), lower.contains("experience") || lower.contains("from your reading") {
+        if lower.contains("tactile"),
+           lower.contains("experience") ||
+            lower.contains("from your reading") ||
+            lower.contains("not yet worked") ||
+            lower.contains("worked directly") ||
+            lower.contains("hands on") ||
+            lower.contains("skills gap") ||
+            lower.contains("close that gap") {
             return .tactileExperience
         }
-        if lower.contains("tactile"), lower.contains("role") || lower.contains("play in") {
+        if lower.contains("tactile"),
+           lower.contains("role") || lower.contains("play in") || lower.contains("slip") || lower.contains("contact") {
             return .tactileRole
         }
         if lower.contains("llm") || lower.contains("vlm") {
@@ -47,13 +56,21 @@ enum PhDInterviewRubricPolicy {
         if lower.contains("publish") || lower.contains("publication") {
             return .publicationPlan
         }
+        if lower.contains("current grasping research"),
+           lower.contains("contribution") || lower.contains("contribute") || lower.contains("strongest evidence") {
+            return .graspResearch
+        }
         if lower.contains("skill set") || lower.contains("experience fit this project") {
             return .skillFit
         }
         if (lower.contains("using ros") || lower.contains("use ros")) && lower.contains("python") {
             return .rosControl
         }
-        if lower.contains("which robot") || lower.contains("what architecture") || lower.contains("which platform") {
+        if lower.contains("which robot") ||
+            lower.contains("what architecture") ||
+            lower.contains("which platform") ||
+            lower.contains("control architecture") ||
+            (lower.contains("robot arm") && lower.contains("architecture")) {
             return .robotArchitecture
         }
         if lower.contains("controlled a real robot") || lower.contains("control the real robot") {
@@ -62,8 +79,16 @@ enum PhDInterviewRubricPolicy {
         if lower.contains("prior to your msc") ||
             lower.contains("before manchester") ||
             lower.contains("before your msc") ||
+            (lower.contains("before starting") && (lower.contains("msc") || lower.contains("masters"))) ||
             lower.contains("what was your background") {
             return .preMScBackground
+        }
+        if (lower.contains("grasp") && (
+            lower.contains("re ranking") ||
+            lower.contains("reranking") ||
+            lower.contains("semantic and geometric")
+        )) || (lower.contains("failure cases") && lower.contains("real robot")) {
+            return .graspResearch
         }
         return nil
     }
@@ -76,7 +101,14 @@ enum PhDInterviewRubricPolicy {
                 intent: intent,
                 expectedAnswerTopics: [["computer science"], ["deep learning", "nlp"], ["before my msc", "prior to my msc", "before manchester"]],
                 minimumTopicMatches: 2,
-                mustAvoid: ["extensive robotics experience before", "years of robotics before"],
+                mustAvoid: [
+                    "extensive robotics experience before",
+                    "years of robotics before",
+                    "robotics before my msc",
+                    "vla before my msc",
+                    "vision language action models before my msc",
+                    "real robot before my msc"
+                ],
                 honestyConstraints: ["Distinguish pre-MSc background from later robotics work."]
             )
         case .llmVlmExperience:
@@ -114,8 +146,14 @@ enum PhDInterviewRubricPolicy {
         case .tactileExperience:
             return PhDInterviewRubric(
                 intent: intent,
-                expectedAnswerTopics: [["reading"], ["not hands on", "not hands-on", "rather than hands on"], ["learn", "develop"], ["perception", "manipulation", "ros2"]],
-                minimumTopicMatches: 3,
+                expectedAnswerTopics: [
+                    ["reading"],
+                    ["not hands on", "not hands-on", "rather than hands on"],
+                    ["learn", "develop"],
+                    ["perception", "manipulation", "ros2"],
+                    ["calibration", "controlled contact", "contact experiment"]
+                ],
+                minimumTopicMatches: 4,
                 mustAvoid: ["extensive hands-on", "years of tactile hardware"],
                 honestyConstraints: ["Do not claim hands-on tactile hardware experience."]
             )
@@ -130,7 +168,7 @@ enum PhDInterviewRubricPolicy {
         case .robotArchitecture:
             return PhDInterviewRubric(
                 intent: intent,
-                expectedAnswerTopics: [["robot arm"], ["ros2"], ["perception", "manipulation", "architecture"]],
+                expectedAnswerTopics: [["robot arm", "arm control", "arm-control", "manipulator"], ["ros2"], ["perception", "manipulation", "architecture"]],
                 minimumTopicMatches: 3,
                 mustAvoid: ["raspberry"],
                 honestyConstraints: ["Do not turn an uncertain ASR platform name into a factual claim."]
@@ -142,6 +180,19 @@ enum PhDInterviewRubricPolicy {
                 minimumTopicMatches: 3,
                 mustAvoid: [],
                 honestyConstraints: ["Distinguish ROS2 orchestration from lower-level Python APIs."]
+            )
+        case .graspResearch:
+            return PhDInterviewRubric(
+                intent: intent,
+                expectedAnswerTopics: [
+                    ["semantic", "grounding", "referred target"],
+                    ["geometric", "collision", "clearance"],
+                    ["grasp", "re rank", "rerank"],
+                    ["real robot", "evaluation", "failure case"]
+                ],
+                minimumTopicMatches: 3,
+                mustAvoid: ["dexory", "leorover", "warehouse logistics"],
+                honestyConstraints: ["Answer about the current semantic/geometric grasp re-ranking work, not an unrelated prior project or employer."]
             )
         }
     }
@@ -185,13 +236,74 @@ enum PhDInterviewRubricPolicy {
     static func promptGuidance(for question: String) -> String {
         guard let rubric = rubric(for: question) else { return "" }
         let topics = rubric.expectedAnswerTopics.map { $0.joined(separator: " or ") }.joined(separator: "; ")
-        let avoid = rubric.mustAvoid.isEmpty ? "Do not overclaim experience." : "Avoid unsupported claims such as: \(rubric.mustAvoid.joined(separator: "; "))."
+        let facts = verifiedGroundingFacts(for: rubric.intent)
+            .map { "- \($0)" }
+            .joined(separator: "\n")
         return """
         PhD answer evidence rubric:
+        Verified candidate facts:
+        \(facts)
         - Cover the relevant evidence areas: \(topics).
         - \(rubric.honestyConstraints.joined(separator: " "))
-        - \(avoid)
+        - Do not invent dates, metrics, employers, hardware models, publications, or experience beyond these verified facts.
         """
+    }
+
+    private static func verifiedGroundingFacts(for intent: PhDQuestionIntent) -> [String] {
+        switch intent {
+        case .preMScBackground:
+            return [
+                "Before the MSc, the background was computer science, deep learning, and NLP.",
+                "Direct robotics, VLA, and physical-robot work developed later during the MSc."
+            ]
+        case .llmVlmExperience:
+            return [
+                "LLM and VLM robotics work is new during the current MSc year.",
+                "Earlier deep-learning and NLP experience provided the transferable foundation."
+            ]
+        case .publicationPlan:
+            return [
+                "The current work is still at dissertation and benchmark stage.",
+                "Publication is possible only if results are strong and align with the supervisor's research."
+            ]
+        case .skillFit:
+            return [
+                "Relevant strengths are robot perception, language-guided manipulation, grasp selection, and ROS2 integration.",
+                "Tactile sensing and world-action modelling are growth areas rather than established hands-on expertise."
+            ]
+        case .tactileRole:
+            return [
+                "Vision provides target and scene information before contact.",
+                "Tactile feedback provides contact location, force, slip, pressure, and stability for closed-loop adaptation."
+            ]
+        case .tactileExperience:
+            return [
+                "Tactile knowledge currently comes from reading, not hands-on hardware work.",
+                "A credible first-six-month plan starts with sensor calibration and controlled contact experiments, then a small ROS2 manipulation loop before larger tasks."
+            ]
+        case .realRobotExperience:
+            return [
+                "Physical-robot control experience came from practical MSc robotics projects.",
+                "Keep that prior project distinct from the current language-guided grasping dissertation."
+            ]
+        case .robotArchitecture:
+            return [
+                "The relevant platform was a robot arm controlled through ROS2.",
+                "Perception produced a target or grasp pose, ROS2 passed it to planning and arm-control components, and execution feedback confirmed or recovered the motion.",
+                "Do not claim an uncertain platform or hardware model as fact."
+            ]
+        case .rosControl:
+            return [
+                "ROS2 orchestrated the robot pipeline and did not replace the lower-level Python APIs.",
+                "This control work belonged to a prior practical project, distinct from the current dissertation."
+            ]
+        case .graspResearch:
+            return [
+                "The current contribution is semantic and geometric re-ranking of grasp candidates for a referred target.",
+                "Evidence includes detector confidence, target overlap, semantic consistency, gripper clearance, and collision risk.",
+                "Real-robot validation should prioritize grounding errors, calibration and geometry errors, collision or clearance failures, and execution recovery."
+            ]
+        }
     }
 
     private static func containsFirstPerson(_ text: String) -> Bool {

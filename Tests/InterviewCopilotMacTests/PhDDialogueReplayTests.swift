@@ -97,6 +97,69 @@ struct PhDDialogueReplayTests {
     }
 
     @Test
+    func realAcceptanceQuestionPhrasingsMapToPhDRubrics() {
+        let cases: [(String, PhDQuestionIntent)] = [
+            ("Before starting the Robotics Masters programme, which parts of your technical background best prepared you for research in embodied artificial intelligence?", .preMScBackground),
+            ("Which part of your current grasping research gives the strongest evidence that you could make an effective contribution to this PhD?", .graspResearch),
+            ("Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months of the PhD?", .tactileExperience),
+            ("Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution.", .robotArchitecture),
+            ("Which failure cases would you prioritise first when moving that method onto the real robot?", .graspResearch)
+        ]
+
+        for (question, expected) in cases {
+            #expect(PhDInterviewRubricPolicy.intent(for: question) == expected)
+            #expect(PhDInterviewRubricPolicy.rubric(for: question) != nil)
+            #expect(!PhDInterviewRubricPolicy.promptGuidance(for: question).isEmpty)
+        }
+    }
+
+    @Test
+    func phdHonestyRubricsRejectObservedBackgroundAndTactileOverclaims() {
+        let backgroundQuestion = "Before starting the Robotics Masters programme, which parts of your technical background best prepared you for embodied AI research?"
+        let backgroundAnswer = "My computer science and deep-learning work on vision-language-action models before my MSc prepared me for embodied AI."
+        let tactileQuestion = "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months?"
+        let tactileAnswer = "I would read about tactile perception and build a simulation framework before any physical hardware, focusing on theoretical manipulation and ROS2."
+
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: backgroundQuestion, answer: backgroundAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: tactileAnswer).passed)
+    }
+
+    @Test
+    func phdRecoveryGuidanceProvidesVerifiedFactsForWeakContextQuestions() {
+        let cases = [
+            "Before starting the Robotics Masters programme, which parts of your technical background prepared you for embodied AI?",
+            "Since you have not yet worked directly with tactile hardware, how would you close that skills gap?",
+            "Describe the control architecture you used on the robot arm through ROS2 to physical motion execution.",
+            "Which failure cases would you prioritise first when moving that grasp re-ranking method onto the real robot?"
+        ]
+
+        for question in cases {
+            let guidance = PhDInterviewRubricPolicy.promptGuidance(for: question)
+            #expect(guidance.localizedCaseInsensitiveContains("Verified candidate facts"))
+            #expect(!guidance.localizedCaseInsensitiveContains("Dexory"))
+        }
+    }
+
+    @Test
+    func observedGroundedQwenParaphrasesPassSpecializedPhDRubric() {
+        let cases = [
+            (
+                "Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution.",
+                "I used a ROS2-based control architecture where perception outputs a target pose, which I passed to the planning and arm-control components for execution. The system continuously validates the motion through feedback loops and implements recovery strategies if timing or localization errors occur."
+            ),
+            (
+                "Which failure cases would you prioritize first when moving that method onto the real robot?",
+                "I would prioritize grounding errors and calibration mismatches first because they undermine semantic and geometric re-ranking of grasp candidates for the referred target. I would then test collision or clearance failures and validate execution recovery on the real robot."
+            )
+        ]
+
+        for (question, answer) in cases {
+            #expect(QuestionAnswerAlignmentEvaluator.evaluate(questionText: question, answerText: answer).verdict == .mismatched)
+            #expect(PhDInterviewRubricPolicy.evaluate(question: question, answer: answer).passed)
+        }
+    }
+
+    @Test
     func presentationAndSetupAreSuppressed() async throws {
         let harness = try makeHarness()
         let turns = [

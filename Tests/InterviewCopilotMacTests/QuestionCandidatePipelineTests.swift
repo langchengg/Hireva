@@ -248,6 +248,36 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func embeddedAuxiliaryTailStaysAttachedToLeadingWhClause() {
+        let questions = [
+            "Which failure cases would you prioritise first when moving that method onto the real robot?",
+            "Which part of the project could I contribute to most strongly during the first year?",
+            "Which failure cases would you prioritize in semantic, and geometric grasp re ranking, and how would you debug them on the real robot?"
+        ]
+
+        for question in questions {
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+        }
+    }
+
+    @Test
+    func directCopularQuestionKeepsConnectedHowAreYouTail() {
+        let text = "What is your current grasp research, and how are you evaluating semantic and geometric re-ranking?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: text, isFinal: true)
+
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.text == text)
+    }
+
+    @Test
+    func dependentSincePrefaceStaysAttachedToQuestion() {
+        let question = "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months of the PhD?"
+
+        #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+    }
+
+    @Test
     func beforeInterviewerPrefaceDoesNotBecomeQuestionCandidate() {
         let candidates = QuestionCandidatePipeline.extract(
             from: "Before I ask the next question, let me explain a little bit about what this role involves. We work with deployed robotics systems, perception, edge AI, and reliability in real environments. With that context, can you explain how your previous robotics experience prepares you for this role?"

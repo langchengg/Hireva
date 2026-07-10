@@ -194,6 +194,7 @@ enum MultiQuestionSplitter {
             "\\bwhat\\s+happened\\b",
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
             "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
+            "^what\\s+is\\s+your\\b",
             "\\bwhat\\s+(?!(?:is|are)\\b)(?:[a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
             "\\bwhich\\s+robots?\\s+have\\s+you\\b",
             "\\bwhich\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|became|created|caused|made|failed|mattered|part|component|module|subsystem|stage|step)\\b",
@@ -202,6 +203,7 @@ enum MultiQuestionSplitter {
             "\\bhow\\s+did\\b",
             "\\bhow\\s+do\\b",
             "\\bhow\\s+does\\b",
+            "\\bhow\\s+are\\s+you\\b",
             "\\bhow\\s+would\\b",
             "\\bhow\\s+should\\b",
             "\\bhow\\s+comfortable\\b",
@@ -216,7 +218,8 @@ enum MultiQuestionSplitter {
             "\\bwhen\\b",
             "\\bwhen\\b.{0,120}\\b(?:how|what|which|why)\\b",
             "\\bwhen\\s+you\\s+(?:moved|move)\\b",
-            "\\bbefore\\b.{0,140}\\b(?:how|what|which|why)\\b"
+            "\\bbefore\\b.{0,140}\\b(?:how|what|which|why)\\b",
+            "\\bsince\\b.{0,140}\\b(?:how|what|which|why)\\b"
         ]
         let patterns = auxiliaryQuestionStarts +
             imperativeQuestionStarts +
@@ -241,6 +244,9 @@ enum MultiQuestionSplitter {
             let currentIndex = String.Index(utf16Offset: start, in: lower)
             let currentClause = String(lower[currentIndex...])
             let precedingText = String(lower[..<currentIndex])
+            if isAuxiliaryNestedInsideWHQuestion(precedingText: precedingText, currentClause: currentClause) {
+                continue
+            }
             if isNarrativeImperative(precedingText: precedingText, currentClause: currentClause) {
                 continue
             }
@@ -253,6 +259,10 @@ enum MultiQuestionSplitter {
                 }
                 let previousIndex = String.Index(utf16Offset: previous, in: lower)
                 let previousClause = String(lower[previousIndex..<currentIndex])
+                if !previousClause.contains("?"),
+                   isEmbeddedAuxiliaryTail(previousClause: previousClause, currentClause: currentClause) {
+                    continue
+                }
                 if isBackgroundCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
                     continue
                 }
@@ -333,15 +343,48 @@ enum MultiQuestionSplitter {
         return filtered
     }
 
+    private static func isAuxiliaryNestedInsideWHQuestion(precedingText: String, currentClause: String) -> Bool {
+        let preceding = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let whWords = ["what", "which", "how", "why", "where", "when", "who"]
+        let auxiliaryPrefixes = [
+            "would you ", "could you ", "should you ",
+            "did you ", "do you ", "does ",
+            "was ", "were ", "is ", "are "
+        ]
+        return whWords.contains(where: preceding.hasSuffix) &&
+            auxiliaryPrefixes.contains(where: current.hasPrefix)
+    }
+
     private static func isConditionalAntecedent(_ clause: String) -> Bool {
         let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.hasPrefix("if ") ||
             trimmed.contains(" if ") ||
+            trimmed.hasPrefix("since ") ||
             trimmed.hasPrefix("before ") ||
             trimmed.hasPrefix("also if ") ||
             trimmed.hasPrefix("and if ") ||
             trimmed.hasPrefix("when ") ||
             trimmed.contains(" when ")
+    }
+
+    private static func isEmbeddedAuxiliaryTail(previousClause: String, currentClause: String) -> Bool {
+        let previous = previousClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let whPrefixes = ["what ", "which ", "how ", "why ", "where ", "when ", "who "]
+        let auxiliaryTails = [
+            "would you ", "could you ", "should you ",
+            "did you ", "do you ", "does ", "was ", "were ", "is ", "are "
+        ]
+        let previousWords = Set(previous.split(whereSeparator: \.isWhitespace).map(String.init))
+        let finiteQuestionVerbs: Set<String> = [
+            "am", "is", "are", "was", "were",
+            "do", "does", "did", "have", "has", "had",
+            "can", "could", "will", "would", "should"
+        ]
+        return whPrefixes.contains(where: previous.hasPrefix) &&
+            previousWords.isDisjoint(with: finiteQuestionVerbs) &&
+            auxiliaryTails.contains(where: current.hasPrefix)
     }
 
     private static func antecedentAlreadyContainsQuestionComplement(_ clause: String) -> Bool {

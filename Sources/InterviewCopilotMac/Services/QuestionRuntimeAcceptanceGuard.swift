@@ -66,7 +66,8 @@ enum QuestionRuntimeAcceptanceGuard {
     }
 
     static func validateSuggestionCardForPersistence(
-        _ card: SuggestionCard
+        _ card: SuggestionCard,
+        alignmentOverride: AnswerAlignmentResult? = nil
     ) -> QuestionPersistenceGuardResult {
         if card.isPartial {
             return .rejected(.partialCard, diagnostic: "Rejected partial suggestion card.")
@@ -130,7 +131,8 @@ enum QuestionRuntimeAcceptanceGuard {
             sayFirst: card.sayFirst,
             stageBCompleted: card.stageBCompleted ?? true
         )
-        guard alignment.verdict == .aligned else {
+        let effectiveAlignment = alignmentOverride ?? alignment
+        guard effectiveAlignment.verdict == .aligned else {
             return .rejected(
                 rejectionReason(for: alignment.verdict),
                 diagnostic: "Rejected persistence for \(alignment.verdict.rawValue) answer. \(alignment.reason)"
@@ -139,7 +141,7 @@ enum QuestionRuntimeAcceptanceGuard {
 
         return .accepted(
             candidate,
-            alignment: alignment,
+            alignment: effectiveAlignment,
             diagnostic: "Suggestion card accepted for persistence: \(candidate.text)"
         )
     }

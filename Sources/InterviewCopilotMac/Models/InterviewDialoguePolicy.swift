@@ -326,7 +326,9 @@ enum InterviewDialogueTriggerPolicy {
         }
 
         if currentState.resolvedSessionPhase == .candidateQuestions {
-            if sessionMode != .candidateQuestions, role == .interviewer {
+            if sessionMode != .candidateQuestions,
+               role == .interviewer,
+               isPanelQuestionResumption(normalized) {
                 let turnType: DialogueTurnType = isClarification(normalized) ? .clarificationQuestion : .substantiveQuestion
                 return allowed(
                     role: role,
@@ -469,6 +471,18 @@ enum InterviewDialogueTriggerPolicy {
             "anything you would like to ask the panel",
             "that completes our formal questions",
             "that completes our questions"
+        ]
+        return phrases.contains { text == $0 || text.contains($0) }
+    }
+
+    private static func isPanelQuestionResumption(_ text: String) -> Bool {
+        let phrases = [
+            "before we finish",
+            "one final question",
+            "one more question",
+            "we have another question",
+            "the panel has another question",
+            "can i ask one more"
         ]
         return phrases.contains { text == $0 || text.contains($0) }
     }

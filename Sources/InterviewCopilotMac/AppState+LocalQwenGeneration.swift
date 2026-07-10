@@ -25,12 +25,24 @@ extension AppState {
         }
 
         let modelName = selectedQwenModelName
+        let isPhDRobotics = interviewContextMode == .phdRobotics
+        let localPromptContext = isPhDRobotics
+            ? RetrievedContext(
+                cvChunks: context.cvChunks,
+                jobDescriptionChunks: [],
+                additionalNotesChunks: context.additionalNotesChunks
+            )
+            : context
+        let localJDSummary = isPhDRobotics ? "" : jdSummary
+        let localRetrievedChunks = isPhDRobotics
+            ? retrievedChunks.filter { $0.documentType != .jobDescription }
+            : retrievedChunks
         let promptSnapshot = PromptContextBuilder.promptSnapshot(
             question: question,
-            context: context,
+            context: localPromptContext,
             transcriptContext: RealtimePromptBudgeter.limitTranscript(transcript),
             cvSummary: cvSummary,
-            jdSummary: jdSummary,
+            jdSummary: localJDSummary,
             stage: .firstAnswer
         )
         let systemPrompt = """
@@ -52,16 +64,16 @@ extension AppState {
         let previousQuestionContext = localQwenPreviousQuestionContext(excluding: question)
         let compactRecoveryRequest = compactLocalQwenRequest(
             question: question,
-            context: context,
+            context: promptSnapshot.ragContextSnapshot,
             cvSummary: cvSummary,
-            jdSummary: jdSummary,
+            jdSummary: localJDSummary,
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
         let groundedRecoveryRequest = groundedLocalQwenRecoveryRequest(
             question: question,
             cvSummary: cvSummary,
-            jdSummary: jdSummary,
+            jdSummary: localJDSummary,
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
@@ -123,7 +135,7 @@ extension AppState {
             followUpReady: ["I can expand on the implementation tradeoffs if useful."],
             confidence: 0.72,
             caution: fallbackReason.map { "Local Qwen fallback used because \($0)." },
-            evidenceUsed: retrievedChunks.map(\.id),
+            evidenceUsed: localRetrievedChunks.map(\.id),
             riskLevel: .low,
             modelName: modelName,
             promptVersion: "ollama-qwen-v1",
@@ -221,6 +233,10 @@ extension AppState {
               QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(answer) == nil else {
             return false
         }
+        if interviewContextMode == .phdRobotics,
+           PhDInterviewRubricPolicy.rubric(for: question.questionText) != nil {
+            return PhDInterviewRubricPolicy.evaluate(question: question.questionText, answer: answer).passed
+        }
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question.questionText,
             answerText: answer,
@@ -228,10 +244,6 @@ extension AppState {
             stageBCompleted: true
         )
         guard alignment.verdict == .aligned else { return false }
-        if interviewContextMode == .phdRobotics,
-           PhDInterviewRubricPolicy.rubric(for: question.questionText) != nil {
-            return PhDInterviewRubricPolicy.evaluate(question: question.questionText, answer: answer).passed
-        }
         return true
     }
 
@@ -303,9 +315,12 @@ extension AppState {
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
-        let projectFacts = ([fallback.sayFirst] + fallback.keyPoints)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: "\n- ")
+        let phdGuidance = phdPromptGuidance(for: question.questionText)
+        let projectFacts = phdGuidance.isEmpty
+            ? ([fallback.sayFirst] + fallback.keyPoints)
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: "\n- ")
+            : phdGuidance
         let prompt = """
         /no_think
         Question:

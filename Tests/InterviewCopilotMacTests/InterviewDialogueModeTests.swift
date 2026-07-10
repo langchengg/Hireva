@@ -144,6 +144,25 @@ struct InterviewDialogueModeTests {
     }
 
     @Test
+    func systemAudioCandidateQuestionStaysSuppressedAfterPanelInvitation() {
+        var state = DialogueRuntimeState.initial(for: .auto)
+        state = state.applying(decide(
+            systemQuestion("That completes our formal questions. Is there anything you would like to ask the panel?"),
+            state: state
+        ))
+
+        let candidateQuestion = decide(
+            systemQuestion("Which tactile sensor and robot platform would you recommend that I learn first in your laboratory?"),
+            state: state
+        )
+        state = state.applying(candidateQuestion)
+
+        #expect(!candidateQuestion.shouldEvaluateQuestion)
+        #expect(candidateQuestion.decision == .candidateQuestionToPanel)
+        #expect(state.resolvedSessionPhase == .candidateQuestions)
+    }
+
+    @Test
     func autoModeCanResumePanelQuestionsAfterCandidateQuestions() {
         var state = DialogueRuntimeState.initial(for: .auto)
         let invitation = decide(systemQuestion("Do you have any questions for us?"), state: state)
