@@ -100,8 +100,10 @@ struct PhDDialogueReplayTests {
     func realAcceptanceQuestionPhrasingsMapToPhDRubrics() {
         let cases: [(String, PhDQuestionIntent)] = [
             ("Before starting the Robotics Masters programme, which parts of your technical background best prepared you for research in embodied artificial intelligence?", .preMScBackground),
+            ("Before starting the robotics master's program, which parts of your technical background best prepared you for research in embodied artificial intelligence?", .preMScBackground),
             ("Which part of your current grasping research gives the strongest evidence that you could make an effective contribution to this PhD?", .graspResearch),
-            ("Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months of the PhD?", .tactileExperience),
+            ("Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months of the PhD?", .tactileLearningPlan),
+            ("Imagine that the camera predicts a stable grasp, but the tactile sensor reports that the object is slipping. How should the robot respond?", .tactileSlipResponse),
             ("Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution.", .robotArchitecture),
             ("Which failure cases would you prioritise first when moving that method onto the real robot?", .graspResearch)
         ]
@@ -117,11 +119,37 @@ struct PhDDialogueReplayTests {
     func phdHonestyRubricsRejectObservedBackgroundAndTactileOverclaims() {
         let backgroundQuestion = "Before starting the Robotics Masters programme, which parts of your technical background best prepared you for embodied AI research?"
         let backgroundAnswer = "My computer science and deep-learning work on vision-language-action models before my MSc prepared me for embodied AI."
+        let observedQuestion = "Before starting the robotics master's program, which parts of your technical background best prepared you for research in embodied artificial intelligence?"
+        let observedAnswer = "My background in robotics and ROS2 gave me the practical foundation to bridge vision-language models with real-world robotic manipulation."
+        let clarificationQuestion = "Did you already have hands-on experience with physical robots before the MSc, or was your earlier work mainly software and machine learning?"
+        let clarificationAnswer = "My earlier work was primarily software and machine learning, focused on developing vision-language-action models for robotic manipulation and real-robot grasp re-ranking."
+        let slipQuestion = "Imagine that the camera predicts a stable grasp, but the tactile sensor reports that the object is slipping. How should the robot respond?"
+        let slipAnswer = "I would immediately abort the current motion and apply a corrective force to re-establish contact. This closed-loop adaptation ensures the robot does not lose the object."
         let tactileQuestion = "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months?"
         let tactileAnswer = "I would read about tactile perception and build a simulation framework before any physical hardware, focusing on theoretical manipulation and ROS2."
+        let contaminatedTactileAnswer = "I would read the literature, then run controlled contact experiments on my existing LeoRover platform to calibrate camera and IMU inputs before developing a perception loop."
+        let noCalibrationTactilePlan = "I would study tactile sensor literature, work with the lab on controlled contact and slip experiments, process the acquired data, and integrate it into a small ROS2 manipulation loop under supervisor guidance."
+        let graspQuestion = "Which part of your current grasping research gives the strongest evidence that you could make an effective contribution to this PhD?"
+        let inventedMetricAnswer = "I designed a semantic-geometric re-ranker and demonstrated a 70% retrieval success rate on the real robot."
+        let inventedCompletedValidationAnswer = "I designed a target-conditioned semantic and geometric re-ranking pipeline for grasp candidates using detector confidence, target overlap, collision, and clearance. I integrated it into a real-robot pipeline and demonstrated improved failure-case reliability."
+        let inventedValidatedOnRobotsAnswer = "I use semantic and geometric re-ranking for grasp candidates with detector confidence, target overlap, collision, and clearance. I have validated these methods against execution failure cases on real robots."
+        let failureCaseQuestion = "Which failure cases would you prioritise first when moving that method onto the real robot?"
+        let inventedValidationOutcome = "I prioritize semantic grounding failures for the referred target, then geometric collision and clearance failures in grasp candidates. My re-ranking pipeline uses detector confidence and target overlap, which significantly improved reliability during real-robot validation."
+        let architectureQuestion = "Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution."
+        let inventedLatencyAnswer = "I built a ROS2 architecture where perception outputs a target pose to the planner and arm controller, with execution feedback and recovery that reduced end-to-end latency to 200 ms."
 
         #expect(!PhDInterviewRubricPolicy.evaluate(question: backgroundQuestion, answer: backgroundAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: observedQuestion, answer: observedAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: clarificationQuestion, answer: clarificationAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: slipQuestion, answer: slipAnswer).passed)
         #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: tactileAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: contaminatedTactileAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: noCalibrationTactilePlan).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: graspQuestion, answer: inventedMetricAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: graspQuestion, answer: inventedCompletedValidationAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: graspQuestion, answer: inventedValidatedOnRobotsAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: failureCaseQuestion, answer: inventedValidationOutcome).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: architectureQuestion, answer: inventedLatencyAnswer).passed)
     }
 
     @Test
@@ -138,6 +166,12 @@ struct PhDDialogueReplayTests {
             #expect(guidance.localizedCaseInsensitiveContains("Verified candidate facts"))
             #expect(!guidance.localizedCaseInsensitiveContains("Dexory"))
         }
+
+        let graspGuidance = PhDInterviewRubricPolicy.promptGuidance(
+            for: "Which failure cases would you prioritise first when moving that method onto the real robot?"
+        )
+        #expect(graspGuidance.localizedCaseInsensitiveContains("has not yet been validated on a real robot"))
+        #expect(graspGuidance.localizedCaseInsensitiveContains("future tense"))
     }
 
     @Test
@@ -150,12 +184,22 @@ struct PhDDialogueReplayTests {
             (
                 "Which failure cases would you prioritize first when moving that method onto the real robot?",
                 "I would prioritize grounding errors and calibration mismatches first because they undermine semantic and geometric re-ranking of grasp candidates for the referred target. I would then test collision or clearance failures and validate execution recovery on the real robot."
+            ),
+            (
+                "Imagine that the camera predicts a stable grasp, but the tactile sensor reports that the object is slipping. How should the robot respond?",
+                "I would confirm the slip signal, cautiously adjust grip force, and reposition or regrasp if contact remains unstable. I would replan through the closed loop and stop safely if recovery could not stabilize the object."
+            ),
+            (
+                "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months?",
+                "I would acknowledge that gap, study the sensor principles, calibrate tactile sensors, and run controlled contact and slip experiments with data acquisition and signal processing. I would then integrate the observations into a small ROS2 manipulation loop with guidance from the lab before scaling up."
             )
         ]
 
         for (question, answer) in cases {
-            #expect(QuestionAnswerAlignmentEvaluator.evaluate(questionText: question, answerText: answer).verdict == .mismatched)
             #expect(PhDInterviewRubricPolicy.evaluate(question: question, answer: answer).passed)
+        }
+        for (question, answer) in cases.prefix(2) {
+            #expect(QuestionAnswerAlignmentEvaluator.evaluate(questionText: question, answerText: answer).verdict == .mismatched)
         }
     }
 

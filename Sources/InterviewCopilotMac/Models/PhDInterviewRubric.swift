@@ -6,7 +6,9 @@ enum PhDQuestionIntent: String, Codable, CaseIterable {
     case publicationPlan = "publication_plan"
     case skillFit = "skill_fit"
     case tactileRole = "tactile_role"
+    case tactileSlipResponse = "tactile_slip_response"
     case tactileExperience = "tactile_experience"
+    case tactileLearningPlan = "tactile_learning_plan"
     case realRobotExperience = "real_robot_experience"
     case robotArchitecture = "robot_architecture"
     case rosControl = "ros_control"
@@ -37,13 +39,21 @@ enum PhDInterviewRubricPolicy {
     static func intent(for question: String) -> PhDQuestionIntent? {
         let lower = normalize(question)
         if lower.contains("tactile"),
+           lower.contains("slip") || lower.contains("slipping") || lower.contains("unstable grasp") {
+            return .tactileSlipResponse
+        }
+        if lower.contains("tactile"),
+           lower.contains("not yet worked") ||
+            lower.contains("worked directly") ||
+            lower.contains("skills gap") ||
+            lower.contains("close that gap") ||
+            lower.contains("first six months") {
+            return .tactileLearningPlan
+        }
+        if lower.contains("tactile"),
            lower.contains("experience") ||
             lower.contains("from your reading") ||
-            lower.contains("not yet worked") ||
-            lower.contains("worked directly") ||
-            lower.contains("hands on") ||
-            lower.contains("skills gap") ||
-            lower.contains("close that gap") {
+            lower.contains("hands on") {
             return .tactileExperience
         }
         if lower.contains("tactile"),
@@ -79,7 +89,10 @@ enum PhDInterviewRubricPolicy {
         if lower.contains("prior to your msc") ||
             lower.contains("before manchester") ||
             lower.contains("before your msc") ||
-            (lower.contains("before starting") && (lower.contains("msc") || lower.contains("masters"))) ||
+            lower.contains("before the msc") ||
+            lower.contains("before msc") ||
+            lower.contains("before the master") ||
+            (lower.contains("before starting") && (lower.contains("msc") || lower.contains("master"))) ||
             lower.contains("what was your background") {
             return .preMScBackground
         }
@@ -143,18 +156,56 @@ enum PhDInterviewRubricPolicy {
                 mustAvoid: [],
                 honestyConstraints: ["Explain sensing after contact and closed-loop adaptation."]
             )
+        case .tactileSlipResponse:
+            return PhDInterviewRubric(
+                intent: intent,
+                expectedAnswerTopics: [
+                    ["confirm", "verify", "detect"],
+                    ["cautious", "gradual", "adjust grip force", "increase grip"],
+                    ["reposition", "regrasp", "contact pose"],
+                    ["replan", "retry"],
+                    ["safe stop", "stop safely", "unrecoverable", "cannot recover"],
+                    ["closed loop", "closed-loop", "tactile feedback"]
+                ],
+                minimumTopicMatches: 5,
+                mustAvoid: ["immediately abort the current motion and apply a corrective force"],
+                honestyConstraints: ["Use cautious closed-loop recovery and include a safe stop when the grasp cannot be stabilized."]
+            )
         case .tactileExperience:
             return PhDInterviewRubric(
                 intent: intent,
                 expectedAnswerTopics: [
-                    ["reading"],
-                    ["not hands on", "not hands-on", "rather than hands on"],
+                    ["reading", "study", "literature"],
+                    ["not hands on", "not hands-on", "rather than hands on", "acknowledge that gap", "limited hands on"],
+                    ["learn", "develop"],
+                    ["perception", "manipulation", "ros2"]
+                ],
+                minimumTopicMatches: 3,
+                mustAvoid: ["extensive hands-on", "years of tactile hardware"],
+                honestyConstraints: ["Do not claim hands-on tactile hardware experience."]
+            )
+        case .tactileLearningPlan:
+            return PhDInterviewRubric(
+                intent: intent,
+                expectedAnswerTopics: [
+                    ["reading", "study", "literature"],
+                    ["not hands on", "not hands-on", "rather than hands on", "acknowledge that gap", "limited hands on"],
                     ["learn", "develop"],
                     ["perception", "manipulation", "ros2"],
-                    ["calibration", "controlled contact", "contact experiment"]
+                    ["tactile calibration", "calibrate tactile", "sensor calibration", "controlled contact", "contact experiment"],
+                    ["data acquisition", "signal processing", "slip experiment"],
+                    ["supervisor", "lab guidance", "guidance from the lab"]
                 ],
-                minimumTopicMatches: 4,
-                mustAvoid: ["extensive hands-on", "years of tactile hardware"],
+                minimumTopicMatches: 5,
+                mustAvoid: [
+                    "extensive hands-on",
+                    "years of tactile hardware",
+                    "leorover",
+                    "camera and imu",
+                    "imu inputs",
+                    "dexory",
+                    "warehouse logistics"
+                ],
                 honestyConstraints: ["Do not claim hands-on tactile hardware experience."]
             )
         case .realRobotExperience:
@@ -218,7 +269,33 @@ enum PhDInterviewRubricPolicy {
         let missing = zip(rubric.expectedAnswerTopics, matches).compactMap { topics, matched in
             matched ? nil : topics.joined(separator: "/")
         }
-        let violations = rubric.mustAvoid.filter { containsUnnegatedClaim(normalize($0), in: lowerAnswer) }
+        var violations = rubric.mustAvoid.filter { containsUnnegatedClaim(normalize($0), in: lowerAnswer) }
+        if rubric.intent == .preMScBackground {
+            let roboticsIndicators = [
+                "vision language action", "vla", "vlm", "robotic manipulation",
+                "real robot", "physical robot", "grasp pose", "grasp re ranking", "grasp reranking"
+            ]
+            let laterTimelineIndicators = [
+                "later", "during my msc", "during the msc", "at manchester",
+                "after starting", "since starting", "developed through the msc"
+            ]
+            let mentionsRobotics = roboticsIndicators.contains { lowerAnswer.contains($0) }
+            let marksRoboticsAsLater = laterTimelineIndicators.contains { lowerAnswer.contains($0) }
+            if mentionsRobotics && !marksRoboticsAsLater {
+                violations.append("robotics or VLA work is not explicitly placed after the pre-MSc period")
+            }
+        }
+        if rubric.intent == .tactileLearningPlan,
+           !["calibration", "calibrate"].contains(where: { lowerAnswer.contains($0) }) {
+            violations.append("tactile learning plan omits sensor calibration")
+        }
+        if containsUnsupportedNumericMetric(answer) {
+            violations.append("answer contains an unverified numeric performance metric")
+        }
+        if rubric.intent == .graspResearch,
+           containsUnsupportedCompletedRealRobotClaim(lowerAnswer) {
+            violations.append("answer presents planned real-robot validation as a completed result")
+        }
         let firstPerson = containsFirstPerson(answer)
         let generic = QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer)
         let matchCount = matches.filter { $0 }.count
@@ -276,10 +353,22 @@ enum PhDInterviewRubricPolicy {
                 "Vision provides target and scene information before contact.",
                 "Tactile feedback provides contact location, force, slip, pressure, and stability for closed-loop adaptation."
             ]
+        case .tactileSlipResponse:
+            return [
+                "Confirm the slip signal, then cautiously adjust grip force or contact pose rather than applying uncontrolled force.",
+                "If the grasp remains unstable, reposition or regrasp, replan through the closed loop, and stop safely when recovery is not possible."
+            ]
         case .tactileExperience:
             return [
                 "Tactile knowledge currently comes from reading, not hands-on hardware work.",
-                "A credible first-six-month plan starts with sensor calibration and controlled contact experiments, then a small ROS2 manipulation loop before larger tasks."
+                "Relevant perception, manipulation, and ROS2 experience can transfer while tactile hardware skills are developed experimentally."
+            ]
+        case .tactileLearningPlan:
+            return [
+                "Tactile knowledge currently comes from reading, not hands-on hardware work.",
+                "A credible first-six-month plan starts with tactile sensor calibration, controlled contact and slip experiments, data acquisition, and signal processing.",
+                "Integrate those observations into a small ROS2 manipulation loop with supervisor or lab guidance before larger tasks.",
+                "Do not substitute an old mobile-robot platform, camera calibration, or IMU calibration for tactile hardware work."
             ]
         case .realRobotExperience:
             return [
@@ -301,7 +390,8 @@ enum PhDInterviewRubricPolicy {
             return [
                 "The current contribution is semantic and geometric re-ranking of grasp candidates for a referred target.",
                 "Evidence includes detector confidence, target overlap, semantic consistency, gripper clearance, and collision risk.",
-                "Real-robot validation should prioritize grounding errors, calibration and geometry errors, collision or clearance failures, and execution recovery."
+                "This current re-ranking method has not yet been validated on a real robot; describe real-robot evaluation in future tense.",
+                "Future real-robot validation should prioritize grounding errors, calibration and geometry errors, collision or clearance failures, and execution recovery."
             ]
         }
     }
@@ -324,6 +414,24 @@ enum PhDInterviewRubricPolicy {
             }
         }
         return false
+    }
+
+    private static func containsUnsupportedNumericMetric(_ text: String) -> Bool {
+        let pattern = #"(?:\b\d+(?:\.\d+)?\s*(?:%|ms\b|milliseconds?\b|fps\b|hz\b)|\b\d+(?:\.\d+)?\s+percent(?:age)?\b)"#
+        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private static func containsUnsupportedCompletedRealRobotClaim(_ normalizedAnswer: String) -> Bool {
+        guard normalizedAnswer.contains("real robot") else { return false }
+        let completedResultIndicators = [
+            "i demonstrated", "we demonstrated", "i achieved", "we achieved",
+            "i validated", "we validated", "i have validated", "we have validated",
+            "during real robot validation", "demonstrated improved",
+            "integrated it into a real robot pipeline",
+            "integrated these constraints into a real robot pipeline",
+            "significantly improved reliability"
+        ]
+        return completedResultIndicators.contains { normalizedAnswer.contains($0) }
     }
 
     private static func normalize(_ text: String) -> String {
