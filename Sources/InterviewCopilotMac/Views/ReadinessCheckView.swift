@@ -7,6 +7,7 @@ struct ReadinessCheckView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                contextSummary
                 resultCard
                 BuildIdentityCardView(identity: appState.buildIdentity, compact: true)
                 checklist
@@ -18,6 +19,19 @@ struct ReadinessCheckView: View {
         .onAppear {
             appState.refreshPermissions()
         }
+    }
+
+    private var contextSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Interview Context", systemImage: "person.text.rectangle")
+                .font(.headline)
+            Text("Candidate: \(appState.candidateProfiles.first(where: { $0.id == appState.activeCandidateProfileID })?.displayName ?? "Missing")")
+            Text("Opportunity: \(appState.opportunityContexts.first(where: { $0.id == appState.activeOpportunityContextID })?.title ?? "General / None")")
+            Text("Domain: \(appState.activeInterviewDomainID.displayName)")
+            Text("Facts: \(appState.contextReadiness.candidateFactCount) candidate, \(appState.contextReadiness.opportunityRequirementCount) opportunity, \(appState.contextReadiness.uncertainFactCount) uncertain")
+                .foregroundStyle(.secondary)
+        }
+        .font(.callout)
     }
 
     private var header: some View {

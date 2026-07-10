@@ -8,9 +8,13 @@ final class SessionRepository {
         self.database = database
     }
 
-    func createSession(mode: InterviewMode, title: String? = nil) throws -> InterviewSession {
+    func createSession(
+        mode: InterviewMode,
+        title: String? = nil,
+        contextSelection: InterviewContextSelection? = nil
+    ) throws -> InterviewSession {
         let now = Date()
-        let session = InterviewSession(
+        var session = InterviewSession(
             id: UUID().uuidString,
             title: title ?? "Interview \(Self.titleDateFormatter.string(from: now))",
             company: nil,
@@ -18,13 +22,14 @@ final class SessionRepository {
             startedAt: now,
             endedAt: nil,
             mode: mode,
-            createdAt: now
+            createdAt: now,
+            contextSnapshotID: nil
         )
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at, context_snapshot_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     session.id,
@@ -34,9 +39,23 @@ final class SessionRepository {
                     DateCoding.string(from: session.startedAt),
                     nil,
                     session.mode.rawValue,
-                    DateCoding.string(from: session.createdAt)
+                    DateCoding.string(from: session.createdAt),
+                    nil
                 ]
             )
+            if let contextSelection {
+                let snapshot = try InterviewContextRepository.makeSnapshot(
+                    db: db,
+                    sessionID: session.id,
+                    selection: contextSelection
+                )
+                try InterviewContextRepository.insertSnapshot(snapshot, db: db)
+                try db.execute(
+                    sql: "UPDATE interview_sessions SET context_snapshot_id = ? WHERE id = ?",
+                    arguments: [snapshot.id, session.id]
+                )
+                session.contextSnapshotID = snapshot.id
+            }
         }
         return session
     }
@@ -46,6 +65,15 @@ final class SessionRepository {
             try db.execute(
                 sql: "UPDATE interview_sessions SET ended_at = ? WHERE id = ?",
                 arguments: [DateCoding.string(from: Date()), id]
+            )
+        }
+    }
+
+    func attachContextSnapshot(sessionID: String, snapshotID: String) throws {
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE interview_sessions SET context_snapshot_id = ? WHERE id = ?",
+                arguments: [snapshotID, sessionID]
             )
         }
     }
@@ -93,7 +121,8 @@ final class SessionRepository {
             startedAt: DateCoding.date(from: row["started_at"]),
             endedAt: endedAtString.map(DateCoding.date),
             mode: InterviewMode(rawValue: row["mode"]) ?? .mock,
-            createdAt: DateCoding.date(from: row["created_at"])
+            createdAt: DateCoding.date(from: row["created_at"]),
+            contextSnapshotID: row["context_snapshot_id"]
         )
     }
 }

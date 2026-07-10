@@ -22,7 +22,8 @@ enum PromptContextBuilder {
         transcriptContext: String,
         cvSummary: String,
         jdSummary: String,
-        stage: AnswerPromptStage
+        stage: AnswerPromptStage,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) -> AnswerPromptSnapshot {
         let questionTextSnapshot = question.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let intent = QuestionIntentPromptPolicy.intent(for: questionTextSnapshot)
@@ -42,6 +43,7 @@ enum PromptContextBuilder {
             stage: stage
         )
         let chunkIntents = chunkIntents(from: filteredContext)
+        let includedChunkIDs = Set(chunkIDs(from: filteredContext))
         return AnswerPromptSnapshot(
             detectedQuestionID: question.id,
             questionTextSnapshot: questionTextSnapshot,
@@ -58,7 +60,15 @@ enum PromptContextBuilder {
             previousQuestionIncluded: background.included,
             previousQuestionText: background.previousQuestionText,
             contextBleedRisk: background.risk,
-            promptTokenEstimate: estimateTokens(prompt)
+            promptTokenEstimate: estimateTokens(prompt),
+            contextSnapshotID: interviewContextSnapshot?.id,
+            candidateProfileID: interviewContextSnapshot?.candidateProfileID,
+            candidateProfileVersion: interviewContextSnapshot?.candidateProfileVersion,
+            opportunityContextID: interviewContextSnapshot?.opportunityContextID,
+            opportunityContextVersion: interviewContextSnapshot?.opportunityContextVersion,
+            domainProfileID: interviewContextSnapshot?.domainProfileID,
+            candidateEvidenceIDs: interviewContextSnapshot?.candidateEvidence.map(\.id).filter(includedChunkIDs.contains) ?? [],
+            opportunityEvidenceIDs: interviewContextSnapshot?.opportunityEvidence.map(\.id).filter(includedChunkIDs.contains) ?? []
         )
     }
 
@@ -73,7 +83,8 @@ enum PromptContextBuilder {
         transcriptContext: String,
         cvSummary: String,
         jdSummary: String,
-        stage: AnswerPromptStage
+        stage: AnswerPromptStage,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) -> GenerationRequestSnapshot {
         let prompt = promptSnapshot(
             question: question,
@@ -81,7 +92,8 @@ enum PromptContextBuilder {
             transcriptContext: transcriptContext,
             cvSummary: cvSummary,
             jdSummary: jdSummary,
-            stage: stage
+            stage: stage,
+            interviewContextSnapshot: interviewContextSnapshot
         )
         return GenerationRequestSnapshot(
             detectedQuestionID: question.id,
@@ -95,7 +107,13 @@ enum PromptContextBuilder {
             triggerPath: triggerPath,
             acceptedAt: acceptedAt,
             ragContextSnapshot: prompt.ragContextSnapshot,
-            promptSnapshot: prompt
+            promptSnapshot: prompt,
+            contextSnapshotID: interviewContextSnapshot?.id,
+            candidateProfileID: interviewContextSnapshot?.candidateProfileID,
+            candidateProfileVersion: interviewContextSnapshot?.candidateProfileVersion,
+            opportunityContextID: interviewContextSnapshot?.opportunityContextID,
+            opportunityContextVersion: interviewContextSnapshot?.opportunityContextVersion,
+            domainProfileID: interviewContextSnapshot?.domainProfileID
         )
     }
 
@@ -291,7 +309,6 @@ enum PromptContextBuilder {
         " " + text
             .lowercased()
             .replacingOccurrences(of: "c++", with: "c plus plus")
-            .replacingOccurrences(of: "ros 2", with: "ros2")
             .replacingOccurrences(of: "\n", with: " ")
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }

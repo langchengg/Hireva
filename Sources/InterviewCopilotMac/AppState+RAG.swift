@@ -20,7 +20,12 @@ extension AppState {
         intent: AnswerRelevanceIntent
     ) -> String {
         let normalized = AnswerRelevancePolicy.normalizedQuestionText(for: questionText)
-        return [segmentID, intent.rawValue, normalizedTextHash(normalized)].joined(separator: "_")
+        return [
+            activeContextSnapshot?.id ?? currentSession?.contextSnapshotID ?? "legacy-context",
+            segmentID,
+            intent.rawValue,
+            normalizedTextHash(normalized)
+        ].joined(separator: "_")
     }
 
     // internal for AppState extension access only

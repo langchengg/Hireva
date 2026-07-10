@@ -187,7 +187,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                             kwScore -= 9999.0 // strongly penalize formatting chunks
                         }
                     case .projectWalkthrough:
-                        if contentLower.contains("project") || contentLower.contains("grasping") || contentLower.contains("thesis") || contentLower.contains("robotics") || contentLower.contains("vlm") || contentLower.contains("ros2") {
+                        if contentLower.contains("project") || contentLower.contains("built") || contentLower.contains("developed") || contentLower.contains("implemented") || contentLower.contains("result") || contentLower.contains("outcome") {
                             kwScore += 10.0
                         }
                     case .technicalChallenge:

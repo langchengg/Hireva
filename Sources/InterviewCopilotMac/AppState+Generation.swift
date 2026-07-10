@@ -28,7 +28,7 @@ func manualAnswerNow() {
         showError(message)
         return
     }
-    guard let session = currentSession ?? (try? sessionRepository.createSession(mode: .mock)) else {
+    guard let session = currentSession ?? (try? createContextBoundSession(mode: .mock)) else {
         let message = "Could not create an interview session."
         failAction(ActionID.generateAnswer, title: "Generation failed", message: message)
         showError(message)
@@ -83,7 +83,7 @@ func regenerateVisibleSuggestion() {
         showError(message)
         return
     }
-    guard let session = currentSession ?? (try? sessionRepository.createSession(mode: .mock)) else {
+    guard let session = currentSession ?? (try? createContextBoundSession(mode: .mock)) else {
         let message = "Could not create an interview session."
         failAction(ActionID.generateAnswer, title: "Generation failed", message: message)
         showError(message)
@@ -547,14 +547,22 @@ func makeInitialFirstAnswerFallbackCard(
     session: InterviewSession,
     requestStart: Date
 ) -> SuggestionCard {
-    let answer = initialFallbackSayFirst(for: question)
-    return SuggestionCard(
+    let grounded = groundedFallback(
+        for: question.questionText,
+        contextSnapshotID: session.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID
+    )
+    let answer = grounded?.result.answer ?? ""
+    let keyPoints: [String] = grounded.map { grounded in
+        let selected = Set(grounded.result.candidateEvidenceIDs)
+        return grounded.snapshot.candidateEvidence.filter { selected.contains($0.id) }.map(\.statement)
+    } ?? []
+    var card = SuggestionCard(
         id: cardID,
         sessionID: session.id,
         questionID: question.id,
         strategy: "Local First Answer Fallback",
-        sayFirst: answer.sayFirst,
-        keyPoints: answer.keyPoints,
+        sayFirst: answer,
+        keyPoints: keyPoints,
         followUpReady: ["I can expand with a concrete example if helpful."],
         confidence: 0.45,
         caution: "Fast local answer shown while the full answer is still generating.",
@@ -592,11 +600,24 @@ func makeInitialFirstAnswerFallbackCard(
         deepseekFirstVisibleMS: nil,
         finalVisibleSource: "local_first_answer_fallback"
     )
-}
-
-private func initialFallbackSayFirst(for question: DetectedQuestion) -> (sayFirst: String, keyPoints: [String]) {
-    let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-    return (fallback.sayFirst, fallback.keyPoints)
+    if let grounded {
+        card.contextSnapshotID = grounded.snapshot.id
+        card.candidateProfileID = grounded.snapshot.candidateProfileID
+        card.candidateProfileVersion = grounded.snapshot.candidateProfileVersion
+        card.opportunityContextID = grounded.snapshot.opportunityContextID
+        card.opportunityContextVersion = grounded.snapshot.opportunityContextVersion
+        card.domainProfileID = grounded.snapshot.domainProfileID
+        card.candidateEvidenceIDs = grounded.result.candidateEvidenceIDs
+        card.opportunityEvidenceIDs = grounded.result.opportunityEvidenceIDs
+        card.groundingDecision = grounded.result.groundingDecision
+        card.unsupportedClaimCount = grounded.result.unsupportedClaims.count
+        card.contextIsolationStatus = "matched"
+    } else {
+        card.groundingDecision = "context_snapshot_missing"
+        card.unsupportedClaimCount = 0
+        card.contextIsolationStatus = "missing"
+    }
+    return card
 }
 
 // internal for AppState extension access only
@@ -1007,7 +1028,8 @@ func activateGeneration(
         identity: GenerationIdentity(
             question: question,
             generationID: generationID,
-            promptPrimaryQuestion: question.questionText
+            promptPrimaryQuestion: question.questionText,
+            contextSnapshotID: activeContextSnapshot?.id ?? currentSession?.contextSnapshotID
         ),
         generationID: generationID,
         questionID: question.id,
@@ -1058,6 +1080,11 @@ func isActiveGeneration(_ generationID: String, questionID: String) -> Bool {
     isActiveGeneration(generationID) && activeGenerationController?.questionID == questionID && activeQuestionID == questionID
 }
 
+func isActiveGeneration(_ identity: GenerationIdentity) -> Bool {
+    guard let current = activeGenerationController?.identity else { return false }
+    return identity.mismatchReason(comparedTo: current) == nil
+}
+
 // internal for AppState extension access only
 func visibleCardMatchesGeneration(
     card: SuggestionCard,
@@ -1077,6 +1104,10 @@ func visibleCardMatchesGeneration(
             return false
         }
         if controller.identity.sessionID != card.sessionID {
+            return false
+        }
+        if let cardSnapshotID = card.contextSnapshotID,
+           controller.identity.contextSnapshotID != cardSnapshotID {
             return false
         }
         if let cardIntent = card.questionIntent,
@@ -1234,6 +1265,28 @@ func displaySuggestionIfAligned(
         boundCard.ragChunkIntents = currentRAGChunkIntents
     }
     boundCard.firstQuestionSuppressedReason = boundCard.firstQuestionSuppressedReason ?? (currentFirstQuestionSuppressedReason.isEmpty ? nil : currentFirstQuestionSuppressedReason)
+    let expectedSnapshotID = boundCard.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID
+    let boundSnapshot = expectedSnapshotID.flatMap { try? interviewContextRepository.snapshot(id: $0) }
+    if expectedSnapshotID != nil, boundSnapshot == nil {
+        boundCard.contextIsolationStatus = "snapshot_missing"
+        recordAlignmentMismatch("Suggestion context snapshot could not be loaded.")
+        return false
+    }
+    if let snapshot = boundSnapshot {
+        boundCard.contextSnapshotID = snapshot.id
+        boundCard.candidateProfileID = snapshot.candidateProfileID
+        boundCard.candidateProfileVersion = snapshot.candidateProfileVersion
+        boundCard.opportunityContextID = snapshot.opportunityContextID
+        boundCard.opportunityContextVersion = snapshot.opportunityContextVersion
+        boundCard.domainProfileID = snapshot.domainProfileID
+        if boundCard.candidateEvidenceIDs.isEmpty {
+            boundCard.candidateEvidenceIDs = currentRAGChunkIDs.filter { id in snapshot.candidateEvidence.contains(where: { $0.id == id }) }
+        }
+        if boundCard.opportunityEvidenceIDs.isEmpty {
+            boundCard.opportunityEvidenceIDs = currentRAGChunkIDs.filter { id in snapshot.opportunityEvidence.contains(where: { $0.id == id }) }
+        }
+        boundCard.contextIsolationStatus = "matched"
+    }
 
     if let generationID, !allowInactiveGeneration,
        !visibleCardMatchesGeneration(
@@ -1253,27 +1306,42 @@ func displaySuggestionIfAligned(
     // on its own. This is especially important for model-comparison questions
     // where generic "I would explain..." output is not usable in an interview.
     let answerText = ([boundCard.sayFirst] + boundCard.keyPoints + boundCard.followUpReady).joined(separator: " ")
+    if let snapshot = boundSnapshot {
+        let profileIndependentIntents: Set<AnswerRelevanceIntent> = [.candidateQuestions, .interviewerQuestions]
+        let answerIntent = boundCard.questionIntent ?? AnswerRelevancePolicy.intent(for: question.questionText)
+        if snapshot.candidateProfileID == nil, !profileIndependentIntents.contains(answerIntent) {
+            boundCard.groundingDecision = "candidate_context_missing"
+            boundCard.unsupportedClaimCount = 0
+            recordAlignmentMismatch("Candidate-specific answer rejected because the session snapshot has no candidate profile.")
+            return false
+        }
+
+        let grounding = AnswerClaimValidator().validate(
+            answer: answerText,
+            candidateEvidence: snapshot.candidateEvidence,
+            opportunityEvidence: snapshot.opportunityEvidence,
+            domainKnowledge: InterviewDomainProfile.profile(
+                for: InterviewDomainID(rawValue: snapshot.domainProfileID) ?? .general
+            ).domainKnowledge
+        )
+        boundCard.groundingDecision = grounding.groundingDecision
+        boundCard.unsupportedClaimCount = grounding.unsupportedClaims.count
+        if boundCard.candidateEvidenceIDs.isEmpty {
+            boundCard.candidateEvidenceIDs = grounding.supportingCandidateEvidenceIDs
+        }
+        guard grounding.unsupportedClaims.isEmpty else {
+            recordAlignmentMismatch("Provider answer rejected because it contained unsupported personal claims.")
+            return false
+        }
+    }
     let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
         questionText: question.questionText,
         answerText: answerText,
         sayFirst: boundCard.sayFirst,
         stageBCompleted: boundCard.stageBCompleted ?? true
     )
-    let phdQuality: PhDAnswerQualityResult? = {
-        guard interviewContextMode == .phdRobotics,
-              PhDInterviewRubricPolicy.rubric(for: question.questionText) != nil else {
-            return nil
-        }
-        return PhDInterviewRubricPolicy.evaluate(question: question.questionText, answer: answerText)
-    }()
-    let effectiveAlignmentPassed = phdQuality?.passed ?? (alignment.verdict == .aligned)
-    var effectiveAlignment = alignment
-    if effectiveAlignmentPassed, phdQuality != nil {
-        effectiveAlignment.score = max(alignment.score, 0.9)
-        effectiveAlignment.verdict = .aligned
-        effectiveAlignment.reason = "Specialized PhD evidence rubric passed."
-        effectiveAlignment.wrongAnswerIndicators = []
-    }
+    let effectiveAlignmentPassed = alignment.verdict == .aligned
+    let effectiveAlignment = alignment
     boundCard.alignmentScore = effectiveAlignment.score
     boundCard.alignmentVerdict = effectiveAlignment.verdict
     boundCard.answerIntent = effectiveAlignment.answerIntent
@@ -1445,14 +1513,19 @@ private func makeSemanticFallbackCard(
     speaker: SpeakerRole?,
     mismatchReason: String
 ) -> SuggestionCard {
-    let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-    return SuggestionCard(
+    let grounded = groundedFallback(
+        for: question.questionText,
+        contextSnapshotID: card.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID
+    )
+    let selected = Set(grounded?.result.candidateEvidenceIDs ?? [])
+    let keyPoints: [String] = grounded?.snapshot.candidateEvidence.filter { selected.contains($0.id) }.map(\.statement) ?? []
+    var fallbackCard = SuggestionCard(
         id: card.id,
         sessionID: card.sessionID,
         questionID: question.id,
         strategy: "Semantic Alignment Fallback",
-        sayFirst: fallback.sayFirst,
-        keyPoints: fallback.keyPoints,
+        sayFirst: grounded?.result.answer ?? "",
+        keyPoints: keyPoints,
         followUpReady: [],
         confidence: min(card.confidence ?? 0.6, 0.7),
         caution: "Generated answer did not align with question; using fallback.",
@@ -1511,6 +1584,24 @@ private func makeSemanticFallbackCard(
         stageBStreamStartedMS: card.stageBStreamStartedMS,
         stageBFirstSectionMS: card.stageBFirstSectionMS
     )
+    if let grounded {
+        fallbackCard.contextSnapshotID = grounded.snapshot.id
+        fallbackCard.candidateProfileID = grounded.snapshot.candidateProfileID
+        fallbackCard.candidateProfileVersion = grounded.snapshot.candidateProfileVersion
+        fallbackCard.opportunityContextID = grounded.snapshot.opportunityContextID
+        fallbackCard.opportunityContextVersion = grounded.snapshot.opportunityContextVersion
+        fallbackCard.domainProfileID = grounded.snapshot.domainProfileID
+        fallbackCard.candidateEvidenceIDs = grounded.result.candidateEvidenceIDs
+        fallbackCard.opportunityEvidenceIDs = grounded.result.opportunityEvidenceIDs
+        fallbackCard.groundingDecision = grounded.result.groundingDecision
+        fallbackCard.unsupportedClaimCount = grounded.result.unsupportedClaims.count
+        fallbackCard.contextIsolationStatus = "matched"
+    } else {
+        fallbackCard.groundingDecision = "context_snapshot_missing"
+        fallbackCard.unsupportedClaimCount = 0
+        fallbackCard.contextIsolationStatus = "missing"
+    }
+    return fallbackCard
 }
 
 private func recordAlignmentMismatch(_ message: String, stale: Bool = false) {
@@ -2317,6 +2408,10 @@ private func applyStreamingSections(
     }
 
     card.stageBStreamStartedMS = card.stageBStreamStartedMS ?? stageBStreamStartedMS
+    if card.stageBCompleted == nil {
+        card.stageBCompleted = markFullCardVisible
+        card.stageBStatus = markFullCardVisible ? "completed" : "streaming"
+    }
     if sections.hasVisibleContent {
         card.stageBFirstSectionMS = card.stageBFirstSectionMS ?? nowMS
         if !preserveExistingSayFirst || card.sayFirstSource == "deepseek_stream" {
@@ -3155,10 +3250,8 @@ func persistSuggestionInBackground(
         )
         return
     }
-    let specializedAlignmentOverride = phdPersistenceAlignmentOverride(for: card)
     let persistenceGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(
-        card,
-        alignmentOverride: specializedAlignmentOverride
+        card
     )
     guard persistenceGuard.accepted else {
         if let fallback = localTimeoutFallbackForRejectedPersistence(
@@ -3236,8 +3329,7 @@ func persistSuggestionInBackground(
                 sourceCallback: "detached_persistence_validation"
             )) else { return }
             let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(
-                persistedCard,
-                alignmentOverride: specializedAlignmentOverride
+                persistedCard
             )
             guard detachedGuard.accepted else {
                 await MainActor.run { [weak self] in
@@ -3319,29 +3411,6 @@ func persistSuggestionInBackground(
             }
         }
     }
-}
-
-private func phdPersistenceAlignmentOverride(for card: SuggestionCard) -> AnswerAlignmentResult? {
-    guard interviewContextMode == .phdRobotics else { return nil }
-    let questionText = card.questionText ?? card.promptPrimaryQuestion ?? card.promptQuestionText ?? ""
-    guard PhDInterviewRubricPolicy.rubric(for: questionText) != nil else { return nil }
-
-    let answerText = ([card.sayFirst] + card.keyPoints + card.followUpReady).joined(separator: " ")
-    guard PhDInterviewRubricPolicy.evaluate(question: questionText, answer: answerText).passed else {
-        return nil
-    }
-
-    var alignment = QuestionAnswerAlignmentEvaluator.evaluate(
-        questionText: questionText,
-        answerText: answerText,
-        sayFirst: card.sayFirst,
-        stageBCompleted: card.stageBCompleted ?? true
-    )
-    alignment.score = max(alignment.score, 0.9)
-    alignment.verdict = .aligned
-    alignment.reason = "Specialized PhD evidence rubric passed."
-    alignment.wrongAnswerIndicators = []
-    return alignment
 }
 
 private func localTimeoutFallbackForRejectedPersistence(
@@ -3513,6 +3582,7 @@ func claimSuggestionPersistence(_ card: SuggestionCard, generationID: String?) -
     }
     let logicalKey = [
         identity.sessionID,
+        identity.contextSnapshotID ?? "legacy-context",
         identity.normalizedQuestionText
     ].joined(separator: "|")
 

@@ -220,7 +220,7 @@ extension AppState {
                 session = reusableSession
             } else {
                 resetLiveContextForFreshSession()
-                session = try sessionRepository.createSession(mode: mode)
+                session = try createContextBoundSession(mode: mode)
             }
             currentSession = session
             if transcriptSegments.isEmpty {

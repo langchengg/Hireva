@@ -319,7 +319,7 @@ final class SuggestionGenerationService {
             let firstTwo = sentences.prefix(2).joined(separator: ". ") + "."
             sayFirst = firstTwo
         } else {
-            sayFirst = "To answer this, focus on explaining key requirements and relevant experience."
+            sayFirst = ""
         }
         
         var keyPoints: [String] = []
@@ -341,7 +341,7 @@ final class SuggestionGenerationService {
             keyPoints = Array(keyPoints.prefix(4))
         }
         if keyPoints.isEmpty {
-            keyPoints = ["Refer to CV experiences details.", "Grasp core requirements in the JD."]
+            keyPoints = []
         }
         
         return SuggestionCardPayload(

@@ -15,7 +15,7 @@ extension AppState {
         ) { [weak self] notification in
             let question = notification.userInfo?["question"] as? String ??
                 UserDefaults.standard.string(forKey: Self.liveSystemAudioDiagnosticQuestionKey) ??
-                "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+                "How did your system connect input processing with planning, execution, and recovery?"
             Task { @MainActor [weak self] in
                 await self?.runLiveSystemAudioFinalCallbackDiagnostic(question: question)
             }
@@ -29,7 +29,7 @@ extension AppState {
         guard defaults.bool(forKey: Self.liveSystemAudioDiagnosticRunKey) else { return }
         defaults.set(false, forKey: Self.liveSystemAudioDiagnosticRunKey)
         let question = defaults.string(forKey: Self.liveSystemAudioDiagnosticQuestionKey) ??
-            "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+            "How did your system connect input processing with planning, execution, and recovery?"
         Task { [weak self] in
             await self?.runLiveSystemAudioFinalCallbackDiagnostic(question: question)
         }
@@ -57,7 +57,7 @@ extension AppState {
             if let currentSession, currentSession.endedAt == nil {
                 session = currentSession
             } else {
-                session = try sessionRepository.createSession(mode: .microphone, title: "Live System Audio Diagnostic")
+                session = try createContextBoundSession(mode: .microphone, title: "Live System Audio Diagnostic")
                 currentSession = session
             }
 

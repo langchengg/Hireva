@@ -73,6 +73,10 @@ struct HomeView: View {
                 metric("Capture mode", appState.settings.audioCaptureMode.shortDisplayName, "waveform.and.mic")
                 metric("DeepSeek", appState.deepSeekConfigured ? "Configured" : "Missing", appState.deepSeekConfigured ? "lock.fill" : "key")
                 metric("Relevant context", appState.userFacingRelevantContextStatus, "doc.text.magnifyingglass")
+                metric("Candidate", appState.candidateProfiles.first(where: { $0.id == appState.activeCandidateProfileID })?.displayName ?? "Missing", "person.crop.circle")
+                metric("Opportunity", appState.opportunityContexts.first(where: { $0.id == appState.activeOpportunityContextID })?.title ?? "General", "briefcase")
+                metric("Domain", appState.activeInterviewDomainID.displayName, "square.grid.2x2")
+                metric("Context readiness", contextReadinessTitle, "checkmark.shield")
                 metric("Permissions", appState.permissionSummary, "hand.raised")
                 metric("Floating panel", appState.isFloatingAssistantVisible ? "Visible" : "Hidden", "macwindow")
             }
@@ -120,6 +124,14 @@ struct HomeView: View {
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var contextReadinessTitle: String {
+        switch appState.contextReadiness.status {
+        case .ready: return "Ready"
+        case .needsReview: return "Needs Review"
+        case .missing: return "Missing"
+        }
     }
 
     private var primaryAction: some View {

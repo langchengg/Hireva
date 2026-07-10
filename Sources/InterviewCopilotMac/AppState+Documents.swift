@@ -14,6 +14,7 @@ extension AppState {
                 return
             }
             let saved = try documentRepository.saveDocument(type: type, title: title, content: content)
+            try ingestDocumentIntoActiveContext(saved)
             refreshAll()
             triggerEmbeddingGeneration(for: type)
             if saved.sanitizationWarnings?.isEmpty == false {

@@ -93,6 +93,14 @@ enum QuestionCandidatePipeline {
                 }
                 continue
             }
+            if questions.contains(where: { existing in
+                let overlaps = max(existing.sourceStartUTF16, extracted.sourceStartUTF16) < min(existing.sourceEndUTF16, extracted.sourceEndUTF16)
+                let existingText = existing.text.lowercased()
+                let extractedText = extracted.text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "?.! "))
+                return overlaps && extractedText.split(whereSeparator: \.isWhitespace).count <= 5 && existingText.contains(extractedText)
+            }) {
+                continue
+            }
             // Keep semantically repeated questions when they occupy distinct
             // source spans. Ingress provenance decides whether the later span
             // is an intentional repeat or cumulative replay.
@@ -113,12 +121,11 @@ enum QuestionCandidatePipeline {
         if lowerTail.hasPrefix("what made ") {
             return prefix.contains("system") ||
                 prefix.contains("project") ||
-                prefix.contains("pipeline") ||
-                prefix.contains("leorover")
+                prefix.contains("pipeline")
         }
-        return prefix.hasPrefix("what did you do before manchester") &&
-            lowerTail.hasPrefix("were you with robotics") &&
-            (lowerTail.contains("background") || lowerTail.contains("projects"))
+        return prefix.hasPrefix("what did you do before") &&
+            lowerTail.hasPrefix("were you") &&
+            (lowerTail.contains("background") || lowerTail.contains("projects") || lowerTail.contains("experience"))
     }
 }
 
@@ -371,6 +378,9 @@ enum MultiQuestionSplitter {
     private static func isEmbeddedAuxiliaryTail(previousClause: String, currentClause: String) -> Bool {
         let previous = previousClause.trimmingCharacters(in: .whitespacesAndNewlines)
         let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        if current.hasPrefix("were you involved with"), current.split(whereSeparator: \.isWhitespace).count <= 5 {
+            return true
+        }
         let whPrefixes = ["what ", "which ", "how ", "why ", "where ", "when ", "who "]
         let auxiliaryTails = [
             "would you ", "could you ", "should you ",
@@ -567,11 +577,10 @@ enum MultiQuestionSplitter {
     private static func isBackgroundCompoundContinuation(previousClause: String, currentClause: String) -> Bool {
         let previous = previousClause.trimmingCharacters(in: .whitespacesAndNewlines)
         let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard previous.hasPrefix("what did you do before manchester") else { return false }
-        if current.hasPrefix("were you with robotics") {
-            return current.contains("background") || current.contains("projects")
+        if previous.hasPrefix("what did you do before"), current.hasPrefix("were you") {
+            return current.contains("background") || current.contains("projects") || current.contains("experience")
         }
-        guard previous.contains("were you with robotics") else { return false }
+        guard previous.contains("were you") || previous.contains("background") || previous.contains("what projects") else { return false }
         return current.hasPrefix("what was your background") ||
             current.hasPrefix("what projects") ||
             current.hasPrefix("were you involved")

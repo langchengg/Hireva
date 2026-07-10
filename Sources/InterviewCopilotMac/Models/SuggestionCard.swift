@@ -94,6 +94,19 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
 
     // In-memory flag to prevent persisting partial ASR results to DB
     var isPartial: Bool = false
+
+    // Immutable candidate/opportunity ownership and grounding provenance.
+    var contextSnapshotID: String? = nil
+    var candidateProfileID: String? = nil
+    var candidateProfileVersion: Int? = nil
+    var opportunityContextID: String? = nil
+    var opportunityContextVersion: Int? = nil
+    var domainProfileID: String? = nil
+    var candidateEvidenceIDs: [String] = []
+    var opportunityEvidenceIDs: [String] = []
+    var groundingDecision: String? = nil
+    var unsupportedClaimCount: Int? = nil
+    var contextIsolationStatus: String? = nil
 }
 
 /// JSON payload expected from full-card provider generation.

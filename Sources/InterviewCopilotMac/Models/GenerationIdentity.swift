@@ -13,6 +13,7 @@ struct GenerationIdentity: Equatable, Hashable {
     let questionIntent: AnswerRelevanceIntent
     let promptPrimaryQuestion: String
     let ingressIdentity: TranscriptQuestionIngressIdentity?
+    let contextSnapshotID: String?
 
     init(
         acceptedQuestionID: String,
@@ -22,7 +23,8 @@ struct GenerationIdentity: Equatable, Hashable {
         normalizedQuestionText: String? = nil,
         questionIntent: AnswerRelevanceIntent? = nil,
         promptPrimaryQuestion: String,
-        ingressIdentity: TranscriptQuestionIngressIdentity? = nil
+        ingressIdentity: TranscriptQuestionIngressIdentity? = nil,
+        contextSnapshotID: String? = nil
     ) {
         self.acceptedQuestionID = acceptedQuestionID
         self.generationID = generationID
@@ -32,9 +34,15 @@ struct GenerationIdentity: Equatable, Hashable {
         self.questionIntent = questionIntent ?? AnswerRelevancePolicy.intent(for: questionText)
         self.promptPrimaryQuestion = promptPrimaryQuestion
         self.ingressIdentity = ingressIdentity
+        self.contextSnapshotID = contextSnapshotID
     }
 
-    init(question: DetectedQuestion, generationID: String, promptPrimaryQuestion: String? = nil) {
+    init(
+        question: DetectedQuestion,
+        generationID: String,
+        promptPrimaryQuestion: String? = nil,
+        contextSnapshotID: String? = nil
+    ) {
         self.init(
             acceptedQuestionID: question.id,
             generationID: generationID,
@@ -42,7 +50,8 @@ struct GenerationIdentity: Equatable, Hashable {
             questionText: question.questionText,
             questionIntent: AnswerRelevancePolicy.intent(for: question.questionText),
             promptPrimaryQuestion: promptPrimaryQuestion ?? question.questionText,
-            ingressIdentity: question.ingressIdentity
+            ingressIdentity: question.ingressIdentity,
+            contextSnapshotID: contextSnapshotID
         )
     }
 
@@ -62,7 +71,8 @@ struct GenerationIdentity: Equatable, Hashable {
             questionText: questionText,
             questionIntent: card.questionIntent ?? AnswerRelevancePolicy.intent(for: questionText),
             promptPrimaryQuestion: promptPrimaryQuestion,
-            ingressIdentity: card.ingressIdentity
+            ingressIdentity: card.ingressIdentity,
+            contextSnapshotID: card.contextSnapshotID
         )
     }
 
@@ -70,6 +80,7 @@ struct GenerationIdentity: Equatable, Hashable {
         if acceptedQuestionID != current.acceptedQuestionID { return "accepted_question_id_mismatch" }
         if generationID != current.generationID { return "generation_id_mismatch" }
         if sessionID != current.sessionID { return "session_id_mismatch" }
+        if contextSnapshotID != current.contextSnapshotID { return "context_snapshot_id_mismatch" }
         if normalizedQuestionText != current.normalizedQuestionText { return "normalized_question_text_mismatch" }
         if ingressIdentity != current.ingressIdentity { return "transcript_ingress_identity_mismatch" }
         if questionIntent != current.questionIntent { return "question_intent_mismatch" }

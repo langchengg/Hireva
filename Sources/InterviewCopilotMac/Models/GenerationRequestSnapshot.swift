@@ -42,6 +42,14 @@ struct AnswerPromptSnapshot: Equatable {
     var previousQuestionText: String?
     var contextBleedRisk: ContextBleedRisk
     var promptTokenEstimate: Int
+    var contextSnapshotID: String?
+    var candidateProfileID: String?
+    var candidateProfileVersion: Int?
+    var opportunityContextID: String?
+    var opportunityContextVersion: Int?
+    var domainProfileID: String?
+    var candidateEvidenceIDs: [String]
+    var opportunityEvidenceIDs: [String]
 }
 
 /// Immutable request snapshot for one generation attempt.
@@ -61,6 +69,12 @@ struct GenerationRequestSnapshot: Equatable {
     var acceptedAt: Date
     var ragContextSnapshot: RetrievedContext
     var promptSnapshot: AnswerPromptSnapshot
+    var contextSnapshotID: String?
+    var candidateProfileID: String?
+    var candidateProfileVersion: Int?
+    var opportunityContextID: String?
+    var opportunityContextVersion: Int?
+    var domainProfileID: String?
 
     var promptPrimaryQuestion: String { promptSnapshot.promptPrimaryQuestion }
     var promptContainsPreviousQuestion: Bool { promptSnapshot.promptContainsPreviousQuestion }

@@ -442,7 +442,7 @@ struct LiveInterviewView: View {
                 .padding(.vertical, 4)
 
                 HStack(spacing: 10) {
-                    TextField("Paste an interviewer question, for example: Walk me through your robotics project.", text: $mockQuestion, axis: .vertical)
+                    TextField("Paste an interviewer question, for example: Walk me through a relevant project.", text: $mockQuestion, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...3)
                     Button {
@@ -762,7 +762,7 @@ struct LiveInterviewView: View {
             .padding(.vertical, 4)
 
             HStack(spacing: 10) {
-                TextField("Paste an interviewer question, for example: Walk me through your robotics project.", text: $mockQuestion, axis: .vertical)
+                TextField("Paste an interviewer question, for example: Walk me through a relevant project.", text: $mockQuestion, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...3)
                 Button {

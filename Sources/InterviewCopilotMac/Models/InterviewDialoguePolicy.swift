@@ -7,7 +7,7 @@ enum InterviewContextMode: String, Codable, CaseIterable {
     var displayName: String {
         switch self {
         case .general: return "General"
-        case .phdRobotics: return "PhD Robotics"
+        case .phdRobotics: return "Academic / Robotics"
         }
     }
 }
@@ -555,7 +555,7 @@ enum DialogueSettingsStore {
 
         let contextMode = InterviewContextMode(
             rawValue: defaults.string(forKey: contextModeKey) ?? ""
-        ) ?? .phdRobotics
+        ) ?? .general
         let legacyPhase = InterviewPhase(rawValue: defaults.string(forKey: legacyPhaseKey) ?? "")
         let selected: InterviewSessionMode
         if let stored = InterviewSessionMode(rawValue: defaults.string(forKey: sessionModeKey) ?? "") {

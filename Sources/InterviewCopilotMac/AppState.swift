@@ -22,6 +22,12 @@ final class AppState: ObservableObject {
     @Published var selectedSection: AppSection = .home
     @Published var settings: AppSettings = .default
     @Published var documents: [DocumentRecord] = []
+    @Published var candidateProfiles: [CandidateProfile] = []
+    @Published var opportunityContexts: [OpportunityContext] = []
+    @Published var activeCandidateProfileID: String?
+    @Published var activeOpportunityContextID: String?
+    @Published var activeInterviewDomainID: InterviewDomainID = .general
+    @Published var activeContextSnapshot: InterviewContextSnapshot?
     @Published var sessions: [InterviewSession] = []
     @Published var providerConfigurations: [LLMProviderConfiguration] = []
     @Published var activeRealtimeProvider: LLMProviderConfiguration?
@@ -635,6 +641,7 @@ final class AppState: ObservableObject {
 
     let database: AppDatabase
     let documentRepository: DocumentRepository
+    let interviewContextRepository: InterviewContextRepository
     let sessionRepository: SessionRepository
     let transcriptRepository: TranscriptRepository
     let suggestionRepository: SuggestionRepository
@@ -769,6 +776,7 @@ final class AppState: ObservableObject {
     ) {
         let dialogueMigration = DialogueSettingsStore.loadAndMigrate(defaults: dialogueDefaults)
         let documents = DocumentRepository(database: database)
+        let interviewContexts = InterviewContextRepository(database: database)
         let sessions = SessionRepository(database: database)
         let transcripts = TranscriptRepository(database: database)
         let suggestions = SuggestionRepository(database: database)
@@ -785,6 +793,7 @@ final class AppState: ObservableObject {
 
         self.database = database
         self.documentRepository = documents
+        self.interviewContextRepository = interviewContexts
         self.sessionRepository = sessions
         self.transcriptRepository = transcripts
         self.suggestionRepository = suggestions
@@ -1117,6 +1126,22 @@ final class AppState: ObservableObject {
             activeRealtimeProvider = try settingsRepository.activeRealtimeProvider()
             activeRecapProvider = try settingsRepository.activeRecapProvider()
             documents = try documentRepository.documents()
+            candidateProfiles = try interviewContextRepository.candidateProfiles()
+            opportunityContexts = try interviewContextRepository.opportunityContexts()
+            var selection = try interviewContextRepository.loadSelection()
+            if selection.candidateProfileID == nil, candidateProfiles.count == 1, !documents.isEmpty {
+                selection.candidateProfileID = candidateProfiles[0].id
+            }
+            if selection.opportunityContextID == nil, opportunityContexts.count == 1, !documents.isEmpty {
+                selection.opportunityContextID = opportunityContexts[0].id
+            }
+            activeCandidateProfileID = selection.candidateProfileID
+            activeOpportunityContextID = selection.opportunityContextID
+            activeInterviewDomainID = selection.domainProfileID
+            try interviewContextRepository.saveSelection(selection)
+            if let snapshotID = currentSession?.contextSnapshotID {
+                activeContextSnapshot = try interviewContextRepository.snapshot(id: snapshotID)
+            }
             sessions = try sessionRepository.listSessions()
             let completion = try documentRepository.onboardingCompletion()
             hasCV = completion.hasCV
@@ -1181,7 +1206,7 @@ final class AppState: ObservableObject {
                     if let currentSession = self.currentSession {
                         session = currentSession
                     } else {
-                        session = try self.sessionRepository.createSession(mode: .mock, title: "Practice Test")
+                        session = try self.createContextBoundSession(mode: .mock, title: "Practice Test")
                     }
                     self.currentSession = session
                     if self.transcriptSegments.isEmpty {
@@ -1263,6 +1288,8 @@ final class AppState: ObservableObject {
             currentCaptureRuntimeState = anyCaptureRunning ? .listening : .stopped(reason: stopReason)
             throw RuntimeQuestionRejectedError(reason: reason, diagnostic: preGenerationGuard.diagnostic)
         }
+        let generationSession = try ensureContextSnapshot(for: session)
+        let generationSnapshot = generationSession.contextSnapshotID.flatMap { try? interviewContextRepository.snapshot(id: $0) }
         let attributedSegment = question.transcriptSegmentID.flatMap { segmentID in
             transcriptSegments.first(where: { $0.id == segmentID })
         }
@@ -1380,7 +1407,7 @@ final class AppState: ObservableObject {
         self.streamedSayFirstSetAt = nil
 
         let localQuestion = question
-        let localSession = session
+        let localSession = generationSession
         let localTranscript = transcript
 
         // This watchdog covers the remote answer pipeline, including RAG
@@ -1507,7 +1534,7 @@ final class AppState: ObservableObject {
             }
         }
         
-        guard let context = retrievedContext, let trace = retrievalTrace else {
+        guard let legacyContext = retrievedContext, let trace = retrievalTrace else {
             let error = LLMProviderError.invalidResponse("Could not retrieve relevant context.")
             markGenerationFailed(generationID: generationID, reason: error.localizedDescription, providerError: error.localizedDescription)
             failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context.")
@@ -1519,6 +1546,17 @@ final class AppState: ObservableObject {
         }
         self.lastRetrievalTrace = trace
         self.ragRetrievalLatencyMS = Int(trace.retrievalLatencyMS)
+
+        let snapshotRetrieval = generationSnapshot.map {
+            DynamicInterviewContextEngine().retrieveContext(question: question.questionText, snapshot: $0)
+        }
+        let context: RetrievedContext
+        if let generationSnapshot,
+           generationSnapshot.candidateProfileID != nil || generationSnapshot.opportunityContextID != nil {
+            context = snapshotRetrieval?.context ?? RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
+        } else {
+            context = legacyContext
+        }
         
         // 2. Realtime Context Budget Optimization
         let optimizedContext = trimContextForRealtime(context, question: question)
@@ -1537,8 +1575,12 @@ final class AppState: ObservableObject {
             return
         }
         lastSQLiteOperation = "Loaded document summaries"
-        let cvSummary = makeCompactSummary(cvRecord)
-        let jdSummary = makeCompactSummary(jdRecord)
+        let cvSummary = generationSnapshot?.candidateProfileID == nil
+            ? makeCompactSummary(cvRecord)
+            : ContextBudgeter.limitWords(generationSnapshot?.candidateEvidence.map(\.statement).joined(separator: " ") ?? "", maxWords: 120)
+        let jdSummary = generationSnapshot?.opportunityContextID == nil
+            ? makeCompactSummary(jdRecord)
+            : ContextBudgeter.limitWords(generationSnapshot?.opportunityEvidence.map(\.statement).joined(separator: " ") ?? "", maxWords: 100)
         // Freeze the prompt inputs after RAG retrieval and before provider
         // streaming. From here on, transcript changes and later questions must
         // not alter the current prompt: question_text must stay equal to
@@ -1556,7 +1598,8 @@ final class AppState: ObservableObject {
             startedAt: requestStart,
             source: telemetrySource,
             speaker: telemetrySpeaker,
-            stage: .firstAnswer
+            stage: .firstAnswer,
+            interviewContextSnapshot: generationSnapshot
         )
         let firstAnswerProviderRequest = GenerationProviderRequest(
             context: generationContext,
@@ -1567,6 +1610,31 @@ final class AppState: ObservableObject {
         
         // Create references for background task capture
         let localTrace = trace
+        let generationRetrievedChunks: [RetrievedChunk]
+        if generationSnapshot?.candidateProfileID != nil || generationSnapshot?.opportunityContextID != nil {
+            let chunks = optimizedContext.cvChunks + optimizedContext.jobDescriptionChunks + optimizedContext.additionalNotesChunks
+            generationRetrievedChunks = chunks.enumerated().map { index, chunk in
+                RetrievedChunk(
+                    id: chunk.id,
+                    documentID: chunk.documentID,
+                    documentType: chunk.documentType,
+                    chunkIndex: chunk.chunkIndex,
+                    contentPreview: String(chunk.content.prefix(80)),
+                    fullContent: chunk.content,
+                    keywords: chunk.keywords,
+                    score: 1,
+                    keywordOverlapCount: 0,
+                    contentOverlapCount: 0,
+                    rank: index + 1,
+                    isIncludedInPrompt: true,
+                    sectionTitle: chunk.sectionTitle,
+                    wordCount: chunk.wordCount,
+                    retrievalMode: "context_snapshot"
+                )
+            }
+        } else {
+            generationRetrievedChunks = localTrace.rankedCVChunks + localTrace.rankedJDChunks
+        }
 
         if selectedAnswerProviderMode == .localQwenPrimary {
             clearFallbackWatchdogTask(generationID: generationID)
@@ -1577,7 +1645,7 @@ final class AppState: ObservableObject {
                     session: localSession,
                     transcript: localTranscript,
                     context: optimizedContext,
-                    retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
+                    retrievedChunks: generationRetrievedChunks,
                     cvSummary: cvSummary,
                     jdSummary: jdSummary,
                     generationID: generationID,
@@ -1587,7 +1655,8 @@ final class AppState: ObservableObject {
                     source: telemetrySource,
                     speaker: telemetrySpeaker,
                     localProvider: localLLMProviderOverride ?? OllamaQwenProvider(),
-                    fallbackReason: nil
+                    fallbackReason: nil,
+                    interviewContextSnapshot: generationSnapshot
                 )
                 if finished { return }
                 throw LLMProviderError.emptyResponse(providerName: "Ollama Qwen")
@@ -1604,16 +1673,23 @@ final class AppState: ObservableObject {
 
         // Helper to construct a local fallback card
         func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
-            let fallback = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion)
+            let grounded = groundedFallback(
+                for: localQuestion.questionText,
+                contextSnapshotID: generationSnapshot?.id
+            )
+            let selectedEvidenceIDs: Set<String> = Set(grounded?.result.candidateEvidenceIDs ?? [])
+            let keyPoints: [String] = grounded?.snapshot.candidateEvidence
+                .filter { selectedEvidenceIDs.contains($0.id) }
+                .map(\.statement) ?? []
             let intent = AnswerRelevancePolicy.intent(for: localQuestion.questionText)
             
-            return SuggestionCard(
+            var card = SuggestionCard(
                 id: cardID,
                 sessionID: localSession.id,
                 questionID: localQuestion.id,
                 strategy: isSoft ? "RAG Template Soft Fallback (DeepSeek Delay)" : "RAG Template Fallback (DeepSeek Timeout)",
-                sayFirst: fallback.sayFirst,
-                keyPoints: fallback.keyPoints,
+                sayFirst: grounded?.result.answer ?? "",
+                keyPoints: keyPoints,
                 followUpReady: ["How does this align with the role requirements?"],
                 confidence: 0.5,
                 caution: isSoft ? "Fast local answer shown; DeepSeek still generating..." : "Fast fallback shown; DeepSeek still expanding...",
@@ -1643,15 +1719,27 @@ final class AppState: ObservableObject {
                 stageATimedOut: !isSoft,
                 stageBCompleted: false,
                 stageBStatus: "skipped",
-                latencyFirstTokenMS: nil,
-                latencyFirstVisibleMS: nil,
+                latencyFirstTokenMS: deepseekFirstTokenMS,
+                latencyFirstVisibleMS: deepseekFirstVisibleMS,
                 latencyFullCardMS: nil,
                 softFallbackUsed: isSoft,
                 softFallbackLatencyMS: isSoft ? Int(Date().timeIntervalSince(requestStart) * 1000) : nil,
-                deepseekFirstTokenMS: nil,
-                deepseekFirstVisibleMS: nil,
+                deepseekFirstTokenMS: deepseekFirstTokenMS,
+                deepseekFirstVisibleMS: deepseekFirstVisibleMS,
                 finalVisibleSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback"
             )
+            card.contextSnapshotID = generationSnapshot?.id
+            card.candidateProfileID = generationSnapshot?.candidateProfileID
+            card.candidateProfileVersion = generationSnapshot?.candidateProfileVersion
+            card.opportunityContextID = generationSnapshot?.opportunityContextID
+            card.opportunityContextVersion = generationSnapshot?.opportunityContextVersion
+            card.domainProfileID = generationSnapshot?.domainProfileID
+            card.candidateEvidenceIDs = grounded?.result.candidateEvidenceIDs ?? []
+            card.opportunityEvidenceIDs = grounded?.result.opportunityEvidenceIDs ?? []
+            card.groundingDecision = grounded?.result.groundingDecision ?? "context_snapshot_missing"
+            card.unsupportedClaimCount = grounded?.result.unsupportedClaims.count ?? 0
+            card.contextIsolationStatus = grounded == nil ? "missing" : "matched"
+            return card
         }
         
         let trigger = StageBTrigger()
@@ -1798,7 +1886,8 @@ final class AppState: ObservableObject {
                         startedAt: requestStart,
                         source: telemetrySource,
                         speaker: telemetrySpeaker,
-                        stage: .fullAnswer
+                        stage: .fullAnswer,
+                        interviewContextSnapshot: generationSnapshot
                     )
                     let fullAnswerProviderRequest = GenerationProviderRequest(
                         context: fullAnswerContext,
@@ -1891,7 +1980,7 @@ final class AppState: ObservableObject {
                     session: localSession,
                     requestStart: requestStart,
                     stageBStreamStartedMS: streamStartedMS,
-                    retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
+                    retrievedChunks: generationRetrievedChunks,
                     triggerPath: triggerPath,
                     source: telemetrySource,
                     speaker: telemetrySpeaker,
@@ -2425,7 +2514,7 @@ final class AppState: ObservableObject {
                         session: localSession,
                         transcript: localTranscript,
                         context: optimizedContext,
-                        retrievedChunks: localTrace.rankedCVChunks + localTrace.rankedJDChunks,
+                        retrievedChunks: generationRetrievedChunks,
                         cvSummary: cvSummary,
                         jdSummary: jdSummary,
                         generationID: generationID,
@@ -2435,7 +2524,8 @@ final class AppState: ObservableObject {
                         source: telemetrySource,
                         speaker: telemetrySpeaker,
                         localProvider: self.localLLMProviderOverride ?? OllamaQwenProvider(),
-                        fallbackReason: "deepseek_failed_before_first_token"
+                        fallbackReason: "deepseek_failed_before_first_token",
+                        interviewContextSnapshot: generationSnapshot
                     )
                     if finished {
                         self.warnAction(
@@ -2638,15 +2728,15 @@ final class AppState: ObservableObject {
                 documentID: "doc-cv-1",
                 documentType: .cv,
                 chunkIndex: 0,
-                contentPreview: "Led development of a deep learning-based robotic arm manipulation project...",
-                fullContent: "Led development of a deep learning-based robotic arm manipulation project using PyTorch and ROS. Achieved a 95% grasp success rate in unstructured environments.",
-                keywords: ["robotic", "PyTorch", "ROS", "manipulation", "deep learning"],
+                contentPreview: "Led development of a distributed service reliability project...",
+                fullContent: "Led development of a distributed service reliability project using Kotlin and PostgreSQL. Reduced API latency through measured query and cache changes.",
+                keywords: ["Kotlin", "PostgreSQL", "API", "reliability", "latency"],
                 score: 8.5,
                 keywordOverlapCount: 3,
                 contentOverlapCount: 5,
                 rank: 1,
                 isIncludedInPrompt: true,
-                sectionTitle: "ROBOTICS PROJECT",
+                sectionTitle: "PLATFORM PROJECT",
                 wordCount: 22
             ),
             RetrievedChunk(
@@ -2654,15 +2744,15 @@ final class AppState: ObservableObject {
                 documentID: "doc-cv-1",
                 documentType: .cv,
                 chunkIndex: 1,
-                contentPreview: "Implemented reinforcement learning policies for obstacle avoidance in mobile...",
-                fullContent: "Implemented reinforcement learning policies for obstacle avoidance in mobile robots using DDPG and gazebo simulations. Tested and deployed on turtlebot platforms.",
-                keywords: ["reinforcement learning", "obstacle avoidance", "mobile robots", "turtlebot"],
+                contentPreview: "Implemented event processing and operational recovery for a service...",
+                fullContent: "Implemented event processing and operational recovery for a backend service using Kafka. Tested retries, idempotency, and failure handling.",
+                keywords: ["Kafka", "event processing", "retries", "idempotency"],
                 score: 6.0,
                 keywordOverlapCount: 2,
                 contentOverlapCount: 3,
                 rank: 2,
                 isIncludedInPrompt: true,
-                sectionTitle: "ROBOTICS PROJECT",
+                sectionTitle: "PLATFORM PROJECT",
                 wordCount: 20
             ),
             RetrievedChunk(
@@ -2670,15 +2760,15 @@ final class AppState: ObservableObject {
                 documentID: "doc-cv-1",
                 documentType: .cv,
                 chunkIndex: 2,
-                contentPreview: "Designed custom mechanical mounts and sensory integration brackets for 3D...",
-                fullContent: "Designed custom mechanical mounts and sensory integration brackets for 3D LIDAR sensors on self-driving prototypes. Formulated thermal dissipation plans.",
-                keywords: ["mechanical mounts", "LIDAR", "self-driving", "prototype"],
+                contentPreview: "Documented internal reporting workflows and operational handoffs...",
+                fullContent: "Documented internal reporting workflows and operational handoffs for a cross-functional project.",
+                keywords: ["documentation", "workflow", "handoff"],
                 score: 1.5,
                 keywordOverlapCount: 0,
                 contentOverlapCount: 1,
                 rank: 3,
                 isIncludedInPrompt: false,
-                sectionTitle: "HARDWARE DESIGN",
+                sectionTitle: "OPERATIONS",
                 wordCount: 18
             )
         ]
@@ -2689,9 +2779,9 @@ final class AppState: ObservableObject {
                 documentID: "doc-jd-1",
                 documentType: .jobDescription,
                 chunkIndex: 0,
-                contentPreview: "We are seeking a Robotics Engineer experienced in ROS, motion planning, and...",
-                fullContent: "We are seeking a Robotics Engineer experienced in ROS, motion planning, and deep learning for autonomous systems. Experience with physical deployment is a plus.",
-                keywords: ["Robotics Engineer", "ROS", "motion planning", "autonomous"],
+                contentPreview: "We are seeking a Backend Engineer experienced in reliable distributed services...",
+                fullContent: "We are seeking a Backend Engineer experienced in distributed systems, API performance, and production operations.",
+                keywords: ["Backend Engineer", "distributed systems", "API", "operations"],
                 score: 9.0,
                 keywordOverlapCount: 4,
                 contentOverlapCount: 6,
@@ -2704,7 +2794,7 @@ final class AppState: ObservableObject {
         
         let trace = RetrievalTrace(
             id: UUID(),
-            query: "Could you walk me through your LeoRover project?",
+            query: "Could you walk me through your most relevant platform project?",
             intent: "technical",
             createdAt: Date(),
             rankedCVChunks: cvChunks,
@@ -2729,21 +2819,21 @@ final class AppState: ObservableObject {
             sessionID: "mock-session-id",
             questionID: nil,
             strategy: "Project Walkthrough",
-            sayFirst: "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
+            sayFirst: "My most relevant platform project improved a distributed API by isolating latency bottlenecks, changing the data path, and validating reliability under failure.",
             keyPoints: [
-                "Autonomous object retrieval robot.",
-                "ROS2, YOLOv8, navigation, and localisation.",
-                "Manipulation on a real robot."
+                "Measured the API bottleneck before changing the design.",
+                "Redesigned the distributed data path.",
+                "Validated latency and failure recovery."
             ],
             followUpReady: [
-                "How did the perception output hand off to navigation?",
-                "How did you make the real robot execution reliable?"
+                "How did you isolate the latency bottleneck?",
+                "How did you validate failure recovery?"
             ],
             confidence: 0.95,
-            caution: "Emphasize manipulation success rates over simulation-only results.",
+            caution: "Keep ownership and measured outcomes tied to the fixture evidence.",
             evidenceUsed: [
-                "ROS2 and YOLOv8 LeoRover perception pipeline",
-                "Navigation, localisation, and manipulation on the real robot"
+                "Distributed API latency investigation",
+                "Kafka retry and idempotency validation"
             ],
             riskLevel: .low,
             modelName: "deepseek-v4-flash",
@@ -2761,11 +2851,11 @@ final class AppState: ObservableObject {
             id: "mock-question-id",
             sessionID: "mock-session-id",
             transcriptSegmentID: "mock-segment-id",
-            questionText: "Could you walk me through your LeoRover project?",
+            questionText: "Could you walk me through your most relevant platform project?",
             intent: .technical,
             answerStrategy: .projectWalkthrough,
             confidence: 0.95,
-            reason: "Verifying robotics experience",
+            reason: "Verifying relevant project experience",
             shouldTrigger: true,
             questionComplete: true,
             modelName: "deepseek-v4-flash",
@@ -2798,9 +2888,9 @@ final class AppState: ObservableObject {
             
             let mockSession = InterviewSession(
                 id: "mock-session-id",
-                title: "Mock Interview - Robotics",
-                company: "RoboCorp",
-                role: "Robotics Engineer",
+                title: "Mock Interview - Backend",
+                company: "Example Company",
+                role: "Backend Engineer",
                 startedAt: Date().addingTimeInterval(-3600),
                 endedAt: Date(),
                 mode: .mock,
@@ -2832,7 +2922,7 @@ final class AppState: ObservableObject {
                 sessionID: "mock-session-id",
                 source: .mock,
                 speaker: .interviewer,
-                text: "Could you walk me through your LeoRover project?",
+                text: "Could you walk me through your most relevant platform project?",
                 startTime: 0,
                 endTime: 5,
                 createdAt: Date()

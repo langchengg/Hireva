@@ -207,7 +207,11 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
 
     let manualGenerationID = UUID().uuidString
     let manualQuestionID = UUID().uuidString
-    let manualSessionID = self.currentSession?.id ?? UUID().uuidString
+    guard let fallbackSession = self.currentSession ?? (try? createContextBoundSession(mode: .microphone, title: "Manual Capture")) else {
+        self.manualCaptureState = .suggestionError("Could not create an interview session.")
+        return
+    }
+    let manualSessionID = fallbackSession.id
     let manualSource: AudioSourceType = (settings.manualCaptureSource == .systemAudio) ? .systemAudio : .microphone
     let manualSpeaker: SpeakerRole = (settings.manualCaptureSource == .systemAudio) ? .interviewer : .unknown
     let activeProviderForManual = activeRealtimeProvider
@@ -232,15 +236,7 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
         rawJSON: nil,
         createdAt: Date()
     )
-    let fallbackSession = self.currentSession ?? InterviewSession(
-        id: manualSessionID,
-        title: "Manual Capture",
-        company: nil,
-        role: nil,
-        startedAt: Date(),
-        mode: .microphone,
-        createdAt: Date()
-    )
+    self.currentSession = fallbackSession
     let manualRequestStart = Date()
     
     self.manualCaptureState = .generatingSuggestion

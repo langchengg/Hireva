@@ -1,11 +1,5 @@
-// Validates that a visible answer belongs to the current detected question.
-// Alignment checks are intentionally conservative for clear technical questions
-// because a fluent but wrong answer is worse than a local fallback during an
-// interview.
-
 import Foundation
 
-/// UI/diagnostic binding status between the current question and suggestion.
 enum QABindingStatus: String, CaseIterable, Codable, Hashable {
     case matched
     case mismatched
@@ -14,8 +8,6 @@ enum QABindingStatus: String, CaseIterable, Codable, Hashable {
     case staleDiscarded
 }
 
-/// Snapshot of the current question-answer binding used by UI diagnostics and
-/// tests to catch stale-generation overwrites.
 struct QABindingSnapshot: Equatable {
     var currentQuestionID: String?
     var currentQuestionText: String
@@ -40,7 +32,6 @@ struct QABindingSnapshot: Equatable {
     )
 }
 
-/// Coarse semantic alignment verdict between a question and generated answer.
 enum AnswerAlignmentVerdict: String, CaseIterable, Codable, Hashable {
     case aligned
     case weaklyAligned
@@ -48,7 +39,6 @@ enum AnswerAlignmentVerdict: String, CaseIterable, Codable, Hashable {
     case unknown
 }
 
-/// Full alignment result with themes used for diagnostics and persistence.
 struct AnswerAlignmentResult: Equatable {
     var score: Double
     var verdict: AnswerAlignmentVerdict
@@ -60,7 +50,6 @@ struct AnswerAlignmentResult: Equatable {
     var reason: String
 }
 
-/// Persisted/debuggable alignment row for generated suggestions.
 struct SuggestionAlignmentRecord: Identifiable, Equatable {
     var id: String
     var detectedQuestionID: String?
@@ -73,11 +62,9 @@ struct SuggestionAlignmentRecord: Identifiable, Equatable {
     var suspectedMismatchReason: String
 }
 
-/// Heuristic evaluator for answer relevance and completeness.
-///
-/// This is not a ranking model. It is a safety guard before UI display and DB
-/// persistence, with stricter handling for technical/model-comparison questions
-/// where `unknown` should not be accepted as good enough.
+/// Domain-neutral relevance guard. Candidate factuality is handled separately
+/// by `AnswerClaimValidator`; this evaluator checks question ownership,
+/// speakability, dynamic topic overlap, and intent-appropriate answer shape.
 enum QuestionAnswerAlignmentEvaluator {
     static func containsGenericCoachingTemplate(_ text: String) -> Bool {
         !genericCoachingIndicators(in: normalize(text)).isEmpty
@@ -90,1292 +77,268 @@ enum QuestionAnswerAlignmentEvaluator {
     static func incompleteAnswerReason(_ answer: String) -> String? {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 20 else { return "too short" }
-
         let lower = trimmed.lowercased()
-        let lowerWithoutTrailingPunctuation = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
-        let incompleteExactPhrases = [
-            "if i had one more month to improve",
-            "if i had another month to improve"
-        ]
-        if incompleteExactPhrases.contains(lowerWithoutTrailingPunctuation) {
-            return "ends before naming the improvement target"
+        let unfinishedWords = ["because", "including", "such as", "whether", "while", "and", "or", "to"]
+        let tail = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+        if unfinishedWords.contains(where: { tail.hasSuffix(" " + $0) }) {
+            return "ends with an incomplete clause"
         }
-
-        let incompleteWords = ["more", "because", "such as", "including", "whether", "while"]
-        for word in incompleteWords {
-            if lower.hasSuffix(word) ||
-               lower.hasSuffix(word + ".") ||
-               lower.hasSuffix(word + ",") ||
-               lower.hasSuffix(word + ":") ||
-               lower.hasSuffix(word + "...") {
-                return "ends with incomplete word '\(word)'"
-            }
+        if let last = trimmed.last, ",:;".contains(last) {
+            return "ends with incomplete punctuation"
         }
-
-        if let lastChar = trimmed.last {
-            if ",:".contains(lastChar) {
-                return "ends with punctuation '\(lastChar)'"
-            }
-        }
-
-        let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
-        if words.count >= 2 {
-            let lastTwo = words.suffix(2).joined(separator: " ")
-            let incompleteTails = [
-                "tend to",
-                "be more",
-                "such as",
-                "including to",
-                "more stable",
-                "how they",
-                "how it",
-                "how we",
-                "how the",
-                "what the",
-                "whether the",
-                "why the",
-                "if the"
-            ]
-            if incompleteTails.contains(lastTwo) {
-                return "ends with incomplete clause '\(lastTwo)'"
-            }
-        }
-
-        guard let lastChar = trimmed.last, ".?!".contains(lastChar) else {
+        guard let last = trimmed.last, ".?!".contains(last) else {
             return "missing terminal punctuation"
         }
-
         return nil
     }
 
     static func usefulInterviewerQuestionCount(in answer: String) -> Int {
-        let questionMarkCount = answer.reduce(into: 0) { count, character in
-            if character == "?" { count += 1 }
-        }
-        let words = normalize(answer)
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-        let clauseOpeners: Set<String> = ["what", "how", "which", "who", "where", "when"]
-        let distinctClauseCount = words.reduce(into: 0) { count, word in
-            if clauseOpeners.contains(word) { count += 1 }
-        }
-        return questionMarkCount > 0 ? questionMarkCount : distinctClauseCount
+        let questionMarks = answer.filter { $0 == "?" }.count
+        if questionMarks > 0 { return questionMarks }
+        let openers: Set<String> = ["what", "how", "which", "who", "when", "where"]
+        return TextChunker.tokenize(answer).filter { openers.contains($0) }.count
     }
 
-    /// Scores whether the generated answer directly addresses the question.
-    ///
-    /// `sayFirst` is checked independently because it can become visible before
-    /// Stage B completes. If Stage B is still running, weak evidence should not
-    /// be over-promoted to aligned.
     static func evaluate(
         questionText: String,
         answerText: String,
-        sayFirst: String = "",
+        sayFirst: String? = nil,
         stageBCompleted: Bool = true
     ) -> AnswerAlignmentResult {
-        let normalizedQuestion = normalize(questionText)
-        let normalizedAnswer = normalize(answerText)
-        let questionIntent = AnswerRelevancePolicy.intent(for: questionText)
-        let answerIntent = inferredAnswerIntent(for: normalizedAnswer)
-        guard !normalizedQuestion.isEmpty, !normalizedAnswer.isEmpty else {
-            return AnswerAlignmentResult(
-                score: 0,
-                verdict: .unknown,
-                questionIntent: questionIntent,
-                answerIntent: answerIntent,
-                matchedThemes: [],
-                missingThemes: [],
-                wrongAnswerIndicators: [],
-                reason: "Question or answer text is empty."
-            )
-        }
-        if QuestionCompletenessGate.isIncompleteFragment(questionText) {
-            return AnswerAlignmentResult(
+        let question = normalize(questionText)
+        let answer = normalize(answerText)
+        let visible = normalize(sayFirst ?? answerText)
+        let questionIntent = IntentRouter.answerIntent(for: questionText)
+        let answerIntent = inferredAnswerIntent(for: answerText, expected: questionIntent)
+        var matched: [String] = []
+        var missing: [String] = []
+        var wrong = genericCoachingIndicators(in: answer)
+
+        guard isCompleteQuestion(questionText) else {
+            return result(
                 score: 0,
                 verdict: .mismatched,
                 questionIntent: questionIntent,
                 answerIntent: answerIntent,
-                matchedThemes: [],
-                missingThemes: [],
-                wrongAnswerIndicators: ["incomplete question fragment"],
-                reason: "Rejected alignment for incomplete question fragment."
+                matched: [],
+                missing: ["complete question"],
+                wrong: wrong,
+                reason: "Rejected incomplete question text."
+            )
+        }
+        if let incomplete = incompleteAnswerReason(sayFirst ?? answerText), stageBCompleted {
+            missing.append("complete spoken answer")
+            return result(
+                score: 0.1,
+                verdict: .mismatched,
+                questionIntent: questionIntent,
+                answerIntent: answerIntent,
+                matched: matched,
+                missing: missing,
+                wrong: wrong,
+                reason: "Rejected incomplete answer: \(incomplete)."
+            )
+        }
+        guard wrong.isEmpty else {
+            return result(
+                score: 0.1,
+                verdict: .mismatched,
+                questionIntent: questionIntent,
+                answerIntent: answerIntent,
+                matched: [],
+                missing: ["direct spoken answer"],
+                wrong: wrong,
+                reason: "Rejected generic coaching template."
             )
         }
 
-        let profile = profile(for: normalizedQuestion)
-        let matched = profile.themes.filter { theme in
-            theme.alternatives.contains { normalizedAnswer.contains($0) }
-        }.map(\.name)
-        let missing = profile.themes.filter { theme in
-            !theme.alternatives.contains { normalizedAnswer.contains($0) }
-        }.map(\.name)
-        var wrong = profile.wrongIndicators.filter { indicator in
-            indicator.alternatives.contains { normalizedAnswer.contains($0) }
-        }.map(\.name)
-        for indicator in genericCoachingIndicators(in: normalizedAnswer + " " + normalize(sayFirst))
-            where !wrong.contains(indicator) {
-            wrong.append(indicator)
+        let anchors = dynamicTopicTokens(questionText)
+        let answerTokens = meaningfulTokens(answerText)
+        let anchorMatches = Set(anchors.filter { anchor in
+            answerTokens.contains { semanticTokenMatch(anchor, $0) }
+        })
+        let profileIndependentQuestion = [.candidateQuestions, .interviewerQuestions].contains(questionIntent)
+        if !anchors.isEmpty, !profileIndependentQuestion {
+            if anchorMatches.isEmpty { missing.append("question topic") }
+            else { matched.append(contentsOf: anchorMatches.sorted().prefix(4)) }
         }
 
-        let isTechnical = questionIntent == .technicalChallenge ||
-                          questionIntent == .modelComparison ||
-                          questionIntent == .decoderComparison ||
-                          questionIntent == .perceptionDebugging ||
-                          questionIntent == .technicalTradeoff ||
-                          questionIntent == .datasetAdaptation ||
-                          questionIntent == .simToRealDebugging ||
-                          questionIntent == .projectComparison ||
-                          questionIntent == .systemIntegrationDebugging ||
-                          questionIntent == .diffusionPolicy ||
-                          questionIntent == .errorHandling ||
-                          questionIntent == .skillComfort
-
-        let hasThemeProfile = !profile.themes.isEmpty
-        let score = hasThemeProfile ? Double(matched.count) / Double(profile.themes.count) : (wrong.isEmpty && !isTechnical ? 1.0 : 0.0)
-        var verdict: AnswerAlignmentVerdict
-        if !wrong.isEmpty && score < 0.35 {
-            verdict = .mismatched
-        } else if !hasThemeProfile && !isTechnical {
-            // Some manual/free-form questions do not map to a durable product
-            // profile. Treat them as acceptable only after the generic coaching,
-            // completeness, ownership, and explicit technical-family guards run.
-            verdict = .aligned
-        } else if score >= 0.45 {
-            verdict = .aligned
-        } else if score >= 0.20 {
-            verdict = .weaklyAligned
-        } else if !wrong.isEmpty {
-            verdict = .mismatched
-        } else {
-            verdict = .unknown
-        }
-
-        var finalReason = ""
-        if isTechnical && verdict == .unknown {
-            // Clear technical questions should either match expected themes or
-            // fall back. Accepting "unknown" here reintroduces the no-answer or
-            // wrong-answer behavior seen in real runtime testing.
-            verdict = .mismatched
-            finalReason += " Rejected unknown verdict for clear technical question."
-        }
-
-        if wrong.contains("generic interview coaching") {
-            verdict = .mismatched
-            finalReason += " Rejected generic coaching/meta answer."
-        }
-
-        if questionIntent == .decoderComparison {
-            let hasProjectGrounding = containsAny(normalizedAnswer, ["mujoco", "vla", "franka"])
-            let hasAllDecoderFamilies = containsAny(normalizedAnswer, ["autoregressive", "auto regressive"]) &&
-                normalizedAnswer.contains("diffusion") &&
-                containsAny(normalizedAnswer, ["flow-matching", "flow matching"])
-            let hasDiffusionRate = containsAny(
-                normalizedAnswer,
-                ["7/10", "7 out of 10", "seven out of ten"]
-            )
-            let hasWeakerDecoderRate = containsAny(
-                normalizedAnswer,
-                ["1/10", "1 out of 10", "one out of ten"]
-            )
-            if !hasProjectGrounding || !hasAllDecoderFamilies || !hasDiffusionRate || !hasWeakerDecoderRate {
-                verdict = .mismatched
-                finalReason += " Rejected decoder-comparison answer without MuJoCo/VLA grounding, all three decoder families, and the 7/10 vs 1/10 result."
-            }
-            if wrong.contains("unsupported flow-matching comparable result") {
-                verdict = .mismatched
-                finalReason += " Rejected unsupported claim that flow-matching had comparable quality."
-            }
-        }
-
-        if questionIntent == .systemIntegrationDebugging {
-            let hasConcreteProject: Bool
-            if isRobotDecisionInformationQuestion(normalizedQuestion) {
-                hasConcreteProject = containsAny(normalizedAnswer, ["object identity", "target object", "target", "object pose", "target pose", "location", "position"]) &&
-                    containsAny(normalizedAnswer, ["navigation", "where to move", "move", "reachability", "reachable", "grasp", "manipulation", "action"])
-            } else if isVisualDetectionToPhysicalActionQuestion(normalizedQuestion) {
-                hasConcreteProject = containsAny(normalizedAnswer, ["yolov8", "yolo", "visual detection", "object detection", "detections", "detector"]) &&
-                    containsAny(normalizedAnswer, ["target pose", "target poses", "object pose", "localisation", "localization", "navigation", "manipulation", "grasp"])
-            } else if isPerceptionControlReliabilityQuestion(normalizedQuestion) {
-                hasConcreteProject = containsAny(normalizedAnswer, ["perception", "visual", "detection", "camera"]) &&
-                    containsAny(normalizedAnswer, ["control", "controller", "action", "motion", "navigation", "manipulation"])
-            } else if isRobotSystemArchitectureQuestion(normalizedQuestion) {
-                hasConcreteProject = containsAny(normalizedAnswer, ["yolov8", "yolo", "detection", "detector"]) &&
-                    containsAny(normalizedAnswer, ["ros2", "target pose", "target poses", "localisation", "localization", "navigation"])
-            } else if isDebuggingReflectionQuestion(normalizedQuestion) {
-                hasConcreteProject = containsAny(normalizedAnswer, ["real robot", "real-robot", "leorover", "leo rover"]) &&
-                    containsAny(normalizedAnswer, ["debugging", "debug", "integration", "handoff", "handoffs", "logs", "timestamps", "recovery", "validation"])
-            } else if isEvaluationReliabilityQuestion(normalizedQuestion) {
-                hasConcreteProject = containsAny(normalizedAnswer, ["system", "pipeline", "perception", "generation", "question", "answer", "stale", "owner", "ownership"]) &&
-                    containsAny(normalizedAnswer, ["validation", "validated", "recovery", "guard", "guarded", "rejected", "discarded", "failure", "safe"])
-            } else {
-                hasConcreteProject = containsAny(normalizedAnswer, ["leorover", "leo rover"]) &&
-                    normalizedAnswer.contains("ros2")
-            }
-            let hasIntegrationWork = containsAny(normalizedAnswer, ["perception", "navigation", "manipulation", "handoff", "module", "pipeline"])
-            let hasStarEvidence = containsAny(normalizedAnswer, ["situation", "task", "action", "result", "reproduced", "isolated", "added validation", "validation", "validated", "before acting", "handoff", "recovery"])
-            if !hasConcreteProject || !hasIntegrationWork || !hasStarEvidence {
-                verdict = .mismatched
-                finalReason += " Rejected system-integration answer without concrete perception-to-action, robot-state, or recovery evidence."
-            }
-        }
-
-        if questionIntent == .technicalChallenge,
-           isRealWorldExecutionChallengeQuestion(normalizedQuestion) {
-            let hasRealWorldGrounding = containsAny(normalizedAnswer, ["real-world", "real world", "physical robot", "real robot"])
-            let hasDifficultyContrast = containsAny(normalizedAnswer, ["simulation", "demo", "clean"]) &&
-                containsAny(normalizedAnswer, ["harder", "unpredictable", "less predictable", "noisy", "noise", "drift", "calibration", "timing", "integration"])
-            let asksMitigation = containsAny(normalizedQuestion, ["mitigate", "mitigated", "mitigation", "how did you address"])
-            let hasMitigation = !asksMitigation ||
-                containsAny(normalizedAnswer, ["mitigated", "mitigation", "validation", "validated", "filter", "handoff", "recovery", "retry", "reposition"])
-
-            if !hasRealWorldGrounding || !hasDifficultyContrast || !hasMitigation {
-                verdict = .mismatched
-                finalReason += " Rejected real-world execution answer without explicit real-world/physical-robot grounding, simulation contrast, and requested mitigation."
-            }
-        }
-
-        if questionIntent == .improvementPlan,
-           normalizedQuestion.contains("leorover"),
-           containsWrongLeoRoverImprovementGrounding(normalizedAnswer) {
-            verdict = .mismatched
-            finalReason += " Rejected wrong project grounding for LeoRover improvement answer."
-        }
-
-        if questionIntent == .interviewerQuestions {
-            let visibleInterviewerAnswer = sayFirst.isEmpty ? answerText : sayFirst
-            if usefulInterviewerQuestionCount(in: visibleInterviewerAnswer) < 2 {
-                verdict = .mismatched
-                finalReason += " Rejected interviewer-questions answer without at least two distinct useful questions."
-            }
-            if isEngineeringTeamFitQuestion(normalizedQuestion),
-               !containsAny(normalizedAnswer, ["data", "simulation", "infrastructure", "workflow", "workflows"]) {
-                verdict = .mismatched
-                finalReason += " Rejected engineering-team fit answer without data, simulation, infrastructure, or workflow coverage."
-            }
-        }
-
-        if questionIntent == .projectComparison {
-            let hasVLAPlatform = containsAny(normalizedAnswer, ["vla", "mujoco", "franka", "simulation"])
-            let hasVLALearningDetail = containsAny(normalizedAnswer, [
-                "droid",
-                "decoder",
-                "autoregressive",
-                "diffusion",
-                "flow-matching",
-                "vla policy",
-                "visuomotor",
-                "learning",
-                "policy",
-                "simulation",
-                "simulation evaluation"
-            ])
-            let hasLeoStack = containsAny(normalizedAnswer, ["leorover", "leo rover", "ros2", "yolov8"])
-            let hasLeoExecutionDetail = containsAny(normalizedAnswer, [
-                "navigation", "manipulation", "localisation", "localization", "recovery", "real-world", "real world", "real robot", "real-robot"
-            ])
-            let hasConcreteVLA = containsAny(normalizedAnswer, [
-                "mujoco", "franka", "droid", "decoder", "autoregressive", "diffusion", "flow-matching", "visuomotor", "policy", "learning-policy"
-            ])
-            let hasConcreteLeo = containsAny(normalizedAnswer, [
-                "ros2", "yolov8", "navigation", "manipulation", "localisation", "localization", "recovery", "perception-to-action"
-            ])
-            let hasConcreteContrast = containsAny(normalizedAnswer, ["simulation", "mujoco"]) &&
-                containsAny(normalizedAnswer, ["real robot", "real-robot", "real-world", "real world", "physical hardware"])
-            if !hasVLAPlatform || !hasVLALearningDetail || !hasLeoStack || !hasLeoExecutionDetail || !hasConcreteVLA || !hasConcreteLeo || !hasConcreteContrast {
-                verdict = .mismatched
-                finalReason += " Rejected project-comparison answer without concrete VLA learning/simulation and LeoRover real-robot integration details."
-            }
-        }
-
-        if !sayFirst.isEmpty {
-            let trimmedSayFirst = sayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let incompleteReason = incompleteAnswerReason(trimmedSayFirst) {
-                verdict = .mismatched
-                finalReason += " Rejected incomplete sayFirst: \(incompleteReason)."
-            }
-
-            if let visibleIssue = modelComparisonVisibleSayFirstIssue(
-                normalizedQuestion: normalizedQuestion,
-                normalizedSayFirst: normalize(trimmedSayFirst),
-                questionIntent: questionIntent
-            ) {
-                verdict = .mismatched
-                finalReason += " Rejected generic model-comparison sayFirst: \(visibleIssue)."
-            }
-
-            if let visibleIssue = projectComparisonVisibleSayFirstIssue(
-                normalizedQuestion: normalizedQuestion,
-                normalizedSayFirst: normalize(trimmedSayFirst),
-                questionIntent: questionIntent
-            ) {
-                verdict = .mismatched
-                finalReason += " Rejected project-comparison sayFirst: \(visibleIssue)."
-            }
-
-            if let visibleIssue = realWorldExecutionVisibleSayFirstIssue(
-                normalizedQuestion: normalizedQuestion,
-                normalizedSayFirst: normalize(trimmedSayFirst),
-                questionIntent: questionIntent
-            ) {
-                verdict = .mismatched
-                finalReason += " Rejected real-world execution sayFirst: \(visibleIssue)."
-            }
-
-            if let visibleIssue = systemIntegrationVisibleSayFirstIssue(
-                normalizedQuestion: normalizedQuestion,
-                normalizedSayFirst: normalize(trimmedSayFirst),
-                questionIntent: questionIntent
-            ) {
-                verdict = .mismatched
-                if !wrong.contains("wrong system-integration subfamily") {
-                    wrong.append("wrong system-integration subfamily")
-                }
-                finalReason += " Rejected system-integration sayFirst: \(visibleIssue)."
-            }
-
-            if let visibleIssue = engineeringTeamFitVisibleSayFirstIssue(
-                normalizedQuestion: normalizedQuestion,
-                normalizedSayFirst: normalize(trimmedSayFirst),
-                questionIntent: questionIntent
-            ) {
-                verdict = .mismatched
-                finalReason += " Rejected engineering-team fit sayFirst: \(visibleIssue)."
-            }
-        }
-
-        if !stageBCompleted {
-            if verdict == .weaklyAligned {
-                verdict = .unknown
-                finalReason += " Set weak alignment to unknown because Stage B is still running."
-            }
-        }
-
-        let evaluatedReason = reason(
-            matchedCount: matched.count,
-            totalCount: profile.themes.count,
-            wrongIndicators: wrong,
-            questionIntent: questionIntent,
-            answerIntent: answerIntent
+        evaluateShape(
+            intent: questionIntent,
+            question: question,
+            answer: answer,
+            visible: visible,
+            matched: &matched,
+            missing: &missing,
+            wrong: &wrong
         )
-        finalReason = finalReason.isEmpty ? evaluatedReason : evaluatedReason + " " + finalReason
 
-        return AnswerAlignmentResult(
+        let requiredTopicOverlap = !profileIndependentQuestion && !anchors.isEmpty && anchorMatches.isEmpty
+        let shapeFailed = !missing.isEmpty
+        let score = max(0, min(1, 0.55 + Double(matched.count) * 0.1 - Double(missing.count) * 0.22 - Double(wrong.count) * 0.3))
+        let verdict: AnswerAlignmentVerdict = (requiredTopicOverlap || shapeFailed || !wrong.isEmpty) ? .mismatched : .aligned
+        let reason = verdict == .aligned
+            ? "Answer matches the current question topic and expected response structure."
+            : "Answer is missing: \(missing.joined(separator: ", "))." + (wrong.isEmpty ? "" : " Wrong-answer indicators: \(wrong.joined(separator: ", ")).")
+        return result(
             score: score,
             verdict: verdict,
             questionIntent: questionIntent,
             answerIntent: answerIntent,
-            matchedThemes: matched,
-            missingThemes: missing,
-            wrongAnswerIndicators: wrong,
-            reason: finalReason
+            matched: matched,
+            missing: missing,
+            wrong: wrong,
+            reason: reason
         )
     }
 
-    private struct Theme {
-        var name: String
-        var alternatives: [String]
+    private static func evaluateShape(
+        intent: AnswerRelevanceIntent,
+        question: String,
+        answer: String,
+        visible: String,
+        matched: inout [String],
+        missing: inout [String],
+        wrong: inout [String]
+    ) {
+        func require(_ name: String, _ terms: [String], in text: String? = nil) {
+            if containsAny(text ?? answer, terms) { matched.append(name) }
+            else { missing.append(name) }
+        }
+
+        switch intent {
+        case .tellMeAboutYourself:
+            require("candidate background", ["background", "experience", "studied", "worked", "built", "developed", "led"])
+        case .projectWalkthrough:
+            require("project action", ["built", "developed", "implemented", "designed", "led", "worked", "created", "project"])
+            require("result or learning", ["result", "outcome", "learned", "improved", "reduced", "increased", "delivered", "validated"])
+        case .technicalChallenge:
+            require("challenge", ["challenge", "difficult", "hard", "failure", "problem", "issue", "constraint", "latency", "bottleneck", "variability", "variation", "uncertain", "uncertainty", "uncontrolled", "incident"])
+            require("action", ["debug", "changed", "implemented", "tested", "isolated", "redesign", "mitigated", "resolved"])
+        case .errorHandling, .perceptionDebugging:
+            require("diagnosis", ["reproduce", "inspect", "logs", "trace", "isolate", "monitor", "measure", "debug"])
+            require("mitigation or validation", ["validate", "test", "retry", "recover", "check", "guard", "fix"])
+        case .modelComparison, .decoderComparison, .diffusionPolicy:
+            require("comparison", ["compare", "compared", "versus", "than", "while", "whereas", "trade-off", "tradeoff"])
+            let comparedTerms = dynamicTopicTokens(question).intersection(meaningfulTokens(answer))
+            if comparedTerms.count < 2 { missing.append("compared alternatives from the question") }
+            else { matched.append("compared alternatives") }
+        case .technicalTradeoff:
+            require("trade-off", ["trade-off", "tradeoff", "versus", "balanced", "cost", "latency", "complexity", "reliability", "accuracy"])
+            require("decision", ["chose", "decided", "prioritized", "selected", "accepted", "rejected"])
+        case .datasetAdaptation:
+            require("transformation", ["mapped", "converted", "adapted", "migrated", "normalized", "transformed"])
+            require("validation", ["validated", "checked", "tested", "verified"])
+        case .simToRealDebugging:
+            require("environment comparison", ["simulation", "simulator", "production", "real", "deployment", "environment"])
+            require("isolated cause", ["isolate", "compare", "calibration", "timing", "latency", "distribution", "dynamics", "configuration"])
+        case .projectComparison:
+            require("explicit contrast", ["while", "whereas", "unlike", "difference", "compared", "both"])
+        case .systemIntegrationDebugging:
+            require("system boundary", ["system", "pipeline", "module", "component", "handoff", "integration", "interface", "method", "deployment", "environment", "real robot"])
+            require("reliability action", ["logs", "trace", "timestamp", "validate", "check", "retry", "recover", "test", "isolate", "debug"])
+        case .improvementPlan:
+            require("specific priority", ["first", "priority", "improve", "change", "next"])
+            require("concrete action", ["test", "measure", "add", "redesign", "evaluate", "validate", "instrument", "expand"])
+        case .whyRole:
+            require("motivation", ["interested", "motivated", "want", "drawn", "excited", "align"])
+            require("target relevance", ["role", "team", "organisation", "organization", "research", "company", "responsibility"])
+        case .skillComfort:
+            require("experience scope", ["used", "worked", "built", "experience", "comfortable", "learning", "limited"])
+        case .candidateQuestions:
+            if usefulInterviewerQuestionCount(in: visible) < 1 { missing.append("at least one interviewer question") }
+            else { matched.append("interviewer question") }
+        case .interviewerQuestions:
+            if usefulInterviewerQuestionCount(in: answer) < 3 { missing.append("at least three interviewer questions") }
+            else { matched.append("interviewer question set") }
+        case .generic:
+            if answer.split(whereSeparator: \.isWhitespace).count < 6 { missing.append("substantive direct answer") }
+            else { matched.append("substantive answer") }
+        }
+
+        if intent == .technicalTradeoff,
+           containsAny(answer, ["marketing campaign", "social media calendar", "sales funnel"]),
+           !containsAny(question, ["marketing", "sales", "campaign"]) {
+            wrong.append("unrelated domain answer")
+        }
     }
 
-    private struct Profile {
-        var themes: [Theme]
-        var wrongIndicators: [Theme]
+    private static func inferredAnswerIntent(for answer: String, expected: AnswerRelevanceIntent) -> AnswerRelevanceIntent {
+        return expected
     }
 
-    private static func profile(for question: String) -> Profile {
-        if question.contains("about yourself") ||
-            question.contains("introduce yourself") ||
-            question.contains("robotics background") ||
-            question.contains("brought you into robotics") {
-            return Profile(
-                themes: [
-                    Theme(name: "MSc Robotics", alternatives: ["msc robotics", "robotics at the university"]),
-                    Theme(name: "University of Manchester", alternatives: ["university of manchester", "manchester"]),
-                    Theme(name: "computer science background", alternatives: ["computer science"]),
-                    Theme(name: "robotics interest", alternatives: ["robotics interest", "interested in robotics", "brought me into robotics"]),
-                    Theme(name: "perception / manipulation / AI", alternatives: ["perception", "manipulation", " ai ", "artificial intelligence"])
-                ],
-                wrongIndicators: projectOrChallengeIndicators()
-            )
+    private static func isCompleteQuestion(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        guard words.count >= 4 else { return false }
+        let lower = normalize(text)
+        if [" how did ", " what did ", " why did ", " how would ", " what would ", " what did you learn "].contains(lower) {
+            return false
         }
-
-        if isDecoderComparisonQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "MuJoCo / VLA / Franka setup", alternatives: ["mujoco", "vla", "franka"]),
-                    Theme(name: "autoregressive decoder", alternatives: ["autoregressive", "auto regressive"]),
-                    Theme(name: "diffusion decoder", alternatives: ["diffusion"]),
-                    Theme(name: "flow-matching decoder", alternatives: ["flow-matching", "flow matching"]),
-                    Theme(name: "success or performance comparison", alternatives: ["7/10", "seven out of ten", "1/10", "one out of ten", "performed best", "weaker", "success"]),
-                    Theme(name: "lesson about trajectory generation", alternatives: ["learned", "lesson", "architecture choice", "trajectory", "continuous action", "action sequence", "action generation"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "unsupported flow-matching comparable result", alternatives: ["flow-matching offered faster sampling with comparable quality", "flow matching offered faster sampling with comparable quality", "comparable quality"])
-                ]
-            )
+        if lower.contains(" a seem ") || lower.hasSuffix(" a seem ") {
+            return false
         }
-
-        if isPerceptionDebuggingQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "YOLOv8 / detector", alternatives: ["yolov8", "yolo", "detector", "detection"]),
-                    Theme(name: "wrong confident prediction", alternatives: ["wrong prediction", "confident but wrong", "false positive", "class confusion"]),
-                    Theme(name: "inspect frames/logs", alternatives: ["inspect", "frame", "frames", "logs", "reproduce"]),
-                    Theme(name: "boxes/classes/confidence", alternatives: ["bounding box", "bounding boxes", "classes", "class", "confidence"]),
-                    Theme(name: "calibration/lighting/occlusion", alternatives: ["calibration", "lighting", "glare", "occlusion", "motion blur"]),
-                    Theme(name: "spatial/temporal consistency", alternatives: ["spatial", "temporal", "depth", "localisation", "localization", "consistency"]),
-                    Theme(name: "validate/recover before retraining", alternatives: ["recovery", "recover", "validation", "validate", "before retraining", "before deciding whether retraining", "retrain only"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("technical trade-off") ||
-            question.contains("technical tradeoff") ||
-            question.contains("trade off") && question.contains("robotics") {
-            return Profile(
-                themes: [
-                    Theme(name: "trade-off", alternatives: ["trade-off", "tradeoff", "trade off"]),
-                    Theme(name: "robustness / reliability", alternatives: ["robustness", "robust", "reliability", "reliable"]),
-                    Theme(name: "latency / complexity", alternatives: ["latency", "complexity", "complex"]),
-                    Theme(name: "concrete robotics project", alternatives: ["leorover", "vla", "mujoco", "robotics project", "real robot"]),
-                    Theme(name: "decision made", alternatives: ["chose", "choice", "decision", "prioritized", "prioritised", "practical filtering", "recovery"]),
-                    Theme(name: "lesson learned", alternatives: ["learned", "lesson", "mattered", "reliable execution"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "unrelated data pipeline answer", alternatives: ["data pipeline", "10,000 records", "10000 records", "database pipeline", "etl"])
-                ]
-            )
-        }
-
-        if question.contains("droid") && (question.contains("mujoco") || question.contains("franka") || question.contains("trajector")) {
-            return Profile(
-                themes: [
-                    Theme(name: "DROID demonstrations", alternatives: ["droid", "demonstrations", "real-robot trajectories", "real robot trajectories"]),
-                    Theme(name: "MuJoCo / Franka simulation", alternatives: ["mujoco", "franka", "simulator", "simulation"]),
-                    Theme(name: "mapping actions/observations", alternatives: ["mapped", "mapping", "actions", "observations", "simulator format"]),
-                    Theme(name: "coordinate/timing consistency", alternatives: ["coordinate", "timing", "frames", "consistency"]),
-                    Theme(name: "validation", alternatives: ["validated", "validation", "matched the manipulation objective", "before training", "before evaluation"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("sim-to-real") ||
-            question.contains("sim to real") ||
-            question.contains("policy works in mujoco") ||
-            question.contains("fails on a real robot") {
-            return Profile(
-                themes: [
-                    Theme(name: "compare sim and real", alternatives: ["compare", "sim and real", "simulator and real", "mujoco", "real-robot", "real robot"]),
-                    Theme(name: "observations/actions/timing", alternatives: ["observations", "action scaling", "actions", "timing", "latency"]),
-                    Theme(name: "calibration/dynamics", alternatives: ["calibration", "contact dynamics", "dynamics mismatch"]),
-                    Theme(name: "failure inspection", alternatives: ["failure videos", "inspect", "failure", "logs"]),
-                    Theme(name: "isolate root cause", alternatives: ["isolate", "perception", "control", "distribution shift", "before changing", "before retraining"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("difference between") && question.contains("vla") && question.contains("leorover") {
-            return Profile(
-                themes: [
-                    Theme(name: "VLA project", alternatives: ["vla", "learning-policy", "policy", "action decoder", "action decoders"]),
-                    Theme(name: "MuJoCo / Franka evaluation", alternatives: ["mujoco", "franka", "simulation evaluation"]),
-                    Theme(name: "LeoRover project", alternatives: ["leorover", "real-robot", "real robot", "real-world", "real world"]),
-                    Theme(name: "ROS2 / YOLOv8 / navigation", alternatives: ["ros2", "yolov8", "perception", "navigation", "localisation", "localization"]),
-                    Theme(name: "core difference", alternatives: ["difference", "while", "versus", "whereas", "learning-policy evaluation", "system integration", "simulation", "real-world", "real world"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if isRobotDecisionInformationQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "object identity / target", alternatives: ["object identity", "target object", "target", "object"]),
-                    Theme(name: "pose / position / location", alternatives: ["pose", "position", "location", "target pose", "object pose"]),
-                    Theme(name: "spatial relationship / distance", alternatives: ["spatial", "distance", "frame", "robot state", "world frame"]),
-                    Theme(name: "reachability", alternatives: ["reachability", "reachable", "feasible"]),
-                    Theme(name: "navigation target", alternatives: ["navigation", "where to move", "move"]),
-                    Theme(name: "grasp / action decision", alternatives: ["grasp", "manipulation", "action", "before acting"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
-                ]
-            )
-        }
-
-        if isVisualDetectionToPhysicalActionQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "visual / object detection", alternatives: ["visual detection", "visual detections", "object detection", "detections", "yolov8", "detector"]),
-                    Theme(name: "target / object", alternatives: ["target object", "target", "object"]),
-                    Theme(name: "pose / localisation", alternatives: ["target pose", "object pose", "localisation", "localization", "position", "location"]),
-                    Theme(name: "navigation / movement", alternatives: ["navigation", "navigate", "move"]),
-                    Theme(name: "manipulation / grasp", alternatives: ["manipulation", "grasp", "pick"]),
-                    Theme(name: "action/control pipeline", alternatives: ["physical action", "actions", "control", "pipeline", "ros2"]),
-                    Theme(name: "validation / recovery", alternatives: ["validation", "validated", "recovery", "retry", "before acting"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
-                ]
-            )
-        }
-
-        if isPerceptionControlReliabilityQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "perception signal", alternatives: ["perception", "visual", "detection", "camera"]),
-                    Theme(name: "control/action execution", alternatives: ["control", "controller", "action", "motion", "navigation", "manipulation"]),
-                    Theme(name: "target state", alternatives: ["target pose", "action goal", "robot state", "pose", "state estimate"]),
-                    Theme(name: "validation/timing", alternatives: ["validation", "validated", "confidence", "timing", "latency", "before moving", "before acting"]),
-                    Theme(name: "reliability challenge", alternatives: ["reliable", "reliability", "difficult", "calibration", "noisy", "frame transform"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
-                ]
-            )
-        }
-
-        if isRobotPerceptionToNavigationQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "YOLOv8 / detection", alternatives: ["yolov8", "yolo", "detection", "detector"]),
-                    Theme(name: "target object / pose", alternatives: ["target object", "target pose", "target poses", "object detections", "detections"]),
-                    Theme(name: "localisation / localization", alternatives: ["localisation", "localization", "localise", "localize"]),
-                    Theme(name: "navigation", alternatives: ["navigation", "navigate"]),
-                    Theme(name: "pipeline / validation", alternatives: ["pipeline", "ros2", "validated", "validation", "robot state"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "unrelated VLA/DROID answer", alternatives: ["droid", "mujoco", "franka", "diffusion decoder"])
-                ]
-            )
-        }
-
-        if isRobotSystemArchitectureQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "YOLOv8 / detection", alternatives: ["yolov8", "yolo", "detection", "detector"]),
-                    Theme(name: "localisation / localization", alternatives: ["localisation", "localization", "localise", "localize", "target pose", "target poses"]),
-                    Theme(name: "navigation", alternatives: ["navigation", "navigate"]),
-                    Theme(name: "manipulation", alternatives: ["manipulation", "manipulator", "grasp", "pick"]),
-                    Theme(name: "recovery behavior", alternatives: ["recovery", "recover", "retry", "fallback"]),
-                    Theme(name: "module handoff / validation", alternatives: ["handoff", "handoffs", "validated", "validation", "robot state", "ros2"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "interviewer-questions answer", alternatives: ["questions i would ask", "ask the engineering team", "success criteria"]),
-                    Theme(name: "unrelated VLA/DROID answer", alternatives: ["droid", "mujoco", "franka", "diffusion decoder"])
-                ]
-            )
-        }
-
-        if question.contains("system integration problem") ||
-            question.contains("debug a system integration") {
-            return Profile(
-                themes: [
-                    Theme(name: "system integration", alternatives: ["system integration", "work together", "full system", "module boundaries"]),
-                    Theme(name: "module logs/timestamps", alternatives: ["logs", "timestamps", "module logs"]),
-                    Theme(name: "reproduce/isolate", alternatives: ["reproduced", "reproduce", "isolated", "isolate"]),
-                    Theme(name: "perception/navigation/manipulation handoff", alternatives: ["perception", "navigation", "manipulation", "handoff", "handoffs"]),
-                    Theme(name: "recovery/reliability", alternatives: ["recovery", "validation", "reliable", "reliably"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if isDebuggingReflectionQuestion(question) {
-            return Profile(
-                themes: [
-                    Theme(name: "real robot debugging lesson", alternatives: ["lesson", "learned", "debugging", "debug"]),
-                    Theme(name: "integration over isolated model accuracy", alternatives: ["integration", "handoff", "handoffs", "not only improving one model", "not just model accuracy"]),
-                    Theme(name: "real robot grounding", alternatives: ["real robot", "real-robot", "leorover"]),
-                    Theme(name: "failure causes", alternatives: ["timing", "calibration", "localisation", "localization", "perception", "navigation", "manipulation", "state mismatch"]),
-                    Theme(name: "instrumentation", alternatives: ["logs", "timestamps", "tracing", "reproducible", "reproduce"]),
-                    Theme(name: "recovery / validation", alternatives: ["recovery", "validation", "validated", "checks", "stop small state mismatches"])
-                ],
-                wrongIndicators: roleMotivationIndicators() + [
-                    Theme(name: "generic interview coaching", alternatives: ["answer this directly", "concrete example from experience", "outcome or lesson learned"])
-                ]
-            )
-        }
-
-        if isEvaluationReliabilityQuestion(question),
-           !isRealWorldExecutionChallengeQuestion(question),
-           !question.contains("hardest technical challenge"),
-           !question.contains("hardest challenge"),
-           !question.contains("pipeline was most fragile"),
-           !question.contains("most fragile"),
-           !question.contains("real robot execution"),
-           !question.contains("clean demo"),
-           !question.contains("clean simulation") {
-            return Profile(
-                themes: [
-                    Theme(name: "system or pipeline", alternatives: ["system", "pipeline", "question", "answer", "generation", "perception"]),
-                    Theme(name: "failure or reliability", alternatives: ["failure", "failed", "wrong", "reliability", "reliable", "stale", "overwrite", "overwriting"]),
-                    Theme(name: "guard or validation", alternatives: ["guard", "guarded", "validation", "validated", "check", "checked"]),
-                    Theme(name: "ownership / ordering", alternatives: ["question id", "questionid", "generation id", "generationid", "owner", "ownership", "current question", "late result"]),
-                    Theme(name: "safe outcome", alternatives: ["discarded", "rejected", "recovery", "safe", "prevent", "prevented", "not overwrite"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("another month") || question.contains("change first") || question.contains("improve first") {
-            return Profile(
-                themes: [
-                    Theme(name: "LeoRover grounding", alternatives: ["leorover", "leo rover"]),
-                    Theme(name: "improve evaluation", alternatives: ["improve the evaluation", "strengthen the evaluation", "make the evaluation", "evaluation pipeline"]),
-                    Theme(name: "more objects / positions / failure cases", alternatives: ["more objects", "initial positions", "failure cases"]),
-                    Theme(name: "robust perception", alternatives: ["robust perception", "perception robustness"]),
-                    Theme(name: "confidence / spatial consistency", alternatives: ["confidence", "spatial consistency", "calibration", "latency"]),
-                    Theme(name: "closed-loop recovery", alternatives: ["closed-loop", "closed loop", "recovery", "missed detections", "failed grasps"])
-                ],
-                wrongIndicators: [
-                    Theme(name: "wrong project grounding", alternatives: [
-                        "semantic-geometric",
-                        "semantic geometric",
-                        "re-ranker",
-                        "reranker",
-                        "vlm grasping",
-                        "target-conditioned",
-                        "target conditioned",
-                        "grasp scorer",
-                        "thesis"
-                    ])
-                ]
-            )
-        }
-
-        if question.contains("leorover") || question.contains("leo rover") || question.contains("walk me through") {
-            return Profile(
-                themes: [
-                    Theme(name: "LeoRover / rover project", alternatives: ["leorover", "leo rover", "rover project"]),
-                    Theme(name: "autonomous object retrieval robot", alternatives: ["autonomous object retrieval", "object retrieval robot", "object retrieval"]),
-                    Theme(name: "ROS2", alternatives: ["ros2", "rose two"]),
-                    Theme(name: "YOLOv8 / perception", alternatives: ["yolov8", "yolo", "perception", "object detection"]),
-                    Theme(name: "navigation / localisation", alternatives: ["navigation", "navigate", "localisation", "localization"]),
-                    Theme(name: "manipulation / pick-up", alternatives: ["manipulation", "manipulator", "pick up", "pick-up", "pickup"]),
-                    Theme(name: "real robot execution", alternatives: ["real robot", "physical robot", "real-world", "real world", "deployment"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if isRealWorldExecutionChallengeQuestion(question) ||
-            question.contains("hardest technical challenge") ||
-            question.contains("hardest challenge") ||
-            question.contains("pipeline was most fragile") ||
-            question.contains("most fragile") ||
-            question.contains("real robot execution") ||
-            question.contains("real-world execution") ||
-            question.contains("real world execution") ||
-            question.contains("clean demo") ||
-            question.contains("clean simulation") {
-            return Profile(
-                themes: [
-                    Theme(name: "module integration", alternatives: ["module integration", "integrating modules", "modules work", "coordination between perception", "coordination between"]),
-                    Theme(name: "sensor / perception noise", alternatives: ["sensor noise", "noisy perception", "noisy detections", "noisy inputs", "perception"]),
-                    Theme(name: "localisation / drift / calibration", alternatives: ["localisation instability", "localization instability", "localisation was not stable", "localization was not stable", "camera", "imu", "drift", "calibration", "recalibrate"]),
-                    Theme(name: "timing mismatch", alternatives: ["timing mismatch", "timing mismatches", "timing between"]),
-                    Theme(name: "real robot unpredictability", alternatives: ["real robot", "real-world", "real world", "unpredictable", "less predictable", "simulation vs real world", "clean demo", "clean simulation"]),
-                    Theme(name: "navigation / manipulation coordination", alternatives: ["navigation", "manipulation", "handoff", "handoffs", "filtering", "stabilized", "stabilised"]),
-                    Theme(name: "mitigation / recovery", alternatives: ["mitigated", "mitigation", "validation", "recovery", "retrying", "repositioning", "before acting"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("noisy detections") || question.contains("localisation errors") || question.contains("localization errors") {
-            return Profile(
-                themes: [
-                    Theme(name: "filtering", alternatives: ["filtering", "filtered"]),
-                    Theme(name: "repeated observations", alternatives: ["repeated observations", "multiple observations"]),
-                    Theme(name: "stability threshold", alternatives: ["stable enough", "stability threshold", "target was stable"]),
-                    Theme(name: "recovery behaviour", alternatives: ["recovery behaviour", "recover"]),
-                    Theme(name: "retry / reposition", alternatives: ["retry", "reposition", "adjust"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("diffusion decoder") ||
-            question.contains("diffusion-based policy") ||
-            question.contains("diffusion policy") ||
-            question.contains("autoregressive policy") ||
-            question.contains("mujoco") ||
-            question.contains("mu jo co") ||
-            (question.contains("diffusion") && question.contains("robotic manipulation")) {
-            return Profile(
-                themes: [
-                    Theme(name: "smoother actions", alternatives: ["smoother actions", "smooth actions", "smoother", "jerky motions"]),
-                    Theme(name: "continuous action distribution", alternatives: ["continuous action", "action distribution", "action sequence", "action sequences", "action trajectory", "whole action trajectory", "trajectory distribution", "full trajectory", "continuous manipulation"]),
-                    Theme(name: "robustness / stability", alternatives: ["robust", "robustness", "stable", "stability", "jitter", "instability"]),
-                    Theme(name: "7/10 success", alternatives: ["seven out of ten", "7 out of 10", "7/10", "higher success rate", "higher success rates"]),
-                    Theme(name: "autoregressive / flow-matching comparison", alternatives: ["autoregressive", "auto regressive", "flow matching", "flow-matching", "compounding error", "compound errors", "accumulate errors", "error accumulation", "step-by-step", "step by step"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("questions for us") ||
-            question.contains("questions for you") ||
-            question.contains("what questions would you ask us") ||
-            question.contains("what would you ask the engineering team") ||
-            (question.contains("ask the engineering team") && question.contains("good fit")) ||
-            question.contains("before accepting an offer") {
-            return Profile(
-                themes: [
-                    Theme(name: "success criteria", alternatives: ["success criteria", "what success looks like", "what would success", "first three months", "first 3 months"]),
-                    Theme(name: "deployment challenges", alternatives: ["deployment challenges", "deploy", "real-world deployment", "reliable real-world"]),
-                    Theme(name: "team structure", alternatives: ["team structure", "team is structured", "robotics team is structured", "responsibilities are split", "perception", "autonomy", "product engineering"]),
-                    Theme(name: "data/simulation infrastructure", alternatives: ["data", "simulation", "infrastructure"]),
-                    Theme(name: "ownership", alternatives: ["ownership", "own", "responsibilities", "ownership expectations", "production workflows"])
-                ],
-                wrongIndicators: [
-                    Theme(name: "self-introduction answer", alternatives: ["i am currently studying", "msc robotics", "computer science background", "my background"]),
-                    Theme(name: "project walkthrough answer", alternatives: ["object retrieval robot", "ros2 pipeline"]),
-                    Theme(name: "vague meta-answer", alternatives: ["yes, i'd love to ask a question", "yes i would love to ask a question", "i'd love to ask a question"])
-                ]
-            )
-        }
-
-        if question.contains("why do you want") || question.contains("join our team") || question.contains("this role") {
-            return Profile(
-                themes: [
-                    Theme(name: "role / team interest", alternatives: ["drawn to", "interested in your team", "interested in this role", "role connects", "join your team", "join the team", "want this role", "want to join"]),
-                    Theme(name: "mission / company direction", alternatives: ["mission", "company direction", "product direction", "your focus", "your work"]),
-                    Theme(name: "robotics / AI / perception", alternatives: ["robotics", " ai ", "embodied ai", "perception", "vla", "foundation models"]),
-                    Theme(name: "real-world deployment", alternatives: ["real robot", "real-world robotics", "real world robotics", "deployment", "deployed", "practical robotics", "practical", "real environments"]),
-                    Theme(name: "logistics / warehouse domain", alternatives: ["logistics", "warehouse"]),
-                    Theme(name: "experience alignment", alternatives: ["aligns perfectly", "aligns with", "matches my work", "connects with my work", "my experience"]),
-                    Theme(name: "contribution / growth", alternatives: ["contribute", "help build", "build world", "grow with the team", "engineering growth", "engineering ability", "growth"])
-                ],
-                wrongIndicators: [
-                    Theme(name: "technical challenge answer", alternatives: ["hardest technical challenge", "noisy localisation", "noisy localization", "timing mismatch", "module integration"]),
-                    Theme(name: "self introduction answer", alternatives: ["i am studying", "msc robotics at the university", "computer science background"])
-                ]
-            )
-        }
-
-        if (question.contains("using ros") || question.contains("ros2")) &&
-            (question.contains("python library") || question.contains("python api") || question.contains("directly talking")) {
-            return Profile(
-                themes: [
-                    Theme(name: "ROS2 framework", alternatives: ["ros2", "rose two", "ros framework"]),
-                    Theme(name: "Python lower-level API", alternatives: ["python api", "python library", "lower-level", "lower level", "direct library"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        if question.contains("python") || question.contains("c++") || question.contains("ros2") || question.contains("rose two") {
-            return Profile(
-                themes: [
-                    Theme(name: "Python", alternatives: ["python"]),
-                    Theme(name: "ROS2", alternatives: ["ros2", "rose two"]),
-                    Theme(name: "robotics projects", alternatives: ["robotics projects", "robotics project"]),
-                    Theme(name: "C++ improving", alternatives: ["c++", "c plus plus", "improving c"]),
-                    Theme(name: "performance-critical robotics systems", alternatives: ["performance-critical", "performance critical", "robotics systems"])
-                ],
-                wrongIndicators: roleMotivationIndicators()
-            )
-        }
-
-        return Profile(themes: [], wrongIndicators: [])
+        let incompleteTails = [" how did ", " why did ", " what did ", " tell me about ", " walk me through "]
+        return !incompleteTails.contains { lower == $0 }
     }
 
-    private static func roleMotivationIndicators() -> [Theme] {
+    private static func dynamicTopicTokens(_ text: String) -> Set<String> {
+        let generic: Set<String> = [
+            "a", "an", "the", "what", "when", "where", "which", "who", "why", "how", "tell", "about", "your", "you", "would", "could",
+            "please", "walk", "through", "describe", "explain", "project", "experience", "worked", "work", "most", "difficult",
+            "challenge", "technical", "technically", "faced", "role", "question", "questions", "team", "did", "does", "have", "with", "from", "that", "this", "into",
+            "before", "after", "first", "one", "more", "make", "made", "using", "used"
+        ]
+        return meaningfulTokens(text).subtracting(generic)
+    }
+
+    private static func meaningfulTokens(_ text: String) -> Set<String> {
+        Set(TextChunker.tokenize(text).filter { $0.count > 2 && Int($0) == nil })
+    }
+
+    private static func semanticTokenMatch(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs { return true }
+        guard lhs.count >= 5, rhs.count >= 5 else { return false }
+        return lhs.prefix(5) == rhs.prefix(5)
+    }
+
+    private static func genericCoachingIndicators(in text: String) -> [String] {
         [
-            Theme(name: "role motivation answer", alternatives: ["i want this role", "join your team", "engineering growth", "deployed systems"])
-        ]
+            "you should say", "you could say", "a strong answer", "structure your answer", "use the star method",
+            "connect it to", "mention your", "here is how to answer", "as an ai", "based on the prompt"
+        ].filter { text.contains($0) }
     }
 
-    private static func modelComparisonVisibleSayFirstIssue(
-        normalizedQuestion: String,
-        normalizedSayFirst: String,
-        questionIntent: AnswerRelevanceIntent
-    ) -> String? {
-        let isModelComparisonQuestion = questionIntent == .modelComparison ||
-            questionIntent == .decoderComparison ||
-            questionIntent == .diffusionPolicy ||
-            (normalizedQuestion.contains("diffusion") &&
-             (normalizedQuestion.contains("autoregressive") || normalizedQuestion.contains("auto regressive")))
-        guard isModelComparisonQuestion else { return nil }
-
-        let wordCount = normalizedSayFirst.split(whereSeparator: \.isWhitespace).count
-        var missing: [String] = []
-        if wordCount < 14 {
-            missing.append("complete first-person explanation")
-        }
-        if !normalizedSayFirst.contains("diffusion") {
-            missing.append("diffusion")
-        }
-
-        let comparesAutoregressive = containsAny(
-            normalizedSayFirst,
-            [
-                "autoregressive",
-                "auto regressive",
-                "step-by-step",
-                "step by step",
-                "one step at a time",
-                "token by token"
-            ]
-        )
-        if !comparesAutoregressive {
-            missing.append("autoregressive comparison")
-        }
-
-        let explainsActionMechanism = containsAny(
-            normalizedSayFirst,
-            [
-                "continuous action",
-                "action distribution",
-                "action sequence",
-                "trajectory",
-                "denois",
-                "refin",
-                "full action"
-            ]
-        )
-        let explainsStabilityOutcome = containsAny(
-            normalizedSayFirst,
-            [
-                "smooth",
-                "stable",
-                "stability",
-                "robust",
-                "error accumulation",
-                "errors accumulate",
-                "small errors",
-                "reliable"
-            ]
-        )
-        if !explainsActionMechanism {
-            missing.append("continuous action or trajectory mechanism")
-        }
-        if !explainsStabilityOutcome {
-            missing.append("stability or robustness outcome")
-        }
-
-        let genericPhrases = [
-            "i generally work with",
-            "i have experience with",
-            "i can talk about",
-            "i would explain"
-        ]
-        if genericPhrases.contains(where: { normalizedSayFirst.contains($0) }) {
-            missing.append("specific technical comparison")
-        }
-
-        guard !missing.isEmpty else { return nil }
-        return "visible answer missing \(missing.joined(separator: ", "))."
-    }
-
-    private static func projectComparisonVisibleSayFirstIssue(
-        normalizedQuestion: String,
-        normalizedSayFirst: String,
-        questionIntent: AnswerRelevanceIntent
-    ) -> String? {
-        guard questionIntent == .projectComparison,
-              normalizedQuestion.contains("vla"),
-              normalizedQuestion.contains("leorover") || normalizedQuestion.contains("leo rover") else {
-            return nil
-        }
-
-        var missing: [String] = []
-        if !normalizedSayFirst.contains("vla") {
-            missing.append("VLA")
-        }
-        if !containsAny(normalizedSayFirst, ["leorover", "leo rover"]) {
-            missing.append("LeoRover")
-        }
-        if !containsAny(normalizedSayFirst, ["mujoco", "franka", "simulation"]) {
-            missing.append("simulation/MuJoCo/Franka side")
-        }
-        if !containsAny(normalizedSayFirst, ["ros2", "yolov8", "navigation", "manipulation", "localisation", "localization"]) {
-            missing.append("LeoRover stack detail")
-        }
-        if !containsAny(normalizedSayFirst, ["real robot", "real-robot", "real-world", "real world", "physical hardware"]) {
-            missing.append("real-robot execution side")
-        }
-        if !containsAny(normalizedSayFirst, ["difference", "while", "whereas", "versus", "compared", "contrast"]) {
-            missing.append("explicit contrast")
-        }
-
-        guard !missing.isEmpty else { return nil }
-        return "visible answer missing \(missing.joined(separator: ", "))."
-    }
-
-    private static func realWorldExecutionVisibleSayFirstIssue(
-        normalizedQuestion: String,
-        normalizedSayFirst: String,
-        questionIntent: AnswerRelevanceIntent
-    ) -> String? {
-        guard questionIntent == .technicalChallenge,
-              isRealWorldExecutionChallengeQuestion(normalizedQuestion) else {
-            return nil
-        }
-
-        var missing: [String] = []
-        if !containsAny(normalizedSayFirst, ["real-world", "real world", "physical robot", "real robot"]) {
-            missing.append("real-world/physical-robot grounding")
-        }
-        if !containsAny(normalizedSayFirst, ["simulation", "demo", "clean"]) {
-            missing.append("simulation/demo contrast")
-        }
-        if !containsAny(normalizedSayFirst, ["lighting", "calibration", "noise", "noisy", "occlusion", "latency", "timing", "drift", "integration"]) {
-            missing.append("real execution difficulty")
-        }
-        if !containsAny(normalizedSayFirst, ["recovery", "robust", "reliable", "failure", "retry", "reposition", "validation", "validated", "filter"]) {
-            missing.append("recovery or robustness")
-        }
-
-        guard !missing.isEmpty else { return nil }
-        return "visible answer missing \(missing.joined(separator: ", "))."
-    }
-
-    private static func systemIntegrationVisibleSayFirstIssue(
-        normalizedQuestion: String,
-        normalizedSayFirst: String,
-        questionIntent: AnswerRelevanceIntent
-    ) -> String? {
-        guard questionIntent == .systemIntegrationDebugging else { return nil }
-
-        var missing: [String] = []
-        if isRobotDecisionInformationQuestion(normalizedQuestion) {
-            if !containsAny(normalizedSayFirst, ["object identity", "target object", "target", "object"]) {
-                missing.append("object/target identity")
-            }
-            if !containsAny(normalizedSayFirst, ["pose", "position", "location", "state estimate", "robot state"]) {
-                missing.append("pose/location/state estimate")
-            }
-            if !containsAny(normalizedSayFirst, ["navigation", "where to move", "move"]) {
-                missing.append("navigation or movement decision")
-            }
-            if !containsAny(normalizedSayFirst, ["grasp", "manipulation", "reachability", "reachable", "feasible"]) {
-                missing.append("grasp/manipulation feasibility")
-            }
-        } else if isVisualDetectionToPhysicalActionQuestion(normalizedQuestion) {
-            if !containsAny(normalizedSayFirst, ["visual", "detection", "detections", "object detection", "detector", "yolov8", "yolo"]) {
-                missing.append("visual/object detection")
-            }
-            if !containsAny(normalizedSayFirst, ["target pose", "object pose", "pose", "position", "location"]) {
-                missing.append("target/object pose")
-            }
-            if !containsAny(normalizedSayFirst, ["navigation", "navigate", "move", "movement"]) {
-                missing.append("navigation or movement")
-            }
-            if !containsAny(normalizedSayFirst, ["manipulation", "grasp", "physical action", "action", "control"]) {
-                missing.append("manipulation/grasp/action")
-            }
-        } else if isPerceptionControlReliabilityQuestion(normalizedQuestion) {
-            if !containsAny(normalizedSayFirst, ["perception", "visual", "detection", "camera"]) {
-                missing.append("perception signal")
-            }
-            if !containsAny(normalizedSayFirst, ["control", "controller", "action", "motion", "navigation", "manipulation"]) {
-                missing.append("control/action execution")
-            }
-            if !containsAny(normalizedSayFirst, ["reliable", "reliability", "difficult", "latency", "calibration", "timing", "validation"]) {
-                missing.append("reliability mechanism")
-            }
-        } else if isRobotSystemArchitectureQuestion(normalizedQuestion) {
-            if !containsAny(normalizedSayFirst, ["yolov8", "yolo", "detection", "detector"]) {
-                missing.append("YOLOv8/detection")
-            }
-            if !containsAny(normalizedSayFirst, ["localisation", "localization", "navigation"]) {
-                missing.append("localisation/navigation")
-            }
-            if !containsAny(normalizedSayFirst, ["manipulation", "grasp", "recovery", "recover"]) {
-                missing.append("manipulation/recovery")
-            }
-        } else if isDebuggingReflectionQuestion(normalizedQuestion) {
-            if !containsAny(normalizedSayFirst, ["debug", "debugging", "failure", "logs", "timestamps", "instrument", "reproduce"]) {
-                missing.append("debugging evidence")
-            }
-            if !containsAny(normalizedSayFirst, ["real robot", "real-robot", "leorover", "integration", "handoff", "pipeline"]) {
-                missing.append("real robot/integration context")
-            }
-        } else if isEvaluationReliabilityQuestion(normalizedQuestion) {
-            if containsAny(normalizedQuestion, ["wrong perception", "perception decision", "bad perception"]) {
-                if !containsAny(normalizedSayFirst, ["wrong perception", "perception decision", "bad perception", "wrong target", "wrong pose"]) {
-                    missing.append("wrong-perception failure mode")
-                }
-                if !containsAny(normalizedSayFirst, ["validation", "validated", "confidence", "spatial", "recovery", "retry", "safe stop"]) {
-                    missing.append("validation/recovery behavior")
-                }
-            } else if containsAny(normalizedQuestion, ["late result", "overwriting", "overwrite", "stale callback"]) {
-                if !containsAny(normalizedSayFirst, ["questionid", "generationid", "ownership", "stale", "discard", "active question"]) {
-                    missing.append("generation ownership guard")
-                }
-            }
-        }
-
-        guard !missing.isEmpty else { return nil }
-        return "visible answer missing \(missing.joined(separator: ", "))."
-    }
-
-    private static func engineeringTeamFitVisibleSayFirstIssue(
-        normalizedQuestion: String,
-        normalizedSayFirst: String,
-        questionIntent: AnswerRelevanceIntent
-    ) -> String? {
-        guard questionIntent == .interviewerQuestions,
-              isEngineeringTeamFitQuestion(normalizedQuestion) else {
-            return nil
-        }
-        guard !containsAny(normalizedSayFirst, ["data", "simulation", "infrastructure", "workflow", "workflows"]) else {
-            return nil
-        }
-        return "visible answer missing data/simulation/infrastructure/workflow coverage."
-    }
-
-    private static func genericCoachingIndicators(in normalizedText: String) -> [String] {
-        let coachingPhrases = [
-            "answer this directly",
-            "connect it to a concrete robotics example",
-            "keep the focus on what i did",
-            "why it mattered, and what i learned",
-            "direct answer first",
-            "concrete example from experience",
-            "outcome or lesson learned",
-            "structure the answer",
-            "use a concrete example",
-            "keep it concise"
-        ]
-        let metaAdvicePhrases = [
-            "i would answer this",
-            "i’d answer this",
-            "i'd answer this",
-            "you should answer",
-            "a good answer would",
-            "the answer should",
-            "say first",
-            "key points"
-        ]
-        guard coachingPhrases.contains(where: { normalizedText.contains($0) }) ||
-              metaAdvicePhrases.contains(where: { normalizedText.contains($0) }) else {
-            return []
-        }
-        return ["generic interview coaching"]
-    }
-
-    private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
-        needles.contains { text.contains($0) }
-    }
-
-    private static func containsWrongLeoRoverImprovementGrounding(_ text: String) -> Bool {
-        containsAny(text, [
-            "semantic-geometric",
-            "semantic geometric",
-            "re-ranker",
-            "reranker",
-            "vlm grasping",
-            "target-conditioned",
-            "target conditioned",
-            "grasp scorer",
-            "thesis"
-        ])
-    }
-
-    private static func projectOrChallengeIndicators() -> [Theme] {
-        [
-            Theme(name: "project/challenge answer", alternatives: ["leorover", "hardest technical challenge", "noisy perception", "target localisation"])
-        ]
+    private static func containsAny(_ text: String, _ terms: [String]) -> Bool {
+        terms.contains { text.contains($0) }
     }
 
     private static func normalize(_ text: String) -> String {
-        " " + ASRCanonicalizer.canonicalizeTerms(text)
-            .lowercased()
-            .replacingOccurrences(of: "c++", with: "c plus plus")
-            .replacingOccurrences(of: "ros 2", with: "ros2")
-            .replacingOccurrences(of: "flow matching", with: "flow-matching")
+        " " + text.lowercased()
             .replacingOccurrences(of: "\n", with: " ")
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ") + " "
     }
 
-    private static func inferredAnswerIntent(for answer: String) -> AnswerRelevanceIntent {
-        if answer.contains("what would success") ||
-            answer.contains("first three months") ||
-            answer.contains("first 3 months") ||
-            answer.contains("team is structured") ||
-            answer.contains("deployment challenges") ||
-            answer.contains("production workflows") {
-            return .interviewerQuestions
-        }
-        if answer.contains("droid") &&
-            (answer.contains("mujoco") || answer.contains("franka") || answer.contains("demonstration") || answer.contains("trajectory")) {
-            return .datasetAdaptation
-        }
-        if answer.contains("sim-to-real") ||
-            answer.contains("sim and real") ||
-            answer.contains("simulator and real") ||
-            answer.contains("contact dynamics") ||
-            answer.contains("dynamics mismatch") ||
-            answer.contains("distribution shift") {
-            return .simToRealDebugging
-        }
-        if (answer.contains("yolov8") || answer.contains("detector")) &&
-            (answer.contains("wrong prediction") || answer.contains("false positive") || answer.contains("confident but wrong") || answer.contains("debug")) {
-            return .perceptionDebugging
-        }
-        if (answer.contains("trade-off") || answer.contains("tradeoff") || answer.contains("trade off")) &&
-            (answer.contains("robustness") || answer.contains("latency") || answer.contains("complexity") || answer.contains("reliability")) {
-            return .technicalTradeoff
-        }
-        if (answer.contains("system integration") || answer.contains("work together") || answer.contains("module boundaries") || answer.contains("handoff")) &&
-            (answer.contains("logs") || answer.contains("timestamps") || answer.contains("reproduced") || answer.contains("isolated") || answer.contains("recovery")) {
-            return .systemIntegrationDebugging
-        }
-        if containsAny(answer, ["real-world", "real world", "physical robot", "real robot"]) &&
-            containsAny(answer, ["simulation", "demo", "clean", "harder", "less predictable", "unpredictable"]) ||
-            answer.contains("hardest technical challenge") ||
-            answer.contains("module integration") ||
-            answer.contains("timing mismatch") {
-            return .technicalChallenge
-        }
-        if answer.contains("vla") &&
-            answer.contains("leorover") &&
-            (answer.contains("difference") ||
-                answer.contains("while") ||
-                answer.contains("versus") ||
-                answer.contains("whereas") ||
-                (answer.contains("simulation") && containsAny(answer, ["real-world", "real world", "real robot", "real-robot"]))) {
-            return .projectComparison
-        }
-        if (answer.contains("leorover project") || answer.contains("autonomous object retrieval robot")) &&
-            containsAny(answer, ["ros2", "yolov8", "navigation", "localisation", "localization", "manipulation"]) {
-            return .projectWalkthrough
-        }
-        if answer.contains("mujoco") &&
-            (answer.contains("vla") || answer.contains("franka")) &&
-            answer.contains("diffusion") &&
-            answer.contains("autoregressive") &&
-            (answer.contains("flow-matching") || answer.contains("flow matching")) {
-            return .decoderComparison
-        }
-        if isRobotSystemArchitectureQuestion(answer) {
-            return .systemIntegrationDebugging
-        }
-        if isVisualDetectionToPhysicalActionQuestion(answer) ||
-            isRobotDecisionInformationQuestion(answer) ||
-            isPerceptionControlReliabilityQuestion(answer) {
-            return .systemIntegrationDebugging
-        }
-        if answer.contains("i’d like to ask") || answer.contains("i would ask") || answer.contains("how your team") || answer.contains("success criteria") {
-            return .candidateQuestions
-        }
-        if answer.contains("diffusion") || answer.contains("autoregressive") || answer.contains("flow matching") {
-            return .modelComparison
-        }
-        if answer.contains("another month") || answer.contains("evaluation pipeline") || answer.contains("failure cases") || answer.contains("reranking") {
-            return .improvementPlan
-        }
-        if answer.contains("noisy detections") || answer.contains("repeated observations") || answer.contains("recovery behaviour") || answer.contains("recovery behavior") {
-            return .errorHandling
-        }
-        if answer.contains("leorover") || answer.contains("yolov8") || answer.contains("object retrieval robot") || answer.contains("object retrieval") {
-            return .projectWalkthrough
-        }
-        if answer.contains("want this role") ||
-            answer.contains("interested in this role") ||
-            answer.contains("drawn to") ||
-            answer.contains("mission") ||
-            answer.contains("aligns with") ||
-            answer.contains("aligns perfectly") ||
-            answer.contains("join") && answer.contains("team") ||
-            answer.contains("help build") && (answer.contains("robot") || answer.contains("logistics") || answer.contains("team")) {
-            return .whyRole
-        }
-        if answer.contains("python") || answer.contains("c plus plus") || answer.contains("ros2") || answer.contains("rose two") {
-            return .skillComfort
-        }
-        if answer.contains("msc robotics") || answer.contains("university of manchester") || answer.contains("computer science background") {
-            return .tellMeAboutYourself
-        }
-        return .generic
-    }
-
-    private static func reason(
-        matchedCount: Int,
-        totalCount: Int,
-        wrongIndicators: [String],
+    private static func result(
+        score: Double,
+        verdict: AnswerAlignmentVerdict,
         questionIntent: AnswerRelevanceIntent,
-        answerIntent: AnswerRelevanceIntent
-    ) -> String {
-        var parts = totalCount == 0
-            ? ["No expected theme profile; used generic quality safeguards."]
-            : ["Matched \(matchedCount) of \(totalCount) expected themes."]
-        let intentsMatch = questionIntent == answerIntent ||
-            (questionIntent == .diffusionPolicy && answerIntent == .modelComparison) ||
-            (questionIntent == .modelComparison && answerIntent == .diffusionPolicy) ||
-            (questionIntent == .decoderComparison && answerIntent == .modelComparison) ||
-            (questionIntent == .modelComparison && answerIntent == .decoderComparison) ||
-            (questionIntent == .candidateQuestions && answerIntent == .interviewerQuestions) ||
-            (questionIntent == .interviewerQuestions && answerIntent == .candidateQuestions)
-        if questionIntent != .generic, answerIntent != .generic, !intentsMatch {
-            parts.append("Answer intent \(answerIntent.rawValue) differs from question intent \(questionIntent.rawValue).")
-        }
-        if !wrongIndicators.isEmpty {
-            parts.append("Wrong-answer indicators: \(wrongIndicators.joined(separator: ", ")).")
-        }
-        return parts.joined(separator: " ")
-    }
-
-    private static func isDecoderComparisonQuestion(_ question: String) -> Bool {
-        let modelTerms = ["autoregressive", "diffusion", "flow-matching"].filter { question.contains($0) }.count
-        return modelTerms >= 2 &&
-            (question.contains("mujoco") || question.contains("vla") || question.contains("franka") || question.contains("decoder")) &&
-            (question.contains("what did you learn") || question.contains("comparing") || question.contains("compared"))
-    }
-
-    private static func isPerceptionDebuggingQuestion(_ question: String) -> Bool {
-        let mentionsDetector = question.contains("yolov8") ||
-            question.contains("detector") ||
-            question.contains("prediction")
-        let mentionsDebugging = question.contains("debug") ||
-            question.contains("confident but wrong") ||
-            question.contains("wrong prediction") ||
-            question.contains("false positive")
-        return mentionsDetector && mentionsDebugging
-    }
-
-    private static func isRobotSystemArchitectureQuestion(_ question: String) -> Bool {
-        IntentRouter.isRobotSystemArchitectureQuestion(question)
-    }
-
-    private static func isVisualDetectionToPhysicalActionQuestion(_ question: String) -> Bool {
-        IntentRouter.isVisualDetectionToPhysicalActionQuestion(question)
-    }
-
-    private static func isRobotDecisionInformationQuestion(_ question: String) -> Bool {
-        IntentRouter.isRobotDecisionInformationQuestion(question)
-    }
-
-    private static func isPerceptionControlReliabilityQuestion(_ question: String) -> Bool {
-        IntentRouter.isPerceptionControlReliabilityQuestion(question)
-    }
-
-    private static func isDebuggingReflectionQuestion(_ question: String) -> Bool {
-        IntentRouter.isDebuggingReflectionQuestion(question)
-    }
-
-    private static func isEvaluationReliabilityQuestion(_ question: String) -> Bool {
-        IntentRouter.isEvaluationReliabilityQuestion(question)
-    }
-
-    private static func isRealWorldExecutionChallengeQuestion(_ question: String) -> Bool {
-        IntentRouter.isRealWorldExecutionQuestion(question)
-    }
-
-    private static func isEngineeringTeamFitQuestion(_ question: String) -> Bool {
-        question.contains("what would you ask the engineering team") ||
-            (question.contains("ask the engineering team") && question.contains("good fit"))
-    }
-
-    private static func isRobotPerceptionToNavigationQuestion(_ question: String) -> Bool {
-        IntentRouter.isRobotPerceptionToNavigationQuestion(question)
+        answerIntent: AnswerRelevanceIntent,
+        matched: [String],
+        missing: [String],
+        wrong: [String],
+        reason: String
+    ) -> AnswerAlignmentResult {
+        AnswerAlignmentResult(
+            score: score,
+            verdict: verdict,
+            questionIntent: questionIntent,
+            answerIntent: answerIntent,
+            matchedThemes: Array(Set(matched)).sorted(),
+            missingThemes: Array(Set(missing)).sorted(),
+            wrongAnswerIndicators: Array(Set(wrong)).sorted(),
+            reason: reason
+        )
     }
 }

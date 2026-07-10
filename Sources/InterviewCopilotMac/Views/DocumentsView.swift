@@ -6,11 +6,16 @@ struct DocumentsView: View {
     @State private var jdText = ""
     @State private var notesText = ""
     @State private var previewedTypes: Set<DocumentType> = []
+    @State private var newProfileName = ""
+    @State private var newOpportunityName = ""
+    @State private var newDeclaredGap = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                contextSetup
+                evidenceReview
 
                 documentCard(type: .cv, text: $cvText)
                 documentCard(type: .jobDescription, text: $jdText)
@@ -25,6 +30,125 @@ struct DocumentsView: View {
         }
         .navigationTitle("Documents")
         .onAppear(perform: hydrateEditors)
+    }
+
+    private var contextSetup: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Interview Context", systemImage: "person.text.rectangle")
+                .font(.title2.weight(.semibold))
+
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                GridRow {
+                    Text("Candidate Profile").foregroundStyle(.secondary)
+                    Picker("Candidate Profile", selection: Binding(
+                        get: { appState.activeCandidateProfileID },
+                        set: appState.selectCandidateProfile
+                    )) {
+                        Text("None").tag(String?.none)
+                        ForEach(appState.candidateProfiles) { profile in
+                            Text(profile.displayName ?? "Candidate Profile").tag(Optional(profile.id))
+                        }
+                    }
+                    .labelsHidden()
+                }
+                GridRow {
+                    Text("Target Opportunity").foregroundStyle(.secondary)
+                    Picker("Target Opportunity", selection: Binding(
+                        get: { appState.activeOpportunityContextID },
+                        set: appState.selectOpportunityContext
+                    )) {
+                        Text("General / None").tag(String?.none)
+                        ForEach(appState.opportunityContexts) { opportunity in
+                            Text(opportunity.title ?? "Target Opportunity").tag(Optional(opportunity.id))
+                        }
+                    }
+                    .labelsHidden()
+                }
+                GridRow {
+                    Text("Interview Domain").foregroundStyle(.secondary)
+                    Picker("Interview Domain", selection: Binding(
+                        get: { appState.activeInterviewDomainID },
+                        set: appState.selectInterviewDomain
+                    )) {
+                        ForEach(InterviewDomainID.allCases) { domain in
+                            Text(domain.displayName).tag(domain)
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], spacing: 10) {
+                summaryMetric("Candidate facts", "\(appState.contextReadiness.candidateFactCount)", "person.text.rectangle")
+                summaryMetric("Opportunity requirements", "\(appState.contextReadiness.opportunityRequirementCount)", "briefcase")
+                summaryMetric("Uncertain facts", "\(appState.contextReadiness.uncertainFactCount)", "questionmark.circle")
+                summaryMetric("Declared gaps", "\(appState.contextReadiness.declaredGapCount)", "arrow.up.right")
+                summaryMetric("Context status", contextStatusTitle, "checkmark.shield")
+            }
+
+            HStack(spacing: 8) {
+                TextField("New profile name", text: $newProfileName)
+                Button {
+                    appState.createCandidateProfile(named: newProfileName)
+                    newProfileName = ""
+                } label: {
+                    Image(systemName: "person.badge.plus")
+                }
+                .help("Create candidate profile")
+
+                TextField("New opportunity name", text: $newOpportunityName)
+                Button {
+                    appState.createOpportunityContext(named: newOpportunityName)
+                    newOpportunityName = ""
+                } label: {
+                    Image(systemName: "briefcase.badge.plus")
+                }
+                .help("Create target opportunity")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var evidenceReview: some View {
+        if let profile = appState.candidateProfiles.first(where: { $0.id == appState.activeCandidateProfileID }) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Candidate Profile Review", systemImage: "checklist")
+                        .font(.headline)
+                    Spacer()
+                    Text("v\(profile.version)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(profile.allEvidence.prefix(16)) { evidence in
+                    ProfileEvidenceReviewRow(appState: appState, evidence: evidence)
+                    Divider()
+                }
+
+                HStack {
+                    TextField("Add a declared skill or experience gap", text: $newDeclaredGap)
+                    Button {
+                        appState.addDeclaredGap(newDeclaredGap)
+                        newDeclaredGap = ""
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .disabled(newDeclaredGap.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help("Add declared gap")
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var contextStatusTitle: String {
+        switch appState.contextReadiness.status {
+        case .ready: return "Ready"
+        case .needsReview: return "Needs Review"
+        case .missing: return "Missing"
+        }
     }
 
     private var header: some View {
@@ -254,6 +378,41 @@ struct DocumentsView: View {
             jdText = ""
         case .additionalNotes:
             notesText = ""
+        }
+    }
+}
+
+private struct ProfileEvidenceReviewRow: View {
+    @ObservedObject var appState: AppState
+    let evidence: ProfileEvidence
+    @State private var draft: String
+
+    init(appState: AppState, evidence: ProfileEvidence) {
+        self.appState = appState
+        self.evidence = evidence
+        _draft = State(initialValue: evidence.statement)
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(evidence.evidenceType.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 105, alignment: .leading)
+            TextField("Evidence", text: $draft)
+                .onSubmit { appState.editProfileEvidence(evidence.id, statement: draft) }
+            Button {
+                appState.confirmProfileEvidence(evidence.id)
+            } label: {
+                Image(systemName: "checkmark.circle")
+            }
+            .help("Confirm evidence")
+            Button {
+                appState.rejectProfileEvidence(evidence.id)
+            } label: {
+                Image(systemName: "xmark.circle")
+            }
+            .help("Reject evidence")
         }
     }
 }

@@ -471,6 +471,10 @@ final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v16_dynamic_candidate_context") { db in
+            try DynamicContextMigration.migrate(db)
+        }
+
         return migrator
     }
 }

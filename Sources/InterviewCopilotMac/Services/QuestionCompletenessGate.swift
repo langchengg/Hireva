@@ -20,13 +20,6 @@ enum QuestionCompletenessGate {
             return !hasOneMoreMonthImprovementComplement(lower)
         }
 
-        if lower == "could you walk me through your robotics" ||
-            lower == "can you walk me through your robotics" ||
-            lower == "could you walk me through your robotics project" ||
-            lower == "can you walk me through your robotics project" {
-            return true
-        }
-
         if QuestionRuntimeAcceptanceGuard.isVagueFollowUp(lower) ||
             QuestionRuntimeAcceptanceGuard.isKnownIncompleteOrGenericPattern(lower) {
             return true
@@ -52,11 +45,7 @@ enum QuestionCompletenessGate {
             "what questions would you ask",
             "what questions would you ask us",
             "what questions would you ask us about the",
-            "what questions would you ask us about that",
-            "could you walk me through your robotics",
-            "could you walk me through your robotics project",
-            "can you walk me through your robotics",
-            "can you walk me through your robotics project"
+            "what questions would you ask us about that"
         ]
         if exactFragments.contains(lower) {
             return true
@@ -132,6 +121,7 @@ enum QuestionCompletenessGate {
 
     static func isCompleteQuestion(_ text: String, isFinal: Bool) -> Bool {
         let lower = text.lowercased()
+        let comparable = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
         let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
         guard words.count >= 4 else { return false }
         guard !isTailOnlyQuestion(lower) else { return false }
@@ -150,13 +140,13 @@ enum QuestionCompletenessGate {
             " tell me about a time you had", " what questions would you ask", " what questions would you ask us about the",
             " about the", " what", " why", " how", " if", " also if"
         ]
-        if incompleteEndings.contains(where: { lower.hasSuffix($0) }) {
+        if incompleteEndings.contains(where: { comparable.hasSuffix($0) }) {
             return false
         }
 
         guard MultiQuestionSplitter.questionStarts(in: lower).first == 0 else { return false }
 
-        if isIncompleteFragment(lower) {
+        if isIncompleteFragment(comparable) {
             return false
         }
 

@@ -354,7 +354,7 @@ final class QuestionDetectionService {
 
     private func classifyFallbackQuestion(_ text: String) -> (intent: QuestionIntent, strategy: AnswerStrategy) {
         let lower = SystemAudioQuestionExtractor.canonicalizeQuestionText(text).lowercased()
-        if lower.contains("leorover") || lower.contains("project") || lower.contains("built") || lower.contains("worked on") {
+        if lower.contains("project") || lower.contains("built") || lower.contains("worked on") {
             return (.projectDeepDive, .projectWalkthrough)
         }
         if lower.contains("technical") || lower.contains("architecture") || lower.contains("algorithm") || lower.contains("system design") {

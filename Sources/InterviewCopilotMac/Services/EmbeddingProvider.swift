@@ -52,34 +52,14 @@ class ControlledMockEmbeddingProvider: EmbeddingProvider {
         let lower = text.lowercased()
         var centroid = [Float](repeating: 0.0, count: 384)
         
-        let hasRobotics = lower.contains("embodied") || lower.contains("vla") || lower.contains("manipulation") || lower.contains("robotics") || lower.contains("robotic")
-        let hasROS = lower.contains("ros2") || lower.contains("rover") || lower.contains("navigation") || lower.contains("ros") || lower.contains("c++") || lower.contains("cpp")
-        let hasEmbedding = lower.contains("embedding") || lower.contains("vector") || lower.contains("hybrid")
-        
-        if hasRobotics {
-            // Fill 0..<128 with deterministic pattern
-            for i in 0..<128 {
-                centroid[i] = Float(sin(Double(i)))
-            }
-        }
-        if hasROS {
-            // Fill 128..<256 with deterministic pattern
-            for i in 128..<256 {
-                centroid[i] = Float(sin(Double(i)))
-            }
-        }
-        if hasEmbedding {
-            // Fill 256..<384 with deterministic pattern
-            for i in 256..<384 {
-                centroid[i] = Float(sin(Double(i)))
-            }
+        for token in TextChunker.tokenize(lower) {
+            let seed = token.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) % 384 }
+            centroid[seed] += 1
+            centroid[(seed &* 17 &+ 11) % 384] += 0.5
         }
         
-        // If no categories match, add a default fallback pattern so it's not pure zero
-        if !hasRobotics && !hasROS && !hasEmbedding {
-            for i in 0..<384 {
-                centroid[i] = Float(cos(Double(i &* text.hashValue)))
-            }
+        if centroid.allSatisfy({ $0 == 0 }) {
+            centroid[0] = 1
         }
         
         // Normalize centroid to unit length

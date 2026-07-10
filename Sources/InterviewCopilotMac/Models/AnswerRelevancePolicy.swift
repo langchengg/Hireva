@@ -51,7 +51,8 @@ enum AnswerRelevancePolicy {
         transcriptContext: String,
         cvSummary: String,
         jdSummary: String,
-        stage: AnswerPromptStage
+        stage: AnswerPromptStage,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) -> AnswerPromptSnapshot {
         PromptContextBuilder.promptSnapshot(
             question: question,
@@ -59,7 +60,8 @@ enum AnswerRelevancePolicy {
             transcriptContext: transcriptContext,
             cvSummary: cvSummary,
             jdSummary: jdSummary,
-            stage: stage
+            stage: stage,
+            interviewContextSnapshot: interviewContextSnapshot
         )
     }
 
@@ -74,7 +76,8 @@ enum AnswerRelevancePolicy {
         transcriptContext: String,
         cvSummary: String,
         jdSummary: String,
-        stage: AnswerPromptStage
+        stage: AnswerPromptStage,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) -> GenerationRequestSnapshot {
         PromptContextBuilder.generationRequestSnapshot(
             question: question,
@@ -87,7 +90,8 @@ enum AnswerRelevancePolicy {
             transcriptContext: transcriptContext,
             cvSummary: cvSummary,
             jdSummary: jdSummary,
-            stage: stage
+            stage: stage,
+            interviewContextSnapshot: interviewContextSnapshot
         )
     }
 

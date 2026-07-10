@@ -37,7 +37,8 @@ let package = Package(
             dependencies: [
                 .target(name: "InterviewCopilotMac")
             ],
-            path: "Tests/InterviewCopilotMacTests"
+            path: "Tests/InterviewCopilotMacTests",
+            resources: [.process("Fixtures")]
         )
     ]
 )

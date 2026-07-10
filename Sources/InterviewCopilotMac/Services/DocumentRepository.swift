@@ -125,6 +125,16 @@ final class DocumentRepository {
         }
     }
 
+    func chunks(documentID: String) throws -> [DocumentChunk] {
+        try database.dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM document_chunks WHERE document_id = ? ORDER BY chunk_index ASC",
+                arguments: [documentID]
+            ).map(Self.makeChunk)
+        }
+    }
+
     func deleteDocument(id: String) throws {
         try database.dbQueue.write { db in
             try db.execute(sql: "DELETE FROM documents WHERE id = ?", arguments: [id])

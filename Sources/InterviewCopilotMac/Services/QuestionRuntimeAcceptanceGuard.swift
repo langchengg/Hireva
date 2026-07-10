@@ -117,14 +117,6 @@ enum QuestionRuntimeAcceptanceGuard {
             )
         }
 
-        if candidate.answerRelevanceIntent == .technicalTradeoff,
-           isUnrelatedTechnicalTradeoffAnswer(answerText) {
-            return .rejected(
-                .unrelatedTechnicalTradeoff,
-                diagnostic: "Rejected technical-tradeoff answer that drifted into an unrelated data/validation pipeline."
-            )
-        }
-
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: candidate.text,
             answerText: answerText,
@@ -214,12 +206,10 @@ enum QuestionRuntimeAcceptanceGuard {
             if lower == fragment { return true }
         }
 
-        if lower.hasPrefix("what did you learn from comp") &&
-            !(lower.contains("autoregressive") && lower.contains("diffusion")) {
+        if lower.hasPrefix("what did you learn from comp") && lower.split(separator: " ").count < 8 {
             return true
         }
-        if lower.hasPrefix("what did you learn from comparing") &&
-            !(lower.contains("autoregressive") && lower.contains("diffusion") && (lower.contains("vla") || lower.contains("mujoco"))) {
+        if lower.hasPrefix("what did you learn from comparing") && lower.split(separator: " ").count < 9 {
             return true
         }
         if lower.hasPrefix("tell me about a time you had") &&
@@ -238,7 +228,6 @@ enum QuestionRuntimeAcceptanceGuard {
         ASRCanonicalizer.canonicalizeTerms(text)
             .lowercased()
             .replacingOccurrences(of: "c++", with: "c plus plus")
-            .replacingOccurrences(of: "ros 2", with: "ros2")
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
@@ -255,58 +244,15 @@ enum QuestionRuntimeAcceptanceGuard {
               normalizedLower.hasPrefix("if this issue") else {
             return false
         }
-        let explicitResolvers = [
-            "leorover",
-            "leo rover",
-            "vla",
-            "mujoco",
-            "ros2",
-            "perception",
-            "navigation",
-            "localisation",
-            "localization",
-            "manipulation",
-            "timing",
-            "diffusion",
-            "autoregressive"
-        ]
-        return !explicitResolvers.contains { normalizedLower.contains($0) }
+        let tokens = normalizedLower.split(separator: " ").map(String.init)
+        let generic: Set<String> = ["if", "the", "same", "that", "this", "issue", "happened", "again", "how", "would", "you", "handle", "it"]
+        return tokens.filter { !generic.contains($0) }.count < 2
     }
 
     private static func visibleAnswerText(for card: SuggestionCard) -> String {
         ([card.sayFirst] + card.keyPoints + card.followUpReady)
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: " ")
-    }
-
-    private static func isUnrelatedTechnicalTradeoffAnswer(_ answerText: String) -> Bool {
-        let lower = answerText.lowercased()
-        let wrongIndicators = [
-            "data pipeline",
-            "database pipeline",
-            "etl",
-            "10,000 records",
-            "10000 records",
-            "automated validation",
-            "validation checks"
-        ]
-        guard wrongIndicators.contains(where: { lower.contains($0) }) else { return false }
-
-        let roboticsGrounding = [
-            "robot",
-            "robotics",
-            "leorover",
-            "vla",
-            "mujoco",
-            "ros2",
-            "perception",
-            "navigation",
-            "manipulation",
-            "latency",
-            "robustness",
-            "recovery"
-        ]
-        return !roboticsGrounding.contains { lower.contains($0) }
     }
 
     private static func rejectionReason(for verdict: AnswerAlignmentVerdict) -> QuestionRuntimeRejectionReason {

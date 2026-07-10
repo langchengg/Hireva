@@ -250,6 +250,38 @@ final class SuggestionRepository {
                 ]
             )
 
+            try db.execute(
+                sql: """
+                UPDATE suggestion_cards
+                SET context_snapshot_id = ?,
+                    candidate_profile_id = ?,
+                    candidate_profile_version = ?,
+                    opportunity_context_id = ?,
+                    opportunity_context_version = ?,
+                    domain_profile_id = ?,
+                    candidate_evidence_ids_json = ?,
+                    opportunity_evidence_ids_json = ?,
+                    grounding_decision = ?,
+                    unsupported_claim_count = ?,
+                    context_isolation_status = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    card.contextSnapshotID,
+                    card.candidateProfileID,
+                    card.candidateProfileVersion,
+                    card.opportunityContextID,
+                    card.opportunityContextVersion,
+                    card.domainProfileID,
+                    JSONParsing.jsonString(card.candidateEvidenceIDs),
+                    JSONParsing.jsonString(card.opportunityEvidenceIDs),
+                    card.groundingDecision,
+                    card.unsupportedClaimCount,
+                    card.contextIsolationStatus,
+                    card.id
+                ]
+            )
+
             guard let retrievedChunks else { return }
 
             try db.execute(
@@ -484,7 +516,18 @@ final class SuggestionRepository {
             fullCardVisibleMS: row["full_card_visible_ms"],
             dbPersistedMS: row["db_persisted_ms"],
             stageBStreamStartedMS: row["stage_b_stream_started_ms"],
-            stageBFirstSectionMS: row["stage_b_first_section_ms"]
+            stageBFirstSectionMS: row["stage_b_first_section_ms"],
+            contextSnapshotID: row["context_snapshot_id"],
+            candidateProfileID: row["candidate_profile_id"],
+            candidateProfileVersion: row["candidate_profile_version"],
+            opportunityContextID: row["opportunity_context_id"],
+            opportunityContextVersion: row["opportunity_context_version"],
+            domainProfileID: row["domain_profile_id"],
+            candidateEvidenceIDs: JSONParsing.decodeArray(String.self, from: row["candidate_evidence_ids_json"] ?? "[]"),
+            opportunityEvidenceIDs: JSONParsing.decodeArray(String.self, from: row["opportunity_evidence_ids_json"] ?? "[]"),
+            groundingDecision: row["grounding_decision"],
+            unsupportedClaimCount: row["unsupported_claim_count"],
+            contextIsolationStatus: row["context_isolation_status"]
         )
     }
 

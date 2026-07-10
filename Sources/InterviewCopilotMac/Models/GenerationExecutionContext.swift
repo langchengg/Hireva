@@ -22,14 +22,17 @@ struct GenerationExecutionContext: Equatable {
     let startedAt: Date
     let source: AudioSourceType?
     let speaker: SpeakerRole?
+    let interviewContextSnapshot: InterviewContextSnapshot?
 
     var detectedQuestionID: String { question.id }
+    var contextSnapshotID: String? { interviewContextSnapshot?.id }
     var promptPrimaryQuestion: String { promptSnapshot.promptPrimaryQuestion }
     var identity: GenerationIdentity {
         GenerationIdentity(
             question: question,
             generationID: generationID,
-            promptPrimaryQuestion: promptSnapshot.promptPrimaryQuestion
+            promptPrimaryQuestion: promptSnapshot.promptPrimaryQuestion,
+            contextSnapshotID: contextSnapshotID
         )
     }
 
@@ -45,7 +48,8 @@ struct GenerationExecutionContext: Equatable {
         transcriptSnapshot: String,
         startedAt: Date,
         source: AudioSourceType?,
-        speaker: SpeakerRole?
+        speaker: SpeakerRole?,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) {
         self.session = session
         self.question = question
@@ -59,6 +63,7 @@ struct GenerationExecutionContext: Equatable {
         self.startedAt = startedAt
         self.source = source
         self.speaker = speaker
+        self.interviewContextSnapshot = interviewContextSnapshot
     }
 
     /// Builds the execution context and prompt snapshot from already-selected
@@ -77,7 +82,8 @@ struct GenerationExecutionContext: Equatable {
         startedAt: Date,
         source: AudioSourceType?,
         speaker: SpeakerRole?,
-        stage: AnswerPromptStage
+        stage: AnswerPromptStage,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) -> GenerationExecutionContext {
         let promptSnapshot = PromptContextBuilder.promptSnapshot(
             question: question,
@@ -85,7 +91,8 @@ struct GenerationExecutionContext: Equatable {
             transcriptContext: transcriptSnapshot,
             cvSummary: cvSummary,
             jdSummary: jdSummary,
-            stage: stage
+            stage: stage,
+            interviewContextSnapshot: interviewContextSnapshot
         )
         return GenerationExecutionContext(
             session: session,
@@ -99,7 +106,8 @@ struct GenerationExecutionContext: Equatable {
             transcriptSnapshot: transcriptSnapshot,
             startedAt: startedAt,
             source: source,
-            speaker: speaker
+            speaker: speaker,
+            interviewContextSnapshot: interviewContextSnapshot
         )
     }
 }

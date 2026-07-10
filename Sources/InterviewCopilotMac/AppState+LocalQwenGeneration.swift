@@ -17,7 +17,8 @@ extension AppState {
         source: AudioSourceType?,
         speaker: SpeakerRole?,
         localProvider: any LocalLLMProvider = OllamaQwenProvider(),
-        fallbackReason: String?
+        fallbackReason: String?,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) async throws -> Bool {
         guard isActiveGeneration(generationID, questionID: question.id) else {
             recordStaleGenerationDiscard()
@@ -25,34 +26,38 @@ extension AppState {
         }
 
         let modelName = selectedQwenModelName
-        let isPhDRobotics = interviewContextMode == .phdRobotics
-        let localPromptContext = isPhDRobotics
-            ? RetrievedContext(
-                cvChunks: context.cvChunks,
-                jobDescriptionChunks: [],
-                additionalNotesChunks: context.additionalNotesChunks
-            )
-            : context
-        let localJDSummary = isPhDRobotics ? "" : jdSummary
-        let localRetrievedChunks = isPhDRobotics
-            ? retrievedChunks.filter { $0.documentType != .jobDescription }
-            : retrievedChunks
+        let snapshotContext = interviewContextSnapshot.map {
+            DynamicInterviewContextEngine().retrieveContext(question: question.questionText, snapshot: $0)
+        }
+        let localPromptContext = snapshotContext?.context ?? context
+        let localCVSummary = interviewContextSnapshot.map {
+            $0.candidateEvidence.filter(\.isUsable).map(\.statement).joined(separator: "\n")
+        } ?? cvSummary
+        let localJDSummary = interviewContextSnapshot.map {
+            $0.opportunityEvidence.filter(\.isUsable).map(\.statement).joined(separator: "\n")
+        } ?? jdSummary
+        let snapshotEvidenceIDs = Set(
+            (snapshotContext?.candidateEvidenceIDs ?? []) +
+                (snapshotContext?.opportunityEvidenceIDs ?? [])
+        )
+        let localRetrievedChunks = interviewContextSnapshot == nil
+            ? retrievedChunks
+            : retrievedChunks.filter { snapshotEvidenceIDs.contains($0.id) }
         let promptSnapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: localPromptContext,
             transcriptContext: RealtimePromptBudgeter.limitTranscript(transcript),
-            cvSummary: cvSummary,
+            cvSummary: localCVSummary,
             jdSummary: localJDSummary,
-            stage: .firstAnswer
+            stage: .firstAnswer,
+            interviewContextSnapshot: interviewContextSnapshot
         )
         let systemPrompt = """
         /no_think
         You are a real-time interview helper running locally. Answer as the candidate in first person.
         Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
         """
-        let phdGuidance = phdPromptGuidance(for: question.questionText)
         let userPrompt = promptSnapshot.prompt +
-            (phdGuidance.isEmpty ? "" : "\n\n\(phdGuidance)") +
             "\n\nAnswer the current question now:"
         let primaryRequest = LocalLLMRequest(
             prompt: userPrompt,
@@ -65,15 +70,14 @@ extension AppState {
         let compactRecoveryRequest = compactLocalQwenRequest(
             question: question,
             context: promptSnapshot.ragContextSnapshot,
-            cvSummary: cvSummary,
+            cvSummary: localCVSummary,
             jdSummary: localJDSummary,
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
         let groundedRecoveryRequest = groundedLocalQwenRecoveryRequest(
             question: question,
-            cvSummary: cvSummary,
-            jdSummary: localJDSummary,
+            context: promptSnapshot.ragContextSnapshot,
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
@@ -97,7 +101,11 @@ extension AppState {
                 cleanedAnswer = AnswerQualityValidator.localCleanupAnswer(answer)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !cleanedAnswer.isEmpty {
-                    guard isUsableLocalQwenAnswer(cleanedAnswer, question: question) else {
+                    guard isUsableLocalQwenAnswer(
+                        cleanedAnswer,
+                        question: question,
+                        interviewContextSnapshot: interviewContextSnapshot
+                    ) else {
                         markProviderOperation("Local Qwen returned a non-aligned answer; retrying with recovery prompt")
                         cleanedAnswer = ""
                         continue
@@ -124,14 +132,17 @@ extension AppState {
 
         let elapsed = elapsedMS(since: requestStart)
         let isFallback = fallbackReason != nil
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
+        let selectedEvidenceIDs = Set(promptSnapshot.candidateEvidenceIDs)
+        let fallbackKeyPoints = interviewContextSnapshot?.candidateEvidence
+            .filter { selectedEvidenceIDs.contains($0.id) }
+            .map(\.statement) ?? []
         var card = SuggestionCard(
             id: cardID,
             sessionID: session.id,
             questionID: question.id,
             strategy: isFallback ? "Local Qwen Fallback" : "Local Qwen Primary",
             sayFirst: cleanedAnswer,
-            keyPoints: localQwenKeyPoints(from: cleanedAnswer, fallback: fallback.keyPoints),
+            keyPoints: localQwenKeyPoints(from: cleanedAnswer, fallback: fallbackKeyPoints),
             followUpReady: ["I can expand on the implementation tradeoffs if useful."],
             confidence: 0.72,
             caution: fallbackReason.map { "Local Qwen fallback used because \($0)." },
@@ -182,6 +193,14 @@ extension AppState {
         card.allKeyPointsVisibleMS = card.keyPoints.isEmpty ? nil : elapsed
         card.fullCardVisibleMS = elapsed
         card.ragRetrievalLatencyMS = ragRetrievalLatencyMS
+        card.contextSnapshotID = interviewContextSnapshot?.id
+        card.candidateProfileID = interviewContextSnapshot?.candidateProfileID
+        card.candidateProfileVersion = interviewContextSnapshot?.candidateProfileVersion
+        card.opportunityContextID = interviewContextSnapshot?.opportunityContextID
+        card.opportunityContextVersion = interviewContextSnapshot?.opportunityContextVersion
+        card.domainProfileID = interviewContextSnapshot?.domainProfileID
+        card.candidateEvidenceIDs = promptSnapshot.candidateEvidenceIDs
+        card.opportunityEvidenceIDs = promptSnapshot.opportunityEvidenceIDs
 
         guard displaySuggestionIfAligned(
             card,
@@ -228,14 +247,25 @@ extension AppState {
         return Array(fallback.prefix(3))
     }
 
-    private func isUsableLocalQwenAnswer(_ answer: String, question: DetectedQuestion) -> Bool {
+    private func isUsableLocalQwenAnswer(
+        _ answer: String,
+        question: DetectedQuestion,
+        interviewContextSnapshot: InterviewContextSnapshot?
+    ) -> Bool {
         guard !QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer),
               QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(answer) == nil else {
             return false
         }
-        if interviewContextMode == .phdRobotics,
-           PhDInterviewRubricPolicy.rubric(for: question.questionText) != nil {
-            return PhDInterviewRubricPolicy.evaluate(question: question.questionText, answer: answer).passed
+        if let snapshot = interviewContextSnapshot {
+            let grounding = AnswerClaimValidator().validate(
+                answer: answer,
+                candidateEvidence: snapshot.candidateEvidence,
+                opportunityEvidence: snapshot.opportunityEvidence,
+                domainKnowledge: InterviewDomainProfile.profile(
+                    for: InterviewDomainID(rawValue: snapshot.domainProfileID) ?? .general
+                ).domainKnowledge
+            )
+            guard grounding.unsupportedClaims.isEmpty else { return false }
         }
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question.questionText,
@@ -276,8 +306,6 @@ extension AppState {
         Relevant local evidence:
         \(evidence.isEmpty ? "No compact evidence available." : evidence)
 
-        \(phdPromptGuidance(for: question.questionText))
-
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use the conversation context only to resolve pronouns such as it, that, or this.
         Start with "I" and output only the final spoken answer.
@@ -306,21 +334,14 @@ extension AppState {
 
     private func groundedLocalQwenRecoveryRequest(
         question: DetectedQuestion,
-        cvSummary: String,
-        jdSummary: String,
+        context: RetrievedContext,
         modelName: String,
         previousQuestionContext: String?
     ) -> LocalLLMRequest {
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
-        let phdGuidance = phdPromptGuidance(for: question.questionText)
-        let projectFacts = phdGuidance.isEmpty
-            ? ([fallback.sayFirst] + fallback.keyPoints)
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .joined(separator: "\n- ")
-            : phdGuidance
+        let groundedEvidence = ContextBudgeter.limitWords(context.promptText, maxWords: 220)
         let prompt = """
         /no_think
         Question:
@@ -329,14 +350,12 @@ extension AppState {
         Previous question context, only if needed for pronouns:
         \(previousContext)
 
-        Project facts to ground the answer:
-        - \(projectFacts.isEmpty ? "LeoRover used perception, localization, navigation, and manipulation handoffs." : projectFacts)
-
-        \(phdPromptGuidance(for: question.questionText))
+        Selected profile and opportunity evidence:
+        \(groundedEvidence.isEmpty ? "No candidate evidence is available. Do not invent a personal answer." : groundedEvidence)
 
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
-        Use concrete robotics terms from the project facts, especially localization, manipulation, handoff reliability, validation, timing, or recovery when relevant.
-        Do not say that context is missing. Do not mention this prompt or the reference facts.
+        Use only personal facts supported by the selected profile evidence. Treat opportunity requirements as targets, never as completed achievements.
+        Do not mention this prompt or the reference facts.
         Start with "I" and output only the final spoken answer.
         """
         return LocalLLMRequest(
@@ -348,8 +367,4 @@ extension AppState {
         )
     }
 
-    private func phdPromptGuidance(for question: String) -> String {
-        guard interviewContextMode == .phdRobotics else { return "" }
-        return PhDInterviewRubricPolicy.promptGuidance(for: question)
-    }
 }

@@ -73,11 +73,11 @@ enum SystemAudioUtteranceClassifier {
     private static func isCandidateStyleAnswer(_ lower: String) -> Bool {
         let prefixes = [
             "sure.", "sure ", "yes.", "yes ", "i'm ", "i’m ", "i am ",
-            "my background ", "my role ", "the leorover project was",
+            "my background ", "my role ",
             "the project was", "the goal was", "the hardest challenge was",
             "the hardest part was", "i handled ", "i used ", "we used ",
             "i would ", "i’m interested ", "i'm interested ", "recently, ",
-            "this was ", "it was ", "in my evaluation", "the diffusion decoder performed better because"
+            "this was ", "it was ", "in my evaluation", "the selected approach performed better because"
         ]
         if prefixes.contains(where: { lower.hasPrefix($0) }) {
             return true
@@ -87,7 +87,7 @@ enum SystemAudioUtteranceClassifier {
             " i handled this by ",
             " i handled it by ",
             " my role focused on ",
-            " achieved seven out of ten ",
+            " achieved the target ",
             " i became interested ",
             " i would improve ",
             " i am actively improving ",
