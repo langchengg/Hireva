@@ -10,6 +10,11 @@ struct TranscriptQuestionGenerationTrace: Equatable {
     var source: String = ""
     var asrSource: String = ""
     var speaker: String = ""
+    var speakerRole: String = ""
+    var triggerDecision: String = ""
+    var triggerReason: String = ""
+    var suppressionReason: String = ""
+    var interviewPhase: String = InterviewPhase.unknown.rawValue
     var text: String = ""
     var isFinal: Bool = true
     var textLength: Int = 0

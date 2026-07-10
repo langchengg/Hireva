@@ -195,6 +195,16 @@ final class AppState: ObservableObject {
     @Published public var ignoredSystemAudioAnswerLikeCount: Int = 0
     @Published public var detectedQuestionsInSessionCount: Int = 0
     @Published public var lastTranscriptQuestionGenerationTrace: TranscriptQuestionGenerationTrace = .empty
+    @Published public var interviewContextMode: InterviewContextMode = .general
+    @Published public var interviewListeningMode: InterviewListeningMode = .panelQuestionsOnly
+    @Published public var candidatePresentationMode: CandidateSpeechMode = .suppressAnswers
+    @Published public var candidateAsksPanelMode: CandidateSpeechMode = .suppressAnswers
+    @Published public var interviewPhase: InterviewPhase = .unknown
+    @Published public var lastSpeakerRole: String = SpeakerRole.unknown.rawValue
+    @Published public var lastTriggerDecision: String = ""
+    @Published public var lastTriggerReason: String = ""
+    @Published public var lastSuppressionReason: String = ""
+    @Published public var candidateQuestionsToPanelCount: Int = 0
 
     // --- System Audio ASR Diagnostics ---
     @Published public var systemASRTaskRunning: Bool = false
@@ -347,6 +357,10 @@ final class AppState: ObservableObject {
         public let outputDeviceName: String?
         public let eligibleForAutoDetection: Bool
         public let skipReason: String
+        public let triggerDecision: String
+        public let triggerReason: String
+        public let suppressionReason: String
+        public let interviewPhase: String
     }
     @Published public var last10SegmentsDiagnostics: [SegmentAttributionDiagnostic] = []
 
@@ -636,6 +650,7 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     var activeAITask: Task<Void, Never>?
     var answerProviderModeOverride: AnswerProviderMode?
+    var localLLMProviderOverride: (any LocalLLMProvider)?
     // internal for AppState extension access only
     var lastDetectionAt: Date?
     // internal for AppState extension access only
@@ -1258,11 +1273,19 @@ final class AppState: ObservableObject {
             generationID: generationID,
             text: question.questionText
         )
-        if question.transcriptSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
+        let traceSegmentID = lastTranscriptQuestionGenerationTrace.transcriptSegmentID
+        if !traceSegmentID.isEmpty,
+           question.transcriptSegmentID == traceSegmentID {
+            lastTriggerDecision = InterviewTriggerDecision.triggerAnswer.rawValue
+            lastTriggerReason = "accepted substantive interviewer question"
+            lastSuppressionReason = ""
             lastTranscriptQuestionGenerationTrace.generationTriggered = true
             lastTranscriptQuestionGenerationTrace.generationID = generationID
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
             lastTranscriptQuestionGenerationTrace.providerStatus = activeRealtimeProviderBadge
+            lastTranscriptQuestionGenerationTrace.triggerDecision = InterviewTriggerDecision.triggerAnswer.rawValue
+            lastTranscriptQuestionGenerationTrace.triggerReason = "accepted substantive interviewer question"
+            lastTranscriptQuestionGenerationTrace.suppressionReason = ""
         }
         activateGeneration(
             question: question,
@@ -1517,6 +1540,7 @@ final class AppState: ObservableObject {
                     triggerPath: triggerPath,
                     source: telemetrySource,
                     speaker: telemetrySpeaker,
+                    localProvider: localLLMProviderOverride ?? OllamaQwenProvider(),
                     fallbackReason: nil
                 )
                 if finished { return }
@@ -2364,6 +2388,7 @@ final class AppState: ObservableObject {
                         triggerPath: triggerPath,
                         source: telemetrySource,
                         speaker: telemetrySpeaker,
+                        localProvider: self.localLLMProviderOverride ?? OllamaQwenProvider(),
                         fallbackReason: "deepseek_failed_before_first_token"
                     )
                     if finished {

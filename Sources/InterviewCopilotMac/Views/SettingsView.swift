@@ -18,6 +18,7 @@ struct SettingsView: View {
                 aiProviderCard
                 relevantContextCard
                 audioCard
+                dialogueCard
                 floatingWindowCard
                 privacyCard
             }
@@ -244,6 +245,45 @@ struct SettingsView: View {
             ) {
                 appState.saveSettings(settings)
             }
+        }
+    }
+
+    private var dialogueCard: some View {
+        settingsCard("Interview Dialogue", icon: "person.3.fill") {
+            Picker("Context", selection: $appState.interviewContextMode) {
+                ForEach(InterviewContextMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Listening", selection: $appState.interviewListeningMode) {
+                ForEach(InterviewListeningMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Phase", selection: $appState.interviewPhase) {
+                ForEach(InterviewPhase.allCases, id: \.self) { phase in
+                    Text(phase.displayName).tag(phase)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Picker("Presentation", selection: $appState.candidatePresentationMode) {
+                ForEach(CandidateSpeechMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Candidate questions", selection: $appState.candidateAsksPanelMode) {
+                ForEach(CandidateSpeechMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 

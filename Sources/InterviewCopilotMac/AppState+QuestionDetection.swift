@@ -1326,7 +1326,16 @@ extension AppState {
     ) -> Bool {
         guard !replayedOccurrence else { return false }
         guard !isCumulativeTranscript else { return false }
-        return acceptedNormalizedQuestionKeys.contains(normalizedQuestion(question.questionText))
+        let normalized = normalizedQuestion(question.questionText)
+        if interviewContextMode == .phdRobotics,
+           normalized.contains("prior to your msc") || normalized.contains("to clarify") {
+            guard !lastAcceptedQuestionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
+            return PhDInterviewRubricPolicy.intent(for: question.questionText) == .preMScBackground &&
+                PhDInterviewRubricPolicy.intent(for: lastAcceptedQuestionText) == .preMScBackground
+        }
+        return acceptedNormalizedQuestionKeys.contains(normalized)
     }
 
     private func rememberConsumedTranscriptOccurrence(_ question: DetectedQuestion) {

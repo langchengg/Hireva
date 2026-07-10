@@ -118,7 +118,7 @@ enum SystemAudioUtteranceClassifier {
     }
 
     private static func hasStrongQuestionStructure(_ lower: String) -> Bool {
-        questionStarterRange(in: lower) != nil
+        questionStarterRange(in: lower) != nil || isConfirmationTagQuestion(lower)
     }
 
     private static func isCompleteQuestionCandidate(_ lower: String) -> Bool {
@@ -137,7 +137,8 @@ enum SystemAudioUtteranceClassifier {
             "what ", "how ", "why ", "where ", "who ", "when ",
             "and what ", "and how ", "and why ",
             "can you ", "could you ", "would you ", "should you ",
-            "are you ", "do you ", "have you ", "is there ",
+            "are you ", "do you ", "did you ", "have you ", "is there ",
+            "was it ", "were you ", "will you ",
             "tell me ", "walk me through ", "describe ", "explain ",
             "can you walk ", "could you walk ", "suppose you ", "if the same issue "
         ]
@@ -156,5 +157,11 @@ enum SystemAudioUtteranceClassifier {
         }
 
         return nil
+    }
+
+    private static func isConfirmationTagQuestion(_ lower: String) -> Bool {
+        let trimmed = lower.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed.hasPrefix("you have ") || trimmed.hasPrefix("you've ")) &&
+            (trimmed.hasSuffix("right?") || trimmed.hasSuffix("correct?") || trimmed.hasSuffix("right"))
     }
 }

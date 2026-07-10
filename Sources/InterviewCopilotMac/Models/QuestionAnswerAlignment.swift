@@ -857,6 +857,17 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
+        if (question.contains("using ros") || question.contains("ros2")) &&
+            (question.contains("python library") || question.contains("python api") || question.contains("directly talking")) {
+            return Profile(
+                themes: [
+                    Theme(name: "ROS2 framework", alternatives: ["ros2", "rose two", "ros framework"]),
+                    Theme(name: "Python lower-level API", alternatives: ["python api", "python library", "lower-level", "lower level", "direct library"])
+                ],
+                wrongIndicators: roleMotivationIndicators()
+            )
+        }
+
         if question.contains("python") || question.contains("c++") || question.contains("ros2") || question.contains("rose two") {
             return Profile(
                 themes: [

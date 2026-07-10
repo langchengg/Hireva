@@ -46,6 +46,8 @@ extension AppState {
             source: segment.source.rawValue,
             asrSource: segment.asrSource?.rawValue ?? "",
             speaker: segment.speaker.rawValue,
+            speakerRole: segment.speaker.rawValue,
+            interviewPhase: interviewPhase.rawValue,
             text: segment.text,
             isFinal: segment.asrFinalizationReason != "partial",
             textLength: segment.text.count,
@@ -54,6 +56,26 @@ extension AppState {
             currentGenerationState: generationUIState.displayName,
             currentSuggestionExists: currentSuggestion != nil
         )
+        let dialogueTrigger = InterviewDialogueTriggerPolicy.evaluate(
+            segment: segment,
+            phase: interviewPhase,
+            listeningMode: interviewListeningMode,
+            candidatePresentationMode: candidatePresentationMode,
+            candidateAsksPanelMode: candidateAsksPanelMode,
+            allowCandidateQuestionDetection: settings.allowQuestionDetectionFromMicrophoneOnly
+        )
+        lastSpeakerRole = segment.speaker.rawValue
+        lastTriggerDecision = dialogueTrigger.decision.rawValue
+        lastTriggerReason = dialogueTrigger.triggerReason
+        lastSuppressionReason = dialogueTrigger.suppressionReason
+        lastTranscriptQuestionGenerationTrace.triggerDecision = dialogueTrigger.decision.rawValue
+        lastTranscriptQuestionGenerationTrace.triggerReason = dialogueTrigger.triggerReason
+        lastTranscriptQuestionGenerationTrace.suppressionReason = dialogueTrigger.suppressionReason
+        if dialogueTrigger.decision == .candidateQuestionToPanel,
+           segment.asrFinalizationReason != "partial",
+           previousSegment == nil {
+            candidateQuestionsToPanelCount += 1
+        }
         
         if let index = transcriptSegments.firstIndex(where: { $0.id == segment.id }) {
             transcriptSegments[index] = segment
@@ -186,7 +208,10 @@ extension AppState {
         var shouldTriggerDetection = false
         var skipReason = ""
         
-        if !settings.automaticQuestionDetectionEnabled {
+        if !dialogueTrigger.shouldEvaluateQuestion {
+            skipReason = dialogueTrigger.suppressionReason
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = dialogueTrigger.blockedReasonCode
+        } else if !settings.automaticQuestionDetectionEnabled {
             skipReason = "automatic question detection disabled in settings"
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = "autoDetectDisabled"
         } else if settings.manualOnlyMode {
@@ -230,9 +255,6 @@ extension AppState {
                 if !settings.allowQuestionDetectionFromMicrophoneOnly {
                     skipReason = "question detection from microphone is disabled (allowQuestionDetectionFromMicrophoneOnly = false)"
                     lastTranscriptQuestionGenerationTrace.generationBlockedReason = "captureModeDisabled"
-                } else if segment.speaker != .interviewer && segment.speaker != .unknown {
-                    skipReason = "speaker is candidate (speaker: \(segment.speaker.rawValue))"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
                 } else {
                     shouldTriggerDetection = true
                 }
@@ -252,7 +274,11 @@ extension AppState {
             inputDeviceName: segment.inputDeviceName,
             outputDeviceName: segment.outputDeviceName,
             eligibleForAutoDetection: shouldTriggerDetection,
-            skipReason: skipReason
+            skipReason: skipReason,
+            triggerDecision: dialogueTrigger.decision.rawValue,
+            triggerReason: dialogueTrigger.triggerReason,
+            suppressionReason: dialogueTrigger.suppressionReason,
+            interviewPhase: interviewPhase.rawValue
         )
         last10SegmentsDiagnostics.append(diag)
         if last10SegmentsDiagnostics.count > 10 {

@@ -109,12 +109,16 @@ enum QuestionCandidatePipeline {
         guard tailStart < text.endIndex else { return false }
         let tail = String(text[tailStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
         let lowerTail = tail.lowercased()
-        guard lowerTail.hasPrefix("what made ") else { return false }
         let prefix = String(text[..<questionMark]).lowercased()
-        return prefix.contains("system") ||
-            prefix.contains("project") ||
-            prefix.contains("pipeline") ||
-            prefix.contains("leorover")
+        if lowerTail.hasPrefix("what made ") {
+            return prefix.contains("system") ||
+                prefix.contains("project") ||
+                prefix.contains("pipeline") ||
+                prefix.contains("leorover")
+        }
+        return prefix.hasPrefix("what did you do before manchester") &&
+            lowerTail.hasPrefix("were you with robotics") &&
+            (lowerTail.contains("background") || lowerTail.contains("projects"))
     }
 }
 
@@ -159,7 +163,14 @@ enum MultiQuestionSplitter {
             "\\bcould\\s+you\\b",
             "\\bcan\\s+you\\b",
             "\\bwould\\s+you\\b",
-            "\\bdo\\s+you\\s+have\\b"
+            "\\bdo\\s+you\\s+have\\b",
+            "\\bdid\\s+you\\b",
+            "\\bhave\\s+you\\b",
+            "\\bis\\s+there\\b",
+            "\\bwas\\s+it\\b",
+            "\\bwere\\s+you\\b",
+            "\\bwill\\s+you\\b",
+            "\\byou\\s+have\\b.{0,140}\\b(?:right|correct)\\b"
         ]
         let imperativeQuestionStarts = [
             "\\btell\\s+me\\s+about\\b",
@@ -177,17 +188,22 @@ enum MultiQuestionSplitter {
             "\\bwhat\\s+happened\\b",
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
             "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
-            "\\bwhat\\s+(?:[a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
+            "\\bwhat\\s+(?!(?:is|are)\\b)(?:[a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
+            "\\bwhich\\s+robots?\\s+have\\s+you\\b",
             "\\bwhich\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|became|created|caused|made|failed|mattered|part|component|module|subsystem|stage|step)\\b",
             "\\band\\s+how\\s+did\\b",
             "\\bbefore\\b.{0,140}\\bwhat\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|needed|mattered|failed)\\b",
             "\\bhow\\s+did\\b",
             "\\bhow\\s+do\\b",
+            "\\bhow\\s+does\\b",
             "\\bhow\\s+would\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
             "\\bwhy\\s+might\\b"
+        ]
+        let contextualQuestionStarts = [
+            "\\bprior\\s+to\\s+your\\s+msc\\b"
         ]
         let temporalQuestionStarts = [
             "\\bwhen\\b",
@@ -199,7 +215,8 @@ enum MultiQuestionSplitter {
             imperativeQuestionStarts +
             conditionalQuestionStarts +
             whQuestionStarts +
-            temporalQuestionStarts
+            temporalQuestionStarts +
+            contextualQuestionStarts
 
         var starts = Set<Int>()
         let range = NSRange(location: 0, length: (lower as NSString).length)
@@ -225,6 +242,13 @@ enum MultiQuestionSplitter {
                 }
                 let previousIndex = String.Index(utf16Offset: previous, in: lower)
                 let previousClause = String(lower[previousIndex..<currentIndex])
+                if isBackgroundCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
+                    continue
+                }
+                if previousClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("prior to your msc"),
+                   currentClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("what ") {
+                    continue
+                }
                 if start - previous < 140, previousClause.contains("suppose you") {
                     continue
                 }
@@ -420,6 +444,13 @@ enum MultiQuestionSplitter {
             trimmed.hasPrefix("could you ") ||
             trimmed.hasPrefix("would you ") ||
             trimmed.hasPrefix("do you ") ||
+            trimmed.hasPrefix("did you ") ||
+            trimmed.hasPrefix("have you ") ||
+            trimmed.hasPrefix("is there ") ||
+            trimmed.hasPrefix("was it ") ||
+            trimmed.hasPrefix("were you ") ||
+            trimmed.hasPrefix("you have ") ||
+            trimmed.hasPrefix("prior to your msc") ||
             trimmed.hasPrefix("tell me ") ||
             trimmed.hasPrefix("walk me ")
     }
@@ -435,7 +466,23 @@ enum MultiQuestionSplitter {
             trimmed.hasPrefix("which ") ||
             trimmed.hasPrefix("what part") ||
             trimmed.hasPrefix("how did") ||
+            trimmed.hasPrefix("were you") ||
+            trimmed.hasPrefix("did you") ||
+            trimmed.hasPrefix("have you") ||
             trimmed.hasPrefix("why was")
+    }
+
+    private static func isBackgroundCompoundContinuation(previousClause: String, currentClause: String) -> Bool {
+        let previous = previousClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard previous.hasPrefix("what did you do before manchester") else { return false }
+        if current.hasPrefix("were you with robotics") {
+            return current.contains("background") || current.contains("projects")
+        }
+        guard previous.contains("were you with robotics") else { return false }
+        return current.hasPrefix("what was your background") ||
+            current.hasPrefix("what projects") ||
+            current.hasPrefix("were you involved")
     }
 
     private static func isMitigationTail(_ clause: String) -> Bool {

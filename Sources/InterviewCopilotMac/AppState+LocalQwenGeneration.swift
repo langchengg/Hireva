@@ -38,7 +38,10 @@ extension AppState {
         You are a real-time interview helper running locally. Answer as the candidate in first person.
         Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
         """
-        let userPrompt = promptSnapshot.prompt + "\n\nAnswer the current question now:"
+        let phdGuidance = phdPromptGuidance(for: question.questionText)
+        let userPrompt = promptSnapshot.prompt +
+            (phdGuidance.isEmpty ? "" : "\n\n\(phdGuidance)") +
+            "\n\nAnswer the current question now:"
         let primaryRequest = LocalLLMRequest(
             prompt: userPrompt,
             systemPrompt: systemPrompt,
@@ -214,6 +217,10 @@ extension AppState {
     }
 
     private func isUsableLocalQwenAnswer(_ answer: String, question: DetectedQuestion) -> Bool {
+        guard !QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer),
+              QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(answer) == nil else {
+            return false
+        }
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question.questionText,
             answerText: answer,
@@ -221,7 +228,11 @@ extension AppState {
             stageBCompleted: true
         )
         guard alignment.verdict == .aligned else { return false }
-        return !QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer)
+        if interviewContextMode == .phdRobotics,
+           PhDInterviewRubricPolicy.rubric(for: question.questionText) != nil {
+            return PhDInterviewRubricPolicy.evaluate(question: question.questionText, answer: answer).passed
+        }
+        return true
     }
 
     private func compactLocalQwenRequest(
@@ -252,6 +263,8 @@ extension AppState {
 
         Relevant local evidence:
         \(evidence.isEmpty ? "No compact evidence available." : evidence)
+
+        \(phdPromptGuidance(for: question.questionText))
 
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use the conversation context only to resolve pronouns such as it, that, or this.
@@ -304,6 +317,8 @@ extension AppState {
         Project facts to ground the answer:
         - \(projectFacts.isEmpty ? "LeoRover used perception, localization, navigation, and manipulation handoffs." : projectFacts)
 
+        \(phdPromptGuidance(for: question.questionText))
+
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use concrete robotics terms from the project facts, especially localization, manipulation, handoff reliability, validation, timing, or recovery when relevant.
         Do not say that context is missing. Do not mention this prompt or the reference facts.
@@ -316,5 +331,10 @@ extension AppState {
             temperature: 0.0,
             numPredict: 220
         )
+    }
+
+    private func phdPromptGuidance(for question: String) -> String {
+        guard interviewContextMode == .phdRobotics else { return "" }
+        return PhDInterviewRubricPolicy.promptGuidance(for: question)
     }
 }
