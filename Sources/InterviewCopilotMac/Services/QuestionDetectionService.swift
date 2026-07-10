@@ -31,6 +31,7 @@ final class QuestionDetectionService {
             "talk about",
             "describe",
             "explain",
+            "imagine",
             "elaborate",
             "let's discuss",
             "let’s discuss",
@@ -238,7 +239,7 @@ final class QuestionDetectionService {
             "can you ", "could you ", "would you ", "should you ",
             "are you ", "do you ", "have you ", "is there ",
             "walk me through ", "tell me about ", "give me an example ",
-            "talk about ", "describe ", "explain ", "elaborate "
+            "talk about ", "describe ", "explain ", "elaborate ", "imagine "
         ]
         return strongPrefixes.contains { lower.hasPrefix($0) }
     }

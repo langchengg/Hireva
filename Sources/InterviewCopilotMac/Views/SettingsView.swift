@@ -257,33 +257,22 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
-            Picker("Listening", selection: $appState.interviewListeningMode) {
-                ForEach(InterviewListeningMode.allCases, id: \.self) { mode in
+            Picker("Interview Mode", selection: $appState.interviewSessionMode) {
+                ForEach(InterviewSessionMode.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
 
-            Picker("Phase", selection: $appState.interviewPhase) {
-                ForEach(InterviewPhase.allCases, id: \.self) { phase in
-                    Text(phase.displayName).tag(phase)
-                }
-            }
-            .pickerStyle(.menu)
-
-            Picker("Presentation", selection: $appState.candidatePresentationMode) {
-                ForEach(CandidateSpeechMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Picker("Candidate questions", selection: $appState.candidateAsksPanelMode) {
-                ForEach(CandidateSpeechMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
+            Toggle("Answer panel questions", isOn: $appState.answerPanelQuestionsEnabled)
+            Toggle("Suppress presentation", isOn: Binding(
+                get: { appState.candidatePresentationMode == .suppressAnswers },
+                set: { appState.candidatePresentationMode = $0 ? .suppressAnswers : .normal }
+            ))
+            Toggle("Suppress candidate questions to panel", isOn: Binding(
+                get: { appState.candidateAsksPanelMode == .suppressAnswers },
+                set: { appState.candidateAsksPanelMode = $0 ? .suppressAnswers : .normal }
+            ))
         }
     }
 

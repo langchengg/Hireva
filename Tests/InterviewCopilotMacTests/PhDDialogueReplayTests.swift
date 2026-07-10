@@ -48,7 +48,8 @@ struct PhDDialogueReplayTests {
             allowCandidateQuestionDetection: true
         )
         #expect(!disabledDecision.shouldEvaluateQuestion)
-        #expect(enabledDecision.shouldEvaluateQuestion)
+        #expect(!enabledDecision.shouldEvaluateQuestion)
+        #expect(enabledDecision.turnType == .candidateAnswer)
 
         let presentationDecision = InterviewDialogueTriggerPolicy.evaluate(
             segment: microphoneQuestion,
@@ -263,6 +264,16 @@ struct PhDDialogueReplayTests {
         )
         let currentQuestionID = interviewer.questionID
         let currentAnswer = interviewer.answer
+        await harness.replay(
+            PhDReplayTurn(
+                99,
+                "Panel A",
+                .interviewer,
+                .candidateQuestionsToPanel,
+                "Do you have any questions for us?"
+            )
+        )
+        #expect(harness.appState.resolvedInterviewSessionPhase == .candidateQuestions)
         let candidateQuestions = [
             "What is the first stage I should focus on in the first year?",
             "What robot platform and tactile sensors will be used in this project?",
@@ -310,6 +321,15 @@ struct PhDDialogueReplayTests {
         }
 
         let questionBeforeCandidateTurns = harness.appState.activeQuestionID
+        await harness.replay(
+            PhDReplayTurn(
+                229,
+                "Panel A",
+                .interviewer,
+                .candidateQuestionsToPanel,
+                "Do you have any questions for us?"
+            )
+        )
         let candidateQuestions = [
             "What should I focus on in the first year?",
             "What robot and tactile sensors will be used?",
@@ -426,7 +446,6 @@ private final class PhDReplayHarness {
     }
 
     func replay(_ turn: PhDReplayTurn) async {
-        appState.interviewPhase = turn.phase
         let segment = TranscriptSegment(
             id: "phd-replay-\(turn.turnIndex)",
             sessionID: session.id,
@@ -487,7 +506,13 @@ private final class PhDReplayHarness {
         #expect(PhDInterviewRubricPolicy.intent(for: detected.questionText) == expectedIntent)
         #expect(appState.lastTriggerDecision == InterviewTriggerDecision.triggerAnswer.rawValue)
         #expect(appState.lastTranscriptQuestionGenerationTrace.speakerRole == SpeakerRole.interviewer.rawValue)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.interviewPhase == turn.phase.rawValue)
+        #expect(appState.lastTranscriptQuestionGenerationTrace.selectedSessionMode == InterviewSessionMode.auto.rawValue)
+        #expect(appState.lastTranscriptQuestionGenerationTrace.resolvedSessionPhase == DialogueSessionPhase.panelQuestions.rawValue)
+        #expect(appState.lastTranscriptQuestionGenerationTrace.detectedSpeakerRole == DialogueTurnRole.interviewer.rawValue)
+        #expect([
+            DialogueTurnType.substantiveQuestion.rawValue,
+            DialogueTurnType.clarificationQuestion.rawValue,
+        ].contains(appState.lastTranscriptQuestionGenerationTrace.detectedTurnType))
         #expect(appState.lastTranscriptQuestionGenerationTrace.asrSource == ASRSource.localParakeetASR.rawValue)
         #expect(card.isLocal)
         #expect(card.softFallbackUsed == false)

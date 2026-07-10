@@ -174,7 +174,13 @@ enum MultiQuestionSplitter {
         ]
         let imperativeQuestionStarts = [
             "\\btell\\s+me\\s+about\\b",
-            "\\bwalk\\s+me\\s+through\\b"
+            "\\bwalk\\s+me\\s+through\\b",
+            "\\bdescribe\\b",
+            "\\bexplain\\b",
+            "\\bgive\\s+me\\s+an\\s+example\\b",
+            "\\btalk\\s+about\\b",
+            "\\belaborate\\b",
+            "\\bimagine(?:\\s+that)?\\b"
         ]
         let conditionalQuestionStarts = [
             "\\balso,?\\s+if\\b",
@@ -197,6 +203,7 @@ enum MultiQuestionSplitter {
             "\\bhow\\s+do\\b",
             "\\bhow\\s+does\\b",
             "\\bhow\\s+would\\b",
+            "\\bhow\\s+should\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
@@ -233,6 +240,10 @@ enum MultiQuestionSplitter {
         for start in starts.sorted() {
             let currentIndex = String.Index(utf16Offset: start, in: lower)
             let currentClause = String(lower[currentIndex...])
+            let precedingText = String(lower[..<currentIndex])
+            if isNarrativeImperative(precedingText: precedingText, currentClause: currentClause) {
+                continue
+            }
             if isBeforeInterviewerPrefaceBeforeIndependentQuestion(currentClause) {
                 continue
             }
@@ -249,7 +260,9 @@ enum MultiQuestionSplitter {
                    currentClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("what ") {
                     continue
                 }
-                if start - previous < 140, previousClause.contains("suppose you") {
+                if start - previous < 260,
+                   (previousClause.contains("suppose you") ||
+                    previousClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("imagine")) {
                     continue
                 }
                 if start - previous < 140,
@@ -423,6 +436,39 @@ enum MultiQuestionSplitter {
         ].contains { trimmed.contains($0) }
     }
 
+    private static func isNarrativeImperative(precedingText: String, currentClause: String) -> Bool {
+        let clause = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clause.hasPrefix("explain ") ||
+                clause.hasPrefix("describe ") ||
+                clause.hasPrefix("talk about ") ||
+                clause.hasPrefix("elaborate ") ||
+                clause.hasPrefix("imagine ") else {
+            return false
+        }
+        let sentencePrefix = precedingText
+            .split(whereSeparator: { ".!?".contains($0) })
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !sentencePrefix.isEmpty else { return false }
+
+        let directRequestPrefixes = [
+            "i want you to", "we want you to",
+            "i'd like you to", "we'd like you to",
+            "i’d like you to", "we’d like you to",
+            "i would like you to", "we would like you to"
+        ]
+        if directRequestPrefixes.contains(sentencePrefix) {
+            return false
+        }
+
+        let promptQualifiers: Set<String> = [
+            "please", "briefly", "kindly", "now", "next", "then", "and", "also", "finally"
+        ]
+        let prefixWords = sentencePrefix.split(whereSeparator: \.isWhitespace).map(String.init)
+        return prefixWords.isEmpty || !prefixWords.allSatisfy(promptQualifiers.contains)
+    }
+
     private static func temporalClauseContainsQuestionComplement(_ clause: String) -> Bool {
         let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
         let complementMarkers = [
@@ -452,7 +498,10 @@ enum MultiQuestionSplitter {
             trimmed.hasPrefix("you have ") ||
             trimmed.hasPrefix("prior to your msc") ||
             trimmed.hasPrefix("tell me ") ||
-            trimmed.hasPrefix("walk me ")
+            trimmed.hasPrefix("walk me ") ||
+            trimmed.hasPrefix("describe ") ||
+            trimmed.hasPrefix("explain ") ||
+            trimmed.hasPrefix("imagine ")
     }
 
     private static func isQuestionTail(_ clause: String) -> Bool {

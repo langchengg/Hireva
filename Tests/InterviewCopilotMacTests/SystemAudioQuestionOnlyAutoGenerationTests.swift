@@ -16,8 +16,7 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
             "Why did the diffusion decoder perform better in your MuJoCo evaluation",
             "What would you change first if you had another month",
             "Why do you want to join our team",
-            "How comfortable are you with Python, C plus plus, and ROS two",
-            "Do you have any questions for us"
+            "How comfortable are you with Python, C plus plus, and ROS two"
         ]
 
         await appState.handleTranscriptSegment(systemAudioUnknownSegment(

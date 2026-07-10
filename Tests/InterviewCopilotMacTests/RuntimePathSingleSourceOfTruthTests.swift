@@ -2009,6 +2009,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             contextRetrievalService: RuntimePathEmptyContextRetrievalService()
         )
         appState.answerProviderModeOverride = .deepSeekPrimary
+        appState.interviewContextMode = .general
         if let traceURL {
             appState.runtimeTranscriptTraceLogURL = traceURL
         }

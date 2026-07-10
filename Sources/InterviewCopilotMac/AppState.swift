@@ -195,11 +195,41 @@ final class AppState: ObservableObject {
     @Published public var ignoredSystemAudioAnswerLikeCount: Int = 0
     @Published public var detectedQuestionsInSessionCount: Int = 0
     @Published public var lastTranscriptQuestionGenerationTrace: TranscriptQuestionGenerationTrace = .empty
-    @Published public var interviewContextMode: InterviewContextMode = .general
+    @Published public var interviewContextMode: InterviewContextMode = .general {
+        didSet { persistDialogueSetting(interviewContextMode.rawValue, key: DialogueSettingsStore.contextModeKey) }
+    }
+    @Published public var interviewSessionMode: InterviewSessionMode = .auto {
+        didSet { interviewSessionModeSelectionDidChange(from: oldValue) }
+    }
+    @Published public var resolvedInterviewSessionPhase: DialogueSessionPhase = .auto
     @Published public var interviewListeningMode: InterviewListeningMode = .panelQuestionsOnly
-    @Published public var candidatePresentationMode: CandidateSpeechMode = .suppressAnswers
-    @Published public var candidateAsksPanelMode: CandidateSpeechMode = .suppressAnswers
-    @Published public var interviewPhase: InterviewPhase = .unknown
+    @Published public var candidatePresentationMode: CandidateSpeechMode = .suppressAnswers {
+        didSet {
+            persistDialogueSetting(
+                candidatePresentationMode == .suppressAnswers,
+                key: DialogueSettingsStore.suppressPresentationKey
+            )
+        }
+    }
+    @Published public var candidateAsksPanelMode: CandidateSpeechMode = .suppressAnswers {
+        didSet {
+            persistDialogueSetting(
+                candidateAsksPanelMode == .suppressAnswers,
+                key: DialogueSettingsStore.suppressCandidateQuestionsKey
+            )
+        }
+    }
+    @Published public var answerPanelQuestionsEnabled: Bool = true {
+        didSet { persistDialogueSetting(answerPanelQuestionsEnabled, key: DialogueSettingsStore.answerPanelQuestionsKey) }
+    }
+    @Published public var interviewPhase: InterviewPhase = .unknown {
+        didSet { applyLegacyInterviewPhaseBridge(interviewPhase) }
+    }
+    @Published public var detectedDialogueSpeakerRole: DialogueTurnRole = .ambiguous
+    @Published public var detectedDialogueTurnType: DialogueTurnType = .unknown
+    @Published public var lastDialogueSourceChannel: String = ""
+    @Published public var lastModeTransition: String = ""
+    @Published public var lastModeTransitionReason: String = ""
     @Published public var lastSpeakerRole: String = SpeakerRole.unknown.rawValue
     @Published public var lastTriggerDecision: String = ""
     @Published public var lastTriggerReason: String = ""
@@ -361,6 +391,11 @@ final class AppState: ObservableObject {
         public let triggerReason: String
         public let suppressionReason: String
         public let interviewPhase: String
+        public let selectedSessionMode: String
+        public let resolvedSessionPhase: String
+        public let detectedSpeakerRole: String
+        public let detectedTurnType: String
+        public let sourceChannel: String
     }
     @Published public var last10SegmentsDiagnostics: [SegmentAttributionDiagnostic] = []
 
@@ -687,6 +722,7 @@ final class AppState: ObservableObject {
     private var keychainStatusRefreshInFlight = false
     private let verificationMocksEnabledOverride: Bool?
     private let defaultAppSectionOverride: AppSection?
+    var dialogueDefaults: UserDefaults?
     // internal for AppState extension access only
     var recentQuestionsFingerprints = [String]()
     private var cancellables = Set<AnyCancellable>()
@@ -704,7 +740,7 @@ final class AppState: ObservableObject {
     static func bootstrap() -> AppState {
         do {
             let database = try AppDatabase()
-            let state = AppState(database: database)
+            let state = AppState(database: database, dialogueDefaults: .standard)
             state.startMainThreadHeartbeat()
             return state
         } catch {
@@ -714,7 +750,7 @@ final class AppState: ObservableObject {
             guard let fallback else {
                 preconditionFailure("Unable to initialize SQLite or in-memory database.")
             }
-            let state = AppState(database: fallback)
+            let state = AppState(database: fallback, dialogueDefaults: .standard)
             state.startMainThreadHeartbeat()
             state.showError("Could not open the application database at the normal path. Using a temporary database for this run. \(error.localizedDescription)")
             return state
@@ -728,8 +764,10 @@ final class AppState: ObservableObject {
         keychainService: KeychainService = KeychainService(),
         contextRetrievalService: ContextRetrievalService? = nil,
         verificationMocksEnabled: Bool? = nil,
-        defaultAppSection: AppSection? = nil
+        defaultAppSection: AppSection? = nil,
+        dialogueDefaults: UserDefaults? = nil
     ) {
+        let dialogueMigration = DialogueSettingsStore.loadAndMigrate(defaults: dialogueDefaults)
         let documents = DocumentRepository(database: database)
         let sessions = SessionRepository(database: database)
         let transcripts = TranscriptRepository(database: database)
@@ -756,6 +794,7 @@ final class AppState: ObservableObject {
         self.permissionService = permissionService ?? PermissionService()
         self.verificationMocksEnabledOverride = verificationMocksEnabled
         self.defaultAppSectionOverride = defaultAppSection
+        self.dialogueDefaults = dialogueDefaults
         self.microphoneDiagnostics = MicrophoneDiagnosticsService()
         self.mockTranscriptionService = MockTranscriptionService()
         self.localDataService = LocalDataService(
@@ -777,6 +816,13 @@ final class AppState: ObservableObject {
             )
         )
         self.recapGenerationService = RecapGenerationService(llmRouter: router)
+        self.interviewContextMode = dialogueMigration.contextMode
+        self.interviewSessionMode = dialogueMigration.selectedMode
+        self.resolvedInterviewSessionPhase = dialogueMigration.resolvedPhase
+        self.detectedDialogueTurnType = dialogueMigration.legacyTurnType ?? .unknown
+        self.answerPanelQuestionsEnabled = dialogueMigration.answerPanelQuestions
+        self.candidatePresentationMode = dialogueMigration.suppressPresentation ? .suppressAnswers : .normal
+        self.candidateAsksPanelMode = dialogueMigration.suppressCandidateQuestions ? .suppressAnswers : .normal
         
         self.contextRetrievalService = contextRetrievalService ?? HybridContextRetrievalService(
             documentRepository: documents,

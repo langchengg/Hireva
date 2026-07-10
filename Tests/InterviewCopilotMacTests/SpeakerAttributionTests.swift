@@ -82,13 +82,7 @@ struct SpeakerAttributionTests {
     
     @Test
     func questionDetectionGatingRules() throws {
-        // Test gating scenarios
-        var settings = AppSettings.default
-        settings.automaticQuestionDetectionEnabled = true
-        settings.manualOnlyMode = false
-        
-        // Case 1: microphone + candidate (default: allowQuestionDetectionFromMicrophoneOnly = false)
-        settings.allowQuestionDetectionFromMicrophoneOnly = false
+        let state = DialogueRuntimeState.initial(for: .panelQuestions)
         let micCandidate = TranscriptSegment(
             id: "1",
             sessionID: "session",
@@ -96,14 +90,8 @@ struct SpeakerAttributionTests {
             speaker: .candidate,
             text: "What about my experience?"
         )
-        #expect(!shouldTriggerDetection(for: micCandidate, settings: settings))
-        
-        // Case 2: microphone + candidate (explicitly enabled)
-        settings.allowQuestionDetectionFromMicrophoneOnly = true
-        #expect(shouldTriggerDetection(for: micCandidate, settings: settings))
-        
-        // Case 3: mock + interviewer (always triggers)
-        settings.allowQuestionDetectionFromMicrophoneOnly = false
+        #expect(!dialogueDecision(for: micCandidate, state: state).shouldEvaluateQuestion)
+
         let mockInterviewer = TranscriptSegment(
             id: "2",
             sessionID: "session",
@@ -111,9 +99,8 @@ struct SpeakerAttributionTests {
             speaker: .interviewer,
             text: "Can you design a search engine?"
         )
-        #expect(shouldTriggerDetection(for: mockInterviewer, settings: settings))
-        
-        // Case 4: systemAudio + interviewer (always triggers)
+        #expect(dialogueDecision(for: mockInterviewer, state: state).shouldEvaluateQuestion)
+
         let systemInterviewer = TranscriptSegment(
             id: "3",
             sessionID: "session",
@@ -121,10 +108,8 @@ struct SpeakerAttributionTests {
             speaker: .interviewer,
             text: "Describe a project conflict."
         )
-        #expect(shouldTriggerDetection(for: systemInterviewer, settings: settings))
-        
-        // Case 5: mixed + unknown (default: false)
-        settings.allowQuestionDetectionFromMicrophoneOnly = false
+        #expect(dialogueDecision(for: systemInterviewer, state: state).shouldEvaluateQuestion)
+
         let mixedUnknown = TranscriptSegment(
             id: "4",
             sessionID: "session",
@@ -132,11 +117,9 @@ struct SpeakerAttributionTests {
             speaker: .unknown,
             text: "Mixed question here?"
         )
-        #expect(!shouldTriggerDetection(for: mixedUnknown, settings: settings))
-        
-        // Case 6: mixed + unknown (explicitly enabled)
-        settings.allowQuestionDetectionFromMicrophoneOnly = true
-        #expect(shouldTriggerDetection(for: mixedUnknown, settings: settings))
+        let ambiguousDecision = dialogueDecision(for: mixedUnknown, state: state)
+        #expect(ambiguousDecision.speakerRole == .ambiguous)
+        #expect(!ambiguousDecision.shouldEvaluateQuestion)
     }
     
     @Test
@@ -151,29 +134,18 @@ struct SpeakerAttributionTests {
     
     // MARK: - Helper Methods
     
-    private func shouldTriggerDetection(for segment: TranscriptSegment, settings: AppSettings) -> Bool {
-        var shouldTriggerDetection = false
-        if settings.automaticQuestionDetectionEnabled && !settings.manualOnlyMode {
-            switch segment.source {
-            case .systemAudio, .processAudio:
-                if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                }
-            case .mock:
-                if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                }
-            case .microphone:
-                if settings.allowQuestionDetectionFromMicrophoneOnly {
-                    shouldTriggerDetection = true
-                }
-            case .mixed:
-                if settings.allowQuestionDetectionFromMicrophoneOnly {
-                    shouldTriggerDetection = true
-                }
-            }
-        }
-        return shouldTriggerDetection
+    private func dialogueDecision(
+        for segment: TranscriptSegment,
+        state: DialogueRuntimeState
+    ) -> DialogueTriggerDecision {
+        InterviewDialogueTriggerPolicy.decideDialogueTrigger(
+            segment: segment,
+            sessionMode: state.selectedSessionMode,
+            currentState: state,
+            answerPanelQuestions: true,
+            suppressPresentation: true,
+            suppressCandidateQuestions: true
+        )
     }
     
     @Test
@@ -228,7 +200,7 @@ struct SpeakerAttributionTests {
         
         await appState.handleTranscriptSegment(micSegment)
         // Candidate audio MUST be gated out from triggering auto-detection by default
-        #expect(appState.lastDetectionSkipReason.contains("question detection from microphone is disabled"))
+        #expect(appState.lastDetectionSkipReason.contains("candidate speech does not request"))
         
         // Test 3: Candidate false-trigger protection
         // Even if the text sounds like a question ("Can you tell me about your project?"),
@@ -241,7 +213,7 @@ struct SpeakerAttributionTests {
             text: "Can you tell me about your project?"
         )
         await appState.handleTranscriptSegment(candidateQuestion)
-        #expect(appState.lastDetectionSkipReason.contains("question detection from microphone is disabled"))
+        #expect(appState.lastDetectionSkipReason.contains("candidate speech does not request"))
         
         // Play it via System Audio (interviewer) -> it triggers detection!
         let interviewerQuestion = TranscriptSegment(

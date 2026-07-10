@@ -414,6 +414,17 @@ extension AppState {
         suggestionGenerationStarted = false
         currentGenerationID = nil
         generationUIState = .idle
+        resolvedInterviewSessionPhase = .initial(for: interviewSessionMode)
+        detectedDialogueSpeakerRole = .ambiguous
+        detectedDialogueTurnType = .unknown
+        lastDialogueSourceChannel = ""
+        lastModeTransition = ""
+        lastModeTransitionReason = ""
+        lastSpeakerRole = DialogueTurnRole.ambiguous.rawValue
+        lastTriggerDecision = ""
+        lastTriggerReason = ""
+        lastSuppressionReason = ""
+        candidateQuestionsToPanelCount = 0
     }
 
     // MARK: - Stop And Cleanup

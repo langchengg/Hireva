@@ -48,6 +48,13 @@ extension AppState {
             speaker: segment.speaker.rawValue,
             speakerRole: segment.speaker.rawValue,
             interviewPhase: interviewPhase.rawValue,
+            selectedSessionMode: interviewSessionMode.rawValue,
+            resolvedSessionPhase: resolvedInterviewSessionPhase.rawValue,
+            detectedSpeakerRole: detectedDialogueSpeakerRole.rawValue,
+            detectedTurnType: detectedDialogueTurnType.rawValue,
+            sourceChannel: segment.source.rawValue,
+            modeTransition: "",
+            modeTransitionReason: "",
             text: segment.text,
             isFinal: segment.asrFinalizationReason != "partial",
             textLength: segment.text.count,
@@ -56,21 +63,39 @@ extension AppState {
             currentGenerationState: generationUIState.displayName,
             currentSuggestionExists: currentSuggestion != nil
         )
-        let dialogueTrigger = InterviewDialogueTriggerPolicy.evaluate(
+        let dialogueTrigger = InterviewDialogueTriggerPolicy.decideDialogueTrigger(
             segment: segment,
-            phase: interviewPhase,
-            listeningMode: interviewListeningMode,
-            candidatePresentationMode: candidatePresentationMode,
-            candidateAsksPanelMode: candidateAsksPanelMode,
-            allowCandidateQuestionDetection: settings.allowQuestionDetectionFromMicrophoneOnly
+            sessionMode: interviewSessionMode,
+            currentState: dialogueRuntimeState,
+            answerPanelQuestions: answerPanelQuestionsEnabled,
+            suppressPresentation: candidatePresentationMode == .suppressAnswers,
+            suppressCandidateQuestions: candidateAsksPanelMode == .suppressAnswers
         )
-        lastSpeakerRole = segment.speaker.rawValue
+        let phaseBeforeDialogueDecision = resolvedInterviewSessionPhase
+        let isFinalOrStabilizedSegment = segment.asrFinalizationReason != "partial"
+        applyDialogueDecision(
+            dialogueTrigger,
+            source: segment.source,
+            allowModeTransition: isFinalOrStabilizedSegment
+        )
+        let segmentModeTransition = phaseBeforeDialogueDecision == resolvedInterviewSessionPhase
+            ? ""
+            : "\(phaseBeforeDialogueDecision.rawValue) -> \(resolvedInterviewSessionPhase.rawValue)"
+        let segmentModeTransitionReason = segmentModeTransition.isEmpty ? "" : dialogueTrigger.modeTransitionReason
+        lastSpeakerRole = dialogueTrigger.speakerRole.rawValue
         lastTriggerDecision = dialogueTrigger.decision.rawValue
         lastTriggerReason = dialogueTrigger.triggerReason
         lastSuppressionReason = dialogueTrigger.suppressionReason
         lastTranscriptQuestionGenerationTrace.triggerDecision = dialogueTrigger.decision.rawValue
         lastTranscriptQuestionGenerationTrace.triggerReason = dialogueTrigger.triggerReason
         lastTranscriptQuestionGenerationTrace.suppressionReason = dialogueTrigger.suppressionReason
+        lastTranscriptQuestionGenerationTrace.selectedSessionMode = interviewSessionMode.rawValue
+        lastTranscriptQuestionGenerationTrace.resolvedSessionPhase = resolvedInterviewSessionPhase.rawValue
+        lastTranscriptQuestionGenerationTrace.detectedSpeakerRole = dialogueTrigger.speakerRole.rawValue
+        lastTranscriptQuestionGenerationTrace.detectedTurnType = dialogueTrigger.turnType.rawValue
+        lastTranscriptQuestionGenerationTrace.sourceChannel = segment.source.rawValue
+        lastTranscriptQuestionGenerationTrace.modeTransition = segmentModeTransition
+        lastTranscriptQuestionGenerationTrace.modeTransitionReason = segmentModeTransitionReason
         if dialogueTrigger.decision == .candidateQuestionToPanel,
            segment.asrFinalizationReason != "partial",
            previousSegment == nil {
@@ -221,44 +246,11 @@ extension AppState {
             skipReason = "echo/leakage detected in mic stream"
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
         } else {
-            switch segment.source {
-            case .systemAudio:
-                if settings.audioCaptureMode == .systemAudioOnly,
-                   let systemAudioClassification,
-                   systemAudioClassification.intent == .answerWorthyQuestion,
-                   systemAudioClassification.confidence >= autoSuggestionConfidenceThreshold {
-                    shouldTriggerDetection = true
-                } else if settings.audioCaptureMode == .systemAudioOnly,
-                          systemAudioClassification != nil {
-                    shouldTriggerDetection = true
-                } else if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                } else {
-                    skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                }
-            case .processAudio:
-                if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                } else {
-                    skipReason = "speaker is not interviewer (speaker: \(segment.speaker.rawValue))"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                }
-            case .mock:
-                if segment.speaker == .interviewer {
-                    shouldTriggerDetection = true
-                } else {
-                    skipReason = "mock speaker is not interviewer"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
-                }
-            case .microphone, .mixed:
-                if !settings.allowQuestionDetectionFromMicrophoneOnly {
-                    skipReason = "question detection from microphone is disabled (allowQuestionDetectionFromMicrophoneOnly = false)"
-                    lastTranscriptQuestionGenerationTrace.generationBlockedReason = "captureModeDisabled"
-                } else {
-                    shouldTriggerDetection = true
-                }
-            }
+            // Source, speaker, session mode, and turn semantics were resolved by
+            // the centralized dialogue decision above. Re-checking raw speaker
+            // fields here can contradict source-channel attribution and recreate
+            // the old per-turn switching requirement.
+            shouldTriggerDetection = true
         }
 
         // Output verbose gating logs
@@ -278,7 +270,12 @@ extension AppState {
             triggerDecision: dialogueTrigger.decision.rawValue,
             triggerReason: dialogueTrigger.triggerReason,
             suppressionReason: dialogueTrigger.suppressionReason,
-            interviewPhase: interviewPhase.rawValue
+            interviewPhase: interviewPhase.rawValue,
+            selectedSessionMode: interviewSessionMode.rawValue,
+            resolvedSessionPhase: resolvedInterviewSessionPhase.rawValue,
+            detectedSpeakerRole: dialogueTrigger.speakerRole.rawValue,
+            detectedTurnType: dialogueTrigger.turnType.rawValue,
+            sourceChannel: segment.source.rawValue
         )
         last10SegmentsDiagnostics.append(diag)
         if last10SegmentsDiagnostics.count > 10 {
@@ -306,7 +303,7 @@ extension AppState {
             return
         }
 
-        if shouldTriggerDetection,
+        if (shouldTriggerDetection || dialogueTrigger.blockedReasonCode == "notSubstantiveQuestion"),
            isSystemLikeDetectionAudio,
            extractedSystemAudioQuestions.isEmpty,
            isIncompleteSystemAudioQuestionFragment {

@@ -15,6 +15,13 @@ struct TranscriptQuestionGenerationTrace: Equatable {
     var triggerReason: String = ""
     var suppressionReason: String = ""
     var interviewPhase: String = InterviewPhase.unknown.rawValue
+    var selectedSessionMode: String = InterviewSessionMode.auto.rawValue
+    var resolvedSessionPhase: String = DialogueSessionPhase.auto.rawValue
+    var detectedSpeakerRole: String = DialogueTurnRole.ambiguous.rawValue
+    var detectedTurnType: String = DialogueTurnType.unknown.rawValue
+    var sourceChannel: String = ""
+    var modeTransition: String = ""
+    var modeTransitionReason: String = ""
     var text: String = ""
     var isFinal: Bool = true
     var textLength: Int = 0
