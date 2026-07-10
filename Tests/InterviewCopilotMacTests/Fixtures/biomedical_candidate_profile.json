@@ -1,0 +1,9 @@
+{
+  "id": "fixture-biomedical-profile",
+  "displayName": "Synthetic Biomedical Candidate",
+  "domain": "healthcare",
+  "evidence": [
+    {"id":"biomedical-project","type":"project","statement":"Debugged assay variability by separating sample preparation and instrument effects","sourceDocumentID":"fixture-biomedical-resume","sourceChunkID":"fixture-biomedical-chunk-1","explicitness":"explicit"},
+    {"id":"biomedical-experience","type":"experience","statement":"Designed reproducible biomedical experiments with statistical validation","sourceDocumentID":"fixture-biomedical-resume","sourceChunkID":"fixture-biomedical-chunk-2","explicitness":"explicit"}
+  ]
+}

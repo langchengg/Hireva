@@ -1,0 +1,9 @@
+{
+  "id": "fixture-backend-profile",
+  "displayName": "Synthetic Backend Candidate",
+  "domain": "software_engineering",
+  "evidence": [
+    {"id":"backend-project","type":"project","statement":"Reduced API latency by redesigning a distributed service data path","sourceDocumentID":"fixture-backend-resume","sourceChunkID":"fixture-backend-chunk-1","explicitness":"explicit"},
+    {"id":"backend-skill","type":"skill","statement":"Operated event-driven services with Kafka and Kubernetes","sourceDocumentID":"fixture-backend-resume","sourceChunkID":"fixture-backend-chunk-2","explicitness":"explicit"}
+  ]
+}

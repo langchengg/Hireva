@@ -10,7 +10,8 @@ struct GenerationUIStateTests {
     func firstVisibleFallbackClearsBlockingLoading() async throws {
         let (appState, session, question, delayProvider) = try makeAppState(
             client: StreamingMockLLMClient(),
-            contextRetrievalService: SlowGenerationContextRetrievalService(delayNanoseconds: 5_000_000_000)
+            contextRetrievalService: SlowGenerationContextRetrievalService(delayNanoseconds: 5_000_000_000),
+            bindCandidateContext: true
         )
         delayProvider.sleepDuration = 0
         appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
@@ -41,7 +42,7 @@ struct GenerationUIStateTests {
     func fullCardWatchdogStopsExpansionSpinnerAndKeepsVisibleAnswer() async throws {
         let client = DeterministicGenerationLLMClient()
         client.stageBStreamNeverFinishes = true
-        let (appState, session, question, delayProvider) = try makeAppState(client: client)
+        let (appState, session, question, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         delayProvider.sleepDuration = 5_000_000_000
         appState.generationFullCardWatchdogNanoseconds = 200_000_000
 
@@ -126,7 +127,7 @@ struct GenerationUIStateTests {
         }
         """
 
-        let (appState, session, question, delayProvider) = try makeAppState(client: client)
+        let (appState, session, question, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         delayProvider.sleepDuration = 5_000_000_000
         appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
         appState.simulateSuggestionPersistenceFailure = true
@@ -151,7 +152,7 @@ struct GenerationUIStateTests {
     @Test
     func secondQuestionAfterFirstAnswerReadyDoesNotWaitForDelayedDBPersistence() async throws {
         let client = ConsecutiveQuestionLLMClient()
-        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
+        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
             text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
@@ -205,7 +206,8 @@ struct GenerationUIStateTests {
     func mainThreadHeartbeatAndTaskSummaryUpdateDuringGeneration() async throws {
         let (appState, session, question, delayProvider) = try makeAppState(
             client: StreamingMockLLMClient(),
-            contextRetrievalService: SlowGenerationContextRetrievalService(delayNanoseconds: 1_000_000_000)
+            contextRetrievalService: SlowGenerationContextRetrievalService(delayNanoseconds: 1_000_000_000),
+            bindCandidateContext: true
         )
         delayProvider.sleepDuration = 0
         appState.generationFullCardWatchdogNanoseconds = 2_000_000_000
@@ -259,7 +261,7 @@ struct GenerationUIStateTests {
             "first project": 2_000_000_000,
             "second project": 2_000_000_000
         ]
-        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
+        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
             text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
@@ -316,7 +318,7 @@ struct GenerationUIStateTests {
             "first project": 400_000_000,
             "second project": 1_500_000_000
         ]
-        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
+        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
             text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
@@ -369,7 +371,7 @@ struct GenerationUIStateTests {
         let client = ConsecutiveQuestionLLMClient()
         client.hangingStageAQuestions = ["first project"]
         client.stageADelayByQuestion = ["second project": 2_000_000_000]
-        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
+        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
             text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
@@ -595,7 +597,7 @@ struct GenerationUIStateTests {
     }
 
     @Test
-    func stageBSemanticFallbackReplacesRejectedCurrentProviderCard() async throws {
+    func stageBRejectionKeepsAcceptedProviderCardInsteadOfInventingFallback() async throws {
         let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let question = try makeQuestion(
             sessionID: session.id,
@@ -648,7 +650,7 @@ struct GenerationUIStateTests {
             shouldPersist: true,
             shouldUpdateVisibleCard: true,
             safeDiagnostics: [:],
-            identity: GenerationIdentity(question: question, generationID: generationID)
+            identity: GenerationIdentity(question: question, generationID: generationID, contextSnapshotID: session.contextSnapshotID)
         )
         let sections = StreamingSuggestionSections(
             strategy: "DeepSeek",
@@ -675,18 +677,16 @@ struct GenerationUIStateTests {
         )
 
         let visible = try #require(appState.currentSuggestion)
-        #expect(visible.id == "semantic-stage-b-card")
-        #expect(visible.stageBStatus == "semantic_fallback")
-        #expect(visible.sayFirstSource == "local_semantic_stage_b_fallback")
-        #expect(visible.finalVisibleSource == "local_semantic_stage_b_fallback")
-        #expect(visible.sayFirst.localizedCaseInsensitiveContains("real-world") || visible.sayFirst.localizedCaseInsensitiveContains("real world"))
-        #expect(visible.sayFirst.localizedCaseInsensitiveContains("clean simulation"))
-        #expect(visible.sayFirst != currentProviderCard.sayFirst)
+        #expect(visible.id == currentProviderCard.id)
+        #expect(visible.stageBStatus == "completed")
+        #expect(visible.sayFirstSource == "deepseek_stream")
+        #expect(visible.finalVisibleSource == "deepseek_stream")
+        #expect(visible.sayFirst == currentProviderCard.sayFirst)
     }
 
     @Test
     func completedProviderFirstAnswerIsNotPersistedAsSemanticFallbackWhenStageBExpansionRejected() async throws {
-        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let question = try makeQuestion(
             sessionID: session.id,
             text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
@@ -704,7 +704,7 @@ struct GenerationUIStateTests {
         )
         appState.lastDetectedQuestion = question
 
-        let providerSayFirst = "I reduced noisy camera input by calibrating the camera and IMU, filtering unstable YOLOv8 detections, fusing them with depth-based localization, and only choosing an object once the perception confidence was stable enough to drive navigation and grasp planning."
+        let providerSayFirst = "I inspected logs to isolate noisy camera input, then calibrated the camera and IMU, filtered unstable YOLOv8 detections, fused them with depth-based localization, and tested that perception confidence was stable before navigation and grasp planning."
         var currentProviderCard = SuggestionCard(
             id: "current-provider-completed-first-answer",
             sessionID: session.id,
@@ -748,7 +748,7 @@ struct GenerationUIStateTests {
                 "providerStatus": GenerationProviderStatus.completed.rawValue,
                 "stageBClassification": StageBResultClassification.fallbackRequired.rawValue
             ],
-            identity: GenerationIdentity(question: question, generationID: generationID)
+            identity: GenerationIdentity(question: question, generationID: generationID, contextSnapshotID: session.contextSnapshotID)
         )
         let rejectedSections = StreamingSuggestionSections(
             strategy: "DeepSeek",
@@ -800,7 +800,7 @@ struct GenerationUIStateTests {
 
     @Test
     func providerStageBSuccessDerivesProviderOwnedKeyPointsWhenSectionMissing() async throws {
-        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let question = try makeQuestion(
             sessionID: session.id,
             text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
@@ -819,7 +819,7 @@ struct GenerationUIStateTests {
         appState.lastDetectedQuestion = question
         appState.activeRealtimeProvider = nil
 
-        let providerSayFirst = "I handled noisy camera data by calibrating the sensors and building a robust perception pipeline with YOLOv8, which filtered out sensor noise and produced stable object detections, enabling the robot to confidently decide which object to approach even under varying lighting and occlusion."
+        let providerSayFirst = "I inspected logs to isolate noisy camera data, then calibrated the sensors and built a robust YOLOv8 perception pipeline that filtered sensor noise; I tested it under varying lighting and occlusion to validate stable object-approach decisions."
         var currentProviderCard = SuggestionCard(
             id: "current-provider-empty-keypoints",
             sessionID: session.id,
@@ -853,7 +853,7 @@ struct GenerationUIStateTests {
             shouldPersist: true,
             shouldUpdateVisibleCard: true,
             safeDiagnostics: [:],
-            identity: GenerationIdentity(question: question, generationID: generationID)
+            identity: GenerationIdentity(question: question, generationID: generationID, contextSnapshotID: session.contextSnapshotID)
         )
         let sections = StreamingSuggestionSections(
             strategy: "DeepSeek",
@@ -892,7 +892,7 @@ struct GenerationUIStateTests {
 
     @Test
     func substantiveProviderFirstAnswerMissingOnlyPeriodDoesNotBecomeTimeoutFallback() async throws {
-        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let question = try makeQuestion(
             sessionID: session.id,
             text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
@@ -915,7 +915,7 @@ struct GenerationUIStateTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "DeepSeek First Answer",
-            sayFirst: "I used a ROS2 perception-to-action pipeline combining YOLOv8 object detection and vision-guided localization, then calibrated the camera and IMU inputs to mitigate sensor noise and perception drift, which allowed the robot to confidently decide which object to approach even in cluttered environments",
+            sayFirst: "I inspected logs to isolate sensor noise and perception drift, then used a ROS2 pipeline with YOLOv8 detection, vision-guided localization, and camera-IMU calibration; I tested it in cluttered environments to validate stable object-approach decisions",
             keyPoints: [],
             followUpReady: [],
             confidence: 0.9,
@@ -1268,7 +1268,7 @@ struct GenerationUIStateTests {
 
     @Test
     func duplicateLogicalPersistenceFromSameTranscriptSegmentIsRejected() async throws {
-        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let traceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("duplicate-persistence-\(UUID().uuidString).jsonl")
         appState.runtimeTranscriptTraceLogURL = traceURL
@@ -1280,7 +1280,7 @@ struct GenerationUIStateTests {
                 sessionID: session.id,
                 questionID: questionID,
                 strategy: "Project walkthrough",
-                sayFirst: "I built the LeoRover navigation pipeline with ROS2, perception, planning, and real robot reliability checks.",
+                sayFirst: "I built the LeoRover navigation pipeline with ROS2, perception, planning, and real-robot reliability checks, which improved recovery behaviour.",
                 keyPoints: ["ROS2 navigation", "Real robot reliability"],
                 followUpReady: [],
                 confidence: 0.9,
@@ -1312,8 +1312,9 @@ struct GenerationUIStateTests {
             source: .systemAudio,
             speaker: .interviewer
         )
+        let firstCard = card(id: "duplicate-card-1", questionID: firstQuestion.id, generationID: firstGenerationID)
         appState.persistSuggestionInBackground(
-            card(id: "duplicate-card-1", questionID: firstQuestion.id, generationID: firstGenerationID),
+            firstCard,
             chunks: [],
             generationID: firstGenerationID,
             requestStart: Date()
@@ -1363,7 +1364,7 @@ struct GenerationUIStateTests {
 
     @Test
     func activeGenerationFallbackCarriesCurrentQuestionSnapshot() throws {
-        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let thirdQuestion = try makeQuestion(
             sessionID: session.id,
             text: "What was the biggest technical trade-off you made in your robotics projects?",
@@ -1386,7 +1387,8 @@ struct GenerationUIStateTests {
         #expect(visible.questionText == thirdQuestion.questionText)
         #expect(visible.promptPrimaryQuestion == thirdQuestion.questionText)
         #expect(visible.generationID == generationID)
-        #expect(visible.sayFirst.localizedCaseInsensitiveContains("trade-off"))
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("balanced"))
+        #expect(visible.sayFirst.localizedCaseInsensitiveContains("latency"))
     }
 
     @Test
@@ -1424,7 +1426,7 @@ struct GenerationUIStateTests {
             "second project": 1_000_000_000,
             "third project": 1_000_000_000
         ]
-        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client)
+        let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your second project, the LeoRover navigation pipeline?", suffix: "second-rapid")
         let thirdQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your third project, the LeoRover navigation pipeline?", suffix: "third-rapid")
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -1465,7 +1467,8 @@ struct GenerationUIStateTests {
 
     private func makeAppState(
         client: any LLMClientProtocol,
-        contextRetrievalService: ContextRetrievalService? = nil
+        contextRetrievalService: ContextRetrievalService? = nil,
+        bindCandidateContext: Bool = false
     ) throws -> (AppState, InterviewSession, DetectedQuestion, MockDelayProvider) {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "GenerationUIStateTests")
         let settingsRepository = SettingsRepository(database: database)
@@ -1484,7 +1487,48 @@ struct GenerationUIStateTests {
         let delayProvider = MockDelayProvider()
         appState.delayProvider = delayProvider
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session: InterviewSession
+        if bindCandidateContext {
+            let profileID = "generation-ui-profile-\(UUID().uuidString)"
+            let projectStatements = [
+                "The synthetic candidate built a LeoRover ROS2 navigation project connecting perception, localization, planning, control, and recovery, which improved system reliability.",
+                "The synthetic candidate calibrated camera and IMU inputs, filtered unstable YOLOv8 detections and sensor noise, and used depth-based localization before navigation and grasp planning.",
+                "The synthetic candidate tested cluttered real-world environments and balanced perception confidence against response latency, which improved robust object-approach decisions."
+            ]
+            try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
+                id: profileID,
+                displayName: "Synthetic Generation UI Candidate",
+                sourceDocumentIDs: ["generation-ui-document"],
+                education: [],
+                experience: [],
+                projects: projectStatements.enumerated().map { index, statement in
+                    ProfileEvidence(
+                        id: "generation-ui-evidence-\(index)-\(UUID().uuidString)",
+                        statement: statement,
+                        sourceDocumentID: "generation-ui-document",
+                        sourceChunkID: "generation-ui-chunk-\(index)",
+                        sourceSpan: statement,
+                        confidence: 1,
+                        evidenceType: .project,
+                        explicitness: .explicit
+                    )
+                },
+                skills: [],
+                publications: [],
+                achievements: [],
+                declaredGaps: [],
+                goals: [],
+                generatedSummary: nil,
+                version: 1,
+                updatedAt: Date()
+            ))
+            appState.refreshAll()
+            appState.selectCandidateProfile(profileID)
+            appState.selectInterviewDomain(.roboticsResearch)
+            session = try appState.createContextBoundSession(mode: .microphone)
+        } else {
+            session = try appState.sessionRepository.createSession(mode: .microphone)
+        }
         appState.currentSession = session
 
         let question = DetectedQuestion(
@@ -1526,7 +1570,7 @@ struct GenerationUIStateTests {
 
     private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
         let start = Date()
-        let effectiveTimeout = max(timeout, 90.0)
+        let effectiveTimeout = timeout
         while !predicate() {
             if Date().timeIntervalSince(start) > effectiveTimeout {
                 throw NSError(

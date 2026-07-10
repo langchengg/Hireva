@@ -1,0 +1,9 @@
+{
+  "id": "fixture-product-profile",
+  "displayName": "Synthetic Product Candidate",
+  "domain": "product_management",
+  "evidence": [
+    {"id":"product-project","type":"project","statement":"Resolved a roadmap conflict using customer evidence and KPI analysis","sourceDocumentID":"fixture-product-resume","sourceChunkID":"fixture-product-chunk-1","explicitness":"explicit"},
+    {"id":"product-experience","type":"experience","statement":"Led customer discovery and stakeholder alignment for a product launch","sourceDocumentID":"fixture-product-resume","sourceChunkID":"fixture-product-chunk-2","explicitness":"explicit"}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "fixture-cybersecurity-profile",
+  "displayName": "Synthetic Cybersecurity Candidate",
+  "domain": "cybersecurity",
+  "evidence": [
+    {"id":"security-project","type":"project","statement":"Correlated endpoint and identity logs during an incident investigation","sourceDocumentID":"fixture-security-resume","sourceChunkID":"fixture-security-chunk-1","explicitness":"explicit"},
+    {"id":"security-experience","type":"experience","statement":"Improved detection playbooks through post-incident review","sourceDocumentID":"fixture-security-resume","sourceChunkID":"fixture-security-chunk-2","explicitness":"explicit"}
+  ]
+}

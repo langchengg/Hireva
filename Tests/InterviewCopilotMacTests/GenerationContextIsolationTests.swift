@@ -242,6 +242,43 @@ struct GenerationContextIsolationTests {
 
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(database: database, llmRouter: router, contextRetrievalService: retrievalService)
+        let fixtureStatements = [
+            "I am studying MSc Robotics at the University of Manchester, and my computer science background led me toward robotics because it combines software, perception, control, and real-world systems",
+            "The diffusion policy performed better because it produced smoother continuous actions, handled the action distribution more robustly than the autoregressive and flow-matching variants, and reached seven out of ten successful grasps",
+            "The most fragile part was the real robot integration, where noisy perception, localisation instability, and timing between navigation and manipulation made the pipeline less predictable",
+            "I want this role because it connects with my robotics, perception, AI, and real robot deployment interests while helping me grow as an engineer"
+        ]
+        let evidence = fixtureStatements.enumerated().map { index, statement in
+            ProfileEvidence(
+                id: "context-isolation-evidence-\(index)",
+                statement: statement,
+                sourceDocumentID: "context-isolation-fixture",
+                sourceChunkID: "context-isolation-chunk-\(index)",
+                sourceSpan: statement,
+                confidence: 1,
+                evidenceType: index == 0 ? .education : .project,
+                explicitness: .explicit
+            )
+        }
+        try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
+            id: "context-isolation-profile",
+            displayName: "Synthetic Context Isolation Candidate",
+            sourceDocumentIDs: ["context-isolation-fixture"],
+            education: [evidence[0]],
+            experience: [],
+            projects: Array(evidence.dropFirst()),
+            skills: [],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date()
+        ))
+        appState.refreshAll()
+        appState.selectCandidateProfile("context-isolation-profile")
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.01
         appState.delayProvider = MockDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 1_000_000_000
@@ -252,7 +289,7 @@ struct GenerationContextIsolationTests {
         settings.saveTranscriptsLocally = true
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try appState.createContextBoundSession(mode: .microphone)
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -302,9 +339,8 @@ struct GenerationContextIsolationTests {
 
     private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
         let start = Date()
-        let effectiveTimeout = max(timeout, 90.0)
         while !predicate() {
-            if Date().timeIntervalSince(start) > effectiveTimeout {
+            if Date().timeIntervalSince(start) > timeout {
                 throw NSError(
                     domain: "GenerationContextIsolationTests",
                     code: 1,

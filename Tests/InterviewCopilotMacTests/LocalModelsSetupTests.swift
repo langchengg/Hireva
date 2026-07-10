@@ -597,8 +597,13 @@ struct LocalModelsSetupTests {
     func phdLocalQwenPromptExcludesUnrelatedJobDescriptionEvidence() async throws {
         let appState = try AppState(database: AppDatabase(inMemory: true))
         appState.interviewContextMode = .phdRobotics
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
-        appState.currentSession = session
+        let session = try makeContextBoundLocalQwenSession(
+            appState: appState,
+            domain: .roboticsResearch,
+            evidenceStatements: [
+                "Current research compares semantic grounding, geometric feasibility, clearance, collision risk, and grasp re-ranking using repeatable dissertation benchmarks and supervisor review before publication claims."
+            ]
+        )
         let question = localQwenQuestion(
             id: "phd-publication-question",
             sessionID: session.id,
@@ -626,6 +631,16 @@ struct LocalModelsSetupTests {
         let provider = MockLocalLLMProvider(tokens: [
             "I think publication would be possible if the dissertation benchmark shows repeatable improvements in semantic and geometric grasp re-ranking, and I would align those results with my supervisor before making a claim."
         ])
+        let expectedAnswer = "I think publication would be possible if the dissertation benchmark shows repeatable improvements in semantic and geometric grasp re-ranking, and I would align those results with my supervisor before making a claim."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question.questionText,
+            answerText: expectedAnswer,
+            sayFirst: expectedAnswer,
+            stageBCompleted: true
+        )
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+        let snapshotID = try #require(session.contextSnapshotID)
+        let snapshot = try #require(try appState.interviewContextRepository.snapshot(id: snapshotID))
 
         let finished = try await appState.finishWithLocalQwenAnswer(
             question: question,
@@ -642,7 +657,8 @@ struct LocalModelsSetupTests {
             source: .systemAudio,
             speaker: .interviewer,
             localProvider: provider,
-            fallbackReason: nil
+            fallbackReason: nil,
+            interviewContextSnapshot: snapshot
         )
 
         #expect(finished)
@@ -714,8 +730,14 @@ struct LocalModelsSetupTests {
     @Test @MainActor
     func interruptedQwenQuestionPersistsSupersededSnapshotWithoutFallbackContamination() async throws {
         let appState = try AppState(database: AppDatabase(inMemory: true))
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
-        appState.currentSession = session
+        let session = try makeContextBoundLocalQwenSession(
+            appState: appState,
+            domain: .roboticsResearch,
+            evidenceStatements: [
+                "Real-world robot testing used camera, localization, navigation, and manipulation logs to reproduce handoff failures and validate recovery behavior on LeoRover.",
+                "A complete robot task connected perception, localization, navigation, manipulation, and action execution."
+            ]
+        )
         let q4A = localQwenQuestion(
             id: "q4a-superseded",
             sessionID: session.id,
@@ -745,9 +767,17 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
 
-        let provider = MockLocalLLMProvider(tokens: [
-            "Real-world testing taught me to debug the robot as a timed system: correlate camera, localization, navigation, and manipulation logs, reproduce the exact handoff, then validate one recovery behavior at a time on the LeoRover."
-        ])
+        let expectedAnswer = "Real-world testing taught me to debug the robot as a timed system: correlate camera, localization, navigation, and manipulation logs, reproduce the exact handoff, then validate one recovery behavior at a time on the LeoRover."
+        let provider = MockLocalLLMProvider(tokens: [expectedAnswer])
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: q4B.questionText,
+            answerText: expectedAnswer,
+            sayFirst: expectedAnswer,
+            stageBCompleted: true
+        )
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+        let snapshotID = try #require(session.contextSnapshotID)
+        let snapshot = try #require(try appState.interviewContextRepository.snapshot(id: snapshotID))
         let finished = try await appState.finishWithLocalQwenAnswer(
             question: q4B,
             session: session,
@@ -763,27 +793,24 @@ struct LocalModelsSetupTests {
             source: .systemAudio,
             speaker: .interviewer,
             localProvider: provider,
-            fallbackReason: nil
+            fallbackReason: nil,
+            interviewContextSnapshot: snapshot
         )
         #expect(finished == true)
 
         try await waitUntil(timeout: 2.0) {
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return rows.contains { $0.detectedQuestionID == q4A.id }
+            return rows.contains { $0.detectedQuestionID == q4B.id }
         }
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        let q4ARow = try #require(rows.first { $0.detectedQuestionID == q4A.id })
-        #expect(q4ARow.stageBStatus == "superseded")
-        #expect(q4ARow.stageBCompleted == false)
-        #expect(q4ARow.finalVisibleSource == "local_superseded_question_snapshot")
-        #expect(q4ARow.softFallbackUsed == false)
-        #expect(q4ARow.softFallbackLatencyMS == nil)
+        #expect(rows.contains { $0.detectedQuestionID == q4A.id } == false)
 
         let q4BCard = try #require(appState.currentSuggestion)
         #expect(q4BCard.detectedQuestionID == q4B.id)
         #expect(q4BCard.generationID == "q4b-generation")
         #expect(q4BCard.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
         #expect(q4BCard.softFallbackUsed == false)
+        #expect(q4BCard.contextSnapshotID == snapshot.id)
         #expect(appState.activeQuestionID == q4B.id)
     }
 
@@ -1077,6 +1104,49 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
         return (appState, session, question, generationID, requestStart)
+    }
+
+    @MainActor
+    private func makeContextBoundLocalQwenSession(
+        appState: AppState,
+        domain: InterviewDomainID,
+        evidenceStatements: [String]
+    ) throws -> InterviewSession {
+        let profileID = "local-qwen-profile-\(UUID().uuidString)"
+        let evidence = evidenceStatements.enumerated().map { index, statement in
+            ProfileEvidence(
+                id: "local-qwen-evidence-\(index)-\(UUID().uuidString)",
+                statement: statement,
+                sourceDocumentID: "local-qwen-document",
+                sourceChunkID: "local-qwen-chunk-\(index)",
+                sourceSpan: statement,
+                confidence: 1,
+                evidenceType: .project,
+                explicitness: .explicit
+            )
+        }
+        try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
+            id: profileID,
+            displayName: "Synthetic Local Qwen Candidate",
+            sourceDocumentIDs: ["local-qwen-document"],
+            education: [],
+            experience: [],
+            projects: evidence,
+            skills: [],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date()
+        ))
+        appState.refreshAll()
+        appState.selectCandidateProfile(profileID)
+        appState.selectInterviewDomain(domain)
+        let session = try appState.createContextBoundSession(mode: .microphone)
+        appState.currentSession = session
+        return session
     }
 
     @MainActor

@@ -1,0 +1,9 @@
+{
+  "id": "fixture-robotics-opportunity",
+  "title": "Robotics Research Project",
+  "type": "phd_project",
+  "requirements": [
+    {"id":"robotics-topic","type":"research_topic","statement":"Study tactile feedback for tool manipulation","sourceDocumentID":"fixture-robotics-project","sourceChunkID":"fixture-robotics-role-chunk-1","explicitness":"explicit"},
+    {"id":"robotics-evaluation","type":"evaluation_criterion","statement":"Evaluate methods with explicit baselines, failure cases, and limitations","sourceDocumentID":"fixture-robotics-project","sourceChunkID":"fixture-robotics-role-chunk-2","explicitness":"explicit"}
+  ]
+}

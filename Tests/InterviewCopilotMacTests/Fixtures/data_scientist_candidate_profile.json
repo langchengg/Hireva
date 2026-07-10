@@ -1,0 +1,9 @@
+{
+  "id": "fixture-data-profile",
+  "displayName": "Synthetic Data Science Candidate",
+  "domain": "data_science",
+  "evidence": [
+    {"id":"data-project","type":"project","statement":"Built a forecasting model with production drift monitoring","sourceDocumentID":"fixture-data-resume","sourceChunkID":"fixture-data-chunk-1","explicitness":"explicit"},
+    {"id":"data-experience","type":"experience","statement":"Designed experiments and communicated uncertainty to stakeholders","sourceDocumentID":"fixture-data-resume","sourceChunkID":"fixture-data-chunk-2","explicitness":"explicit"}
+  ]
+}

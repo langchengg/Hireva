@@ -218,7 +218,7 @@ struct InterviewDialogueModeTests {
         #expect(result.selectedMode == .panelQuestions)
         #expect(result.resolvedPhase == .panelQuestions)
         #expect(result.legacyTurnType == .candidateAnswer)
-        #expect(result.contextMode == .phdRobotics)
+        #expect(result.contextMode == .general)
         #expect(result.answerPanelQuestions)
         #expect(result.suppressPresentation)
         #expect(result.suppressCandidateQuestions)

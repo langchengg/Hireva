@@ -129,13 +129,10 @@ struct PhDDialogueReplayTests {
         let tactileAnswer = "I would read about tactile perception and build a simulation framework before any physical hardware, focusing on theoretical manipulation and ROS2."
         let contaminatedTactileAnswer = "I would read the literature, then run controlled contact experiments on my existing LeoRover platform to calibrate camera and IMU inputs before developing a perception loop."
         let noCalibrationTactilePlan = "I would study tactile sensor literature, work with the lab on controlled contact and slip experiments, process the acquired data, and integrate it into a small ROS2 manipulation loop under supervisor guidance."
-        let graspQuestion = "Which part of your current grasping research gives the strongest evidence that you could make an effective contribution to this PhD?"
         let inventedMetricAnswer = "I designed a semantic-geometric re-ranker and demonstrated a 70% retrieval success rate on the real robot."
         let inventedCompletedValidationAnswer = "I designed a target-conditioned semantic and geometric re-ranking pipeline for grasp candidates using detector confidence, target overlap, collision, and clearance. I integrated it into a real-robot pipeline and demonstrated improved failure-case reliability."
         let inventedValidatedOnRobotsAnswer = "I use semantic and geometric re-ranking for grasp candidates with detector confidence, target overlap, collision, and clearance. I have validated these methods against execution failure cases on real robots."
-        let failureCaseQuestion = "Which failure cases would you prioritise first when moving that method onto the real robot?"
         let inventedValidationOutcome = "I prioritize semantic grounding failures for the referred target, then geometric collision and clearance failures in grasp candidates. My re-ranking pipeline uses detector confidence and target overlap, which significantly improved reliability during real-robot validation."
-        let architectureQuestion = "Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution."
         let inventedLatencyAnswer = "I built a ROS2 architecture where perception outputs a target pose to the planner and arm controller, with execution feedback and recovery that reduced end-to-end latency to 200 ms."
 
         #expect(!PhDInterviewRubricPolicy.evaluate(question: backgroundQuestion, answer: backgroundAnswer).passed)
@@ -143,13 +140,12 @@ struct PhDDialogueReplayTests {
         #expect(!PhDInterviewRubricPolicy.evaluate(question: clarificationQuestion, answer: clarificationAnswer).passed)
         #expect(!PhDInterviewRubricPolicy.evaluate(question: slipQuestion, answer: slipAnswer).passed)
         #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: tactileAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: contaminatedTactileAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: noCalibrationTactilePlan).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: graspQuestion, answer: inventedMetricAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: graspQuestion, answer: inventedCompletedValidationAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: graspQuestion, answer: inventedValidatedOnRobotsAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: failureCaseQuestion, answer: inventedValidationOutcome).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: architectureQuestion, answer: inventedLatencyAnswer).passed)
+        let validator = AnswerClaimValidator()
+        #expect(!validator.validate(answer: contaminatedTactileAnswer, candidateEvidence: [], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        #expect(PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: noCalibrationTactilePlan).passed)
+        for unsupportedAnswer in [inventedMetricAnswer, inventedCompletedValidationAnswer, inventedValidatedOnRobotsAnswer, inventedValidationOutcome, inventedLatencyAnswer] {
+            #expect(!validator.validate(answer: unsupportedAnswer, candidateEvidence: [], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        }
     }
 
     @Test
@@ -163,15 +159,14 @@ struct PhDDialogueReplayTests {
 
         for question in cases {
             let guidance = PhDInterviewRubricPolicy.promptGuidance(for: question)
-            #expect(guidance.localizedCaseInsensitiveContains("Verified candidate facts"))
+            #expect(guidance.localizedCaseInsensitiveContains("Personal claims require selected candidate evidence"))
             #expect(!guidance.localizedCaseInsensitiveContains("Dexory"))
         }
 
         let graspGuidance = PhDInterviewRubricPolicy.promptGuidance(
             for: "Which failure cases would you prioritise first when moving that method onto the real robot?"
         )
-        #expect(graspGuidance.localizedCaseInsensitiveContains("has not yet been validated on a real robot"))
-        #expect(graspGuidance.localizedCaseInsensitiveContains("future tense"))
+        #expect(graspGuidance.localizedCaseInsensitiveContains("Do not invent metrics"))
     }
 
     @Test
@@ -199,7 +194,8 @@ struct PhDDialogueReplayTests {
             #expect(PhDInterviewRubricPolicy.evaluate(question: question, answer: answer).passed)
         }
         for (question, answer) in cases.prefix(2) {
-            #expect(QuestionAnswerAlignmentEvaluator.evaluate(questionText: question, answerText: answer).verdict == .mismatched)
+            let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question, answerText: answer)
+            #expect(alignment.verdict == .aligned, "Question: \(question); reason: \(alignment.reason)")
         }
     }
 
@@ -486,7 +482,55 @@ struct PhDDialogueReplayTests {
         )
         appState.answerProviderModeOverride = .localQwenPrimary
         appState.localLLMProviderOverride = PhDReplayLocalQwenProvider()
-        appState.interviewContextMode = .phdRobotics
+        let fixtureStatements = [
+            "Before my MSc, I completed a bachelor's in computer science and built transferable programming, deep-learning, and NLP skills",
+            "I am newer to LLM and VLM robotics this year; my earlier deep-learning and NLP work gave me a foundation, and my MSc provided current VLM and robotics exposure",
+            "I bring robot perception, language-guided manipulation, visual grounding, grasp selection, and ROS2 integration experience",
+            "I know tactile sensing mostly from reading rather than hands-on hardware work",
+            "I used ROS2 as the system framework and used Python APIs for lower-level commands where appropriate",
+            "I have controlled a small real robot arm using a ROS2 perception and manipulation architecture",
+            "I have controlled a real robot arm, while keeping that work distinct from my current dissertation"
+        ]
+        let fixtureEvidence = fixtureStatements.enumerated().map { index, statement in
+            ProfileEvidence(
+                id: "phd-replay-evidence-\(index)",
+                statement: statement,
+                sourceDocumentID: "phd-replay-fixture",
+                sourceChunkID: "phd-replay-chunk-\(index)",
+                sourceSpan: statement,
+                confidence: 1,
+                evidenceType: index == 0 ? .education : .experience,
+                explicitness: .explicit
+            )
+        }
+        try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
+            id: "phd-replay-profile",
+            displayName: "Synthetic Robotics PhD Candidate",
+            sourceDocumentIDs: ["phd-replay-fixture"],
+            education: [fixtureEvidence[0]],
+            experience: Array(fixtureEvidence.dropFirst()),
+            projects: [],
+            skills: [],
+            publications: [],
+            achievements: [],
+            declaredGaps: [ProfileEvidence(
+                id: "phd-replay-tactile-gap",
+                statement: "Tactile hardware is a declared learning area rather than completed hands-on experience",
+                sourceDocumentID: "phd-replay-fixture",
+                sourceChunkID: "phd-replay-gap-chunk",
+                sourceSpan: "Tactile hardware is a declared learning area rather than completed hands-on experience",
+                confidence: 1,
+                evidenceType: .declaredGap,
+                explicitness: .userConfirmed
+            )],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date()
+        ))
+        appState.refreshAll()
+        appState.selectCandidateProfile("phd-replay-profile")
+        appState.selectInterviewDomain(.roboticsResearch)
         appState.detectionDebounceSeconds = 0.01
         appState.delayProvider = MockDelayProvider()
 
@@ -496,7 +540,7 @@ struct PhDDialogueReplayTests {
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try appState.createContextBoundSession(mode: .microphone)
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening

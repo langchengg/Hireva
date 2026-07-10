@@ -1,0 +1,10 @@
+{
+  "id": "fixture-robotics-profile",
+  "displayName": "Synthetic Robotics Research Candidate",
+  "domain": "robotics_research",
+  "evidence": [
+    {"id":"robotics-project","type":"project","statement":"Built a synthetic language-guided manipulation study with geometric candidate ranking","sourceDocumentID":"fixture-robotics-resume","sourceChunkID":"fixture-robotics-chunk-1","explicitness":"explicit"},
+    {"id":"robotics-system","type":"experience","statement":"Integrated perception and control components in a robot software testbed","sourceDocumentID":"fixture-robotics-resume","sourceChunkID":"fixture-robotics-chunk-2","explicitness":"explicit"},
+    {"id":"robotics-gap","type":"declared_gap","statement":"Tactile sensing is a declared learning area rather than completed hands-on work","sourceDocumentID":"fixture-robotics-notes","sourceChunkID":"fixture-robotics-chunk-3","explicitness":"user_confirmed"}
+  ]
+}

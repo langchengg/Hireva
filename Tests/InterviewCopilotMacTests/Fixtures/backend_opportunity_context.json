@@ -1,0 +1,9 @@
+{
+  "id": "fixture-backend-opportunity",
+  "title": "Backend Engineer",
+  "type": "job",
+  "requirements": [
+    {"id":"backend-required","type":"required_skill","statement":"Build reliable distributed services","sourceDocumentID":"fixture-backend-role","sourceChunkID":"fixture-backend-role-chunk-1","explicitness":"explicit"},
+    {"id":"backend-evaluation","type":"evaluation_criterion","statement":"Explain system design trade-offs and operational reliability","sourceDocumentID":"fixture-backend-role","sourceChunkID":"fixture-backend-role-chunk-2","explicitness":"explicit"}
+  ]
+}
