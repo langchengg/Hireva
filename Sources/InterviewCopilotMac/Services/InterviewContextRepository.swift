@@ -6,6 +6,7 @@ final class InterviewContextRepository {
         static let candidate = "context.active_candidate_profile_id"
         static let opportunity = "context.active_opportunity_context_id"
         static let domain = "context.active_domain_profile_id"
+        static let origin = "context.configuration_origin"
     }
     private let database: AppDatabase
     private let encoder: JSONEncoder
@@ -172,6 +173,25 @@ final class InterviewContextRepository {
         }
     }
 
+    func loadConfigurationOrigin() throws -> ContextConfigurationOrigin? {
+        try database.dbQueue.read { db in
+            let value = try String.fetchOne(db, sql: "SELECT value FROM app_settings WHERE key = ?", arguments: [SelectionKey.origin])
+            return value.flatMap(ContextConfigurationOrigin.init(rawValue:))
+        }
+    }
+
+    func saveConfigurationOrigin(_ origin: ContextConfigurationOrigin) throws {
+        try database.dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                arguments: [SelectionKey.origin, origin.rawValue, DateCoding.string(from: Date())]
+            )
+        }
+    }
+
     func upsertCandidateDocument(
         documentID: String,
         title: String,
@@ -255,7 +275,7 @@ final class InterviewContextRepository {
         return opportunity
     }
 
-    private func associateDocument(
+    func associateDocument(
         documentID: String,
         profileID: String?,
         opportunityID: String?,

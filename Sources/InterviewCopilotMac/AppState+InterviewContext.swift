@@ -46,21 +46,50 @@ extension AppState {
         )
     }
 
+    var productionCandidateProfiles: [CandidateProfile] {
+        candidateProfiles.filter { !ProductionContextPolicy.isSyntheticProfile($0) }
+    }
+
+    var productionOpportunityContexts: [OpportunityContext] {
+        opportunityContexts.filter { !ProductionContextPolicy.isSyntheticOpportunity($0) }
+    }
+
+    var activeCandidateProfile: CandidateProfile? {
+        candidateProfiles.first { $0.id == activeCandidateProfileID }
+    }
+
+    var activeOpportunityContext: OpportunityContext? {
+        opportunityContexts.first { $0.id == activeOpportunityContextID }
+    }
+
     func selectCandidateProfile(_ id: String?) {
         guard id == nil || candidateProfiles.contains(where: { $0.id == id }) else { return }
+        if !ProductionContextPolicy.isTestProcess,
+           let id,
+           candidateProfiles.first(where: { $0.id == id }).map(ProductionContextPolicy.isSyntheticProfile) == true {
+            return
+        }
         activeCandidateProfileID = id
+        contextConfigurationOrigin = .legacyManualContext
         persistContextSelectionAndRollSnapshot()
     }
 
     func selectOpportunityContext(_ id: String?) {
         guard id == nil || opportunityContexts.contains(where: { $0.id == id }) else { return }
+        if !ProductionContextPolicy.isTestProcess,
+           let id,
+           opportunityContexts.first(where: { $0.id == id }).map(ProductionContextPolicy.isSyntheticOpportunity) == true {
+            return
+        }
         activeOpportunityContextID = id
+        contextConfigurationOrigin = .legacyManualContext
         persistContextSelectionAndRollSnapshot()
     }
 
     func selectInterviewDomain(_ id: InterviewDomainID) {
         activeInterviewDomainID = id
         interviewContextMode = id == .roboticsResearch ? .phdRobotics : .general
+        contextConfigurationOrigin = .legacyManualContext
         persistContextSelectionAndRollSnapshot()
     }
 
@@ -131,7 +160,153 @@ extension AppState {
             activeCandidateProfileID = profile.id
         }
         try interviewContextRepository.saveSelection(currentInterviewContextSelection)
+        try interviewContextRepository.saveConfigurationOrigin(.automaticDocuments)
+        contextConfigurationOrigin = .automaticDocuments
         try rollContextSnapshotForCurrentSession()
+    }
+
+    func scheduleAutomaticContextRebuild(useLocalQwen: Bool = true) {
+        automaticContextBuildTask?.cancel()
+        guard !ProductionContextPolicy.isTestProcess else { return }
+        automaticContextBuildTask = Task { [weak self] in
+            guard let self else { return }
+            await self.rebuildAutomaticInterviewContext(useLocalQwen: useLocalQwen)
+        }
+    }
+
+    func rebuildAutomaticInterviewContext(useLocalQwen: Bool = true) async {
+        let actionID = ActionID.buildInterviewContext
+        guard !isActionLoading(actionID) else { return }
+        guard !documents.isEmpty else {
+            automaticContextBuildResult = AutomaticInterviewContextBuilder.emptyResult
+            automaticContextReadiness = .noDocuments
+            return
+        }
+        beginAction(
+            actionID,
+            title: "Building interview context",
+            message: useLocalQwen ? "Local Qwen is extracting evidence from untrusted document data." : "Extracting verified document evidence."
+        )
+        automaticContextReadiness = .extracting
+        let extractor: (any AutomaticDocumentEvidenceExtracting)? = useLocalQwen
+            ? LocalQwenDocumentEvidenceExtractor(
+                provider: localLLMProviderOverride ?? OllamaQwenProvider(),
+                modelName: selectedQwenModelName
+            )
+            : nil
+        let builder = AutomaticInterviewContextBuilder(
+            evidenceExtractor: extractor,
+            chunkProvider: { [documentRepository] documentID in
+                try documentRepository.chunks(documentID: documentID)
+            },
+            cacheNamespace: useLocalQwen ? "local-qwen-\(selectedQwenModelName)" : "verified-local-v1"
+        )
+        do {
+            let candidateDocumentIDs = Set(documents.filter { $0.type != .jobDescription }.map(\.id))
+            let previousProfile = activeCandidateProfile.flatMap { profile in
+                Set(profile.sourceDocumentIDs).isDisjoint(with: candidateDocumentIDs) ? nil : profile
+            }
+            var result = try await builder.buildContext(
+                from: documents,
+                previousConfirmedProfile: previousProfile
+            )
+            try Task.checkCancellation()
+            try applyAutomaticContextBuildResult(&result)
+            completeAction(
+                actionID,
+                title: result.readiness == .ready ? "Interview context ready" : "Context needs review",
+                message: "\(result.evidenceSummary.candidateFactCount) candidate facts and \(result.evidenceSummary.opportunityRequirementCount) opportunity requirements are available."
+            )
+        } catch is CancellationError {
+            actionLoadingStates[actionID] = false
+        } catch {
+            automaticContextReadiness = .failed
+            failAction(actionID, title: "Context build failed", message: error.localizedDescription)
+        }
+    }
+
+    private func applyAutomaticContextBuildResult(_ result: inout InterviewContextBuildResult) throws {
+        let previousOpportunity = activeOpportunityContext
+        if let candidate = result.candidateProfile {
+            try interviewContextRepository.saveCandidateProfile(candidate)
+            activeCandidateProfileID = candidate.id
+        } else {
+            activeCandidateProfileID = nil
+        }
+        if var opportunity = result.opportunityContext {
+            if let previousOpportunity,
+               !Set(previousOpportunity.sourceDocumentIDs).isDisjoint(with: Set(opportunity.sourceDocumentIDs)) {
+                opportunity = preservingReviewedOpportunityEvidence(previousOpportunity, in: opportunity)
+                let unchanged = Set(previousOpportunity.sourceDocumentIDs) == Set(opportunity.sourceDocumentIDs) &&
+                    Set(previousOpportunity.allEvidence) == Set(opportunity.allEvidence)
+                if unchanged {
+                    opportunity = previousOpportunity
+                } else {
+                    opportunity.id = previousOpportunity.id
+                    opportunity.version = previousOpportunity.version + 1
+                }
+            }
+            try interviewContextRepository.saveOpportunityContext(opportunity)
+            activeOpportunityContextID = opportunity.id
+            result.opportunityContext = opportunity
+        } else {
+            activeOpportunityContextID = nil
+        }
+        activeInterviewDomainID = result.inferredDomain.domainID
+        interviewContextMode = activeInterviewDomainID == .roboticsResearch ? .phdRobotics : .general
+
+        for classification in result.classifications {
+            guard let document = documents.first(where: { $0.id == classification.documentID }) else { continue }
+            try interviewContextRepository.associateDocument(
+                documentID: document.id,
+                profileID: classification.type.isCandidateSource ? activeCandidateProfileID : nil,
+                opportunityID: classification.type.isOpportunitySource ? activeOpportunityContextID : nil,
+                classification: classification.type.documentClassification,
+                contentHash: StructuredEvidenceExtractor().contentHash(document.sanitizedContent ?? document.content)
+            )
+        }
+        try interviewContextRepository.saveSelection(currentInterviewContextSelection)
+        try interviewContextRepository.saveConfigurationOrigin(.automaticDocuments)
+        contextConfigurationOrigin = .automaticDocuments
+        try rollContextSnapshotForCurrentSession()
+        refreshAll()
+        automaticContextBuildResult = result
+        automaticContextReadiness = result.readiness
+    }
+
+    private func preservingReviewedOpportunityEvidence(
+        _ previous: OpportunityContext,
+        in current: OpportunityContext
+    ) -> OpportunityContext {
+        var current = current
+        let reviewed = (
+            previous.responsibilities + previous.requiredSkills + previous.preferredSkills +
+                previous.researchTopics + previous.evaluationCriteria
+        ).filter {
+            $0.explicitness == .userConfirmed || $0.explicitness == .userRejected
+        }
+        for old in reviewed {
+            let keyPaths: [WritableKeyPath<OpportunityContext, [ProfileEvidence]>] = [
+                \OpportunityContext.responsibilities,
+                \OpportunityContext.requiredSkills,
+                \OpportunityContext.preferredSkills,
+                \OpportunityContext.researchTopics,
+                \OpportunityContext.evaluationCriteria
+            ]
+            var replaced = false
+            for keyPath in keyPaths {
+                if let index = current[keyPath: keyPath].firstIndex(where: {
+                    $0.sourceDocumentID == old.sourceDocumentID &&
+                        ($0.sourceSpan ?? $0.statement) == (old.sourceSpan ?? old.statement)
+                }) {
+                    current[keyPath: keyPath][index] = old
+                    replaced = true
+                    break
+                }
+            }
+            if !replaced { current.responsibilities.append(old) }
+        }
+        return current
     }
 
     func confirmProfileEvidence(_ evidenceID: String) {
@@ -231,6 +406,7 @@ extension AppState {
     private func persistContextSelectionAndRollSnapshot() {
         do {
             try interviewContextRepository.saveSelection(currentInterviewContextSelection)
+            try interviewContextRepository.saveConfigurationOrigin(.legacyManualContext)
             try rollContextSnapshotForCurrentSession()
         } catch {
             showError("Could not update interview context: \(error.localizedDescription)")

@@ -14,8 +14,11 @@ extension AppState {
                 return
             }
             let saved = try documentRepository.saveDocument(type: type, title: title, content: content)
-            try ingestDocumentIntoActiveContext(saved)
+            if ProductionContextPolicy.isTestProcess {
+                try ingestDocumentIntoActiveContext(saved)
+            }
             refreshAll()
+            scheduleAutomaticContextRebuild()
             triggerEmbeddingGeneration(for: type)
             if saved.sanitizationWarnings?.isEmpty == false {
                 warnAction(actionID, title: "Saved and cleaned", message: "LaTeX or formatting noise was cleaned for relevant context.")
@@ -37,11 +40,32 @@ extension AppState {
         do {
             try documentRepository.deleteDocument(id: document.id)
             refreshAll()
+            scheduleAutomaticContextRebuild()
             completeAction(actionID, title: "Document cleared", message: "\(document.type.title) was removed.")
         } catch {
             let message = "Could not delete document: \(error.localizedDescription)"
             failAction(actionID, title: "Clear failed", message: message)
             showError(message)
+        }
+    }
+
+    func importPlainTextDocument(from url: URL, as type: DocumentType) {
+        let allowedExtensions = ["txt", "md", "markdown"]
+        guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
+            showError("Only plain-text and Markdown files are supported. Paste PDF or DOCX text into the editor.")
+            return
+        }
+        let accessGranted = url.startAccessingSecurityScopedResource()
+        defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            guard let content = String(data: data, encoding: .utf8) else {
+                showError("The selected file is not UTF-8 plain text.")
+                return
+            }
+            saveDocument(type: type, title: url.deletingPathExtension().lastPathComponent, content: content)
+        } catch {
+            showError("Could not read the selected document: \(error.localizedDescription)")
         }
     }
 }

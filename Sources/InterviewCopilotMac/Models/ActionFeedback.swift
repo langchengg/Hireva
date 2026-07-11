@@ -61,6 +61,7 @@ enum ActionID {
     static let saveEmbeddingKey = "settings.saveEmbeddingKey"
     static let rebuildCleanRAG = "rag.rebuildClean"
     static let rebuildEmbeddings = "rag.rebuildEmbeddings"
+    static let buildInterviewContext = "documents.buildContext"
     static let clearLocalData = "settings.clearLocalData"
 
     static let floatingCopy = "floating.copy"

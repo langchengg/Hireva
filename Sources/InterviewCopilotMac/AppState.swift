@@ -28,6 +28,9 @@ final class AppState: ObservableObject {
     @Published var activeOpportunityContextID: String?
     @Published var activeInterviewDomainID: InterviewDomainID = .general
     @Published var activeContextSnapshot: InterviewContextSnapshot?
+    @Published var automaticContextBuildResult: InterviewContextBuildResult?
+    @Published var automaticContextReadiness: AutomaticContextReadiness = .noDocuments
+    @Published var contextConfigurationOrigin: ContextConfigurationOrigin?
     @Published var sessions: [InterviewSession] = []
     @Published var providerConfigurations: [LLMProviderConfiguration] = []
     @Published var activeRealtimeProvider: LLMProviderConfiguration?
@@ -695,6 +698,7 @@ final class AppState: ObservableObject {
     var activeAITask: Task<Void, Never>?
     var answerProviderModeOverride: AnswerProviderMode?
     var localLLMProviderOverride: (any LocalLLMProvider)?
+    var automaticContextBuildTask: Task<Void, Never>?
     // internal for AppState extension access only
     var lastDetectionAt: Date?
     // internal for AppState extension access only
@@ -846,6 +850,7 @@ final class AppState: ObservableObject {
         clearStaleActiveASRProviderOnLaunch()
         runLaunchASRProviderDefaultMigrationIfNeeded()
         runLaunchLocalQwenDefaultMigrationIfNeeded()
+        scheduleAutomaticContextRebuild()
         installLiveSystemAudioDiagnosticNotificationObserver()
         runLaunchLiveSystemAudioDiagnosticIfRequested()
 
@@ -1131,15 +1136,37 @@ final class AppState: ObservableObject {
             candidateProfiles = try interviewContextRepository.candidateProfiles()
             opportunityContexts = try interviewContextRepository.opportunityContexts()
             var selection = try interviewContextRepository.loadSelection()
-            if selection.candidateProfileID == nil, candidateProfiles.count == 1, !documents.isEmpty {
-                selection.candidateProfileID = candidateProfiles[0].id
+            var configurationOrigin = try interviewContextRepository.loadConfigurationOrigin()
+            if configurationOrigin == nil,
+               selection.candidateProfileID != nil || selection.opportunityContextID != nil {
+                configurationOrigin = .legacyManualContext
+                try interviewContextRepository.saveConfigurationOrigin(.legacyManualContext)
             }
-            if selection.opportunityContextID == nil, opportunityContexts.count == 1, !documents.isEmpty {
-                selection.opportunityContextID = opportunityContexts[0].id
+            let selectableCandidates = candidateProfiles.filter { !ProductionContextPolicy.isSyntheticProfile($0) }
+            let selectableOpportunities = opportunityContexts.filter { !ProductionContextPolicy.isSyntheticOpportunity($0) }
+            let currentDocumentIDs = Set(documents.map(\.id))
+            let linkedCandidates = selectableCandidates.filter { !Set($0.sourceDocumentIDs).isDisjoint(with: currentDocumentIDs) }
+            let linkedOpportunities = selectableOpportunities.filter { !Set($0.sourceDocumentIDs).isDisjoint(with: currentDocumentIDs) }
+            if !ProductionContextPolicy.isTestProcess,
+               let selected = selection.candidateProfileID,
+               candidateProfiles.first(where: { $0.id == selected }).map(ProductionContextPolicy.isSyntheticProfile) == true {
+                selection.candidateProfileID = nil
+            }
+            if !ProductionContextPolicy.isTestProcess,
+               let selected = selection.opportunityContextID,
+               opportunityContexts.first(where: { $0.id == selected }).map(ProductionContextPolicy.isSyntheticOpportunity) == true {
+                selection.opportunityContextID = nil
+            }
+            if selection.candidateProfileID == nil, linkedCandidates.count == 1, !documents.isEmpty {
+                selection.candidateProfileID = linkedCandidates[0].id
+            }
+            if selection.opportunityContextID == nil, linkedOpportunities.count == 1, !documents.isEmpty {
+                selection.opportunityContextID = linkedOpportunities[0].id
             }
             activeCandidateProfileID = selection.candidateProfileID
             activeOpportunityContextID = selection.opportunityContextID
             activeInterviewDomainID = selection.domainProfileID
+            contextConfigurationOrigin = configurationOrigin
             try interviewContextRepository.saveSelection(selection)
             if let snapshotID = currentSession?.contextSnapshotID {
                 activeContextSnapshot = try interviewContextRepository.snapshot(id: snapshotID)

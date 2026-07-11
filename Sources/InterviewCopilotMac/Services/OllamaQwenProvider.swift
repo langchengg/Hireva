@@ -24,19 +24,22 @@ struct LocalLLMRequest: Equatable {
     let modelName: String
     let temperature: Double?
     let numPredict: Int?
+    let responseFormat: String?
 
     init(
         prompt: String,
         systemPrompt: String?,
         modelName: String,
         temperature: Double?,
-        numPredict: Int? = nil
+        numPredict: Int? = nil,
+        responseFormat: String? = nil
     ) {
         self.prompt = prompt
         self.systemPrompt = systemPrompt
         self.modelName = modelName
         self.temperature = temperature
         self.numPredict = numPredict
+        self.responseFormat = responseFormat
     }
 }
 
@@ -236,6 +239,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
             messages: messages,
             stream: false,
             think: false,
+            format: localRequest.responseFormat,
             options: OllamaGenerateOptions(
                 temperature: localRequest.temperature,
                 numPredict: localRequest.numPredict
@@ -367,6 +371,7 @@ private struct OllamaChatRequest: Encodable {
     let messages: [OllamaChatMessage]
     let stream: Bool
     let think: Bool?
+    let format: String?
     let options: OllamaGenerateOptions?
 }
 
