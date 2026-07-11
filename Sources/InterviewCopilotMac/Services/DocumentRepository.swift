@@ -7,6 +7,21 @@ public struct CleanRAGIndexRebuildResult: Equatable {
     public let chunksRebuilt: Int
 }
 
+enum DocumentIngestionFailureReason: String, Codable, Equatable {
+    case documentFormatNotSupported = "document_format_not_supported"
+    case documentExtractionFailed = "document_extraction_failed"
+    case emptyDocument = "empty_document"
+    case profileNeedsReview = "profile_needs_review"
+}
+
+struct DocumentIngestionError: LocalizedError, Equatable {
+    let reason: DocumentIngestionFailureReason
+
+    var errorDescription: String? {
+        reason.rawValue
+    }
+}
+
 final class DocumentRepository {
     private let database: AppDatabase
     private let meaningfulMinimumCharacters = 80
@@ -17,11 +32,20 @@ final class DocumentRepository {
 
     func saveDocument(type: DocumentType, title: String, content: String) throws -> DocumentRecord {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw DocumentIngestionError(reason: .emptyDocument)
+        }
+        guard !Self.looksLikeUnsupportedDocument(title: title, content: trimmed) else {
+            throw DocumentIngestionError(reason: .documentFormatNotSupported)
+        }
         let now = Date()
         let existing = try document(type: type)
         
         let sanitizedResult = DocumentTextSanitizer.sanitize(trimmed)
         let sanitizedText = sanitizedResult.sanitizedContent
+        guard !sanitizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw DocumentIngestionError(reason: .documentExtractionFailed)
+        }
         let preview = sanitizedResult.sanitizedPreview
         let warningsStr = sanitizedResult.sanitizationWarnings.joined(separator: "\n")
         
@@ -93,6 +117,16 @@ final class DocumentRepository {
             }
         }
         return record
+    }
+
+    private static func looksLikeUnsupportedDocument(title: String, content: String) -> Bool {
+        let lowerTitle = title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let unsupportedExtensions = [".pdf", ".doc", ".docx", ".pages", ".rtf"]
+        if unsupportedExtensions.contains(where: lowerTitle.hasSuffix) {
+            return true
+        }
+        let prefix = String(content.prefix(16))
+        return prefix.hasPrefix("%PDF-") || prefix.hasPrefix("PK\u{3}\u{4}")
     }
 
     func document(type: DocumentType) throws -> DocumentRecord? {
