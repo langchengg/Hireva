@@ -188,6 +188,32 @@ struct DiagnosticsView: View {
                 diagnosticRow("fallbackWatchdogActive", appState.fallbackWatchdogActive ? "true" : "false")
                 diagnosticRow("stageBTaskActive", appState.stageBTaskActive ? "true" : "false")
                 diagnosticRow("providerStreamActive", appState.providerStreamActive ? "true" : "false")
+                diagnosticRow("ollamaEndpoint", appState.ollamaDiagnostics.endpoint)
+                diagnosticRow("ollamaModel", appState.ollamaDiagnostics.model)
+                diagnosticRow("ollamaStreamMode", appState.ollamaDiagnostics.streamMode ? "true" : "false")
+                diagnosticRow("responseSchema", appState.ollamaDiagnostics.responseSchema.rawValue)
+                diagnosticRow("requestMessageCount", "\(appState.ollamaDiagnostics.requestMessageCount)")
+                diagnosticRow("systemPromptCharacters", "\(appState.ollamaDiagnostics.systemPromptCharacters)")
+                diagnosticRow("userPromptCharacters", "\(appState.ollamaDiagnostics.userPromptCharacters)")
+                diagnosticRow("chunksReceived", "\(appState.ollamaDiagnostics.chunksReceived)")
+                diagnosticRow("contentChunksReceived", "\(appState.ollamaDiagnostics.contentChunksReceived)")
+                diagnosticRow("malformedEvents", "\(appState.ollamaDiagnostics.malformedEvents)")
+                diagnosticRow("rawContentCharacters", "\(appState.ollamaDiagnostics.rawContentCharacters)")
+                diagnosticRow("parsedContentCharacters", "\(appState.ollamaDiagnostics.parsedContentCharacters)")
+                diagnosticRow("reasoningCharacters", "\(appState.ollamaDiagnostics.reasoningCharacters)")
+                diagnosticRow("firstContentObserved", appState.ollamaDiagnostics.firstContentObserved ? "true" : "false")
+                diagnosticRow("streamCompleted", appState.ollamaDiagnostics.streamCompleted ? "true" : "false")
+                diagnosticRow("sectionParserResult", appState.ollamaDiagnostics.sectionParserResult)
+                diagnosticRow("alignmentDecision", appState.ollamaDiagnostics.alignmentDecision)
+                diagnosticRow("cancellationReason", appState.ollamaDiagnostics.cancellationReason ?? "None")
+                diagnosticRow("contextSnapshotMatched", appState.ollamaDiagnostics.contextSnapshotMatched.map { $0 ? "true" : "false" } ?? "None")
+                diagnosticRow("finalErrorCategory", appState.ollamaDiagnostics.finalErrorCategory?.rawValue ?? "None")
+                diagnosticRow(
+                    "ollamaLifecycle",
+                    appState.ollamaLifecycleEvents.isEmpty
+                        ? "None"
+                        : appState.ollamaLifecycleEvents.map(\.name).joined(separator: " -> ")
+                )
                 diagnosticRow("lastProviderError", appState.currentGenerationTelemetry.providerError ?? "None")
                 diagnosticRow("lastJSONParseError", appState.currentGenerationTelemetry.jsonParseError ?? "None")
                 diagnosticRow("lastDBError", appState.currentGenerationTelemetry.dbError ?? "None")
@@ -514,6 +540,9 @@ struct DiagnosticsView: View {
             Spacer()
         }
         .font(.callout)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(value)
     }
 
     private func diagnosticTime(_ date: Date?) -> String {

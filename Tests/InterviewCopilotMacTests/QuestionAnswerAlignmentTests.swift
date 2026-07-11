@@ -18,6 +18,28 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func technicalChallengeAcceptsConcreteEngineeringActionsWithoutDebugKeyword() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "Tell me about the most technically difficult project you worked on.",
+            answerText: "The hardest project was a distributed service with severe database latency. I built a bounded processing pipeline, tuned the slow queries, and introduced load controls that reduced failures under peak traffic.",
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
+    func reliabilityQuestionAcceptsMonitoringCalibrationAndFeedbackActions() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "How would you improve the reliability of tactile manipulation on a real robot?",
+            answerText: "For tactile manipulation, I would add force feedback, calibrate contact thresholds, monitor slip signals, and adjust grip control before each robot deployment so recovery remains predictable.",
+            stageBCompleted: true
+        )
+
+        #expect(alignment.verdict == .aligned)
+    }
+
+    @Test
     func oneQuestionOneAnswerBindsSuggestionToDetectedQuestion() async throws {
         let client = AlignmentLLMClient()
         let (appState, database, session) = try makeAppState(client: client)

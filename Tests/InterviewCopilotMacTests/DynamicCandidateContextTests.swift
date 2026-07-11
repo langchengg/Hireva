@@ -138,6 +138,58 @@ struct DynamicCandidateContextTests {
         #expect(old.mismatchReason(comparedTo: current) == "context_snapshot_id_mismatch")
     }
 
+    @Test @MainActor
+    func switchingProfileCancelsActiveGenerationAndClearsLoadingUI() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "DynamicContextActiveSwitch")
+        let appState = AppState(database: database)
+        let robotics = SyntheticContextFixtures.roboticsProfile()
+        let backend = SyntheticContextFixtures.backendProfile()
+        try appState.interviewContextRepository.saveCandidateProfile(robotics)
+        try appState.interviewContextRepository.saveCandidateProfile(backend)
+        appState.refreshAll()
+        appState.selectCandidateProfile(robotics.id)
+        let session = try appState.createContextBoundSession(mode: .mock, title: "Active switch")
+        appState.currentSession = session
+        let question = DetectedQuestion(
+            id: "active-switch-question",
+            sessionID: session.id,
+            questionText: "Tell me about a difficult project.",
+            intent: .behavioral,
+            answerStrategy: .directAnswer,
+            confidence: 1,
+            reason: "test",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "test",
+            promptVersion: "test-v1",
+            isLocal: true,
+            createdAt: Date()
+        )
+        appState.activateGeneration(
+            question: question,
+            generationID: "active-switch-generation",
+            triggerPath: .manualGenerate,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.beginAction(
+            ActionID.generateAnswer,
+            title: "Generating",
+            message: "Waiting for provider"
+        )
+        appState.activeAITask = Task { try? await Task.sleep(for: .seconds(30)) }
+
+        appState.selectCandidateProfile(backend.id)
+
+        #expect(appState.activeGenerationController == nil)
+        #expect(appState.activeAITask == nil)
+        #expect(appState.generationUIState == .idle)
+        #expect(!appState.isActionLoading(ActionID.generateAnswer))
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.activeContextSnapshot?.candidateProfileID == backend.id)
+    }
+
     @Test
     func legacyStaticFallbackCannotInventCandidateExperience() {
         let question = DetectedQuestion(
@@ -294,6 +346,25 @@ struct DynamicCandidateContextTests {
             candidateEvidence: [],
             opportunityEvidence: [],
             domainKnowledge: ["Tactile sensing can provide force, contact, slip, and pressure feedback."]
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func relatedProjectEvidenceDoesNotSupportInventedObservedEvent() {
+        let validator = AnswerClaimValidator()
+        let decision = validator.validate(
+            answer: "I observed object slips during recent vision-guided grasping experiments.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Developed vision-guided grasping experiments",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
         )
 
         #expect(decision.unsupportedClaims.count == 1)

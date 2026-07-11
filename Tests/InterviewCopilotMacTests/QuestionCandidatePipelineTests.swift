@@ -5,6 +5,15 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func pipelineAcceptsWhatIsDevelopmentAreaQuestion() throws {
+        let question = "What is one area you still need to develop for this research project?"
+        let candidate = try #require(QuestionCandidatePipeline.extract(from: question).first)
+
+        #expect(candidate.text == question)
+        #expect(QuestionCompletenessGate.isCompleteQuestion(question, isFinal: true))
+    }
+
+    @Test
     func repeatedQuestionAtNewSourceSpanRemainsASeparateCandidate() {
         let question = "What was the hardest technical challenge in making the real robot work reliably?"
         let transcript = "\(question) The interviewer asks it again. \(question)"

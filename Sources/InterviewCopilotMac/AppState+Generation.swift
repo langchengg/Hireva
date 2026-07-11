@@ -898,6 +898,24 @@ func cancelActiveGenerationForStop() {
     updateActiveTaskSummary()
 }
 
+// A context change invalidates the whole answer request, including the
+// top-level task that may still be waiting inside URLSession.
+func cancelActiveGenerationForContextChange() {
+    activeAITask?.cancel()
+    activeAITask = nil
+    cancelActiveGenerationForStop()
+    currentSuggestion = nil
+    currentSuggestionRetrievedChunks = []
+    streamedSayFirst = ""
+    generationUIState = .idle
+    currentGenerationTelemetry = .idle
+    clearActionFeedback(ActionID.generateAnswer)
+    clearActionFeedback(ActionID.manualGenerate)
+    clearActionFeedback(ActionID.floatingRegenerate)
+    lastGenerationStateChangeAt = Date()
+    updateActiveTaskSummary()
+}
+
 private func generationHasCancellableWork(_ controller: ActiveGenerationController) -> Bool {
     !terminalGenerationIDs.contains(controller.generationID) && !generationUIState.isTerminal
 }

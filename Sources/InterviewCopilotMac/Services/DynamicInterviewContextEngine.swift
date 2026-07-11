@@ -19,7 +19,11 @@ struct AnswerClaimValidator {
                 let shared = claimTokens.intersection(evidenceTokens)
                 let enoughSemanticOverlap = shared.count >= min(3, max(1, claimTokens.count / 4))
                 let metricsSupported = metricTokens.isEmpty || metricTokens.isSubset(of: numericTokens(evidence.statement))
-                return enoughSemanticOverlap && metricsSupported
+                let experienceEventSupported = personalExperienceEventIsSupported(
+                    claim: sentence,
+                    evidence: evidence.statement
+                )
+                return enoughSemanticOverlap && metricsSupported && experienceEventSupported
             }
             if matches.isEmpty {
                 unsupported.append(sentence)
@@ -49,11 +53,27 @@ struct AnswerClaimValidator {
             " worked ", " used ", " designed ", " delivered ", " improved ", " reduced ",
             " completed ", " published ", " studied ", " controlled ", " operated ", " trained ",
             " evaluated ", " validated ", " tested ", " integrated ", " contributed ", " achieved ", " demonstrated ",
+            " observed ", " encountered ", " experienced ",
             " background ", " experience ", " evidence "
         ].contains { lower.contains($0) }
         let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model "]
             .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
         return firstPerson && (claimVerb || personalAsset)
+    }
+
+    private func personalExperienceEventIsSupported(claim: String, evidence: String) -> Bool {
+        let claim = " " + claim.lowercased() + " "
+        let evidence = " " + evidence.lowercased() + " "
+        let eventGroups = [
+            [" observed ", " saw ", " noticed "],
+            [" encountered ", " experienced ", " faced "]
+        ]
+        for group in eventGroups where group.contains(where: claim.contains) {
+            if !group.contains(where: evidence.contains) {
+                return false
+            }
+        }
+        return true
     }
 
     private func meaningfulTokens(_ text: String) -> Set<String> {

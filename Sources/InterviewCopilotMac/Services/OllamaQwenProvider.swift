@@ -54,10 +54,26 @@ protocol LocalLLMProvider {
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error>
 }
 
+protocol LocalLLMDiagnosticsProviding {
+    var lastGenerationDiagnostics: OllamaProviderDiagnostics { get }
+}
+
 enum OllamaQwenProviderError: LocalizedError, Equatable {
     case ollamaNotRunning
     case modelNotReady(String)
     case invalidResponse(String)
+    case categorized(OllamaFailureCategory, String)
+
+    var category: OllamaFailureCategory {
+        switch self {
+        case .ollamaNotRunning, .modelNotReady:
+            return .providerHTTPError
+        case .invalidResponse:
+            return .responseSchemaMismatch
+        case .categorized(let category, _):
+            return category
+        }
+    }
 
     var errorDescription: String? {
         switch self {
@@ -67,17 +83,27 @@ enum OllamaQwenProviderError: LocalizedError, Equatable {
             return "Ollama model '\(model)' is not installed."
         case .invalidResponse(let message):
             return message
+        case .categorized(_, let message):
+            return message
         }
     }
 }
 
-final class OllamaQwenProvider: LocalLLMProvider {
+final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
     let id = "ollama_qwen"
     let displayName = "Qwen via Ollama"
 
     private let baseURL: URL
     private let session: URLSession
     private let decoder = JSONDecoder()
+    private let diagnosticsLock = NSLock()
+    private var storedGenerationDiagnostics = OllamaProviderDiagnostics.empty()
+
+    var lastGenerationDiagnostics: OllamaProviderDiagnostics {
+        diagnosticsLock.lock()
+        defer { diagnosticsLock.unlock() }
+        return storedGenerationDiagnostics
+    }
 
     init(
         baseURL: URL = URL(string: "http://localhost:11434")!,
@@ -216,15 +242,46 @@ final class OllamaQwenProvider: LocalLLMProvider {
             )
         )
         let request = try makeChatRequest(payload)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response)
-        let event = try decoder.decode(OllamaChatResponse.self, from: data)
-        if let error = event.error, !error.isEmpty {
-            throw OllamaQwenProviderError.invalidResponse(error)
+        var accumulator = OllamaResponseAccumulator(schema: .chatMessageContent)
+        do {
+            let (data, response) = try await session.data(for: request)
+            try Self.validate(response)
+            guard let line = String(data: data, encoding: .utf8) else {
+                throw OllamaQwenProviderError.categorized(
+                    .responseSchemaMismatch,
+                    "Ollama returned a non-UTF-8 response."
+                )
+            }
+            _ = try accumulator.ingest(line)
+            let parsed = try accumulator.finish(requireDone: false)
+            var diagnostics = parsed.diagnostics
+            diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
+            diagnostics.model = localRequest.modelName
+            diagnostics.streamMode = false
+            diagnostics.requestMessageCount = messages.count
+            diagnostics.systemPromptCharacters = localRequest.systemPrompt?.count ?? 0
+            diagnostics.userPromptCharacters = localRequest.prompt.count
+            storeDiagnostics(diagnostics)
+            return parsed.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            var diagnostics = accumulator.currentDiagnostics
+            diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
+            diagnostics.model = localRequest.modelName
+            diagnostics.streamMode = false
+            diagnostics.responseSchema = .chatMessageContent
+            diagnostics.requestMessageCount = messages.count
+            diagnostics.systemPromptCharacters = localRequest.systemPrompt?.count ?? 0
+            diagnostics.userPromptCharacters = localRequest.prompt.count
+            diagnostics.finalErrorCategory = OllamaFailureCategory.classify(error)
+            storeDiagnostics(diagnostics)
+            throw error
         }
-        let text = (event.message?.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        return text
+    }
+
+    private func storeDiagnostics(_ diagnostics: OllamaProviderDiagnostics) {
+        diagnosticsLock.lock()
+        storedGenerationDiagnostics = diagnostics
+        diagnosticsLock.unlock()
     }
 
     private func listModels() async throws -> [String] {
@@ -278,7 +335,10 @@ final class OllamaQwenProvider: LocalLLMProvider {
     private static func validate(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200...299).contains(http.statusCode) else {
-            throw OllamaQwenProviderError.invalidResponse("Ollama returned HTTP \(http.statusCode).")
+            throw OllamaQwenProviderError.categorized(
+                .providerHTTPError,
+                "Ollama returned HTTP \(http.statusCode)."
+            )
         }
     }
 }

@@ -430,6 +430,8 @@ final class AppState: ObservableObject {
     @Published public var lastSQLiteOperation: String = "None"
     @Published public var lastRAGOperation: String = "None"
     @Published public var lastProviderOperation: String = "None"
+    @Published public internal(set) var ollamaDiagnostics: OllamaProviderDiagnostics = .empty()
+    @Published public internal(set) var ollamaLifecycleEvents: [OllamaLifecycleEvent] = []
 
     // --- Pipeline Latency Metrics ---
     @Published public var ragRetrievalLatencyMS: Int? = nil
@@ -1659,7 +1661,14 @@ final class AppState: ObservableObject {
                     interviewContextSnapshot: generationSnapshot
                 )
                 if finished { return }
-                throw LLMProviderError.emptyResponse(providerName: "Ollama Qwen")
+                guard isActiveGeneration(generationID, questionID: localQuestion.id) else {
+                    return
+                }
+                let category = ollamaDiagnostics.finalErrorCategory ?? .alignmentRejectedNonemptyContent
+                throw LocalQwenGenerationError(
+                    category: category,
+                    diagnostic: lastAlignmentError.isEmpty ? category.rawValue : lastAlignmentError
+                )
             } catch {
                 markGenerationFailed(
                     generationID: generationID,

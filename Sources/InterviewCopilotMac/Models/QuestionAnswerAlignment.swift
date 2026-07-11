@@ -214,7 +214,11 @@ enum QuestionAnswerAlignmentEvaluator {
             require("result or learning", ["result", "outcome", "learned", "improved", "reduced", "increased", "delivered", "validated"])
         case .technicalChallenge:
             require("challenge", ["challenge", "difficult", "hard", "failure", "problem", "issue", "constraint", "latency", "bottleneck", "variability", "variation", "uncertain", "uncertainty", "uncontrolled", "incident"])
-            require("action", ["debug", "changed", "implemented", "tested", "isolated", "redesign", "mitigated", "resolved"])
+            require("action", [
+                "debug", "changed", "implemented", "tested", "isolated", "redesign", "mitigated", "resolved",
+                "built", "developed", "designed", "introduced", "tuned", "optimized", "improved", "refactored",
+                "migrated", "automated", "instrumented", "deployed", "led", "delivered"
+            ])
         case .errorHandling, .perceptionDebugging:
             require("diagnosis", ["reproduce", "inspect", "logs", "trace", "isolate", "monitor", "measure", "debug"])
             require("mitigation or validation", ["validate", "test", "retry", "recover", "check", "guard", "fix"])
@@ -236,7 +240,11 @@ enum QuestionAnswerAlignmentEvaluator {
             require("explicit contrast", ["while", "whereas", "unlike", "difference", "compared", "both"])
         case .systemIntegrationDebugging:
             require("system boundary", ["system", "pipeline", "module", "component", "handoff", "integration", "interface", "method", "deployment", "environment", "real robot"])
-            require("reliability action", ["logs", "trace", "timestamp", "validate", "check", "retry", "recover", "test", "isolate", "debug"])
+            require("reliability action", [
+                "logs", "trace", "timestamp", "validate", "check", "retry", "recover", "test", "isolate", "debug",
+                "monitor", "measure", "instrument", "calibrate", "feedback", "threshold", "detect", "control",
+                "guard", "verify", "evaluate", "tune", "adjust", "fallback", "failover"
+            ])
         case .improvementPlan:
             require("specific priority", ["first", "priority", "improve", "change", "next"])
             require("concrete action", ["test", "measure", "add", "redesign", "evaluate", "validate", "instrument", "expand"])

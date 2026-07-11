@@ -239,8 +239,12 @@ extension AppState {
 
     private func rollContextSnapshotForCurrentSession() throws {
         guard var session = currentSession else { return }
-        if activeGenerationController != nil {
-            cancelActiveGenerationForStop()
+        if activeGenerationController != nil ||
+            activeAITask != nil ||
+            isActionLoading(ActionID.generateAnswer) ||
+            isActionLoading(ActionID.manualGenerate) ||
+            isActionLoading(ActionID.floatingRegenerate) {
+            cancelActiveGenerationForContextChange()
         }
         precomputeDebounceTask?.cancel()
         precomputeDebounceTask = nil
