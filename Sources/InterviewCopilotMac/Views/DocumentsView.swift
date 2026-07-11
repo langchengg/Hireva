@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DocumentsView: View {
     @ObservedObject var appState: AppState
@@ -9,13 +10,19 @@ struct DocumentsView: View {
     @State private var newProfileName = ""
     @State private var newOpportunityName = ""
     @State private var newDeclaredGap = ""
+    @State private var importType: DocumentType?
+    @State private var isImporterPresented = false
+    @State private var showEvidenceReview = false
+    @State private var showAdvancedOverrides = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 contextSetup
-                evidenceReview
+                if showEvidenceReview {
+                    evidenceReview
+                }
 
                 documentCard(type: .cv, text: $cvText)
                 documentCard(type: .jobDescription, text: $jdText)
@@ -30,22 +37,147 @@ struct DocumentsView: View {
         }
         .navigationTitle("Documents")
         .onAppear(perform: hydrateEditors)
+        .onChange(of: appState.documents) { _, _ in hydrateEditors() }
+        .fileImporter(
+            isPresented: $isImporterPresented,
+            allowedContentTypes: [.plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let type = importType else { return }
+            switch result {
+            case .success(let urls):
+                if let url = urls.first { appState.importPlainTextDocument(from: url, as: type) }
+            case .failure(let error):
+                appState.showError("Could not open the document: \(error.localizedDescription)")
+            }
+            importType = nil
+        }
     }
 
     private var contextSetup: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Interview Context", systemImage: "person.text.rectangle")
-                .font(.title2.weight(.semibold))
+            HStack {
+                Label("Interview Context", systemImage: "person.text.rectangle")
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                StatusPill(
+                    title: contextStatusTitle,
+                    systemImage: contextStatusIcon,
+                    tint: contextStatusTint
+                )
+            }
 
+            if appState.documents.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No context generated yet")
+                        .font(.headline)
+                    Text("Upload your CV, add the job or PhD description, then review the generated profile.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                generatedContextSummary
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                contextAction("Upload CV", "doc.badge.plus", type: .cv)
+                contextAction("Add Opportunity", "briefcase.badge.plus", type: .jobDescription)
+                contextAction("Add Notes", "note.text.badge.plus", type: .additionalNotes)
+                Button {
+                    Task { await appState.rebuildAutomaticInterviewContext() }
+                } label: {
+                    Label("Regenerate Context", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(appState.documents.isEmpty || appState.automaticContextReadiness == .extracting)
+                Button {
+                    showEvidenceReview.toggle()
+                } label: {
+                    Label(showEvidenceReview ? "Hide Review" : "Review Extracted Facts", systemImage: "checklist")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(appState.activeCandidateProfile == nil && appState.activeOpportunityContext == nil)
+                Button {
+                    if appState.coreInterviewReadinessPassed {
+                        appState.startListening(mode: .microphone)
+                    } else {
+                        appState.selectSection(.readinessCheck)
+                    }
+                } label: {
+                    Label("Start Interview", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(appState.automaticContextReadiness == .extracting || appState.activeCandidateProfile == nil)
+            }
+
+            if let warnings = appState.automaticContextBuildResult?.warnings, !warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(warnings) { warning in
+                        Label(warning.message, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            DisclosureGroup(isExpanded: $showAdvancedOverrides) {
+                advancedOverrides
+                    .padding(.top, 10)
+            } label: {
+                Label("Advanced Context Overrides", systemImage: "slider.horizontal.3")
+                    .font(.headline)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var generatedContextSummary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            contextSummaryRow(
+                title: "Candidate",
+                value: appState.activeCandidateProfile?.displayName ?? "No candidate profile yet",
+                detail: candidateSourceDetail,
+                metric: "\(appState.contextReadiness.candidateFactCount) facts",
+                icon: "person.text.rectangle"
+            )
+            Divider()
+            contextSummaryRow(
+                title: "Target Opportunity",
+                value: appState.activeOpportunityContext?.title ?? "No target opportunity provided",
+                detail: opportunitySourceDetail,
+                metric: "\(appState.contextReadiness.opportunityRequirementCount) requirements",
+                icon: "briefcase"
+            )
+            Divider()
+            contextSummaryRow(
+                title: "Interview Domain",
+                value: appState.automaticContextBuildResult?.inferredDomain.displayName ?? appState.activeInterviewDomainID.displayName,
+                detail: "Automatically inferred",
+                metric: domainConfidence,
+                icon: "scope"
+            )
+        }
+        .padding(14)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var advancedOverrides: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Normally these values are inferred automatically from your documents.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Text("Configuration source: \(appState.contextConfigurationOrigin?.rawValue ?? "not_configured")")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
                 GridRow {
                     Text("Candidate Profile").foregroundStyle(.secondary)
-                    Picker("Candidate Profile", selection: Binding(
+                    Picker("Candidate Profile override", selection: Binding(
                         get: { appState.activeCandidateProfileID },
                         set: appState.selectCandidateProfile
                     )) {
                         Text("None").tag(String?.none)
-                        ForEach(appState.candidateProfiles) { profile in
+                        ForEach(appState.productionCandidateProfiles) { profile in
                             Text(profile.displayName ?? "Candidate Profile").tag(Optional(profile.id))
                         }
                     }
@@ -53,12 +185,12 @@ struct DocumentsView: View {
                 }
                 GridRow {
                     Text("Target Opportunity").foregroundStyle(.secondary)
-                    Picker("Target Opportunity", selection: Binding(
+                    Picker("Target Opportunity override", selection: Binding(
                         get: { appState.activeOpportunityContextID },
                         set: appState.selectOpportunityContext
                     )) {
                         Text("General / None").tag(String?.none)
-                        ForEach(appState.opportunityContexts) { opportunity in
+                        ForEach(appState.productionOpportunityContexts) { opportunity in
                             Text(opportunity.title ?? "Target Opportunity").tag(Optional(opportunity.id))
                         }
                     }
@@ -66,7 +198,7 @@ struct DocumentsView: View {
                 }
                 GridRow {
                     Text("Interview Domain").foregroundStyle(.secondary)
-                    Picker("Interview Domain", selection: Binding(
+                    Picker("Interview Domain override", selection: Binding(
                         get: { appState.activeInterviewDomainID },
                         set: appState.selectInterviewDomain
                     )) {
@@ -77,41 +209,32 @@ struct DocumentsView: View {
                     .labelsHidden()
                 }
             }
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], spacing: 10) {
-                summaryMetric("Candidate facts", "\(appState.contextReadiness.candidateFactCount)", "person.text.rectangle")
-                summaryMetric("Opportunity requirements", "\(appState.contextReadiness.opportunityRequirementCount)", "briefcase")
-                summaryMetric("Uncertain facts", "\(appState.contextReadiness.uncertainFactCount)", "questionmark.circle")
-                summaryMetric("Declared gaps", "\(appState.contextReadiness.declaredGapCount)", "arrow.up.right")
-                summaryMetric("Context status", contextStatusTitle, "checkmark.shield")
-            }
-
             HStack(spacing: 8) {
                 TextField("New profile name", text: $newProfileName)
                 Button {
                     appState.createCandidateProfile(named: newProfileName)
                     newProfileName = ""
-                } label: {
-                    Image(systemName: "person.badge.plus")
-                }
-                .help("Create candidate profile")
-
+                } label: { Image(systemName: "person.badge.plus") }
+                .help("Create candidate profile override")
                 TextField("New opportunity name", text: $newOpportunityName)
                 Button {
                     appState.createOpportunityContext(named: newOpportunityName)
                     newOpportunityName = ""
-                } label: {
-                    Image(systemName: "briefcase.badge.plus")
-                }
-                .help("Create target opportunity")
+                } label: { Image(systemName: "briefcase.badge.plus") }
+                .help("Create target opportunity override")
+            }
+            if let snapshot = appState.activeContextSnapshot {
+                Text("Snapshot: \(snapshot.id)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
         }
-        .padding(.vertical, 4)
     }
 
     @ViewBuilder
     private var evidenceReview: some View {
-        if let profile = appState.candidateProfiles.first(where: { $0.id == appState.activeCandidateProfileID }) {
+        if let profile = appState.activeCandidateProfile {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Candidate Profile Review", systemImage: "checklist")
@@ -141,13 +264,107 @@ struct DocumentsView: View {
             }
             .padding(.vertical, 4)
         }
+        if let opportunity = appState.activeOpportunityContext {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Opportunity Review", systemImage: "briefcase")
+                        .font(.headline)
+                    Spacer()
+                    Text("v\(opportunity.version)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(opportunity.allEvidence.prefix(16)) { evidence in
+                    ProfileEvidenceReviewRow(appState: appState, evidence: evidence)
+                    Divider()
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     private var contextStatusTitle: String {
-        switch appState.contextReadiness.status {
-        case .ready: return "Ready"
+        switch appState.automaticContextReadiness {
+        case .noDocuments: return "Not generated"
+        case .extracting: return "Building"
         case .needsReview: return "Needs Review"
-        case .missing: return "Missing"
+        case .ready: return "Ready"
+        case .failed: return "Failed"
+        }
+    }
+
+    private var contextStatusIcon: String {
+        switch appState.automaticContextReadiness {
+        case .noDocuments: return "circle"
+        case .extracting: return "arrow.triangle.2.circlepath"
+        case .needsReview: return "exclamationmark.circle"
+        case .ready: return "checkmark.circle.fill"
+        case .failed: return "xmark.circle"
+        }
+    }
+
+    private var contextStatusTint: Color {
+        switch appState.automaticContextReadiness {
+        case .ready: return .green
+        case .extracting: return .blue
+        case .needsReview: return .orange
+        case .failed: return .red
+        case .noDocuments: return .secondary
+        }
+    }
+
+    private var candidateSourceDetail: String {
+        let titles = appState.automaticContextBuildResult?.evidenceSummary.candidateSourceTitles ?? []
+        if let first = titles.first { return "Auto-generated from: \(first)" }
+        return "Upload a CV to personalise answers"
+    }
+
+    private var opportunitySourceDetail: String {
+        let titles = appState.automaticContextBuildResult?.evidenceSummary.opportunitySourceTitles ?? []
+        if let first = titles.first { return "Auto-generated from: \(first)" }
+        return "Add a job or PhD description for role-specific answers"
+    }
+
+    private var domainConfidence: String {
+        guard let domain = appState.automaticContextBuildResult?.inferredDomain else { return "Not inferred" }
+        return "\(domain.confidenceLabel) confidence"
+    }
+
+    private func contextAction(_ title: String, _ icon: String, type: DocumentType) -> some View {
+        Button {
+            importType = type
+            isImporterPresented = true
+        } label: {
+            Label(title, systemImage: icon)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func contextSummaryRow(
+        title: String,
+        value: String,
+        detail: String,
+        metric: String,
+        icon: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.headline)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Text(metric)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -394,25 +611,53 @@ private struct ProfileEvidenceReviewRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(evidence.evidenceType.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 105, alignment: .leading)
-            TextField("Evidence", text: $draft)
-                .onSubmit { appState.editProfileEvidence(evidence.id, statement: draft) }
-            Button {
-                appState.confirmProfileEvidence(evidence.id)
-            } label: {
-                Image(systemName: "checkmark.circle")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(evidence.evidenceType.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 105, alignment: .leading)
+                TextField("Evidence", text: $draft)
+                    .onSubmit { appState.editProfileEvidence(evidence.id, statement: draft) }
+                Text(reviewStatus)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(reviewTint)
+                Button {
+                    appState.confirmProfileEvidence(evidence.id)
+                } label: {
+                    Image(systemName: "checkmark.circle")
+                }
+                .help("Confirm evidence")
+                Button {
+                    appState.rejectProfileEvidence(evidence.id)
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .help("Reject evidence")
             }
-            .help("Confirm evidence")
-            Button {
-                appState.rejectProfileEvidence(evidence.id)
-            } label: {
-                Image(systemName: "xmark.circle")
+            if let source = evidence.sourceSpan, !source.isEmpty {
+                Text("Source: \(String(source.prefix(180)))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
-            .help("Reject evidence")
+        }
+    }
+
+    private var reviewStatus: String {
+        switch evidence.explicitness {
+        case .explicit: return "Extracted"
+        case .inferred: return "Uncertain"
+        case .userConfirmed: return "Confirmed"
+        case .userRejected: return "Rejected"
+        }
+    }
+
+    private var reviewTint: Color {
+        switch evidence.explicitness {
+        case .explicit, .userConfirmed: return .green
+        case .inferred: return .orange
+        case .userRejected: return .red
         }
     }
 }

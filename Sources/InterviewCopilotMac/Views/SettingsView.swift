@@ -250,16 +250,6 @@ struct SettingsView: View {
 
     private var dialogueCard: some View {
         settingsCard("Interview Dialogue", icon: "person.3.fill") {
-            Picker("Interview Domain", selection: Binding(
-                get: { appState.activeInterviewDomainID },
-                set: appState.selectInterviewDomain
-            )) {
-                ForEach(InterviewDomainID.allCases) { domain in
-                    Text(domain.displayName).tag(domain)
-                }
-            }
-            .pickerStyle(.menu)
-
             Picker("Interview Mode", selection: $appState.interviewSessionMode) {
                 ForEach(InterviewSessionMode.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
