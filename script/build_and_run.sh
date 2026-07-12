@@ -7,8 +7,9 @@ set -euo pipefail
 # Key requirement: keep the bundle identifier and path stable.
 #
 # macOS TCC (Transparency, Consent and Control) also evaluates the code signing
-# requirement. A configured Apple Development identity can keep that requirement
-# stable across rebuilds; ad-hoc signing cannot.
+# requirement. A configured Apple Development identity is preferred. The local
+# ad-hoc fallback uses an explicit identifier-only requirement so its TCC key is
+# stable across rebuilds, but it does not authenticate the publisher.
 #
 # After granting permission to an ad-hoc build, use --relaunch to restart the
 # existing signed bundle without replacing or re-signing it.
@@ -26,6 +27,7 @@ EXECUTABLE_NAME="InterviewCopilotMacRunner"       # CFBundleExecutable (binary i
 LEGACY_EXECUTABLE_NAME="InterviewCopilotMac"
 SPM_PRODUCT_NAME="InterviewCopilotMac"            # SPM product name (output of swift build)
 BUNDLE_ID="com.langcheng.InterviewCopilotMac"
+ADHOC_DESIGNATED_REQUIREMENT="=designated => identifier \"$BUNDLE_ID\""
 DISPLAY_NAME="Interview Copilot"
 VERSION="0.1.0"
 BUILD_NUMBER="1"
@@ -396,11 +398,14 @@ if [[ -n "$SIGNING_IDENTITY" ]]; then
 else
     echo "================================================================================"
     echo "Using ad-hoc signing. AMFI may reject this on some systems."
+    echo "Using a stable identifier-only designated requirement for local TCC continuity."
+    echo "Security note: this does not authenticate the publisher; use Apple Development signing when available."
     echo "For stable verification, install/configure Apple Development signing identity."
     echo "Set INTERVIEW_COPILOT_SIGNING_IDENTITY=\"Apple Development: Name (TEAMID)\""
     echo "================================================================================"
     codesign --force --deep \
         --sign - \
+        --requirements "$ADHOC_DESIGNATED_REQUIREMENT" \
         "$APP_BUNDLE"
 fi
 
@@ -504,7 +509,7 @@ case "$MODE" in
         codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature|TeamIdentifier" || true
         echo ""
         echo "Designated Requirement:"
-        codesign -d -r- "$APP_BUNDLE" 2>&1 | grep -v "designated =>" || true
+        codesign -d -r- "$APP_BUNDLE" 2>&1 || true
         echo ""
         echo "cdhash:"
         codesign -dvvvv "$APP_BUNDLE" 2>&1 | grep "CDHash" || true

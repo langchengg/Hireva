@@ -135,6 +135,8 @@ struct RuntimeVerificationScriptTests {
             "rm -rf \"$APP_CONTENTS\"",
             "\"$LSREGISTER\" -f \"$APP_BUNDLE\"",
             "Using ad-hoc signing. AMFI may reject this on some systems.",
+            "ADHOC_DESIGNATED_REQUIREMENT",
+            "--requirements \"$ADHOC_DESIGNATED_REQUIREMENT\"",
             "codesign --verify --deep --strict --verbose=4",
             "spctl --assess --type execute --verbose=4",
             "xattr -lr",
