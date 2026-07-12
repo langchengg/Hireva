@@ -26,6 +26,9 @@ struct StructuredEvidenceExtractor {
                 // subheadings such as a role or project name.
                 continue
             }
+            guard !AutomaticInterviewContextBuilder.containsInterviewControlInstruction(line) else {
+                continue
+            }
             let type = evidenceType(line: line, section: currentSection, classification: classification)
             let explicitness: EvidenceExplicitness = type == .other ? .inferred : .explicit
             let evidence = ProfileEvidence(

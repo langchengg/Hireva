@@ -80,7 +80,9 @@ struct LocalQwenDocumentEvidenceExtractor: AutomaticDocumentEvidenceExtracting {
                   content.range(of: span, options: [.caseInsensitive, .diacriticInsensitive]) != nil,
                   Self.statementIsSupported(statement, by: span),
                   !AutomaticInterviewContextBuilder.containsPromptInjection(span),
-                  !AutomaticInterviewContextBuilder.containsPromptInjection(statement) else {
+                  !AutomaticInterviewContextBuilder.containsPromptInjection(statement),
+                  !AutomaticInterviewContextBuilder.containsInterviewControlInstruction(span),
+                  !AutomaticInterviewContextBuilder.containsInterviewControlInstruction(statement) else {
                 return nil
             }
             let type = EvidenceType(rawValue: fact.evidenceType) ?? .other
@@ -463,7 +465,7 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
     static func sanitizeUntrustedContent(_ content: String) -> (content: String, removedInstructionCount: Int) {
         var removed = 0
         let kept = content.components(separatedBy: .newlines).filter { line in
-            if containsPromptInjection(line) {
+            if containsPromptInjection(line) || containsInterviewControlInstruction(line) {
                 removed += 1
                 return false
             }
@@ -482,6 +484,26 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
         return patterns.contains(where: lower.contains) ||
             (lower.contains("ignore") && (lower.contains("instruction") || lower.contains("prompt") || lower.contains("system"))) ||
             ((lower.contains("claim") || lower.contains("pretend")) && lower.contains("candidate"))
+    }
+
+    static func containsInterviewControlInstruction(_ text: String) -> Bool {
+        let lower = QuestionTextUtilities.collapse(text).lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-*# "))
+        guard !lower.isEmpty else { return false }
+
+        let answerControlTerms = [
+            "answer", "answers", "response", "respond", "interview", "interviewer",
+            "claim", "mention", "say", "state", "highlight", "emphasize", "emphasise",
+            "personal ownership", "team work", "teamwork", "honestly"
+        ]
+        let commandPrefixes = [
+            "use ", "answer ", "respond ", "mention ", "say ", "state ", "highlight ",
+            "emphasize ", "emphasise ", "focus on ", "do not ", "don't ", "never ",
+            "always ", "make sure ", "remember to ", "tell the interviewer "
+        ]
+        let isCommand = commandPrefixes.contains(where: lower.hasPrefix)
+        let controlsInterviewContent = answerControlTerms.contains(where: lower.contains)
+        return isCommand && controlsInterviewContent
     }
 
     private static func makeCandidateProfile(

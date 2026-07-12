@@ -415,9 +415,22 @@ enum MultiQuestionSplitter {
             "do", "does", "did", "have", "has", "had",
             "can", "could", "will", "would", "should"
         ]
-        return whPrefixes.contains(where: previous.hasPrefix) &&
-            previousWords.isDisjoint(with: finiteQuestionVerbs) &&
-            auxiliaryTails.contains(where: current.hasPrefix)
+        guard auxiliaryTails.contains(where: current.hasPrefix) else { return false }
+        if whPrefixes.contains(where: previous.hasPrefix) {
+            return previousWords.isDisjoint(with: finiteQuestionVerbs)
+        }
+
+        // A temporal or conversational preface can precede the WH phrase,
+        // e.g. "Before you finish, which signal would you investigate?".
+        // The auxiliary is still part of that same question, not a new one.
+        let whMarkers = [" what ", " which ", " how ", " why ", " where ", " when ", " who "]
+        guard let marker = whMarkers
+            .compactMap({ previous.range(of: $0)?.lowerBound })
+            .max()
+        else { return false }
+        let whPhrase = String(previous[marker...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let whWords = Set(whPhrase.split(whereSeparator: \.isWhitespace).map(String.init))
+        return whWords.isDisjoint(with: finiteQuestionVerbs)
     }
 
     private static func antecedentAlreadyContainsQuestionComplement(_ clause: String) -> Bool {

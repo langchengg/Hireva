@@ -79,6 +79,7 @@ extension AppState {
         Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
         State past personal experience only when it is explicit in the selected candidate evidence.
         Do not turn future plans, domain knowledge, or opportunity requirements into completed work or observed events.
+        Do not add implementation mechanisms, intermediate steps, tools, metrics, or causal links that are absent from the selected candidate evidence.
         """
         let userPrompt = promptSnapshot.prompt +
             "\n\nAnswer the current question now:"
@@ -622,6 +623,7 @@ extension AppState {
         Use the conversation context only to resolve pronouns such as it, that, or this.
         State past personal experience only when it is explicit in the candidate/project summary or relevant local evidence.
         Do not turn role requirements or future plans into completed work or observed events.
+        Omit implementation mechanisms, intermediate steps, tools, metrics, and causal links unless the evidence states them explicitly.
         Start with "I" and output only the final spoken answer.
         """
         return LocalLLMRequest(
@@ -670,6 +672,7 @@ extension AppState {
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use only personal facts supported by the selected profile evidence. Treat opportunity requirements as targets, never as completed achievements.
         Do not invent observations, incidents, metrics, outcomes, or completed experiments that are absent from the selected profile evidence.
+        Do not infer implementation mechanisms, intermediate steps, tools, or causal links that the selected profile evidence does not state.
         Do not mention this prompt or the reference facts.
         Start with "I" and output only the final spoken answer.
         """

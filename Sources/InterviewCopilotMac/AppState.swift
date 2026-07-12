@@ -1700,6 +1700,14 @@ final class AppState: ObservableObject {
                     diagnostic: lastAlignmentError.isEmpty ? category.rawValue : lastAlignmentError
                 )
             } catch {
+                guard shouldPropagateGenerationFailure(
+                    generationID: generationID,
+                    questionID: localQuestion.id
+                ),
+                      !Task.isCancelled else {
+                    recordStaleGenerationDiscard()
+                    return
+                }
                 markGenerationFailed(
                     generationID: generationID,
                     reason: error.localizedDescription,

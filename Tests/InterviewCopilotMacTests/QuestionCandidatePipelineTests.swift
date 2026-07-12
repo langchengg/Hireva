@@ -146,6 +146,28 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func prefacedWHQuestionKeepsNestedAuxiliaryTail() {
+        let questions = [
+            "Before you finish, which single reliability signal would you investigate first and why?",
+            "Before the review ends, what customer metric would you monitor and how would you react?"
+        ]
+
+        for question in questions {
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+        }
+
+        #expect(QuestionCandidatePipeline.extract(from: "Could you explain why").isEmpty)
+    }
+
+    @Test
+    func punctuatedPrefacedQuestionStillAllowsIndependentFollowUp() {
+        let first = "Before you finish, which reliability signal would you inspect first?"
+        let second = "Would you alert the team immediately?"
+
+        #expect(QuestionCandidatePipeline.extract(from: "\(first) \(second)").map(\.text) == [first, second])
+    }
+
+    @Test
     func punctuatedHowDidFollowUpRemainsASeparateCandidate() {
         let first = "How did you diagnose the latency?"
         let second = "How did you prove the database change was safe?"

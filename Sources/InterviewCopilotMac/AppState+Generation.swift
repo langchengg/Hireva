@@ -2134,6 +2134,13 @@ func refreshLiveSuggestionHistory(sessionID: String, latestQuestion: String) {
     }
 }
 
+// Provider failures belong to the generation that initiated them. A completed
+// stale callback may be recorded diagnostically, but must not escape to the
+// caller and become a global UI alert for the newer question.
+func shouldPropagateGenerationFailure(generationID: String, questionID: String) -> Bool {
+    isActiveGeneration(generationID, questionID: questionID)
+}
+
 private func restoreCaptureAfterGenerationIfNeeded(
     session: InterviewSession,
     generationID: String,
@@ -3373,9 +3380,6 @@ func persistSuggestionInBackground(
             let persistedPrompt = persistedCard.promptPrimaryQuestion ?? persistedCard.promptQuestionText ?? persistedCard.questionText ?? ""
             await MainActor.run { [weak self, persistedID, persistedSessionID, persistedDBMS, persistedQuestionID, persistedPrompt] in
                 guard let self = self else { return }
-                self.lastSQLiteOperation = "Saved suggestion card"
-                self.streamPersistedAt = Date()
-                self.refreshLiveSuggestionHistory(sessionID: persistedSessionID, latestQuestion: persistedPrompt)
                 if self.markSuggestionPersistenceSucceededOnce(cardID: persistedID, generationID: generationID) {
                     self.recordTranscriptRuntimeEvent(.persistenceSucceeded(
                         sessionID: persistedSessionID,
@@ -3396,6 +3400,13 @@ func persistSuggestionInBackground(
                     self.recordStaleGenerationDiscard()
                     return
                 }
+                guard self.currentSession?.id == persistedSessionID else {
+                    self.recordStaleGenerationDiscard()
+                    return
+                }
+                self.lastSQLiteOperation = "Saved suggestion card"
+                self.streamPersistedAt = Date()
+                self.refreshLiveSuggestionHistory(sessionID: persistedSessionID, latestQuestion: persistedPrompt)
                 self.currentGenerationTelemetry.dbPersistedAt = Date()
                 if let current = self.currentSuggestion,
                    current.id == persistedID,

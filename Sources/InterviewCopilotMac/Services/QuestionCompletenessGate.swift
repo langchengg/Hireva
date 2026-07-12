@@ -138,9 +138,12 @@ enum QuestionCompletenessGate {
             " what did you learn from comp", " why might", " how would", " how did you adapt", " how would you diagnose",
             " how would you diagnose a seem", " diagnose a seem", " can you explain the difference",
             " tell me about a time you had", " what questions would you ask", " what questions would you ask us about the",
-            " about the", " what", " why", " how", " if", " also if"
+            " about the", " what", " how", " if", " also if"
         ]
         if incompleteEndings.contains(where: { comparable.hasSuffix($0) }) {
+            return false
+        }
+        if comparable.hasSuffix(" why"), !comparable.contains(" and why") {
             return false
         }
 
