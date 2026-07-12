@@ -146,6 +146,15 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func unpunctuatedCoordinatedCompoundQuestionRemainsOneLogicalCandidate() {
+        let question = "How did you validate the forecasting model and how did you guard against leakage?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: question)
+
+        #expect(candidates.map(\.text) == [question])
+    }
+
+    @Test
     func prefacedWHQuestionKeepsNestedAuxiliaryTail() {
         let questions = [
             "Before you finish, which single reliability signal would you investigate first and why?",

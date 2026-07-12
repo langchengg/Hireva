@@ -54,6 +54,32 @@ struct SystemAudioMergedQuestionSegmentationTests {
     }
 
     @Test
+    func unpunctuatedCoordinatedQuestionPersistsOneDetectionWithoutLocalSnapshot() async throws {
+        let (appState, _, session, _) = try makeAppState()
+        let question = "How did you validate the forecasting model and how did you guard against leakage?"
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "unpunctuated-coordinated-question",
+            sessionID: session.id,
+            text: question
+        ))
+
+        try await waitUntil(
+            timeout: Self.runtimeWaitTimeout,
+            label: "single coordinated question detection"
+        ) {
+            appState.detectedQuestionsInSessionCount == 1 &&
+            ((try? appState.suggestionRepository.questions(sessionID: session.id).count) ?? 0) == 1
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+        let cards = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(detected.map(\.questionText) == [question])
+        #expect(cards.allSatisfy { $0.finalVisibleSource != "local_merged_question_snapshot" })
+    }
+
+    @Test
     func latestRuntimeDatabaseReplaySplitsMergedTranscriptWhenAvailable() throws {
         let text = Self.latestRuntimeMergedTranscript() ?? Self.runtimeMergedTranscript
 

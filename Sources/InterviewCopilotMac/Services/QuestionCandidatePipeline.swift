@@ -382,7 +382,7 @@ enum MultiQuestionSplitter {
         let continuesAfterConnector = previous.hasSuffix(", and") &&
             interrogatives.contains(where: current.hasPrefix)
         return clauseAlreadyStartedQuestion(previous) &&
-            ((previous.hasSuffix(",") && startsCoordinatedQuestion) || continuesAfterConnector)
+            (startsCoordinatedQuestion || continuesAfterConnector)
     }
 
     private static func isAuxiliaryNestedInsideWHQuestion(precedingText: String, currentClause: String) -> Bool {
