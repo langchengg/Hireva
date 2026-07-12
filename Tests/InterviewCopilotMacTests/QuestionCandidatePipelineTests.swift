@@ -137,6 +137,25 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func coordinatedCompoundQuestionRemainsOneLogicalCandidate() {
+        let question = "How did you diagnose the latency, and how did you prove the database change was safe?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: question)
+
+        #expect(candidates.map(\.text) == [question])
+    }
+
+    @Test
+    func punctuatedHowDidFollowUpRemainsASeparateCandidate() {
+        let first = "How did you diagnose the latency?"
+        let second = "How did you prove the database change was safe?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: "\(first) \(second)")
+
+        #expect(candidates.map(\.text) == [first, second])
+    }
+
+    @Test
     func visualDetectionActionThenWhatInformationQuestionSplitsIntoTwoCandidates() {
         let q1 = "Can you explain how your robot transformed visual detections into physical actions in the real world"
         let q2 = "What information did the robot need before it could decide where to move and what to grasp"

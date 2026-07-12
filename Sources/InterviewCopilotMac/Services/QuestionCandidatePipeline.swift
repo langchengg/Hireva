@@ -277,6 +277,10 @@ enum MultiQuestionSplitter {
                 if isBackgroundCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
                     continue
                 }
+                if !previousClause.contains("?"),
+                   isCoordinatedCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
+                    continue
+                }
                 if previousClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("prior to your msc"),
                    currentClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("what ") {
                     continue
@@ -352,6 +356,21 @@ enum MultiQuestionSplitter {
             filtered.append(start)
         }
         return filtered
+    }
+
+    private static func isCoordinatedCompoundContinuation(
+        previousClause: String,
+        currentClause: String
+    ) -> Bool {
+        let previous = previousClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let interrogatives = ["how ", "what ", "why ", "which "]
+        let startsCoordinatedQuestion = current.hasPrefix("and ") &&
+            interrogatives.contains { current.dropFirst(4).hasPrefix($0) }
+        let continuesAfterConnector = previous.hasSuffix(", and") &&
+            interrogatives.contains(where: current.hasPrefix)
+        return clauseAlreadyStartedQuestion(previous) &&
+            ((previous.hasSuffix(",") && startsCoordinatedQuestion) || continuesAfterConnector)
     }
 
     private static func isAuxiliaryNestedInsideWHQuestion(precedingText: String, currentClause: String) -> Bool {
