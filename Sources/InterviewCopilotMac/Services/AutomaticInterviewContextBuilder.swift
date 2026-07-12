@@ -103,14 +103,28 @@ struct LocalQwenDocumentEvidenceExtractor: AutomaticDocumentEvidenceExtracting {
             )
         }
         guard !facts.isEmpty else { throw AutomaticDocumentExtractionError.noGroundedFacts }
+        let verifiedLocalEvidence = classification.isCandidateSource
+            ? fallback.candidateEvidence
+            : fallback.opportunityEvidence
+        let llmSourceSpans = Set(facts.compactMap { evidence in
+            evidence.sourceSpan.map(Self.normalizedSourceSpan)
+        })
+        let mergedFacts = facts + verifiedLocalEvidence.filter { evidence in
+            guard let sourceSpan = evidence.sourceSpan else { return true }
+            return !llmSourceSpans.contains(Self.normalizedSourceSpan(sourceSpan))
+        }
         return StructuredEvidenceExtraction(
             documentID: documentID,
             documentHash: fallback.documentHash,
             classification: classification,
-            candidateEvidence: classification.isCandidateSource ? facts : [],
-            opportunityEvidence: classification.isOpportunitySource ? facts : [],
-            uncertainCount: facts.filter { $0.explicitness == .inferred }.count
+            candidateEvidence: classification.isCandidateSource ? mergedFacts : [],
+            opportunityEvidence: classification.isOpportunitySource ? mergedFacts : [],
+            uncertainCount: mergedFacts.filter { $0.explicitness == .inferred }.count
         )
+    }
+
+    private static func normalizedSourceSpan(_ value: String) -> String {
+        QuestionTextUtilities.collapse(value).lowercased()
     }
 
     private static func jsonData(from raw: String) -> Data? {

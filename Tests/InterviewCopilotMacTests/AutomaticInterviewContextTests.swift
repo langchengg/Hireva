@@ -256,6 +256,39 @@ struct AutomaticInterviewContextTests {
         #expect(!extraction.candidateEvidence.contains { $0.statement.localizedCaseInsensitiveContains("Google") })
     }
 
+    @Test
+    func partialLocalQwenExtractionPreservesVerifiedLocalEvidence() async throws {
+        let content = """
+        Candidate: Jordan Example
+        Experience
+        - Led customer discovery with 28 research participants.
+        Projects
+        - Coordinated a cross-functional launch from problem framing through staged rollout.
+        Skills
+        - Customer discovery, roadmap ownership, stakeholder alignment, and prioritisation.
+        Declared Gaps
+        - Development area: no direct software implementation ownership.
+        """
+        let provider = PartialDocumentExtractionLocalLLMProvider(json: """
+        {"facts":[{"statement":"Customer discovery, roadmap ownership, stakeholder alignment, and prioritisation.","source_span":"- Customer discovery, roadmap ownership, stakeholder alignment, and prioritisation.","evidence_type":"skill","confidence":1.0}]}
+        """)
+
+        let extraction = try await LocalQwenDocumentEvidenceExtractor(
+            provider: provider,
+            modelName: "test-qwen"
+        ).extract(
+            documentID: "partial-local-qwen-fixture",
+            classification: .resume,
+            content: content,
+            persistedChunks: []
+        )
+        let statements = extraction.candidateEvidence.map(\.statement)
+
+        #expect(statements.contains { $0.localizedCaseInsensitiveContains("cross-functional launch") })
+        #expect(statements.contains { $0.localizedCaseInsensitiveContains("no direct software implementation") })
+        #expect(statements.filter { $0.localizedCaseInsensitiveContains("roadmap ownership") }.count == 1)
+    }
+
     private static func build(cv: String?, opportunity: String?) async throws -> InterviewContextBuildResult {
         var documents: [DocumentRecord] = []
         if let cv { documents.append(document(.cv, title: "Candidate Resume", content: cv)) }
@@ -391,4 +424,38 @@ struct AutomaticInterviewContextTests {
         version: 1,
         updatedAt: Date()
     )
+}
+
+private final class PartialDocumentExtractionLocalLLMProvider: LocalLLMProvider {
+    let id = "partial-document-extraction"
+    let displayName = "Partial Document Extraction"
+    let json: String
+
+    init(json: String) {
+        self.json = json
+    }
+
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        LocalLLMHealth(
+            ollamaRunning: true,
+            selectedModel: modelName,
+            modelInstalled: true,
+            providerSource: .ollamaQwen,
+            lastError: nil
+        )
+    }
+
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        let json = json
+        return AsyncThrowingStream { continuation in
+            continuation.yield(LLMToken(text: json, source: .ollamaQwen, modelName: request.modelName))
+            continuation.finish()
+        }
+    }
 }
