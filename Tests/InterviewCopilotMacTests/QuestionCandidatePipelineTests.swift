@@ -160,6 +160,26 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func whatNounPhraseWithFiniteLexicalVerbIsAccepted() {
+        let questions = QuestionCandidatePipeline.extract(
+            from: "What product management experience best represents how you work?",
+            isFinal: true
+        )
+
+        #expect(questions.map(\.text) == ["What product management experience best represents how you work?"])
+    }
+
+    @Test
+    func embeddedWhatNounPhraseStatementIsNotAccepted() {
+        let questions = QuestionCandidatePipeline.extract(
+            from: "I explained what product management experience best represents how our team works.",
+            isFinal: true
+        )
+
+        #expect(questions.isEmpty)
+    }
+
+    @Test
     func punctuatedPrefacedQuestionStillAllowsIndependentFollowUp() {
         let first = "Before you finish, which reliability signal would you inspect first?"
         let second = "Would you alert the team immediately?"

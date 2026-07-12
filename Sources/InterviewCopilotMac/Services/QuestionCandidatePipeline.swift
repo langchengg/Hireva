@@ -203,6 +203,7 @@ enum MultiQuestionSplitter {
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
             "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
             "^what\\s+(?:is|are)\\b",
+            "^what\\s+(?:[a-z0-9'’]+\\s+){1,7}[a-z]{3,}(?:s|ed)\\s+(?:how|why|what|which|who|where|when|your|you|the|this|that|a|an)\\b",
             "\\bwhat\\s+(?!(?:is|are)\\b)(?:[a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
             "\\bwhich\\s+robots?\\s+have\\s+you\\b",
             "\\bwhich\\s+(?:[a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|became|created|caused|made|failed|mattered|part|component|module|subsystem|stage|step)\\b",
