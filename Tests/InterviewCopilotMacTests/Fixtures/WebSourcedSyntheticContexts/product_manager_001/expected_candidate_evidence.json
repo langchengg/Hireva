@@ -1,0 +1,122 @@
+{
+  "evidence": [
+    {
+      "evidenceType": "experience",
+      "id": "product_ce_01",
+      "requiredKeywords": [
+        "customer",
+        "discovery",
+        "synthetic",
+        "research"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Led customer discovery with 28 synthetic research participants to identify onboarding friction.",
+      "statement": "Led customer discovery with 28 synthetic research participants to identify onboarding friction."
+    },
+    {
+      "evidenceType": "achievement",
+      "id": "product_ce_02",
+      "requiredKeywords": [
+        "prioritised",
+        "roadmap",
+        "change",
+        "increased"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Prioritised a roadmap change that increased fictional activation from 46 percent to 55 percent in a controlled release.",
+      "statement": "Prioritised a roadmap change that increased fictional activation from 46 percent to 55 percent in a controlled release."
+    },
+    {
+      "evidenceType": "experience",
+      "id": "product_ce_03",
+      "requiredKeywords": [
+        "aligned",
+        "design",
+        "engineering",
+        "support"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Aligned design, engineering, support, and commercial stakeholders around a shared outcome and decision log.",
+      "statement": "Aligned design, engineering, support, and commercial stakeholders around a shared outcome and decision log."
+    },
+    {
+      "evidenceType": "experience",
+      "id": "product_ce_04",
+      "requiredKeywords": [
+        "defined",
+        "guardrails",
+        "reviewed",
+        "experiment"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Defined KPI guardrails and reviewed experiment results before expanding a product launch.",
+      "statement": "Defined KPI guardrails and reviewed experiment results before expanding a product launch."
+    },
+    {
+      "evidenceType": "project",
+      "id": "product_ce_05",
+      "requiredKeywords": [
+        "coordinated",
+        "cross-functional",
+        "self-service",
+        "launch"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Coordinated a cross-functional self-service launch from problem framing through staged rollout.",
+      "statement": "Coordinated a cross-functional self-service launch from problem framing through staged rollout."
+    },
+    {
+      "evidenceType": "project",
+      "id": "product_ce_06",
+      "requiredKeywords": [
+        "built",
+        "prioritisation",
+        "model",
+        "combining"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Built a prioritisation model combining customer evidence, strategic fit, delivery effort, and risk.",
+      "statement": "Built a prioritisation model combining customer evidence, strategic fit, delivery effort, and risk."
+    },
+    {
+      "evidenceType": "skill",
+      "id": "product_ce_07",
+      "requiredKeywords": [
+        "customer",
+        "discovery",
+        "roadmap",
+        "ownership"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Customer discovery, roadmap ownership, stakeholder alignment, KPI analysis, experimentation, and prioritisation.",
+      "statement": "Customer discovery, roadmap ownership, stakeholder alignment, KPI analysis, experimentation, and prioritisation."
+    },
+    {
+      "evidenceType": "skill",
+      "id": "product_ce_08",
+      "requiredKeywords": [
+        "product",
+        "launches",
+        "cross-functional",
+        "delivery"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Product launches, cross-functional delivery, written decision records, and outcome communication.",
+      "statement": "Product launches, cross-functional delivery, written decision records, and outcome communication."
+    },
+    {
+      "evidenceType": "declared_gap",
+      "id": "product_ce_09",
+      "requiredKeywords": [
+        "development",
+        "area:",
+        "direct",
+        "software"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Development area: no direct software implementation ownership; technical delivery was led in partnership with engineers.",
+      "statement": "Development area: no direct software implementation ownership; technical delivery was led in partnership with engineers."
+    }
+  ],
+  "packID": "product_manager_001"
+}

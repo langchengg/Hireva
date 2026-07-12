@@ -1,0 +1,367 @@
+{
+  "dialogueID": "product_manager_interview_001",
+  "expectedDomain": "product_management",
+  "packID": "product_manager_001",
+  "turns": [
+    {
+      "expectedSuppressionReason": "logistics",
+      "phase": "logistics",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you for joining. We will spend about forty minutes on your background and the role, then leave time for your questions.",
+      "turn": 1
+    },
+    {
+      "expectedSuppressionReason": "candidate presentation",
+      "phase": "candidatePresentation",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "Thank you. I am Jordan Quill, a fictional candidate, and I will briefly introduce the experience most relevant to Senior Product Manager.",
+      "turn": 2
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_01",
+        "product_ce_03"
+      ],
+      "expectedIntent": "background",
+      "expectedOpportunityEvidenceIDs": [],
+      "expectedTopics": [
+        "background",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "What product-management experience best represents how you work?",
+      "turn": 3
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would begin with the documented experience and separate my own contribution from team outcomes.",
+      "turn": 4
+    },
+    {
+      "clarificationOfTurn": 3,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_03",
+        "product_ce_09"
+      ],
+      "expectedIntent": "clarification",
+      "expectedOpportunityEvidenceIDs": [],
+      "expectedTopics": [
+        "clarification",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "What did you personally decide, and what was owned by design or engineering?",
+      "turn": 5
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "My direct ownership was bounded by the evidence in the synthetic resume; adjacent work belonged to collaborators.",
+      "turn": 6
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_02",
+        "product_ce_04"
+      ],
+      "expectedIntent": "why_role",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_01",
+        "product_oe_03"
+      ],
+      "expectedTopics": [
+        "why role",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Why are you a strong fit for this senior product role?",
+      "turn": 7
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "The strongest fit comes from the documented results, while the declared development area remains a real limitation.",
+      "turn": 8
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": true,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_01",
+        "product_ce_06"
+      ],
+      "expectedIntent": "technical_deep_dive",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_01",
+        "product_oe_02"
+      ],
+      "expectedTopics": [
+        "technical deep dive",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How did customer evidence change the roadmap, and how did you validate the resulting priority?",
+      "turn": 9
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I used a measured baseline, changed one factor at a time, and checked the result against an explicit acceptance criterion.",
+      "turn": 10
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_04",
+        "product_ce_05"
+      ],
+      "expectedIntent": "debugging",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_04"
+      ],
+      "expectedTopics": [
+        "debugging",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Tell us about a product assumption that proved wrong and how you corrected course.",
+      "turn": 11
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I first reproduced the failure, preserved evidence, compared hypotheses, and then implemented the smallest verified correction.",
+      "turn": 12
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_03"
+      ],
+      "expectedIntent": "teamwork",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_03"
+      ],
+      "expectedTopics": [
+        "teamwork",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How did you resolve disagreement between commercial and engineering stakeholders?",
+      "turn": 13
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I made the disagreement explicit, documented trade-offs, and aligned the group around the outcome rather than a preferred solution.",
+      "turn": 14
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_09"
+      ],
+      "expectedIntent": "skills_gap",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_05"
+      ],
+      "expectedTopics": [
+        "skills gap",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Where would you need support in this role, especially around technical delivery?",
+      "turn": 15
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would state the gap directly, identify a safe first responsibility, and agree evidence that demonstrates progress.",
+      "turn": 16
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_02",
+        "product_ce_04"
+      ],
+      "expectedIntent": "success_metrics",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_06"
+      ],
+      "expectedTopics": [
+        "success metrics",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Which measures would tell you whether a new self-service workflow succeeded?",
+      "turn": 17
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would combine an outcome measure, a quality guardrail, and an operational signal, and I would also...",
+      "turn": 18
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "product_ce_01"
+      ],
+      "expectedIntent": "rapid_follow_up",
+      "expectedOpportunityEvidenceIDs": [
+        "product_oe_01"
+      ],
+      "expectedTopics": [
+        "rapid follow up",
+        "Product Management"
+      ],
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": true,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Before you finish, which single customer signal would change your roadmap first?",
+      "turn": 19
+    },
+    {
+      "expectedSuppressionReason": "panel invitation",
+      "phase": "candidateQuestionsToPanel",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you. What questions would you like to ask the panel?",
+      "turn": 20
+    },
+    {
+      "expectedSuppressionReason": "candidate question to panel",
+      "phase": "candidateQuestionsToPanel",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "How does the organisation resolve conflicts between customer evidence and short-term commercial requests?",
+      "turn": 21
+    },
+    {
+      "expectedSuppressionReason": "closing",
+      "phase": "closing",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you for your time. We have completed the interview and will explain the next steps separately.",
+      "turn": 22
+    }
+  ]
+}

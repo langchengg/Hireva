@@ -1,0 +1,33 @@
+{
+  "containsRealPersonalData": false,
+  "occupation": {
+    "identifier": "11-2021.00",
+    "title": "Marketing Managers (Product Manager listed as a reported title)",
+    "version": "O*NET OnLine updated 2026"
+  },
+  "packID": "product_manager_001",
+  "randomSeed": 20260712,
+  "sources": [
+    {
+      "attributionRequired": true,
+      "license": "MIT",
+      "name": "RenderCV",
+      "retrievedAt": "2026-07-12T00:00:00Z",
+      "url": "https://github.com/rendercv/rendercv",
+      "usedFor": "resume section structure only",
+      "verbatimContentIncluded": false
+    },
+    {
+      "attribution": "Information derived from O*NET OnLine by USDOL/ETA, used under CC BY 4.0 and modified. USDOL/ETA has not approved, endorsed, or tested these modifications. O*NET is a trademark of USDOL/ETA.",
+      "attributionRequired": true,
+      "license": "CC BY 4.0",
+      "name": "O*NET OnLine occupational data",
+      "retrievedAt": "2026-07-12T00:00:00Z",
+      "url": "https://www.onetonline.org/help/license",
+      "usedFor": "modified synthetic occupation task and skill themes",
+      "verbatimContentIncluded": false
+    }
+  ],
+  "synthetic": true,
+  "transformation": "All candidate identities, organisations, dates, metrics, resumes, job descriptions, and dialogue text are newly authored synthetic fixtures. O*NET occupational themes were substantially rewritten and combined with fictional scenarios."
+}

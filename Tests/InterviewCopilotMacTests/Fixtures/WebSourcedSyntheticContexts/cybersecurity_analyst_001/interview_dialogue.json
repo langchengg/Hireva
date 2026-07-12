@@ -1,0 +1,377 @@
+{
+  "dialogueID": "cybersecurity_analyst_interview_001",
+  "expectedDomain": "cybersecurity",
+  "packID": "cybersecurity_analyst_001",
+  "turns": [
+    {
+      "expectedSuppressionReason": "logistics",
+      "phase": "logistics",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you for joining. We will spend about forty minutes on your background and the role, then leave time for your questions.",
+      "turn": 1
+    },
+    {
+      "expectedSuppressionReason": "candidate presentation",
+      "phase": "candidatePresentation",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "Thank you. I am Taylor North, a fictional candidate, and I will briefly introduce the experience most relevant to Cybersecurity Analyst.",
+      "turn": 2
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_01",
+        "cyber_ce_07"
+      ],
+      "expectedIntent": "background",
+      "expectedOpportunityEvidenceIDs": [],
+      "expectedTopics": [
+        "background",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Which parts of your security background are most relevant to this analyst role?",
+      "turn": 3
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would begin with the documented experience and separate my own contribution from team outcomes.",
+      "turn": 4
+    },
+    {
+      "clarificationOfTurn": 3,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_04",
+        "cyber_ce_06"
+      ],
+      "expectedIntent": "clarification",
+      "expectedOpportunityEvidenceIDs": [],
+      "expectedTopics": [
+        "clarification",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Can you clarify which containment decisions you owned during the exercises?",
+      "turn": 5
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "My direct ownership was bounded by the evidence in the synthetic resume; adjacent work belonged to collaborators.",
+      "turn": 6
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_02",
+        "cyber_ce_03"
+      ],
+      "expectedIntent": "why_role",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_01",
+        "cyber_oe_02"
+      ],
+      "expectedTopics": [
+        "why role",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Why are you a strong fit for this cybersecurity analyst role?",
+      "turn": 7
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "The strongest fit comes from the documented results, while the declared development area remains a real limitation.",
+      "turn": 8
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": true,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_01",
+        "cyber_ce_04"
+      ],
+      "expectedIntent": "technical_deep_dive",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_01",
+        "cyber_oe_02"
+      ],
+      "expectedTopics": [
+        "technical deep dive",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How would you investigate an identity alert, and how would you preserve the evidence chain?",
+      "turn": 9
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I used a measured baseline, changed one factor at a time, and checked the result against an explicit acceptance criterion.",
+      "turn": 10
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_02",
+        "cyber_ce_05"
+      ],
+      "expectedIntent": "debugging",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_04"
+      ],
+      "expectedTopics": [
+        "debugging",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Describe a noisy alert problem and how you reduced noise without hiding risk.",
+      "turn": 11
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I first reproduced the failure, preserved evidence, compared hypotheses, and then implemented the smallest verified correction.",
+      "turn": 12
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_03",
+        "cyber_ce_08"
+      ],
+      "expectedIntent": "teamwork",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_03"
+      ],
+      "expectedTopics": [
+        "teamwork",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How did you communicate remediation priorities to teams with competing deadlines?",
+      "turn": 13
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I made the disagreement explicit, documented trade-offs, and aligned the group around the outcome rather than a preferred solution.",
+      "turn": 14
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_09"
+      ],
+      "expectedIntent": "skills_gap",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_03"
+      ],
+      "expectedTopics": [
+        "skills gap",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Which part of this role is currently a genuine development area?",
+      "turn": 15
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would state the gap directly, identify a safe first responsibility, and agree evidence that demonstrates progress.",
+      "turn": 16
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_04",
+        "cyber_ce_08"
+      ],
+      "expectedIntent": "success_metrics",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_06"
+      ],
+      "expectedTopics": [
+        "success metrics",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "What measures would show that incident handling is improving rather than merely becoming faster?",
+      "turn": 17
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would combine an outcome measure, a quality guardrail, and an operational signal, and I would also...",
+      "turn": 18
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "cyber_ce_04"
+      ],
+      "expectedIntent": "rapid_follow_up",
+      "expectedOpportunityEvidenceIDs": [
+        "cyber_oe_02"
+      ],
+      "expectedTopics": [
+        "rapid follow up",
+        "Cybersecurity"
+      ],
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": true,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Before you finish, which evidence source would you protect first during containment and why?",
+      "turn": 19
+    },
+    {
+      "expectedSuppressionReason": "panel invitation",
+      "phase": "candidateQuestionsToPanel",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you. What questions would you like to ask the panel?",
+      "turn": 20
+    },
+    {
+      "expectedSuppressionReason": "candidate question to panel",
+      "phase": "candidateQuestionsToPanel",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "How does the security team review whether remediation reduced repeat risk after an incident?",
+      "turn": 21
+    },
+    {
+      "expectedSuppressionReason": "closing",
+      "phase": "closing",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you for your time. We have completed the interview and will explain the next steps separately.",
+      "turn": 22
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "evidence": [
+    {
+      "evidenceType": "experience",
+      "id": "cyber_ce_01",
+      "requiredKeywords": [
+        "triaged",
+        "synthetic",
+        "endpoint",
+        "identity"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Triaged synthetic endpoint and identity alerts using documented severity and escalation criteria.",
+      "statement": "Triaged synthetic endpoint and identity alerts using documented severity and escalation criteria."
+    },
+    {
+      "evidenceType": "achievement",
+      "id": "cyber_ce_02",
+      "requiredKeywords": [
+        "reduced",
+        "fictional",
+        "phishing-alert",
+        "review"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Reduced fictional phishing-alert review time by 22 percent by tuning duplicate indicators and preserving audit history.",
+      "statement": "Reduced fictional phishing-alert review time by 22 percent by tuning duplicate indicators and preserving audit history."
+    },
+    {
+      "evidenceType": "experience",
+      "id": "cyber_ce_03",
+      "requiredKeywords": [
+        "performed",
+        "vulnerability",
+        "reviews",
+        "translated"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Performed vulnerability reviews and translated technical findings into risk-ranked remediation actions.",
+      "statement": "Performed vulnerability reviews and translated technical findings into risk-ranked remediation actions."
+    },
+    {
+      "evidenceType": "experience",
+      "id": "cyber_ce_04",
+      "requiredKeywords": [
+        "supported",
+        "incident",
+        "containment",
+        "exercises"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Supported incident containment exercises and documented evidence, decisions, and follow-up controls.",
+      "statement": "Supported incident containment exercises and documented evidence, decisions, and follow-up controls."
+    },
+    {
+      "evidenceType": "project",
+      "id": "cyber_ce_05",
+      "requiredKeywords": [
+        "built",
+        "python",
+        "log-enrichment",
+        "synthetic"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Built a Python log-enrichment tool for synthetic indicators without changing source security records.",
+      "statement": "Built a Python log-enrichment tool for synthetic indicators without changing source security records."
+    },
+    {
+      "evidenceType": "project",
+      "id": "cyber_ce_06",
+      "requiredKeywords": [
+        "facilitated",
+        "tabletop",
+        "exercise",
+        "covering"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Facilitated a tabletop exercise covering credential theft, access revocation, and recovery communication.",
+      "statement": "Facilitated a tabletop exercise covering credential theft, access revocation, and recovery communication."
+    },
+    {
+      "evidenceType": "skill",
+      "id": "cyber_ce_07",
+      "requiredKeywords": [
+        "security",
+        "monitoring",
+        "incident",
+        "triage"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Security monitoring, incident triage, vulnerability assessment, Python, SQL, access review, and audit documentation.",
+      "statement": "Security monitoring, incident triage, vulnerability assessment, Python, SQL, access review, and audit documentation."
+    },
+    {
+      "evidenceType": "skill",
+      "id": "cyber_ce_08",
+      "requiredKeywords": [
+        "communication",
+        "control",
+        "validation",
+        "evidence"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Risk communication, control validation, evidence preservation, and cross-team incident coordination.",
+      "statement": "Risk communication, control validation, evidence preservation, and cross-team incident coordination."
+    },
+    {
+      "evidenceType": "declared_gap",
+      "id": "cyber_ce_09",
+      "requiredKeywords": [
+        "development",
+        "area:",
+        "limited",
+        "hands-on"
+      ],
+      "sourceFile": "resume.md",
+      "sourceSpan": "Development area: limited hands-on ownership of enterprise cloud security architecture.",
+      "statement": "Development area: limited hands-on ownership of enterprise cloud security architecture."
+    }
+  ],
+  "packID": "cybersecurity_analyst_001"
+}

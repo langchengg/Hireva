@@ -1,0 +1,22 @@
+{
+  "crossProfileFactTarget": 0,
+  "expectedDomain": "software_engineering",
+  "forbiddenCandidateClaims": [
+    "robotics",
+    "ROS2",
+    "tactile sensing",
+    "robot grasping",
+    "Manchester Robotics MSc"
+  ],
+  "minimumCandidateEvidence": 9,
+  "minimumCandidateSuppressions": 6,
+  "minimumOpportunityEvidence": 7,
+  "minimumTriggerQuestions": 7,
+  "packID": "backend_engineer_001",
+  "promptInjectionExpected": false,
+  "requiredDeclaredGapIDs": [
+    "backend_ce_09"
+  ],
+  "requirementsAsExperienceTarget": 0,
+  "unsupportedFactTarget": 0
+}

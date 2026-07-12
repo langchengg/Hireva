@@ -1,0 +1,83 @@
+{
+  "evidence": [
+    {
+      "evidenceType": "responsibility",
+      "id": "product_oe_01",
+      "requiredKeywords": [
+        "product",
+        "discovery",
+        "strategy",
+        "evidence-based"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Own product discovery, strategy, and an evidence-based roadmap.",
+      "statement": "Own product discovery, strategy, and an evidence-based roadmap."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "product_oe_02",
+      "requiredKeywords": [
+        "required:",
+        "customer",
+        "research",
+        "prioritisation"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: customer research, prioritisation, KPI definition, and experiment interpretation.",
+      "statement": "Required: customer research, prioritisation, KPI definition, and experiment interpretation."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "product_oe_03",
+      "requiredKeywords": [
+        "required:",
+        "align",
+        "cross-functional",
+        "stakeholders"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: align cross-functional stakeholders and communicate trade-offs clearly.",
+      "statement": "Required: align cross-functional stakeholders and communicate trade-offs clearly."
+    },
+    {
+      "evidenceType": "responsibility",
+      "id": "product_oe_04",
+      "requiredKeywords": [
+        "guide",
+        "product",
+        "launches",
+        "learn"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Guide product launches and learn from adoption and retention signals.",
+      "statement": "Guide product launches and learn from adoption and retention signals."
+    },
+    {
+      "evidenceType": "preferred_skill",
+      "id": "product_oe_05",
+      "requiredKeywords": [
+        "preferred:",
+        "experience",
+        "self-service",
+        "business"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Preferred: experience with self-service business software and staged rollouts.",
+      "statement": "Preferred: experience with self-service business software and staged rollouts."
+    },
+    {
+      "evidenceType": "evaluation_criterion",
+      "id": "product_oe_06",
+      "requiredKeywords": [
+        "success",
+        "means",
+        "stronger",
+        "customer"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Success means stronger customer outcomes, coherent priorities, and measurable adoption without claiming engineering authorship.",
+      "statement": "Success means stronger customer outcomes, coherent priorities, and measurable adoption without claiming engineering authorship."
+    }
+  ],
+  "packID": "product_manager_001"
+}

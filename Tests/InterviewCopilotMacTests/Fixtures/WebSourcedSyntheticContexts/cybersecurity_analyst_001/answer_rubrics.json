@@ -1,0 +1,181 @@
+{
+  "packID": "cybersecurity_analyst_001",
+  "rubrics": [
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_01",
+        "cyber_ce_07"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 3
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_04",
+        "cyber_ce_06"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 5
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_02",
+        "cyber_ce_03"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_01",
+        "cyber_oe_02"
+      ],
+      "turn": 7
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_01",
+        "cyber_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_01",
+        "cyber_oe_02"
+      ],
+      "turn": 9
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_02",
+        "cyber_ce_05"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_04"
+      ],
+      "turn": 11
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_03",
+        "cyber_ce_08"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_03"
+      ],
+      "turn": 13
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_09"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_03"
+      ],
+      "turn": 15
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_04",
+        "cyber_ce_08"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_06"
+      ],
+      "turn": 17
+    },
+    {
+      "candidateEvidenceIDs": [
+        "cyber_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "forecasting ownership",
+        "product roadmap ownership",
+        "worked at Google"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "cyber_oe_02"
+      ],
+      "turn": 19
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "evidence": [
+    {
+      "evidenceType": "responsibility",
+      "id": "backend_oe_01",
+      "requiredKeywords": [
+        "design",
+        "evolve",
+        "distributed",
+        "backend"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Design and evolve distributed backend services and versioned APIs.",
+      "statement": "Design and evolve distributed backend services and versioned APIs."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "backend_oe_02",
+      "requiredKeywords": [
+        "required:",
+        "strong",
+        "kotlin",
+        "practical"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: strong Java or Kotlin and practical relational database performance skills.",
+      "statement": "Required: strong Java or Kotlin and practical relational database performance skills."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "backend_oe_03",
+      "requiredKeywords": [
+        "required:",
+        "production",
+        "observability",
+        "incident"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: production observability, incident analysis, and service reliability experience.",
+      "statement": "Required: production observability, incident analysis, and service reliability experience."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "backend_oe_04",
+      "requiredKeywords": [
+        "required:",
+        "cloud",
+        "deployment",
+        "using"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: cloud deployment using containers and Kubernetes.",
+      "statement": "Required: cloud deployment using containers and Kubernetes."
+    },
+    {
+      "evidenceType": "preferred_skill",
+      "id": "backend_oe_05",
+      "requiredKeywords": [
+        "preferred:",
+        "kafka",
+        "another",
+        "durable"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Preferred: Kafka or another durable event-streaming platform.",
+      "statement": "Preferred: Kafka or another durable event-streaming platform."
+    },
+    {
+      "evidenceType": "evaluation_criterion",
+      "id": "backend_oe_06",
+      "requiredKeywords": [
+        "success",
+        "means",
+        "lower",
+        "latency"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Success means lower tail latency, fewer repeat incidents, and safe collaboration across service boundaries.",
+      "statement": "Success means lower tail latency, fewer repeat incidents, and safe collaboration across service boundaries."
+    },
+    {
+      "evidenceType": "responsibility",
+      "id": "backend_oe_07",
+      "requiredKeywords": [
+        "collaborate",
+        "product",
+        "client",
+        "infrastructure"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Collaborate with product, client, and infrastructure engineers on technical trade-offs.",
+      "statement": "Collaborate with product, client, and infrastructure engineers on technical trade-offs."
+    }
+  ],
+  "packID": "backend_engineer_001"
+}

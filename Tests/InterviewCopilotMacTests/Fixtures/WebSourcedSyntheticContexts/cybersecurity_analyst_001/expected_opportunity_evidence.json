@@ -1,0 +1,83 @@
+{
+  "evidence": [
+    {
+      "evidenceType": "responsibility",
+      "id": "cyber_oe_01",
+      "requiredKeywords": [
+        "monitor",
+        "security",
+        "events",
+        "investigate"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Monitor security events and investigate credible indicators across endpoint, identity, and cloud sources.",
+      "statement": "Monitor security events and investigate credible indicators across endpoint, identity, and cloud sources."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "cyber_oe_02",
+      "requiredKeywords": [
+        "required:",
+        "incident",
+        "triage",
+        "vulnerability"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: incident triage, vulnerability analysis, evidence handling, and clear documentation.",
+      "statement": "Required: incident triage, vulnerability analysis, evidence handling, and clear documentation."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "cyber_oe_03",
+      "requiredKeywords": [
+        "required:",
+        "communicate",
+        "coordinate",
+        "remediation"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: communicate risk and coordinate remediation with technical and non-technical teams.",
+      "statement": "Required: communicate risk and coordinate remediation with technical and non-technical teams."
+    },
+    {
+      "evidenceType": "responsibility",
+      "id": "cyber_oe_04",
+      "requiredKeywords": [
+        "validate",
+        "security",
+        "controls",
+        "identify"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Validate security controls and identify repeatable improvements after incidents.",
+      "statement": "Validate security controls and identify repeatable improvements after incidents."
+    },
+    {
+      "evidenceType": "preferred_skill",
+      "id": "cyber_oe_05",
+      "requiredKeywords": [
+        "preferred:",
+        "python",
+        "defensible",
+        "security-data"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Preferred: Python or SQL for defensible security-data analysis.",
+      "statement": "Preferred: Python or SQL for defensible security-data analysis."
+    },
+    {
+      "evidenceType": "evaluation_criterion",
+      "id": "cyber_oe_06",
+      "requiredKeywords": [
+        "success",
+        "means",
+        "timely",
+        "investigation"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Success means timely investigation, preserved evidence, reduced repeat risk, and proportionate escalation.",
+      "statement": "Success means timely investigation, preserved evidence, reduced repeat risk, and proportionate escalation."
+    }
+  ],
+  "packID": "cybersecurity_analyst_001"
+}

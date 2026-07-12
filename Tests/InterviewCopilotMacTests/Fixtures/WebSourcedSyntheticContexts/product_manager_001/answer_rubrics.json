@@ -1,0 +1,171 @@
+{
+  "packID": "product_manager_001",
+  "rubrics": [
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_01",
+        "product_ce_03"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 3
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_03",
+        "product_ce_09"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 5
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_02",
+        "product_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_01",
+        "product_oe_03"
+      ],
+      "turn": 7
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_01",
+        "product_ce_06"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_01",
+        "product_oe_02"
+      ],
+      "turn": 9
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_04",
+        "product_ce_05"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_04"
+      ],
+      "turn": 11
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_03"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_03"
+      ],
+      "turn": 13
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_09"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_05"
+      ],
+      "turn": 15
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_02",
+        "product_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_06"
+      ],
+      "turn": 17
+    },
+    {
+      "candidateEvidenceIDs": [
+        "product_ce_01"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "implemented the production code",
+        "owned backend implementation",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "product_oe_01"
+      ],
+      "turn": 19
+    }
+  ]
+}

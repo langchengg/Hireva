@@ -38,7 +38,17 @@ let package = Package(
                 .target(name: "InterviewCopilotMac")
             ],
             path: "Tests/InterviewCopilotMacTests",
-            resources: [.process("Fixtures")]
+            resources: [
+                .process("Fixtures/backend_candidate_profile.json"),
+                .process("Fixtures/backend_opportunity_context.json"),
+                .process("Fixtures/biomedical_candidate_profile.json"),
+                .process("Fixtures/cybersecurity_candidate_profile.json"),
+                .process("Fixtures/data_scientist_candidate_profile.json"),
+                .process("Fixtures/product_manager_candidate_profile.json"),
+                .process("Fixtures/robotics_phd_candidate_profile.json"),
+                .process("Fixtures/robotics_phd_opportunity_context.json"),
+                .copy("Fixtures/WebSourcedSyntheticContexts")
+            ]
         )
     ]
 )

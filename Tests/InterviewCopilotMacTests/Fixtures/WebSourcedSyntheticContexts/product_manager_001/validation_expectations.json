@@ -1,0 +1,22 @@
+{
+  "crossProfileFactTarget": 0,
+  "expectedDomain": "product_management",
+  "forbiddenCandidateClaims": [
+    "implemented the production code",
+    "owned backend implementation",
+    "robotics",
+    "ROS2",
+    "tactile sensing"
+  ],
+  "minimumCandidateEvidence": 9,
+  "minimumCandidateSuppressions": 6,
+  "minimumOpportunityEvidence": 6,
+  "minimumTriggerQuestions": 7,
+  "packID": "product_manager_001",
+  "promptInjectionExpected": false,
+  "requiredDeclaredGapIDs": [
+    "product_ce_09"
+  ],
+  "requirementsAsExperienceTarget": 0,
+  "unsupportedFactTarget": 0
+}

@@ -1,0 +1,170 @@
+{
+  "packID": "backend_engineer_001",
+  "rubrics": [
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_01",
+        "backend_ce_07"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 3
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_01",
+        "backend_ce_02"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 5
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_02",
+        "backend_ce_03"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_01",
+        "backend_oe_03"
+      ],
+      "turn": 7
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_02",
+        "backend_ce_05"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_02",
+        "backend_oe_06"
+      ],
+      "turn": 9
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_03"
+      ],
+      "turn": 11
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_06"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_07"
+      ],
+      "turn": 13
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_09"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_04"
+      ],
+      "turn": 15
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_03",
+        "backend_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_06"
+      ],
+      "turn": 17
+    },
+    {
+      "candidateEvidenceIDs": [
+        "backend_ce_03"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "robotics",
+        "ROS2",
+        "tactile sensing",
+        "robot grasping",
+        "Manchester Robotics MSc"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "backend_oe_06"
+      ],
+      "turn": 19
+    }
+  ]
+}

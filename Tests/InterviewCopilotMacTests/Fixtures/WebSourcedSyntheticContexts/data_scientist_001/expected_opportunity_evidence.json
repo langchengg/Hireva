@@ -1,0 +1,83 @@
+{
+  "evidence": [
+    {
+      "evidenceType": "responsibility",
+      "id": "data_oe_01",
+      "requiredKeywords": [
+        "build",
+        "evaluate",
+        "forecasting",
+        "machine-learning"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Build and evaluate forecasting and machine-learning models for operational decisions.",
+      "statement": "Build and evaluate forecasting and machine-learning models for operational decisions."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "data_oe_02",
+      "requiredKeywords": [
+        "required:",
+        "python",
+        "statistics",
+        "experiment"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: Python, SQL, statistics, experiment design, and defensible validation.",
+      "statement": "Required: Python, SQL, statistics, experiment design, and defensible validation."
+    },
+    {
+      "evidenceType": "required_skill",
+      "id": "data_oe_03",
+      "requiredKeywords": [
+        "required:",
+        "feature",
+        "engineering",
+        "monitoring"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Required: feature engineering and monitoring of models after deployment.",
+      "statement": "Required: feature engineering and monitoring of models after deployment."
+    },
+    {
+      "evidenceType": "responsibility",
+      "id": "data_oe_04",
+      "requiredKeywords": [
+        "translate",
+        "analysis",
+        "clear",
+        "recommendations"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Translate analysis into clear recommendations for operational stakeholders.",
+      "statement": "Translate analysis into clear recommendations for operational stakeholders."
+    },
+    {
+      "evidenceType": "preferred_skill",
+      "id": "data_oe_05",
+      "requiredKeywords": [
+        "preferred:",
+        "experience",
+        "time-series",
+        "uncertainty"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Preferred: experience with time-series uncertainty and production data-quality controls.",
+      "statement": "Preferred: experience with time-series uncertainty and production data-quality controls."
+    },
+    {
+      "evidenceType": "evaluation_criterion",
+      "id": "data_oe_06",
+      "requiredKeywords": [
+        "success",
+        "means",
+        "measurable",
+        "forecast"
+      ],
+      "sourceFile": "job_description.md",
+      "sourceSpan": "Success means measurable forecast improvement, transparent limitations, and useful business decisions.",
+      "statement": "Success means measurable forecast improvement, transparent limitations, and useful business decisions."
+    }
+  ],
+  "packID": "data_scientist_001"
+}

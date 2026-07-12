@@ -1,0 +1,22 @@
+{
+  "crossProfileFactTarget": 0,
+  "expectedDomain": "data_science",
+  "forbiddenCandidateClaims": [
+    "Kafka ownership",
+    "Kubernetes ownership",
+    "robotics",
+    "ROS2",
+    "tactile sensing"
+  ],
+  "minimumCandidateEvidence": 9,
+  "minimumCandidateSuppressions": 6,
+  "minimumOpportunityEvidence": 6,
+  "minimumTriggerQuestions": 7,
+  "packID": "data_scientist_001",
+  "promptInjectionExpected": false,
+  "requiredDeclaredGapIDs": [
+    "data_ce_09"
+  ],
+  "requirementsAsExperienceTarget": 0,
+  "unsupportedFactTarget": 0
+}

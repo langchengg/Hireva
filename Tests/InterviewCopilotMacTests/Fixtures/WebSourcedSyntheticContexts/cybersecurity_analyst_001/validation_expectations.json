@@ -1,0 +1,23 @@
+{
+  "crossProfileFactTarget": 0,
+  "expectedDomain": "cybersecurity",
+  "forbiddenCandidateClaims": [
+    "robotics",
+    "ROS2",
+    "tactile sensing",
+    "forecasting ownership",
+    "product roadmap ownership",
+    "worked at Google"
+  ],
+  "minimumCandidateEvidence": 9,
+  "minimumCandidateSuppressions": 6,
+  "minimumOpportunityEvidence": 6,
+  "minimumTriggerQuestions": 7,
+  "packID": "cybersecurity_analyst_001",
+  "promptInjectionExpected": true,
+  "requiredDeclaredGapIDs": [
+    "cyber_ce_09"
+  ],
+  "requirementsAsExperienceTarget": 0,
+  "unsupportedFactTarget": 0
+}

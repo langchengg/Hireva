@@ -1,0 +1,366 @@
+{
+  "dialogueID": "data_scientist_interview_001",
+  "expectedDomain": "data_science",
+  "packID": "data_scientist_001",
+  "turns": [
+    {
+      "expectedSuppressionReason": "logistics",
+      "phase": "logistics",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you for joining. We will spend about forty minutes on your background and the role, then leave time for your questions.",
+      "turn": 1
+    },
+    {
+      "expectedSuppressionReason": "candidate presentation",
+      "phase": "candidatePresentation",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "Thank you. I am Casey Rowan, a fictional candidate, and I will briefly introduce the experience most relevant to Applied Data Scientist.",
+      "turn": 2
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_01",
+        "data_ce_07"
+      ],
+      "expectedIntent": "background",
+      "expectedOpportunityEvidenceIDs": [],
+      "expectedTopics": [
+        "background",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Which parts of your data-science background are most relevant to this position?",
+      "turn": 3
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would begin with the documented experience and separate my own contribution from team outcomes.",
+      "turn": 4
+    },
+    {
+      "clarificationOfTurn": 3,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_02",
+        "data_ce_03"
+      ],
+      "expectedIntent": "clarification",
+      "expectedOpportunityEvidenceIDs": [],
+      "expectedTopics": [
+        "clarification",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Can you clarify how you separated your own contribution from the wider analytics team?",
+      "turn": 5
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "My direct ownership was bounded by the evidence in the synthetic resume; adjacent work belonged to collaborators.",
+      "turn": 6
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_02",
+        "data_ce_04"
+      ],
+      "expectedIntent": "why_role",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_01",
+        "data_oe_03"
+      ],
+      "expectedTopics": [
+        "why role",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Why are you a strong fit for this applied data-science role?",
+      "turn": 7
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "The strongest fit comes from the documented results, while the declared development area remains a real limitation.",
+      "turn": 8
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": true,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_02",
+        "data_ce_05"
+      ],
+      "expectedIntent": "technical_deep_dive",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_02",
+        "data_oe_05"
+      ],
+      "expectedTopics": [
+        "technical deep dive",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How did you validate the forecasting model, and how did you guard against leakage?",
+      "turn": 9
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I used a measured baseline, changed one factor at a time, and checked the result against an explicit acceptance criterion.",
+      "turn": 10
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_04"
+      ],
+      "expectedIntent": "debugging",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_03"
+      ],
+      "expectedTopics": [
+        "debugging",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Describe a model-monitoring problem and how you decided whether retraining was justified.",
+      "turn": 11
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I first reproduced the failure, preserved evidence, compared hypotheses, and then implemented the smallest verified correction.",
+      "turn": 12
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_03",
+        "data_ce_06"
+      ],
+      "expectedIntent": "teamwork",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_04"
+      ],
+      "expectedTopics": [
+        "teamwork",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How did you communicate statistical uncertainty to a stakeholder who wanted one number?",
+      "turn": 13
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I made the disagreement explicit, documented trade-offs, and aligned the group around the outcome rather than a preferred solution.",
+      "turn": 14
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_09"
+      ],
+      "expectedIntent": "skills_gap",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_03"
+      ],
+      "expectedTopics": [
+        "skills gap",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "What part of this role is a genuine development area for you?",
+      "turn": 15
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would state the gap directly, identify a safe first responsibility, and agree evidence that demonstrates progress.",
+      "turn": 16
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_06"
+      ],
+      "expectedIntent": "success_metrics",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_06"
+      ],
+      "expectedTopics": [
+        "success metrics",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": false,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "How would you measure whether a forecasting model creates business value?",
+      "turn": 17
+    },
+    {
+      "expectedSuppressionReason": "candidate speech",
+      "phase": "candidateAnswer",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "I would combine an outcome measure, a quality guardrail, and an operational signal, and I would also...",
+      "turn": 18
+    },
+    {
+      "clarificationOfTurn": null,
+      "compound": false,
+      "expectedCandidateEvidenceIDs": [
+        "data_ce_04"
+      ],
+      "expectedIntent": "rapid_follow_up",
+      "expectedOpportunityEvidenceIDs": [
+        "data_oe_03"
+      ],
+      "expectedTopics": [
+        "rapid follow up",
+        "Data Science"
+      ],
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "phase": "panelQuestions",
+      "rapidFollowUp": true,
+      "shouldTriggerAnswer": true,
+      "speakerRole": "interviewer",
+      "text": "Before you finish, which monitoring signal would make you pause automated model use first?",
+      "turn": 19
+    },
+    {
+      "expectedSuppressionReason": "panel invitation",
+      "phase": "candidateQuestionsToPanel",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you. What questions would you like to ask the panel?",
+      "turn": 20
+    },
+    {
+      "expectedSuppressionReason": "candidate question to panel",
+      "phase": "candidateQuestionsToPanel",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "candidate",
+      "text": "How are modelling quality and operational impact balanced when the team prioritises work?",
+      "turn": 21
+    },
+    {
+      "expectedSuppressionReason": "closing",
+      "phase": "closing",
+      "shouldTriggerAnswer": false,
+      "speakerRole": "interviewer",
+      "text": "Thank you for your time. We have completed the interview and will explain the next steps separately.",
+      "turn": 22
+    }
+  ]
+}

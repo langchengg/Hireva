@@ -1,0 +1,170 @@
+{
+  "packID": "data_scientist_001",
+  "rubrics": [
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_01",
+        "data_ce_07"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 3
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_02",
+        "data_ce_03"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [],
+      "turn": 5
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_02",
+        "data_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_01",
+        "data_oe_03"
+      ],
+      "turn": 7
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_02",
+        "data_ce_05"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_02",
+        "data_oe_05"
+      ],
+      "turn": 9
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_03"
+      ],
+      "turn": 11
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_03",
+        "data_ce_06"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_04"
+      ],
+      "turn": 13
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_09"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_03"
+      ],
+      "turn": 15
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_06"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_06"
+      ],
+      "turn": 17
+    },
+    {
+      "candidateEvidenceIDs": [
+        "data_ce_04"
+      ],
+      "directness": true,
+      "forbiddenClaims": [
+        "Kafka ownership",
+        "Kubernetes ownership",
+        "robotics",
+        "ROS2",
+        "tactile sensing"
+      ],
+      "mustRemainSpeakable": true,
+      "opportunityEvidenceIDs": [
+        "data_oe_03"
+      ],
+      "turn": 19
+    }
+  ]
+}
