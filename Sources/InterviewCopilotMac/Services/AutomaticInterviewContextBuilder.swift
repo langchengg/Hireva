@@ -438,9 +438,19 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
                 reason = "Role requirements and the opportunity input slot indicate a job description."
             }
         case .additionalNotes:
-            type = proposalSignals > 2 ? .researchProposal : .interviewNotes
-            confidence = proposalSignals > 2 ? 0.7 : 0.9
-            reason = proposalSignals > 2 ? "Research structure indicates a proposal." : "The document was added as interview notes."
+            if proposalSignals > max(2, phdSignals + opportunitySignals) {
+                type = .researchProposal
+                confidence = 0.7
+                reason = "Research structure indicates a proposal."
+            } else if opportunitySignals > candidateSignals + 1 {
+                type = phdSignals > 1 ? .phdProjectDescription : .jobDescription
+                confidence = min(0.9, 0.62 + Double(opportunitySignals) * 0.05)
+                reason = "Role requirements outweigh candidate-oriented signals in the additional document."
+            } else {
+                type = .interviewNotes
+                confidence = 0.9
+                reason = "The document was added as interview notes."
+            }
         }
         return InterviewDocumentClassification(
             documentID: document.id,

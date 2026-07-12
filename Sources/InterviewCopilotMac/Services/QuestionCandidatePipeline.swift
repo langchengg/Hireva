@@ -181,6 +181,7 @@ enum MultiQuestionSplitter {
         ]
         let imperativeQuestionStarts = [
             "\\btell\\s+me\\s+about\\b",
+            "\\btell\\s+us\\s+about\\b",
             "\\bwalk\\s+me\\s+through\\b",
             "\\bdescribe\\b",
             "\\bexplain\\b",
@@ -214,9 +215,12 @@ enum MultiQuestionSplitter {
             "\\bhow\\s+would\\b",
             "\\bhow\\s+should\\b",
             "\\bhow\\s+comfortable\\b",
+            "\\bwhy\\s+are\\s+you\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
-            "\\bwhy\\s+might\\b"
+            "\\bwhy\\s+might\\b",
+            "^which\\s+(?:parts?|aspects?|areas?)\\b",
+            "^what\\s+(?:part|aspect|area)\\b"
         ]
         let contextualQuestionStarts = [
             "\\bprior\\s+to\\s+your\\s+msc\\b"

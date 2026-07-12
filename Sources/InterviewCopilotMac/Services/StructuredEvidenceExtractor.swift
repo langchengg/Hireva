@@ -17,8 +17,13 @@ struct StructuredEvidenceExtractor {
         var opportunity: [ProfileEvidence] = []
 
         for (index, line) in lines.enumerated() {
-            if isSectionHeading(line) {
-                currentSection = line.lowercased()
+            if let section = sectionHeading(line) {
+                currentSection = section
+                continue
+            }
+            if line.hasPrefix("#") {
+                // Preserve the enclosing known section across Markdown
+                // subheadings such as a role or project name.
                 continue
             }
             let type = evidenceType(line: line, section: currentSection, classification: classification)
@@ -58,7 +63,7 @@ struct StructuredEvidenceExtractor {
         }) {
             return exactContainer.id
         }
-        return chunks[min(lineIndex, chunks.count - 1)].id
+        return nil
     }
 
     func cacheKey(
@@ -89,7 +94,7 @@ struct StructuredEvidenceExtractor {
             if section.contains("research") || lower.contains("research topic") {
                 return .researchTopic
             }
-            if section.contains("evaluation") || lower.contains("evaluation criteria") || lower.contains("we assess") {
+            if section.contains("evaluation") || section.contains("success") || lower.contains("evaluation criteria") || lower.contains("we assess") {
                 return .evaluationCriterion
             }
             if section.contains("responsibil") || lower.contains("responsibilit") || lower.contains("you will") {
@@ -126,14 +131,19 @@ struct StructuredEvidenceExtractor {
         return .other
     }
 
-    private func isSectionHeading(_ line: String) -> Bool {
-        let normalized = line.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+    private func sectionHeading(_ line: String) -> String? {
+        let normalized = line
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#* "))
+            .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
         let known = [
             "education", "experience", "employment", "projects", "project", "skills", "publications",
             "achievements", "goals", "development area", "skill gaps", "required skills", "preferred skills",
-            "responsibilities", "research topics", "evaluation criteria"
+            "responsibilities", "research topics", "evaluation criteria", "technical and professional skills",
+            "declared gaps", "success criteria"
         ]
-        return known.contains(normalized)
+        return known.contains(normalized) ? normalized : nil
     }
 
     private func shortHash(_ text: String) -> String {

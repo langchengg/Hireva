@@ -469,6 +469,7 @@ enum InterviewDialogueTriggerPolicy {
             "is there anything you would like to ask",
             "would you like to ask the panel anything",
             "anything you would like to ask the panel",
+            "what questions would you like to ask the panel",
             "that completes our formal questions",
             "that completes our questions"
         ]
