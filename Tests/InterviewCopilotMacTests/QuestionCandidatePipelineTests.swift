@@ -180,6 +180,28 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func asrPunctuatedCoordinatedQuestionRemainsOneCompoundQuestion() {
+        let questions = QuestionCandidatePipeline.extract(
+            from: "How did customer evidence change the roadmap? And how did you validate the resulting priority?",
+            isFinal: true
+        )
+
+        #expect(questions.map(\.text) == [
+            "How did customer evidence change the roadmap, and how did you validate the resulting priority?"
+        ])
+    }
+
+    @Test
+    func independentlyPunctuatedQuestionsRemainSeparate() {
+        let questions = QuestionCandidatePipeline.extract(
+            from: "What did you build? How did you validate it?",
+            isFinal: true
+        )
+
+        #expect(questions.map(\.text) == ["What did you build?", "How did you validate it?"])
+    }
+
+    @Test
     func punctuatedPrefacedQuestionStillAllowsIndependentFollowUp() {
         let first = "Before you finish, which reliability signal would you inspect first?"
         let second = "Would you alert the team immediately?"

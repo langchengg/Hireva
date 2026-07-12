@@ -27,7 +27,9 @@ enum QuestionCandidatePipeline {
     }
 
     static func extract(from segment: RawTranscriptSegment) -> [AcceptedQuestionCandidate] {
-        let collapsed = QuestionTextUtilities.collapse(segment.text)
+        let collapsed = normalizeCoordinatedQuestionPunctuation(
+            QuestionTextUtilities.collapse(segment.text)
+        )
         guard collapsed.split(whereSeparator: \.isWhitespace).count >= 4 else {
             return []
         }
@@ -110,6 +112,14 @@ enum QuestionCandidatePipeline {
         }
 
         return questions
+    }
+
+    private static func normalizeCoordinatedQuestionPunctuation(_ text: String) -> String {
+        QuestionTextUtilities.regexReplace(
+            #"\?\s+and\s+(how|what|why|which)\b"#,
+            in: text,
+            with: ", and $1"
+        )
     }
 
     private static func shouldKeepCompoundQuestionTail(after questionMark: String.Index, in text: String) -> Bool {
