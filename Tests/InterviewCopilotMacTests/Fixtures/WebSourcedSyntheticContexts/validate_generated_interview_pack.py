@@ -43,6 +43,7 @@ def validate_pack(directory):
     resume = (directory / "resume.md").read_text(encoding="utf-8")
     jd = (directory / "job_description.md").read_text(encoding="utf-8")
     notes = (directory / "optional_notes.md").read_text(encoding="utf-8")
+    readable_dialogue = (directory / "interview_dialogue_readable.md").read_text(encoding="utf-8")
     manifest = load_json(directory / "source_manifest.json")
     candidate_doc = load_json(directory / "expected_candidate_evidence.json")
     opportunity_doc = load_json(directory / "expected_opportunity_evidence.json")
@@ -67,6 +68,10 @@ def validate_pack(directory):
             errors.append("fixture must not include verbatim source content")
         if not source.get("url") or not source.get("retrievedAt"):
             errors.append("source URL or retrieval date missing")
+        if source.get("attributionRequired") and not source.get("attribution"):
+            errors.append(f"required source attribution missing: {source.get('name')}")
+        if source.get("license") == "CC BY 4.0" and not source.get("licenseURL"):
+            errors.append(f"CC BY source license URL missing: {source.get('name')}")
 
     combined_private_check = "\n".join([resume, jd, notes])
     if EMAIL_RE.search(combined_private_check):
@@ -93,15 +98,40 @@ def validate_pack(directory):
         errors.append("evidence IDs are missing or duplicated")
     for item in candidate:
         span = item.get("sourceSpan", "")
+        source_file = item.get("sourceFile")
+        source_text = {"resume.md": resume, "optional_notes.md": notes}.get(source_file)
+        if source_text is None:
+            errors.append(f"candidate evidence has invalid sourceFile: {item.get('id')}")
+        elif source_text.count(span) != 1:
+            errors.append(f"candidate source span must occur exactly once: {item.get('id')}")
         if span not in resume and span not in notes:
             errors.append(f"candidate evidence is not grounded in candidate documents: {item.get('id')}")
         if span in jd and span not in resume and span not in notes:
             errors.append(f"JD requirement entered candidate evidence: {item.get('id')}")
+        if any(normalized(keyword) not in normalized(span) for keyword in item.get("requiredKeywords", [])):
+            errors.append(f"candidate evidence requiredKeywords do not resolve: {item.get('id')}")
     for item in opportunity:
-        if item.get("sourceSpan", "") not in jd:
+        span = item.get("sourceSpan", "")
+        if item.get("sourceFile") != "job_description.md":
+            errors.append(f"opportunity evidence has invalid sourceFile: {item.get('id')}")
+        if jd.count(span) != 1:
+            errors.append(f"opportunity source span must occur exactly once: {item.get('id')}")
+        if span not in jd:
             errors.append(f"opportunity evidence is not grounded in JD: {item.get('id')}")
+        if any(normalized(keyword) not in normalized(span) for keyword in item.get("requiredKeywords", [])):
+            errors.append(f"opportunity evidence requiredKeywords do not resolve: {item.get('id')}")
     if not any(item.get("evidenceType") == "declared_gap" for item in candidate):
         errors.append("candidate development area is missing")
+    if len(candidate) < expectations.get("minimumCandidateEvidence", 0):
+        errors.append("candidate evidence count is below declared minimum")
+    if len(opportunity) < expectations.get("minimumOpportunityEvidence", 0):
+        errors.append("opportunity evidence count is below declared minimum")
+    declared_gap_ids = {item.get("id") for item in candidate if item.get("evidenceType") == "declared_gap"}
+    if declared_gap_ids != set(expectations.get("requiredDeclaredGapIDs", [])):
+        errors.append("declared gap IDs do not match validation expectations")
+    for target in ("unsupportedFactTarget", "requirementsAsExperienceTarget", "crossProfileFactTarget"):
+        if expectations.get(target) != 0:
+            errors.append(f"{target} must be zero")
 
     forbidden = expectations.get("forbiddenCandidateClaims", [])
     sanitized_resume = resume.replace(INJECTION, "")
@@ -142,6 +172,9 @@ def validate_pack(directory):
         errors.append("closing turn missing")
     if any(not turn.get("expectedSuppressionReason") for turn in non_triggers):
         errors.append("non-triggering turn lacks suppression reason")
+    for turn in turns:
+        if readable_dialogue.count(turn.get("text", "")) != 1:
+            errors.append(f"readable dialogue text mismatch at turn {turn.get('turn')}")
     known_ids = set(ids)
     for turn in triggers:
         required = {

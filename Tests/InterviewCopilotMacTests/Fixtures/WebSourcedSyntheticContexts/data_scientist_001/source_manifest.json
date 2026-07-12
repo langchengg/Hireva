@@ -9,7 +9,7 @@
   "randomSeed": 20260712,
   "sources": [
     {
-      "attributionRequired": true,
+      "attributionRequired": false,
       "license": "MIT",
       "name": "RenderCV",
       "retrievedAt": "2026-07-12T00:00:00Z",
@@ -18,12 +18,13 @@
       "verbatimContentIncluded": false
     },
     {
-      "attribution": "Information derived from O*NET OnLine by USDOL/ETA, used under CC BY 4.0 and modified. USDOL/ETA has not approved, endorsed, or tested these modifications. O*NET is a trademark of USDOL/ETA.",
+      "attribution": "Information derived from O*NET\u00ae OnLine by USDOL/ETA, used under CC BY 4.0 and modified. USDOL/ETA has not approved, endorsed, or tested these modifications. O*NET\u00ae is a trademark of USDOL/ETA.",
       "attributionRequired": true,
       "license": "CC BY 4.0",
-      "name": "O*NET OnLine occupational data",
+      "licenseURL": "https://www.onetonline.org/help/license",
+      "name": "O*NET\u00ae OnLine occupational data",
       "retrievedAt": "2026-07-12T00:00:00Z",
-      "url": "https://www.onetonline.org/help/license",
+      "url": "https://www.onetonline.org/link/details/15-2051.00",
       "usedFor": "modified synthetic occupation task and skill themes",
       "verbatimContentIncluded": false
     }
