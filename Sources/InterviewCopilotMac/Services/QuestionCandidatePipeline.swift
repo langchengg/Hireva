@@ -230,6 +230,7 @@ enum MultiQuestionSplitter {
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
             "\\bwhy\\s+might\\b",
+            "^where\\s+(?:did|does|do|was|were|would|could|should|is|are|can)\\b",
             "^which\\s+(?:parts?|aspects?|areas?)\\b",
             "^what\\s+(?:part|aspect|area)\\b"
         ]

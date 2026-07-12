@@ -202,6 +202,28 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func whereAuxiliaryQuestionIsAccepted() {
+        let questions = QuestionCandidatePipeline.extract(
+            from: "Where would you need support in this role, especially around technical delivery?",
+            isFinal: true
+        )
+
+        #expect(questions.map(\.text) == [
+            "Where would you need support in this role, especially around technical delivery?"
+        ])
+    }
+
+    @Test
+    func embeddedWhereClauseIsNotAccepted() {
+        let questions = QuestionCandidatePipeline.extract(
+            from: "The plan explains where you would need support during technical delivery.",
+            isFinal: true
+        )
+
+        #expect(questions.isEmpty)
+    }
+
+    @Test
     func punctuatedPrefacedQuestionStillAllowsIndependentFollowUp() {
         let first = "Before you finish, which reliability signal would you inspect first?"
         let second = "Would you alert the team immediately?"
