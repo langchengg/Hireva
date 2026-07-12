@@ -436,6 +436,36 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func noisyAlertRiskQuestionRoutesToErrorHandlingAndAcceptsValidatedMitigation() {
+        let question = "Describe a noisy alert problem and how you reduced noise without hiding risk."
+        let answer = "I inspected the alert history, measured duplicate phishing alerts, tuned the matching threshold, and validated that critical alerts remained visible while duplicate noise decreased."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(alignment.questionIntent == .errorHandling)
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+    }
+
+    @Test
+    func noisyAlertRiskQuestionAcceptsTuningWithPreservedAuditEvidence() {
+        let question = "Describe a noisy alert problem and how you reduced noise without hiding risk."
+        let answer = "I reduced phishing-alert review time by 22 percent by tuning duplicate indicators and preserving audit history. I used documented severity criteria so critical risks remained visible."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(alignment.questionIntent == .errorHandling)
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+    }
+
+    @Test
     func localizationManipulationHandoffRequiresSnapshotBoundFallback() {
         let question = "How did localization influence manipulation, and why was that handoff difficult to make reliable?"
         #expect(IntentRouter.answerIntent(for: question) == .systemIntegrationDebugging)

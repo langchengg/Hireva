@@ -141,7 +141,7 @@ enum IntentRouter {
     static func isEvaluationReliabilityQuestion(_ text: String) -> Bool {
         let normalized = normalize(text)
         return containsAny(normalized, [" metric ", "reliability", "validation", "failure case", "test methodology", "stale", "risk"]) &&
-            containsAny(normalized, ["how", "what", "which", "measure", "validate", "test", "prevent"])
+            containsAny(normalized, ["measure", "validate", "test", "prevent"])
     }
 
     static func isVisualDetectionToPhysicalActionQuestion(_ text: String) -> Bool {

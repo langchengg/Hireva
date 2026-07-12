@@ -220,8 +220,13 @@ enum QuestionAnswerAlignmentEvaluator {
                 "migrated", "automated", "instrumented", "deployed", "led", "delivered"
             ])
         case .errorHandling, .perceptionDebugging:
-            require("diagnosis", ["reproduce", "inspect", "logs", "trace", "isolate", "monitor", "measure", "debug"])
-            require("mitigation or validation", ["validate", "test", "retry", "recover", "check", "guard", "fix"])
+            if intent == .errorHandling && containsAny(question, ["noisy", "noise"]) {
+                require("noise diagnosis", ["duplicate", "baseline", "criteria", "severity", "measure", "inspect", "monitor", "trace", "log"])
+                require("risk-preserving mitigation", ["tune", "tuned", "tuning", "reduce", "reduced", "preserv", "validate", "critical", "remain visible", "audit", "guard"])
+            } else {
+                require("diagnosis", ["reproduce", "inspect", "logs", "trace", "isolate", "monitor", "measure", "debug"])
+                require("mitigation or validation", ["validate", "test", "retry", "recover", "check", "guard", "fix"])
+            }
         case .modelComparison, .decoderComparison, .diffusionPolicy:
             require("comparison", ["compare", "compared", "versus", "than", "while", "whereas", "trade-off", "tradeoff"])
             let comparedTerms = dynamicTopicTokens(question).intersection(meaningfulTokens(answer))
