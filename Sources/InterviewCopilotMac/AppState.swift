@@ -984,13 +984,14 @@ final class AppState: ObservableObject {
     // MARK: - Background Persistence (moved to AppState+Transcript.swift)
 
     var onboardingComplete: Bool {
-        hasCV && hasJD
+        hasUsableCandidateContext
     }
 
     var liveBlockedReason: String? {
         if !hasCV && !hasJD { return "Add your CV and job description before starting an interview." }
         if !hasCV { return "Add your CV before starting an interview." }
-        if !hasJD { return "Add the job description before starting an interview." }
+        if automaticContextReadiness == .extracting { return "Candidate context is still being prepared." }
+        if !hasUsableCandidateContext { return "Review or rebuild the CV context before starting an interview." }
         return nil
     }
 

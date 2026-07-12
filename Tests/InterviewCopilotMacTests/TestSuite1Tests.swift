@@ -23,9 +23,10 @@ struct TestSuite1Tests {
         
         appState.saveDocument(type: DocumentType.cv, title: "CV / Resume", content: cvText)
         appState.saveDocument(type: DocumentType.jobDescription, title: "Job Description", content: jdText)
-        
+
         appState.refreshAll()
-        
+        await appState.rebuildAutomaticInterviewContext(useLocalQwen: false)
+
         #expect(appState.hasCV, "CV should be successfully saved.")
         #expect(appState.hasJD, "JD should be successfully saved.")
         #expect(appState.onboardingComplete, "Onboarding should be complete after saving both documents.")

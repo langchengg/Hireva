@@ -130,12 +130,19 @@ extension AppState {
     }
 
     var coreInterviewReadinessPassed: Bool {
-        hasCV
-            && hasJD
+        hasUsableCandidateContext
             && selectedAnswerProviderConfigured
             && hasCleanRelevantContext
             && latexPollutedChunkCount == 0
             && requiredPermissionsReady
+    }
+
+    var hasUsableCandidateContext: Bool {
+        guard automaticContextReadiness == .ready || automaticContextReadiness == .needsReview else { return false }
+        return hasCV
+            && diagnostics.storedCVChunkCount > 0
+            && activeCandidateProfile != nil
+            && contextReadiness.candidateFactCount > 0
     }
 
     var selectedAnswerProviderConfigured: Bool {
@@ -212,11 +219,12 @@ extension AppState {
     }
 
     var hasCleanRelevantContext: Bool {
-        diagnostics.storedCVChunkCount > 0 && diagnostics.storedJDChunkCount > 0
+        guard hasUsableCandidateContext else { return false }
+        return !hasJD || diagnostics.storedJDChunkCount > 0
     }
 
     var relevantContextStatus: String {
-        if !hasCV || !hasJD || !hasCleanRelevantContext {
+        if !hasCleanRelevantContext {
             return "Needs Documents"
         }
         if latexPollutedChunkCount > 0 {
@@ -269,7 +277,17 @@ extension AppState {
     }
 
     var readinessCheckItems: [ReadinessCheckItem] {
-        [
+        let documentsStatus: ReadinessCheckStatus = hasCV ? (hasJD ? .passed : .warning) : .failed
+        let documentsDetail: String
+        if hasCV && hasJD {
+            documentsDetail = "CV and job description are saved."
+        } else if hasCV {
+            documentsDetail = "CV is saved. No target opportunity is set, so answers will not be role-specific."
+        } else {
+            documentsDetail = "Add your CV to enable candidate-grounded interview answers."
+        }
+
+        return [
             ReadinessCheckItem(
                 id: "answer-provider",
                 title: "Answer provider selected",
@@ -281,8 +299,8 @@ extension AppState {
             ReadinessCheckItem(
                 id: "documents",
                 title: "Documents loaded",
-                detail: hasCV && hasJD ? "CV and job description are saved." : "Add your CV and job description to personalize answers.",
-                status: hasCV && hasJD ? .passed : .failed,
+                detail: documentsDetail,
+                status: documentsStatus,
                 actionTitle: "Open Documents",
                 action: .openDocuments
             ),

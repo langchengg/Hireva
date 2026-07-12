@@ -30,6 +30,64 @@ struct ProductPolishStateTests {
     }
 
     @Test
+    func cvOnlyContextCanStartWithOptionalOpportunityWarning() throws {
+        let appState = try makeAppState()
+        appState.answerProviderModeOverride = .localQwenPrimary
+        appState.hasCV = true
+        appState.hasJD = false
+        appState.diagnostics.storedCVChunkCount = 3
+        appState.diagnostics.storedJDChunkCount = 0
+        appState.latexPollutedChunkCount = 0
+        installCandidateProfile(appState)
+        appState.automaticContextReadiness = .ready
+        grantPermissions(appState)
+
+        #expect(appState.onboardingComplete)
+        #expect(appState.liveBlockedReason == nil)
+        #expect(appState.coreInterviewReadinessPassed)
+        #expect(appState.primaryHomeActionTitle == "Start Interview")
+        #expect(appState.relevantContextStatus == "Clean Keyword RAG")
+        #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .warning)
+        #expect(appState.readinessCheckItems.first { $0.id == "chunks" }?.status == .passed)
+    }
+
+    @Test
+    func cvOnlyContextCannotStartWhileCandidateExtractionIsInFlight() throws {
+        let appState = try makeAppState()
+        appState.answerProviderModeOverride = .localQwenPrimary
+        appState.hasCV = true
+        appState.hasJD = false
+        appState.diagnostics.storedCVChunkCount = 3
+        appState.latexPollutedChunkCount = 0
+        installCandidateProfile(appState)
+        appState.automaticContextReadiness = .extracting
+        grantPermissions(appState)
+
+        #expect(!appState.onboardingComplete)
+        #expect(appState.liveBlockedReason == "Candidate context is still being prepared.")
+        #expect(!appState.coreInterviewReadinessPassed)
+        #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
+    }
+
+    @Test
+    func jdOnlyContextRemainsBlockedWithoutCandidateEvidence() throws {
+        let appState = try makeAppState()
+        appState.answerProviderModeOverride = .localQwenPrimary
+        appState.hasCV = false
+        appState.hasJD = true
+        appState.diagnostics.storedCVChunkCount = 0
+        appState.diagnostics.storedJDChunkCount = 3
+        appState.latexPollutedChunkCount = 0
+        grantPermissions(appState)
+
+        #expect(!appState.onboardingComplete)
+        #expect(appState.liveBlockedReason == "Add your CV before starting an interview.")
+        #expect(!appState.coreInterviewReadinessPassed)
+        #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
+        #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
+    }
+
+    @Test
     func homeLiveAnswerPrefersVisibleSuggestionOverStreamingSpinner() throws {
         let appState = try makeAppState()
         makeReady(appState)
@@ -179,7 +237,40 @@ struct ProductPolishStateTests {
         appState.diagnostics.storedCVChunkCount = 3
         appState.diagnostics.storedJDChunkCount = 2
         appState.latexPollutedChunkCount = 0
+        installCandidateProfile(appState)
+        appState.automaticContextReadiness = .ready
         grantPermissions(appState)
+    }
+
+    private func installCandidateProfile(_ appState: AppState) {
+        let evidence = ProfileEvidence(
+            id: "product-polish-candidate-evidence",
+            statement: "Built and operated a documented synthetic service.",
+            sourceDocumentID: "product-polish-cv",
+            sourceChunkID: "product-polish-cv-chunk",
+            sourceSpan: "Built and operated a documented synthetic service.",
+            confidence: 1,
+            evidenceType: .experience,
+            explicitness: .explicit
+        )
+        let profile = CandidateProfile(
+            id: "product-polish-candidate",
+            displayName: "Product Polish Candidate",
+            sourceDocumentIDs: ["product-polish-cv"],
+            education: [],
+            experience: [evidence],
+            projects: [],
+            skills: [],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        appState.candidateProfiles = [profile]
+        appState.activeCandidateProfileID = profile.id
     }
 
     private func grantPermissions(_ appState: AppState) {
