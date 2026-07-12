@@ -127,6 +127,11 @@ struct RuntimeVerificationScriptTests {
             "xattr -cr \"$APP_BUNDLE\"",
             "security find-identity -v -p codesigning",
             "INTERVIEW_COPILOT_SIGNING_IDENTITY",
+            "INTERVIEW_COPILOT_FIXED_USER_HOME",
+            "--env",
+            "CFFIXED_USER_HOME=",
+            "--relaunch",
+            "Relaunching the existing signed bundle without rebuilding",
             "Using ad-hoc signing. AMFI may reject this on some systems.",
             "codesign --verify --deep --strict --verbose=4",
             "spctl --assess --type execute --verbose=4",
@@ -137,6 +142,17 @@ struct RuntimeVerificationScriptTests {
         for snippet in requiredSnippets {
             #expect(contents.contains(snippet), "Missing required signing snippet: \(snippet)")
         }
+
+        let modeValidation = try #require(contents.range(of: "# Reject unsupported modes before any process is stopped or bundle is rebuilt."))
+        let relaunch = try #require(contents.range(of: "if [[ \"$MODE\" == \"--relaunch\""))
+        let build = try #require(contents.range(of: "# --- Build ---"))
+        let bundleRemoval = try #require(contents.range(of: "rm -rf \"$APP_BUNDLE\""))
+        let forceSigning = try #require(contents.range(of: "codesign --force --deep"))
+
+        #expect(modeValidation.lowerBound < relaunch.lowerBound)
+        #expect(relaunch.lowerBound < build.lowerBound)
+        #expect(relaunch.lowerBound < bundleRemoval.lowerBound)
+        #expect(relaunch.lowerBound < forceSigning.lowerBound)
     }
 
     @Test

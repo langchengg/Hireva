@@ -4,19 +4,21 @@ set -euo pipefail
 # =============================================================================
 # Interview Copilot Mac — Build, Sign & Launch
 #
-# Key requirement: STABLE APP IDENTITY across rebuilds.
+# Key requirement: keep the bundle identifier and path stable.
 #
-# macOS TCC (Transparency, Consent and Control) tracks permissions by:
-#   bundle identifier + code signing identity + bundle path
+# macOS TCC (Transparency, Consent and Control) also evaluates the code signing
+# requirement. A configured Apple Development identity can keep that requirement
+# stable across rebuilds; ad-hoc signing cannot.
 #
-# If any of these change, macOS treats it as a different app and re-prompts.
-# This script ensures all three remain constant across normal rebuilds.
+# After granting permission to an ad-hoc build, use --relaunch to restart the
+# existing signed bundle without replacing or re-signing it.
 # =============================================================================
 
 MODE="${1:-run}"
 REQUESTED_SIGNING_IDENTITY="${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}"
 REQUESTED_SWIFTPM_BUILD_PATH="${INTERVIEW_COPILOT_SWIFTPM_BUILD_PATH:-}"
 REQUESTED_PREBUILT_BINARY="${INTERVIEW_COPILOT_PREBUILT_BINARY:-}"
+REQUESTED_FIXED_USER_HOME="${INTERVIEW_COPILOT_FIXED_USER_HOME:-}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="InterviewCopilotMac"                    # .app bundle name
@@ -45,6 +47,82 @@ GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
 EXPECTED_BUNDLE_PATH="$APP_BUNDLE"
 OLD_BUNDLE_DELETED_BEFORE_REBUILD="no"
 
+launch_existing_bundle() {
+    local open_args=(-n)
+
+    if [[ ! -d "$APP_BUNDLE" || ! -x "$APP_BINARY" ]]; then
+        echo "[Launch] ERROR: runnable app bundle not found at $APP_BUNDLE" >&2
+        echo "[Launch] Run $0 --verify once before using --relaunch." >&2
+        return 1
+    fi
+
+    if ! codesign --verify --deep --strict --verbose=4 "$APP_BUNDLE"; then
+        echo "[Launch] ERROR: existing app bundle failed code-signature verification." >&2
+        return 1
+    fi
+
+    if [[ -n "$REQUESTED_FIXED_USER_HOME" ]]; then
+        mkdir -p "$REQUESTED_FIXED_USER_HOME"
+        open_args+=(--env "CFFIXED_USER_HOME=$REQUESTED_FIXED_USER_HOME")
+        echo "[Launch]   Fixed user home: $REQUESTED_FIXED_USER_HOME"
+    fi
+
+    /usr/bin/open "${open_args[@]}" "$APP_BUNDLE"
+}
+
+verify_launched_process() {
+    local app_pid=""
+
+    for i in {1..20}; do
+        app_pid="$(pgrep -f "$APP_BINARY" | head -1 || true)"
+        if [[ -n "$app_pid" ]]; then
+            break
+        fi
+        sleep 0.5
+    done
+    if [[ -n "$app_pid" ]]; then
+        sleep 2
+    fi
+    if [[ -n "$app_pid" ]] && kill -0 "$app_pid" >/dev/null 2>&1; then
+        echo "$app_pid"
+        return 0
+    fi
+    return 1
+}
+
+print_usage() {
+    cat <<EOF
+usage: $0 [run|--relaunch|--debug|--logs|--telemetry|--verify|--identity-check|--reset-tcc]
+
+  run               Build, sign, and launch (default)
+  --relaunch        Relaunch the existing signed bundle without rebuilding or re-signing
+  --debug           Build and launch under lldb
+  --logs            Build, launch, and stream process logs
+  --telemetry       Build, launch, and stream subsystem logs
+  --verify          Build, launch, and verify the app is running
+  --identity-check  Verify CFBundleIdentifier, codesign authority, designated requirement, and cdhash
+  --reset-tcc       Reset all TCC permissions for the app's bundle ID
+
+Environment:
+  INTERVIEW_COPILOT_FIXED_USER_HOME=/path
+                     Pass CFFIXED_USER_HOME only to the launched app process
+EOF
+}
+
+# Reject unsupported modes before any process is stopped or bundle is rebuilt.
+case "$MODE" in
+    run|--relaunch|relaunch|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--identity-check|identity-check|--reset-tcc|reset-tcc)
+        ;;
+    --help|help|-h)
+        print_usage
+        exit 0
+        ;;
+    *)
+        print_usage >&2
+        exit 2
+        ;;
+esac
+
 # --- Handle --reset-tcc mode early ---
 if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
     echo "Resetting TCC permissions for $BUNDLE_ID ..."
@@ -61,6 +139,46 @@ if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
 fi
 
 cd "$ROOT_DIR"
+
+# Permission prompts may relaunch the current app process. This mode intentionally
+# runs before every build, bundle replacement, and signing operation so the
+# process always points to the exact bundle whose permissions were granted.
+if [[ "$MODE" == "--relaunch" || "$MODE" == "relaunch" ]]; then
+    echo "[relaunch] Relaunching the existing signed bundle without rebuilding or re-signing..."
+    osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 &
+    RELAUNCH_QUIT_PID=$!
+    for i in {1..8}; do
+        if ! kill -0 "$RELAUNCH_QUIT_PID" >/dev/null 2>&1; then
+            wait "$RELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
+            break
+        fi
+        sleep 0.25
+    done
+    if kill -0 "$RELAUNCH_QUIT_PID" >/dev/null 2>&1; then
+        echo "[relaunch] WARNING: AppleScript quit request timed out."
+        kill "$RELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
+        wait "$RELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
+    fi
+    for i in {1..12}; do
+        if ! pgrep -f "$APP_BINARY" >/dev/null; then
+            break
+        fi
+        sleep 0.25
+    done
+    if pgrep -f "$APP_BINARY" >/dev/null; then
+        echo "[relaunch] WARNING: graceful quit timed out; stopping the existing bundle process."
+        pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
+        sleep 0.5
+    fi
+
+    launch_existing_bundle
+    if APP_PID="$(verify_launched_process)"; then
+        echo "[relaunch] $EXECUTABLE_NAME is running from the unchanged bundle (pid $APP_PID)."
+        exit 0
+    fi
+    echo "[relaunch] ERROR: $EXECUTABLE_NAME did not remain running from $APP_BINARY." >&2
+    exit 1
+fi
 
 # --- Quit existing app instance (both old and new executable names) ---
 # Required first step for every build: stop the user-facing process name.
@@ -317,7 +435,7 @@ open_app() {
     echo "[Launch]   Binary Path: $APP_BINARY"
     echo "[Launch]   Signature Info:"
     codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature" | sed 's/^/  /' || true
-    /usr/bin/open -n "$APP_BUNDLE"
+    launch_existing_bundle
 }
 
 case "$MODE" in
@@ -347,18 +465,7 @@ case "$MODE" in
             print_signing_diagnostics
             exit "$launch_status"
         fi
-        APP_PID=""
-        for i in {1..20}; do
-            APP_PID="$(pgrep -f "$APP_BINARY" | head -1 || true)"
-            if [[ -n "$APP_PID" ]]; then
-                break
-            fi
-            sleep 0.5
-        done
-        if [[ -n "$APP_PID" ]]; then
-            sleep 2
-        fi
-        if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" >/dev/null 2>&1; then
+        if APP_PID="$(verify_launched_process)"; then
             echo "[verify] ✅ $EXECUTABLE_NAME is running from the expected path (pid $APP_PID)."
             echo "[verify] Bundle: $APP_BUNDLE"
             echo "[verify] Bundle ID: $BUNDLE_ID"
@@ -399,17 +506,7 @@ case "$MODE" in
         # handled above
         ;;
     *)
-        cat <<EOF >&2
-usage: $0 [run|--debug|--logs|--telemetry|--verify|--identity-check|--reset-tcc]
-
-  run               Build, sign, and launch (default)
-  --debug           Build and launch under lldb
-  --logs            Build, launch, and stream process logs
-  --telemetry       Build, launch, and stream subsystem logs
-  --verify          Build, launch, and verify the app is running
-  --identity-check  Verify CFBundleIdentifier, codesign authority, designated requirement, and cdhash
-  --reset-tcc       Reset all TCC permissions for the app's bundle ID
-EOF
+        print_usage >&2
         exit 2
         ;;
 esac
