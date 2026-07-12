@@ -951,6 +951,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
         appState.hasCV = true
         appState.hasJD = true
+        appState.diagnostics.storedCVChunkCount = 1
+        appState.automaticContextReadiness = .ready
 
         let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
         let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
@@ -1044,6 +1046,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
         appState.hasCV = true
         appState.hasJD = true
+        appState.diagnostics.storedCVChunkCount = 1
+        appState.automaticContextReadiness = .ready
 
         let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
         let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
