@@ -30,6 +30,7 @@ DISPLAY_NAME="Interview Copilot"
 VERSION="0.1.0"
 BUILD_NUMBER="1"
 MIN_SYSTEM_VERSION="14.0"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -45,7 +46,7 @@ BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
 EXPECTED_BUNDLE_PATH="$APP_BUNDLE"
-OLD_BUNDLE_DELETED_BEFORE_REBUILD="no"
+BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD="no"
 
 launch_existing_bundle() {
     local open_args=(-n)
@@ -59,6 +60,12 @@ launch_existing_bundle() {
     if ! codesign --verify --deep --strict --verbose=4 "$APP_BUNDLE"; then
         echo "[Launch] ERROR: existing app bundle failed code-signature verification." >&2
         return 1
+    fi
+
+    if [[ -x "$LSREGISTER" ]]; then
+        "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || {
+            echo "[Launch] WARNING: could not refresh the current LaunchServices registration." >&2
+        }
     fi
 
     if [[ -n "$REQUESTED_FIXED_USER_HOME" ]]; then
@@ -247,15 +254,18 @@ if [[ ! -f "$BUILD_BINARY" ]]; then
 fi
 
 # --- Assemble .app bundle ---
-# Always remove the old bundle before assembly so Finder never launches stale code.
-echo "[bundle] Removing stale bundle at $APP_BUNDLE ..."
-rm -rf "$APP_BUNDLE"
+# Preserve the outer .app directory. Cloud file providers can move a deleted
+# bundle into their own Trash, where LaunchServices may register it as a second
+# app with the same bundle identifier. Replacing only Contents keeps one path.
+echo "[bundle] Clearing stale bundle contents at $APP_CONTENTS ..."
+mkdir -p "$APP_BUNDLE"
+rm -rf "$APP_CONTENTS"
 find "$DIST_DIR" -name '._*' -delete 2>/dev/null || true
 find "$DIST_DIR" -name '.DS_Store' -delete 2>/dev/null || true
-if [[ ! -e "$APP_BUNDLE" ]]; then
-    OLD_BUNDLE_DELETED_BEFORE_REBUILD="yes"
+if [[ ! -e "$APP_CONTENTS" ]]; then
+    BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD="yes"
 else
-    echo "[bundle] ERROR: stale app bundle still exists after removal: $APP_BUNDLE" >&2
+    echo "[bundle] ERROR: stale bundle contents still exist after removal: $APP_CONTENTS" >&2
     exit 1
 fi
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -351,7 +361,7 @@ print_signing_diagnostics() {
     else
         echo "AppleDouble files exist: no"
     fi
-    echo "Old app deleted before rebuild: $OLD_BUNDLE_DELETED_BEFORE_REBUILD"
+    echo "Bundle contents cleared before rebuild: $BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD"
 
     echo ""
     echo "+ codesign -dv --verbose=4 $APP_BUNDLE"

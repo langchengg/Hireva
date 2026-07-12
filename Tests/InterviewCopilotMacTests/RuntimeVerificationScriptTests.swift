@@ -132,6 +132,8 @@ struct RuntimeVerificationScriptTests {
             "CFFIXED_USER_HOME=",
             "--relaunch",
             "Relaunching the existing signed bundle without rebuilding",
+            "rm -rf \"$APP_CONTENTS\"",
+            "\"$LSREGISTER\" -f \"$APP_BUNDLE\"",
             "Using ad-hoc signing. AMFI may reject this on some systems.",
             "codesign --verify --deep --strict --verbose=4",
             "spctl --assess --type execute --verbose=4",
@@ -142,11 +144,12 @@ struct RuntimeVerificationScriptTests {
         for snippet in requiredSnippets {
             #expect(contents.contains(snippet), "Missing required signing snippet: \(snippet)")
         }
+        #expect(!contents.contains("rm -rf \"$APP_BUNDLE\""), "Replacing the whole app creates stale Google Drive Trash registrations")
 
         let modeValidation = try #require(contents.range(of: "# Reject unsupported modes before any process is stopped or bundle is rebuilt."))
         let relaunch = try #require(contents.range(of: "if [[ \"$MODE\" == \"--relaunch\""))
         let build = try #require(contents.range(of: "# --- Build ---"))
-        let bundleRemoval = try #require(contents.range(of: "rm -rf \"$APP_BUNDLE\""))
+        let bundleRemoval = try #require(contents.range(of: "rm -rf \"$APP_CONTENTS\""))
         let forceSigning = try #require(contents.range(of: "codesign --force --deep"))
 
         #expect(modeValidation.lowerBound < relaunch.lowerBound)
