@@ -134,7 +134,7 @@ struct FloatingAssistantView: View {
         HStack(spacing: 8) {
             StatusPill(title: appState.systemCaptureRunning ? "System Active" : "System Off", systemImage: "speaker.wave.2.fill", tint: appState.systemCaptureRunning ? .green : .secondary, isCompact: true)
             StatusPill(title: appState.micCaptureRunning ? "Mic Active" : "Mic Off", systemImage: "mic.fill", tint: appState.micCaptureRunning ? .green : .secondary, isCompact: true)
-            StatusPill(title: appState.deepSeekConfigured ? "DeepSeek" : "AI Missing", systemImage: appState.deepSeekConfigured ? "sparkles" : "key", tint: appState.deepSeekConfigured ? .blue : .orange, isCompact: true)
+            StatusPill(title: appState.selectedAnswerProviderStatusTitle, systemImage: appState.selectedAnswerProviderConfigured ? "sparkles" : "key", tint: appState.selectedAnswerProviderConfigured ? .blue : .orange, isCompact: true)
             StatusPill(title: appState.userFacingRelevantContextStatus, systemImage: "doc.text.magnifyingglass", tint: appState.hasCleanRelevantContext ? .green : .orange, isCompact: true)
         }
     }

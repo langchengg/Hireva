@@ -132,10 +132,43 @@ extension AppState {
     var coreInterviewReadinessPassed: Bool {
         hasCV
             && hasJD
-            && deepSeekConfigured
+            && selectedAnswerProviderConfigured
             && hasCleanRelevantContext
             && latexPollutedChunkCount == 0
             && requiredPermissionsReady
+    }
+
+    var selectedAnswerProviderConfigured: Bool {
+        switch selectedAnswerProviderMode {
+        case .localQwenPrimary:
+            return true
+        case .deepSeekPrimary, .deepSeekWithLocalQwenFallback:
+            return deepSeekConfigured
+        }
+    }
+
+    var selectedAnswerProviderStatusTitle: String {
+        switch selectedAnswerProviderMode {
+        case .localQwenPrimary:
+            return "Local Qwen Primary"
+        case .deepSeekPrimary:
+            return deepSeekConfigured ? "DeepSeek Primary" : "DeepSeek Missing"
+        case .deepSeekWithLocalQwenFallback:
+            return deepSeekConfigured ? "DeepSeek + Local Fallback" : "DeepSeek Missing"
+        }
+    }
+
+    var selectedAnswerProviderReadinessDetail: String {
+        switch selectedAnswerProviderMode {
+        case .localQwenPrimary:
+            return "Local Qwen is selected; runtime health is checked before generation."
+        case .deepSeekPrimary:
+            return deepSeekConfigured ? "DeepSeek is securely saved." : "DeepSeek is selected but not configured."
+        case .deepSeekWithLocalQwenFallback:
+            return deepSeekConfigured
+                ? "DeepSeek is securely saved and Local Qwen fallback is enabled."
+                : "DeepSeek is selected as primary but not configured."
+        }
     }
 
     var deepSeekConfigured: Bool {
@@ -238,12 +271,12 @@ extension AppState {
     var readinessCheckItems: [ReadinessCheckItem] {
         [
             ReadinessCheckItem(
-                id: "deepseek",
-                title: "DeepSeek API configured",
-                detail: deepSeekConfigured ? "DeepSeek is securely saved." : "DeepSeek is not configured.",
-                status: deepSeekConfigured ? .passed : .failed,
-                actionTitle: "Open Settings",
-                action: .openSettings
+                id: "answer-provider",
+                title: "Answer provider selected",
+                detail: selectedAnswerProviderReadinessDetail,
+                status: selectedAnswerProviderConfigured ? .passed : .failed,
+                actionTitle: selectedAnswerProviderConfigured ? nil : "Open Settings",
+                action: selectedAnswerProviderConfigured ? nil : .openSettings
             ),
             ReadinessCheckItem(
                 id: "documents",

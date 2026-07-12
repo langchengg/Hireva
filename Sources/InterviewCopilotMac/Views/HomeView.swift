@@ -71,7 +71,7 @@ struct HomeView: View {
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 10)], alignment: .leading, spacing: 10) {
                 metric("Capture mode", appState.settings.audioCaptureMode.shortDisplayName, "waveform.and.mic")
-                metric("DeepSeek", appState.deepSeekConfigured ? "Configured" : "Missing", appState.deepSeekConfigured ? "lock.fill" : "key")
+                metric("Answer provider", appState.selectedAnswerProviderStatusTitle, appState.selectedAnswerProviderConfigured ? "sparkles" : "key")
                 metric("Relevant context", appState.userFacingRelevantContextStatus, "doc.text.magnifyingglass")
                 metric("Candidate", appState.candidateProfiles.first(where: { $0.id == appState.activeCandidateProfileID })?.displayName ?? "Missing", "person.crop.circle")
                 metric("Opportunity", appState.opportunityContexts.first(where: { $0.id == appState.activeOpportunityContextID })?.title ?? "General", "briefcase")

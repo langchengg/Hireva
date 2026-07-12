@@ -64,14 +64,39 @@ struct ProductPolishStateTests {
     func readinessFailedItemsExposeOneAction() throws {
         let appState = try makeAppState()
         makeReady(appState)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.keychainDeepSeekKeyExists = false
         appState.latexPollutedChunkCount = 2
 
         let failed = appState.readinessCheckItems.filter { $0.status == .failed }
 
-        #expect(failed.contains { $0.id == "deepseek" && $0.action == .openSettings })
+        #expect(failed.contains { $0.id == "answer-provider" && $0.action == .openSettings })
         #expect(failed.contains { $0.id == "latex" && $0.action == .rebuildRAG })
         #expect(failed.allSatisfy { $0.actionTitle != nil && $0.action != nil })
+    }
+
+    @Test
+    func localQwenPrimaryDoesNotRequireOptionalDeepSeekCredential() throws {
+        let appState = try makeAppState()
+        makeReady(appState)
+        appState.answerProviderModeOverride = .localQwenPrimary
+        appState.keychainDeepSeekKeyExists = false
+
+        #expect(appState.coreInterviewReadinessPassed)
+        #expect(appState.selectedAnswerProviderConfigured)
+        #expect(appState.readinessCheckItems.first { $0.id == "answer-provider" }?.status == .passed)
+    }
+
+    @Test
+    func deepSeekPrimaryStillRequiresDeepSeekCredential() throws {
+        let appState = try makeAppState()
+        makeReady(appState)
+        appState.answerProviderModeOverride = .deepSeekPrimary
+        appState.keychainDeepSeekKeyExists = false
+
+        #expect(!appState.coreInterviewReadinessPassed)
+        #expect(!appState.selectedAnswerProviderConfigured)
+        #expect(appState.readinessCheckItems.first { $0.id == "answer-provider" }?.status == .failed)
     }
 
     @Test
