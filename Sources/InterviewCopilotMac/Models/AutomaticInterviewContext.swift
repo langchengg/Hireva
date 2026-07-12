@@ -144,4 +144,13 @@ enum ProductionContextPolicy {
     static var isTestProcess: Bool {
         isRunningUnderTestOrAutomation()
     }
+
+    static func verificationMocksEnabled(
+        explicitOverride: Bool?,
+        environmentValue: String?,
+        isTestProcess: Bool = isTestProcess
+    ) -> Bool {
+        guard isTestProcess else { return false }
+        return explicitOverride ?? (environmentValue == "1")
+    }
 }

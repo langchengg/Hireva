@@ -699,6 +699,8 @@ final class AppState: ObservableObject {
     var answerProviderModeOverride: AnswerProviderMode?
     var localLLMProviderOverride: (any LocalLLMProvider)?
     var automaticContextBuildTask: Task<Void, Never>?
+    var automaticContextBuildID = UUID()
+    var automaticContextBuilderOverride: (any InterviewContextBuilding)?
     // internal for AppState extension access only
     var lastDetectionAt: Date?
     // internal for AppState extension access only
@@ -1200,8 +1202,10 @@ final class AppState: ObservableObject {
             if let cov = try? documentRepository.embeddingCoverage(currentProvider: currentProvStr, currentModel: currentModelStr) {
                 self.embeddingCoverage = cov
             }
-            let verificationMocksEnabled = verificationMocksEnabledOverride ??
-                (ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1")
+            let verificationMocksEnabled = ProductionContextPolicy.verificationMocksEnabled(
+                explicitOverride: verificationMocksEnabledOverride,
+                environmentValue: ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
+            )
             injectVerificationMockData(enabled: verificationMocksEnabled)
             if verificationMocksEnabled {
                 if let defaultAppSectionOverride {
@@ -1579,13 +1583,11 @@ final class AppState: ObservableObject {
         let snapshotRetrieval = generationSnapshot.map {
             DynamicInterviewContextEngine().retrieveContext(question: question.questionText, snapshot: $0)
         }
-        let context: RetrievedContext
-        if let generationSnapshot,
-           generationSnapshot.candidateProfileID != nil || generationSnapshot.opportunityContextID != nil {
-            context = snapshotRetrieval?.context ?? RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
-        } else {
-            context = legacyContext
-        }
+        let context = SnapshotBoundContextPolicy.retrievedContext(
+            snapshot: generationSnapshot,
+            snapshotContext: snapshotRetrieval?.context,
+            legacyContext: legacyContext
+        )
         
         // 2. Realtime Context Budget Optimization
         let optimizedContext = trimContextForRealtime(context, question: question)
@@ -1604,12 +1606,13 @@ final class AppState: ObservableObject {
             return
         }
         lastSQLiteOperation = "Loaded document summaries"
-        let cvSummary = generationSnapshot?.candidateProfileID == nil
-            ? makeCompactSummary(cvRecord)
-            : ContextBudgeter.limitWords(generationSnapshot?.candidateEvidence.map(\.statement).joined(separator: " ") ?? "", maxWords: 120)
-        let jdSummary = generationSnapshot?.opportunityContextID == nil
-            ? makeCompactSummary(jdRecord)
-            : ContextBudgeter.limitWords(generationSnapshot?.opportunityEvidence.map(\.statement).joined(separator: " ") ?? "", maxWords: 100)
+        let summaries = SnapshotBoundContextPolicy.summaries(
+            snapshot: generationSnapshot,
+            liveCVSummary: makeCompactSummary(cvRecord),
+            liveJDSummary: makeCompactSummary(jdRecord)
+        )
+        let cvSummary = summaries.cv
+        let jdSummary = summaries.jd
         // Freeze the prompt inputs after RAG retrieval and before provider
         // streaming. From here on, transcript changes and later questions must
         // not alter the current prompt: question_text must stay equal to

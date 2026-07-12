@@ -168,18 +168,35 @@ extension AppState {
     func scheduleAutomaticContextRebuild(useLocalQwen: Bool = true) {
         automaticContextBuildTask?.cancel()
         guard !ProductionContextPolicy.isTestProcess else { return }
+        let buildID = UUID()
+        automaticContextBuildID = buildID
         automaticContextBuildTask = Task { [weak self] in
             guard let self else { return }
-            await self.rebuildAutomaticInterviewContext(useLocalQwen: useLocalQwen)
+            await self.performAutomaticInterviewContextRebuild(useLocalQwen: useLocalQwen, buildID: buildID)
         }
     }
 
     func rebuildAutomaticInterviewContext(useLocalQwen: Bool = true) async {
+        let buildID = UUID()
+        automaticContextBuildID = buildID
+        await performAutomaticInterviewContextRebuild(useLocalQwen: useLocalQwen, buildID: buildID)
+    }
+
+    private func performAutomaticInterviewContextRebuild(useLocalQwen: Bool, buildID: UUID) async {
         let actionID = ActionID.buildInterviewContext
-        guard !isActionLoading(actionID) else { return }
+        guard automaticContextBuildID == buildID else { return }
         guard !documents.isEmpty else {
-            automaticContextBuildResult = AutomaticInterviewContextBuilder.emptyResult
-            automaticContextReadiness = .noDocuments
+            do {
+                try clearAutomaticContextForNoDocuments()
+                completeAction(
+                    actionID,
+                    title: "Context cleared",
+                    message: "Add a resume or opportunity document to build interview context."
+                )
+            } catch {
+                automaticContextReadiness = .failed
+                failAction(actionID, title: "Context reset failed", message: error.localizedDescription)
+            }
             return
         }
         beginAction(
@@ -194,7 +211,7 @@ extension AppState {
                 modelName: selectedQwenModelName
             )
             : nil
-        let builder = AutomaticInterviewContextBuilder(
+        let builder: any InterviewContextBuilding = automaticContextBuilderOverride ?? AutomaticInterviewContextBuilder(
             evidenceExtractor: extractor,
             chunkProvider: { [documentRepository] documentID in
                 try documentRepository.chunks(documentID: documentID)
@@ -211,6 +228,7 @@ extension AppState {
                 previousConfirmedProfile: previousProfile
             )
             try Task.checkCancellation()
+            guard automaticContextBuildID == buildID else { throw CancellationError() }
             try applyAutomaticContextBuildResult(&result)
             completeAction(
                 actionID,
@@ -218,11 +236,28 @@ extension AppState {
                 message: "\(result.evidenceSummary.candidateFactCount) candidate facts and \(result.evidenceSummary.opportunityRequirementCount) opportunity requirements are available."
             )
         } catch is CancellationError {
-            actionLoadingStates[actionID] = false
+            if automaticContextBuildID == buildID {
+                actionLoadingStates[actionID] = false
+            }
         } catch {
+            guard automaticContextBuildID == buildID else { return }
             automaticContextReadiness = .failed
             failAction(actionID, title: "Context build failed", message: error.localizedDescription)
         }
+    }
+
+    private func clearAutomaticContextForNoDocuments() throws {
+        activeCandidateProfileID = nil
+        activeOpportunityContextID = nil
+        activeInterviewDomainID = .general
+        interviewContextMode = .general
+        automaticContextBuildResult = AutomaticInterviewContextBuilder.emptyResult
+        automaticContextReadiness = .noDocuments
+        contextConfigurationOrigin = .automaticDocuments
+        try interviewContextRepository.saveSelection(currentInterviewContextSelection)
+        try interviewContextRepository.saveConfigurationOrigin(.automaticDocuments)
+        try rollContextSnapshotForCurrentSession()
+        refreshAll()
     }
 
     private func applyAutomaticContextBuildResult(_ result: inout InterviewContextBuildResult) throws {

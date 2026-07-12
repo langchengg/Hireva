@@ -4,6 +4,29 @@
 
 import Foundation
 
+enum SnapshotBoundContextPolicy {
+    static func retrievedContext(
+        snapshot: InterviewContextSnapshot?,
+        snapshotContext: RetrievedContext?,
+        legacyContext: RetrievedContext
+    ) -> RetrievedContext {
+        guard snapshot != nil else { return legacyContext }
+        return snapshotContext ?? RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
+    }
+
+    static func summaries(
+        snapshot: InterviewContextSnapshot?,
+        liveCVSummary: String,
+        liveJDSummary: String
+    ) -> (cv: String, jd: String) {
+        guard let snapshot else { return (liveCVSummary, liveJDSummary) }
+        return (
+            ContextBudgeter.limitWords(snapshot.candidateEvidence.map(\.statement).joined(separator: " "), maxWords: 120),
+            ContextBudgeter.limitWords(snapshot.opportunityEvidence.map(\.statement).joined(separator: " "), maxWords: 100)
+        )
+    }
+}
+
 /// Immutable input snapshot for one suggestion generation attempt.
 ///
 /// This prevents late transcript updates or a newer detected question from

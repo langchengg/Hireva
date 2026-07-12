@@ -8,7 +8,10 @@ struct FloatingAssistantView: View {
     @State private var followUpExpanded = false
 
     private var displayMode: FloatingAssistantDisplayMode {
-        if ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"] == "1" {
+        if ProductionContextPolicy.verificationMocksEnabled(
+            explicitOverride: nil,
+            environmentValue: ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
+        ) {
             return .normal
         }
         return appState.settings.floatingAssistantDisplayMode
