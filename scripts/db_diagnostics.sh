@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-DB_PATH="$HOME/Library/Application Support/InterviewCopilotMac/interview_copilot.sqlite"
-TRACE_PATH="$HOME/Library/Application Support/InterviewCopilotMac/runtime_transcript_trace.jsonl"
+DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
+TRACE_PATH="$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl"
 
 print_trace_events() {
     echo ""
@@ -15,7 +15,7 @@ print_trace_events() {
     fi
 }
 
-echo "=== InterviewCopilotMac Database Diagnostics ==="
+echo "=== Hireva Database Diagnostics ==="
 echo "Expected DB path: $DB_PATH"
 echo "Warning: diagnostic output may contain interview questions and answers."
 

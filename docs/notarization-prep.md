@@ -46,13 +46,13 @@ Representative future commands, after credentials and artifact naming are
 defined:
 
 ```bash
-xcrun notarytool submit "InterviewCopilotMac.zip" \
-  --keychain-profile "InterviewCopilotNotary" \
+xcrun notarytool submit "Hireva.zip" \
+  --keychain-profile "HirevaNotary" \
   --wait
 
-xcrun stapler staple "InterviewCopilotMac.app"
-xcrun stapler validate "InterviewCopilotMac.app"
-spctl --assess --type execute --verbose=4 "InterviewCopilotMac.app"
+xcrun stapler staple "Hireva.app"
+xcrun stapler validate "Hireva.app"
+spctl --assess --type execute --verbose=4 "Hireva.app"
 ```
 
 Do not implement or run submission merely because `notarytool` is installed.

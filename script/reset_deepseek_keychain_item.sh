@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE="com.langcheng.InterviewCopilotMac.LLMProviderKeys"
+SERVICE="com.langcheng.Hireva.LLMProviderKeys"
 ACCOUNT="deepseek.default"
 
 cat <<EOF
-This will delete only this InterviewCopilotMac Keychain item:
+This will delete only this Hireva Keychain item:
 
   service: $SERVICE
   account: $ACCOUNT

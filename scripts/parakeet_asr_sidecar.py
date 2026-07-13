@@ -193,7 +193,7 @@ def run_jsonl_loop(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Interview Copilot Parakeet ASR sidecar")
+    parser = argparse.ArgumentParser(description="Hireva Parakeet ASR sidecar")
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--model-dir")
     parser.add_argument("--session-id", default="sidecar")

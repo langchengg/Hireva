@@ -1,617 +1,1587 @@
 {
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Package.swift": {
-    "mtime": 1779817010.0413096,
-    "ast_hash": "a266279aa942062bca87b151dbfdf22a",
-    "semantic_hash": "a266279aa942062bca87b151dbfdf22a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Package.swift": {
+    "mtime": 1783936725.222029,
+    "ast_hash": "4157f042a2625700be011ec73eb2a205",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RAGPhase3VerificationTests.swift": {
-    "mtime": 1779953621.7500854,
-    "ast_hash": "9957d9acf734e564d9d1dc44656190c9",
-    "semantic_hash": "9957d9acf734e564d9d1dc44656190c9"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/LongInterviewQuestionDetectionTests.swift": {
+    "mtime": 1783936733.7563708,
+    "ast_hash": "080a5fecb653fda0fc052b938f863b62",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/HybridRetrievalTests.swift": {
-    "mtime": 1779951098.0033948,
-    "ast_hash": "bb55cf7bab3aa9b7adadc5be550293c8",
-    "semantic_hash": "bb55cf7bab3aa9b7adadc5be550293c8"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/PromptContextBuilderTests.swift": {
+    "mtime": 1783936733.7553637,
+    "ast_hash": "ab400035649efbfd9293975848c3ea39",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/DeepSeekRequestTests.swift": {
-    "mtime": 1779951280.7908738,
-    "ast_hash": "94703682c2f644d884fc801eb5c921bc",
-    "semantic_hash": "94703682c2f644d884fc801eb5c921bc"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/AutomaticInterviewContextTests.swift": {
+    "mtime": 1783936733.7559478,
+    "ast_hash": "11a13793f3cdc4da17de52ca69c2672c",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/LatencyMetricsTests.swift": {
-    "mtime": 1780136782.767485,
-    "ast_hash": "09b715b007f12375981c29c30e2be05f",
-    "semantic_hash": "09b715b007f12375981c29c30e2be05f"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/SystemAudioMergedQuestionSegmentationTests.swift": {
+    "mtime": 1783937045.6267896,
+    "ast_hash": "32632f4937fedf2e7882ccb635399b2c",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TestSuite7Tests.swift": {
-    "mtime": 1779951268.3723419,
-    "ast_hash": "65170e2781a1df59b3c45a3b1ec22100",
-    "semantic_hash": "65170e2781a1df59b3c45a3b1ec22100"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/DocumentFormatTruthfulnessTests.swift": {
+    "mtime": 1783936733.7571068,
+    "ast_hash": "54e6c1e3693126476d98d213e6c83ca6",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/StreamingSuggestionTests.swift": {
-    "mtime": 1780139295.837251,
-    "ast_hash": "871d7d54f7dbf9aa58fc8bc8a988884f",
-    "semantic_hash": "871d7d54f7dbf9aa58fc8bc8a988884f"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RAGPhase3VerificationTests.swift": {
+    "mtime": 1783937045.623742,
+    "ast_hash": "1fdcf404dea864d974b7b73862e4612a",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TextChunkerTests.swift": {
-    "mtime": 1779912588.841295,
-    "ast_hash": "b3ff1347118ad865eed03f3c3d68c38a",
-    "semantic_hash": "b3ff1347118ad865eed03f3c3d68c38a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/HybridRetrievalTests.swift": {
+    "mtime": 1783937045.6272116,
+    "ast_hash": "a6ec186256d1ca64f093b3d694ed9beb",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TestSuite2Tests.swift": {
-    "mtime": 1779890260.0866847,
-    "ast_hash": "2125b26177f9c8c9a432ae0e6fb80261",
-    "semantic_hash": "2125b26177f9c8c9a432ae0e6fb80261"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/WebSourcedInterviewContextTests.swift": {
+    "mtime": 1783936733.754255,
+    "ast_hash": "2b83568343854f3e1d08f236895bdffc",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/LiveInterviewStateTests.swift": {
-    "mtime": 1779824752.3497696,
-    "ast_hash": "8a8f3eba932b683b0dca653bdd0b6bdf",
-    "semantic_hash": "8a8f3eba932b683b0dca653bdd0b6bdf"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/PhDDialogueReplayTests.swift": {
+    "mtime": 1783936733.7524557,
+    "ast_hash": "c7b5727483b1a9bb7490b8ea3bf2ed85",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RAGAttributionTests.swift": {
-    "mtime": 1779912582.885856,
-    "ast_hash": "f487eee5aa4c6500ddf7798805edd3c8",
-    "semantic_hash": "f487eee5aa4c6500ddf7798805edd3c8"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/InterviewDialogueModeTests.swift": {
+    "mtime": 1783936733.749215,
+    "ast_hash": "b32abdeb6c3b824d05fcb25c2c6c4fa8",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TestSuite1Tests.swift": {
-    "mtime": 1779951114.2727246,
-    "ast_hash": "6582f73a9a4d9d326074259a494ced4a",
-    "semantic_hash": "6582f73a9a4d9d326074259a494ced4a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/DeepSeekRequestTests.swift": {
+    "mtime": 1783936733.7443447,
+    "ast_hash": "95e63de3579ee917e20d5e4f1c55bdf7",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/ManualCaptureTests.swift": {
-    "mtime": 1779891412.8450043,
-    "ast_hash": "a74e6efdd9f53c5c1c716fc95d93bf8a",
-    "semantic_hash": "a74e6efdd9f53c5c1c716fc95d93bf8a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/LatencyMetricsTests.swift": {
+    "mtime": 1783936733.7423902,
+    "ast_hash": "406fd8ec6816cedf36634e3f9387eb06",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/AppStateVerificationMocksTests.swift": {
-    "mtime": 1779916182.6625123,
-    "ast_hash": "52f28616ef5b5dfedfe78f5e4435cc41",
-    "semantic_hash": "52f28616ef5b5dfedfe78f5e4435cc41"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/TestSupport.swift": {
+    "mtime": 1783937045.6233933,
+    "ast_hash": "9a408cf9de919f284ce0ffe04ac00a6f",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/LLMProviderTests.swift": {
-    "mtime": 1780139229.4820035,
-    "ast_hash": "fc3cd953e750c7b2a883a8a0964fb52f",
-    "semantic_hash": "fc3cd953e750c7b2a883a8a0964fb52f"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/TestSuite7Tests.swift": {
+    "mtime": 1783936733.752923,
+    "ast_hash": "effe4c7c42fe1012522faac8b2209286",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/DualAudioTranscriptionTests.swift": {
-    "mtime": 1779970781.9544716,
-    "ast_hash": "aa2245e27395655b1b6f1af62d57b85f",
-    "semantic_hash": "aa2245e27395655b1b6f1af62d57b85f"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/StreamingSuggestionTests.swift": {
+    "mtime": 1783937045.626148,
+    "ast_hash": "f21c9e089592c350075d82ecbd86c1e9",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/ContextRetrievalTests.swift": {
-    "mtime": 1779951057.8421857,
-    "ast_hash": "adc1d4ee52a59771a5e72d3179ecf9f0",
-    "semantic_hash": "adc1d4ee52a59771a5e72d3179ecf9f0"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/SystemAudioQuestionOnlyAutoGenerationTests.swift": {
+    "mtime": 1783936733.7478898,
+    "ast_hash": "fda5ff0012df6b6c973e5e4c56cce860",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/JSONParsingTests.swift": {
-    "mtime": 1779874153.1957235,
-    "ast_hash": "f171e443bca20122af7c83f0ff0021e9",
-    "semantic_hash": "f171e443bca20122af7c83f0ff0021e9"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/DynamicCandidateContextTests.swift": {
+    "mtime": 1783936733.751139,
+    "ast_hash": "c6d3f04a7f8d51ec74b16728dc48a369",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/SpeakerAttributionTests.swift": {
-    "mtime": 1780085577.949354,
-    "ast_hash": "9279feb2a41155f6d7ea20b084029fbe",
-    "semantic_hash": "9279feb2a41155f6d7ea20b084029fbe"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RuntimePathSingleSourceOfTruthTests.swift": {
+    "mtime": 1783936733.7488732,
+    "ast_hash": "4ecaf289124f5556a0bf2a80c5761874",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/TranscriptionPipelineTests.swift": {
-    "mtime": 1779830376.7057106,
-    "ast_hash": "806adcd888e9137b9a2bb7022a8414a1",
-    "semantic_hash": "806adcd888e9137b9a2bb7022a8414a1"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/GenerationContextIsolationTests.swift": {
+    "mtime": 1783936733.7461555,
+    "ast_hash": "7fc1f7c1c736e9d7663e7207a5c03316",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/PermissionProbeTests.swift": {
-    "mtime": 1779874822.2392032,
-    "ast_hash": "c82c94cad247b8f6d537b501e536da6b",
-    "semantic_hash": "c82c94cad247b8f6d537b501e536da6b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/TextChunkerTests.swift": {
+    "mtime": 1783936733.7436728,
+    "ast_hash": "0a9602b80cfa1f9edc5cae0f5d80ea09",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RepositoryTests.swift": {
-    "mtime": 1779829775.2893748,
-    "ast_hash": "853ba9b69cbf4935fcc9caf7c7c7c615",
-    "semantic_hash": "853ba9b69cbf4935fcc9caf7c7c7c615"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/ProductPolishStateTests.swift": {
+    "mtime": 1783936733.74648,
+    "ast_hash": "96ed3300e5ed8283f39c822cbd4f22e8",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/OutputQualityTests.swift": {
-    "mtime": 1780138822.0244174,
-    "ast_hash": "5b3c90b28b24375fe2f2294b5b489dee",
-    "semantic_hash": "5b3c90b28b24375fe2f2294b5b489dee"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/TestSuite2Tests.swift": {
+    "mtime": 1783937045.6254237,
+    "ast_hash": "7b17390b5488a06fe794d985d6aa966c",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/RAGRuntimeVerificationTests.swift": {
-    "mtime": 1779951132.7272015,
-    "ast_hash": "de8798716220623f97447a21118857e2",
-    "semantic_hash": "de8798716220623f97447a21118857e2"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/LiveInterviewStateTests.swift": {
+    "mtime": 1783936733.7434049,
+    "ast_hash": "d407cb7db3bc34fbb90ab7bd97dc2b75",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Tests/InterviewCopilotMacTests/CaptureRuntimeStateTests.swift": {
-    "mtime": 1780139945.892289,
-    "ast_hash": "0aa911e6207207e2e9256b0739471a1d",
-    "semantic_hash": "0aa911e6207207e2e9256b0739471a1d"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RAGAttributionTests.swift": {
+    "mtime": 1783936733.747301,
+    "ast_hash": "49063fe8540da1cfda6598af9d41df4b",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/script/build_and_run.sh": {
-    "mtime": 1779889093.9345427,
-    "ast_hash": "f553759ea9b8fbd926fab41760804fd1",
-    "semantic_hash": "f553759ea9b8fbd926fab41760804fd1"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/GenerationCoordinatorTests.swift": {
+    "mtime": 1783937045.6226568,
+    "ast_hash": "6736594b09eb6f93ad80d998da58b131",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMacRunner/main.swift": {
-    "mtime": 1779817010.0419114,
-    "ast_hash": "3a46ace72551c2bc4c3ee643723d9dd2",
-    "semantic_hash": "3a46ace72551c2bc4c3ee643723d9dd2"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/TestSuite1Tests.swift": {
+    "mtime": 1783936733.7427263,
+    "ast_hash": "fb6ea9438a8a18423eb24ab9ef655b69",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/AppState.swift": {
-    "mtime": 1780139894.9469883,
-    "ast_hash": "905b68572f26edf02ac567f321afed46",
-    "semantic_hash": "905b68572f26edf02ac567f321afed46"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/AnswerRelevanceTests.swift": {
+    "mtime": 1783936733.7416096,
+    "ast_hash": "107e99609a3883ddcd4f041fffea6d5b",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/InterviewCopilotMacApp.swift": {
-    "mtime": 1779913853.1413877,
-    "ast_hash": "3146c19f75eaec45cf58ccd15cb46364",
-    "semantic_hash": "3146c19f75eaec45cf58ccd15cb46364"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/SystemAudioMixedDialogueTests.swift": {
+    "mtime": 1783936733.7476132,
+    "ast_hash": "9cea2b72096f50dfd9227c8fd1edaaae",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/ManualCaptureState.swift": {
-    "mtime": 1779890852.3817143,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/CloudEmbeddingProviderTests.swift": {
+    "mtime": 1783936733.7520862,
+    "ast_hash": "752da44d949f1f51a8f92213be191dbc",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/ActionFeedbackStateTests.swift": {
+    "mtime": 1783936733.7507954,
+    "ast_hash": "a4b2c744b22cd49cb8611580355a2d54",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/ManualCaptureTests.swift": {
+    "mtime": 1783937045.6244438,
+    "ast_hash": "8738baf8581cb4634e3cf26fab5fa8bf",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/AppStateVerificationMocksTests.swift": {
+    "mtime": 1783936733.7527108,
+    "ast_hash": "c79c046e8c470651d958cb4886a8d96b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/LLMProviderTests.swift": {
+    "mtime": 1783937562.05008,
+    "ast_hash": "fe5724e72cf718959cf0f2d9300dd5be",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/DualAudioTranscriptionTests.swift": {
+    "mtime": 1783937045.6251085,
+    "ast_hash": "b9979d90f708c89a97e079e832b074e7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/ContextRetrievalTests.swift": {
+    "mtime": 1783937045.6230235,
+    "ast_hash": "a1a7eec3547e98e20561aadb6a8a7436",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/JSONParsingTests.swift": {
+    "mtime": 1783936733.7531793,
+    "ast_hash": "2419f29aad537e43e8a26f92ffdb7218",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/SpeakerAttributionTests.swift": {
+    "mtime": 1783936733.7556415,
+    "ast_hash": "d10f99a35fa051d5a7b520568c8f165c",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/QuestionAnswerAlignmentTests.swift": {
+    "mtime": 1783936733.7539356,
+    "ast_hash": "4ced9acebaa2a2955367bb606631a903",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/GenerationExecutionContextTests.swift": {
+    "mtime": 1783936733.7455745,
+    "ast_hash": "2a679c60c5f2e1c457ef83b0d28ae6b1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RuntimeVerificationScriptTests.swift": {
+    "mtime": 1783937488.5304146,
+    "ast_hash": "a682dda8bd55e9ab72f292ceee7913d4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/LatencyOptimizationTests.swift": {
+    "mtime": 1783936733.7573206,
+    "ast_hash": "e92d1e410ce644a403713a09f744bb1d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/TranscriptionPipelineTests.swift": {
+    "mtime": 1783936733.7551455,
+    "ast_hash": "a0e686fc16be33ce39e631cbe3cc20bf",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/ReleaseValidationTests.swift": {
+    "mtime": 1783937045.6213305,
+    "ast_hash": "28843669f1aacdad8c687e5c3d75b469",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/SystemAudioTranscriptToAnswerRuntimeTests.swift": {
+    "mtime": 1783937045.620541,
+    "ast_hash": "4548f4787d51337ce872b319bc20632a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/HirevaRenameMigrationTests.swift": {
+    "mtime": 1783937853.1733944,
+    "ast_hash": "fc730dc1715fa2db01efce911cbc5360",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RuntimeSmokeHarnessTests.swift": {
+    "mtime": 1783936733.7430847,
+    "ast_hash": "524e44a1e89ff80e63123193d262abe5",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/FirstAnswerFallbackTests.swift": {
+    "mtime": 1783936733.7418573,
+    "ast_hash": "1f4b02116cb0a11376531fd4b7d16755",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/OllamaQwenProviderTests.swift": {
+    "mtime": 1783936733.7439697,
+    "ast_hash": "6e54322a3cc6dbe025b9639afac79d23",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/QuestionDetectionFallbackTests.swift": {
+    "mtime": 1783936733.7481267,
+    "ast_hash": "0f27ecaf24a44897c814bcbb0fcca45b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/PermissionProbeTests.swift": {
+    "mtime": 1783937045.620185,
+    "ast_hash": "09daaca1c57e9486e8f5b834e836f628",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RepositoryTests.swift": {
+    "mtime": 1783937045.6198869,
+    "ast_hash": "ae3a090e9f64c599337b966fa5bf7350",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/GenerationUIStateTests.swift": {
+    "mtime": 1783936733.747034,
+    "ast_hash": "52670acc632d9fa7886a93fc1892d7d0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/OutputQualityTests.swift": {
+    "mtime": 1783936733.742138,
+    "ast_hash": "f8a5048a6f722fc6bd6f4a8a2eef4d4d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/LocalModelsSetupTests.swift": {
+    "mtime": 1783937562.0498252,
+    "ast_hash": "4879e382897b88ab9fe3dc382a8db2e7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/QuestionDetectionTests.swift": {
+    "mtime": 1783936733.7403843,
+    "ast_hash": "e0d1b0b2596cb1cffa44e9b0a9cc89b2",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/QuestionCandidatePipelineTests.swift": {
+    "mtime": 1783936733.739968,
+    "ast_hash": "f562672e140f16cc1f330ca2b4c5085b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/RAGRuntimeVerificationTests.swift": {
+    "mtime": 1783936733.7396197,
+    "ast_hash": "7ae933ad91bcff4fdc6478638f018511",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/CaptureRuntimeStateTests.swift": {
+    "mtime": 1783936733.739363,
+    "ast_hash": "34f8d675fb9b65528493dc29c3518864",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/cybersecurity_candidate_profile.json": {
+    "mtime": 1783711711.2423058,
+    "ast_hash": "22e6eca67ce980d5d1db4f05ccc48b5f",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/backend_opportunity_context.json": {
+    "mtime": 1783711711.2425015,
+    "ast_hash": "e7c6db760cdc2096bcc24a0d8a5cdb93",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/product_manager_candidate_profile.json": {
+    "mtime": 1783711711.2422113,
+    "ast_hash": "dcd30df1e285f9d3a6ba23956aaebbea",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/robotics_phd_candidate_profile.json": {
+    "mtime": 1783711711.2418036,
+    "ast_hash": "9c3826f916ee0fe6731a7cc90bdd7073",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/data_scientist_candidate_profile.json": {
+    "mtime": 1783711711.2421036,
+    "ast_hash": "bbf6059c62fb1ea1e07d58618cd95a96",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/biomedical_candidate_profile.json": {
+    "mtime": 1783711711.2424026,
+    "ast_hash": "eb45e2c793260457d6fce8e4acd2e0e7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/robotics_phd_opportunity_context.json": {
+    "mtime": 1783711711.2426188,
+    "ast_hash": "f0aff18c3fd1f8c640be4411c62db685",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/backend_candidate_profile.json": {
+    "mtime": 1783711711.2419517,
+    "ast_hash": "62504b700b5ac8eebf5dd44c27fef7b0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/validate_generated_interview_pack.py": {
+    "mtime": 1783938739.0000486,
+    "ast_hash": "0c24dbc6b118e5fcf7a5c8c27bfac1cf",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/expected_candidate_evidence.json": {
+    "mtime": 1783851020.8076549,
+    "ast_hash": "4c0949f5a3daa82195681a6ff0da4380",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/expected_domain.json": {
+    "mtime": 1783851020.807983,
+    "ast_hash": "4edc3835613e4285f365060a13c1da17",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/source_manifest.json": {
+    "mtime": 1783871921.461963,
+    "ast_hash": "39b0bf9582571653e79d143d6e63d002",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/expected_opportunity_evidence.json": {
+    "mtime": 1783851020.8089676,
+    "ast_hash": "7509c757d11d523c7e284306be817d9e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/interview_dialogue.json": {
+    "mtime": 1783851020.8103921,
+    "ast_hash": "5988283056d6074305294aa9cfa9450f",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/answer_rubrics.json": {
+    "mtime": 1783851020.8106813,
+    "ast_hash": "c3a8c86d0a65eba76ceadffeb5b2d47d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/validation_expectations.json": {
+    "mtime": 1783851020.811192,
+    "ast_hash": "4607380b4fbb409076879251ccf84eab",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/expected_candidate_evidence.json": {
+    "mtime": 1783851020.813756,
+    "ast_hash": "8cb98d2843345d75de1339010d0539d9",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/expected_domain.json": {
+    "mtime": 1783851020.81402,
+    "ast_hash": "226d7f7c98904987acc873d4af7f2ba3",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/source_manifest.json": {
+    "mtime": 1783871921.4624438,
+    "ast_hash": "be32be506b36cde470a47eaacd6a9f03",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/expected_opportunity_evidence.json": {
+    "mtime": 1783851020.8144996,
+    "ast_hash": "a46caf68a0b68e00b1ce2a4a48019153",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/interview_dialogue.json": {
+    "mtime": 1783851020.8154697,
+    "ast_hash": "d9b76563948bcd1c57929fbca88cd2cd",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/answer_rubrics.json": {
+    "mtime": 1783851020.8156815,
+    "ast_hash": "bfcb594a24a5ac601b7ba0aaaeefdc97",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/validation_expectations.json": {
+    "mtime": 1783851020.816081,
+    "ast_hash": "fefd1bc22b60ba7149b6dde55cdd4371",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/expected_candidate_evidence.json": {
+    "mtime": 1783851020.8192694,
+    "ast_hash": "24f096e81fcac8eb5a120c6f89ed2ac2",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/expected_domain.json": {
+    "mtime": 1783851020.8196068,
+    "ast_hash": "5635e6eb388d0d099a2e3cb0c089916e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/source_manifest.json": {
+    "mtime": 1783871921.4614027,
+    "ast_hash": "d3424d259dac08578610ae160b7542b4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/expected_opportunity_evidence.json": {
+    "mtime": 1783851020.8201685,
+    "ast_hash": "686736108b96966ec9ed0cd09e0666ad",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/interview_dialogue.json": {
+    "mtime": 1783851020.8213878,
+    "ast_hash": "64a071fba281671a1e6e197a2b18c05b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/answer_rubrics.json": {
+    "mtime": 1783851020.8216002,
+    "ast_hash": "d157d8345ffde24c2cc97f8e84efd1f8",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/validation_expectations.json": {
+    "mtime": 1783851020.8220625,
+    "ast_hash": "0987091d1a8f1ff659b6e29e50df3a88",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/expected_candidate_evidence.json": {
+    "mtime": 1783851020.8024297,
+    "ast_hash": "00facd0cd1793695c4d8ced9235cae91",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/expected_domain.json": {
+    "mtime": 1783851020.8027675,
+    "ast_hash": "13c661f065921ff65f83bf4107e9b30d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/source_manifest.json": {
+    "mtime": 1783871921.458954,
+    "ast_hash": "2bec1cbd3e6a96c6460976d438513b2b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/expected_opportunity_evidence.json": {
+    "mtime": 1783851020.8032746,
+    "ast_hash": "07b666df932d15e4457c2883daf8944d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/interview_dialogue.json": {
+    "mtime": 1783851020.8044817,
+    "ast_hash": "24876cbbd31b3e6b5885338685b8a860",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/answer_rubrics.json": {
+    "mtime": 1783851020.8047502,
+    "ast_hash": "908ea200d03e6aeeca6d73d85e035585",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/validation_expectations.json": {
+    "mtime": 1783851020.8051672,
+    "ast_hash": "8afb3687bb19d5ac779e99b63cda042b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/script/reset_deepseek_keychain_item.sh": {
+    "mtime": 1783937008.6042643,
+    "ast_hash": "c523d0651f863228f693351b2788dfb1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/script/build_and_run.sh": {
+    "mtime": 1783937674.9370725,
+    "ast_hash": "43501b27a5c1b7720024b2c6c479d885",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/db_diagnostics.sh": {
+    "mtime": 1783936970.7663293,
+    "ast_hash": "933b651e9c9ce8ab463a008125588c4a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/signing_status.sh": {
+    "mtime": 1783937674.9378302,
+    "ast_hash": "5c54536d77ed4e9afcab6c3d30aa7998",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/release_status.sh": {
+    "mtime": 1783937674.9375956,
+    "ast_hash": "5ba8ddb86376936bc966d0494b89766e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/parakeet_asr_sidecar": {
+    "mtime": 1783355145.833,
+    "ast_hash": "e1300021fc0b07e719acf5dd9e65e2d2",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/verify_runtime_stability.sh": {
+    "mtime": 1783937008.6024399,
+    "ast_hash": "eaa64f0e3cc1824fc050172bde7332c7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/parakeet_asr_sidecar.py": {
+    "mtime": 1783936970.7671628,
+    "ast_hash": "e25c5c7861a5603fb60d5d3ffc6a2219",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/package_local_release.sh": {
+    "mtime": 1783937674.937356,
+    "ast_hash": "03b43340a74e2d4aad539755ce33d496",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/scripts/runtime_smoke.sh": {
+    "mtime": 1782314303.152,
+    "ast_hash": "9f98a532299a8ebd18d43268efc91586",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState.swift": {
+    "mtime": 1783937830.3225963,
+    "ast_hash": "c17a327b3d9c7c252c4f2af5dbfb9fa8",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Generation.swift": {
+    "mtime": 1783871707.8538353,
+    "ast_hash": "aa6c0748fd57cd6c42e79e5dfb61f8a1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+InterviewDialogue.swift": {
+    "mtime": 1783675417.1934612,
+    "ast_hash": "6fb1420678cadf671daf86c7f7827f75",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Documents.swift": {
+    "mtime": 1783805741.7139945,
+    "ast_hash": "2fe1c773604257e48812e4b01fc98264",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+LocalQwenGeneration.swift": {
+    "mtime": 1783871931.8541718,
+    "ast_hash": "9e0bd226878007497ed994282272442d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+ASRProviderSelection.swift": {
+    "mtime": 1783936581.021241,
+    "ast_hash": "987e3e28db2aed8bb1476ed76cd31e89",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+InterviewContext.swift": {
+    "mtime": 1783852112.7363572,
+    "ast_hash": "905bbdcd65b4d8e1b6aae1a81a949978",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/GenerationHelpers.swift": {
+    "mtime": 1781192023.543,
+    "ast_hash": "2a5fdff30c82878123d7dcd1a5e79b29",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+ManualCapture.swift": {
+    "mtime": 1783709685.4331734,
+    "ast_hash": "1abc1567cfc2f297239b177876d4fd81",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Permissions.swift": {
+    "mtime": 1781191324.328,
+    "ast_hash": "0d6d371ec72161e78c3df774b423b208",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Providers.swift": {
+    "mtime": 1782420866.735,
+    "ast_hash": "5c496252b7ed5bcd42ffb29be248382d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+RAG.swift": {
+    "mtime": 1783709539.6118925,
+    "ast_hash": "4f2b2829779e1635b0e5649eff38bce4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+LiveSystemAudioDiagnostic.swift": {
+    "mtime": 1783936842.8791976,
+    "ast_hash": "2080b6968c71edf8f339f47fab209095",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Actions.swift": {
+    "mtime": 1781191312.945,
+    "ast_hash": "91eaf77480a88848a35aa0eb397fd424",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Audio.swift": {
+    "mtime": 1783709685.4309165,
+    "ast_hash": "566982ef6b0946bf5f785f297ad68285",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Transcript.swift": {
+    "mtime": 1783675417.1944838,
+    "ast_hash": "2624df842449e2290678bfefb373dccd",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+QuestionDetection.swift": {
+    "mtime": 1783711413.8313768,
+    "ast_hash": "5ffb4fe9b87bc2d0c4dfb01a575d1c6a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Diagnostics.swift": {
+    "mtime": 1781724115.246,
+    "ast_hash": "1d88e5fbe8db40661bf02e3e2a4da6fa",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+RuntimeTranscriptEvents.swift": {
+    "mtime": 1783634050.6713154,
+    "ast_hash": "1febe5260234d3be393be77cfcc2f032",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppState+Sessions.swift": {
+    "mtime": 1781191570.459,
+    "ast_hash": "8e7484857cc0b5ac657ccc23f4201788",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/AppSection.swift": {
+    "mtime": 1783252721.72,
+    "ast_hash": "30f19d4d343becf458ceb39a72967bf4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/HirevaApp.swift": {
+    "mtime": 1783936725.222464,
+    "ast_hash": "de6fd6d2804fc66d4b1f374a42e3670a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/ManualCaptureState.swift": {
+    "mtime": 1779890852.381,
     "ast_hash": "071841b168fbf30fd4b4f5e96fc9cdba",
-    "semantic_hash": "071841b168fbf30fd4b4f5e96fc9cdba"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/DiagnosticsState.swift": {
-    "mtime": 1779912467.8040102,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/DiagnosticsState.swift": {
+    "mtime": 1779912467.804,
     "ast_hash": "5d834681d7f7e5b6909fb3ef0603dd8d",
-    "semantic_hash": "5d834681d7f7e5b6909fb3ef0603dd8d"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/RetrievalTrace.swift": {
-    "mtime": 1779916556.8221953,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/ProductUIState.swift": {
+    "mtime": 1783887998.1828334,
+    "ast_hash": "b0883e6e8fb350008cd65b0f814b63f0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/TranscriptQuestionGenerationTrace.swift": {
+    "mtime": 1783673288.095327,
+    "ast_hash": "dd9016b2222730c75a538df2db7ab227",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationExecutionContext.swift": {
+    "mtime": 1783851541.012439,
+    "ast_hash": "44c16a868b2e8d14f2ebe5917430a13e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/StageBApplicationPlan.swift": {
+    "mtime": 1781899757.343,
+    "ast_hash": "8da1a199cd8cb2513c26c5ea5e3640db",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/RetrievalTrace.swift": {
+    "mtime": 1779916556.822,
     "ast_hash": "2513b1dbd0a2eed0d1afd90ccff2f3b6",
-    "semantic_hash": "2513b1dbd0a2eed0d1afd90ccff2f3b6"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/AppSettings.swift": {
-    "mtime": 1779916563.4115858,
-    "ast_hash": "12b306db7b43cf310c728f76bc9b7b13",
-    "semantic_hash": "12b306db7b43cf310c728f76bc9b7b13"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/AppSettings.swift": {
+    "mtime": 1783936743.8204489,
+    "ast_hash": "bb6e51c1ad8a1c16db55c15bb16829f4",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/RetrievedContext.swift": {
-    "mtime": 1779816493.9232867,
-    "ast_hash": "ebe3df1b294a524967d4f6dc263a25ca",
-    "semantic_hash": "ebe3df1b294a524967d4f6dc263a25ca"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/RetrievedContext.swift": {
+    "mtime": 1781303831.168,
+    "ast_hash": "823bd7ea8d27bff532044fb2a6ea95cd",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/JobDescription.swift": {
-    "mtime": 1779816493.9210925,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/InterviewDialoguePolicy.swift": {
+    "mtime": 1783936581.0215905,
+    "ast_hash": "1630fa4eab87816f0330530e7434e52b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/DynamicInterviewContext.swift": {
+    "mtime": 1783710692.9810963,
+    "ast_hash": "ac49fcaf7a31aac43f6f81f9032e1aed",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationRequestSnapshot.swift": {
+    "mtime": 1783709200.2241135,
+    "ast_hash": "262d9da7f49574c1b80630d9bf6469e0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/JobDescription.swift": {
+    "mtime": 1779816493.921,
     "ast_hash": "1d2efb10154d1557306e478bd34a5e7a",
-    "semantic_hash": "1d2efb10154d1557306e478bd34a5e7a"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/LatencyBudget.swift": {
-    "mtime": 1780136183.1598032,
-    "ast_hash": "18e0044d8c3895275086d61352b48674",
-    "semantic_hash": "18e0044d8c3895275086d61352b48674"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/OllamaGenerationDiagnostics.swift": {
+    "mtime": 1783764292.0481892,
+    "ast_hash": "6d4a88f2e58031567f6f310b8192b00b",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/UserProfile.swift": {
-    "mtime": 1779816493.920797,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/UtteranceIntent.swift": {
+    "mtime": 1781118191.297,
+    "ast_hash": "999237daee8d2522f322bf2ba1e8ab47",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/ActionFeedback.swift": {
+    "mtime": 1783803128.5413654,
+    "ast_hash": "67f0a1edef958278d66115024ea446b0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/LatencyBudget.swift": {
+    "mtime": 1780559021.385,
+    "ast_hash": "f3029581b2a8df97fb4575400b9f0e28",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/PhDInterviewRubric.swift": {
+    "mtime": 1783712929.4133177,
+    "ast_hash": "40fca541ff233faa945c4bcbe590cab4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/AutomaticInterviewContext.swift": {
+    "mtime": 1783851758.6138272,
+    "ast_hash": "0eadd11a3ceb4ec33439d07b0329ad33",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/AnswerRelevancePolicy.swift": {
+    "mtime": 1783709200.2261438,
+    "ast_hash": "2d828bee87f5096c0d692ae6b8c156e4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/UserProfile.swift": {
+    "mtime": 1779816493.92,
     "ast_hash": "ff41ca464ab1303cd09ccf63cec4d024",
-    "semantic_hash": "ff41ca464ab1303cd09ccf63cec4d024"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/DetectedQuestion.swift": {
-    "mtime": 1779819222.8993003,
-    "ast_hash": "5c37a64269af2e3106a98460d4e85d92",
-    "semantic_hash": "5c37a64269af2e3106a98460d4e85d92"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/DetectedQuestion.swift": {
+    "mtime": 1782314159.964,
+    "ast_hash": "940988cb38bc7a1f07631b8e99554ef4",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/LiveInterviewState.swift": {
-    "mtime": 1779824775.6933455,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/LiveInterviewState.swift": {
+    "mtime": 1779824775.693,
     "ast_hash": "5aca5081b4f75ef968516b3d3b14f613",
-    "semantic_hash": "5aca5081b4f75ef968516b3d3b14f613"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/RecapReport.swift": {
-    "mtime": 1779819222.9001048,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/PromptContextBuilder.swift": {
+    "mtime": 1783711737.99615,
+    "ast_hash": "f9c8ff2788743f3ba6c68db7fa7d2183",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/RecapReport.swift": {
+    "mtime": 1779819222.9,
     "ast_hash": "45635252d4f30e62035ad080f04f76b8",
-    "semantic_hash": "45635252d4f30e62035ad080f04f76b8"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/InterviewSession.swift": {
-    "mtime": 1779816493.922596,
-    "ast_hash": "fc6c8162d93e1a9b955ea4fd1e5ff772",
-    "semantic_hash": "fc6c8162d93e1a9b955ea4fd1e5ff772"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/InterviewSession.swift": {
+    "mtime": 1783708501.1034584,
+    "ast_hash": "143c42cfa8acdbce870cb142c4c7e425",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/SuggestionCard.swift": {
-    "mtime": 1780136193.5149746,
-    "ast_hash": "583e461c79ee52c03e17aef7803c9b28",
-    "semantic_hash": "583e461c79ee52c03e17aef7803c9b28"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationIdentity.swift": {
+    "mtime": 1783708920.9877548,
+    "ast_hash": "f77f8941068a141c47a2c0bb3a9823a1",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/CaptureRuntimeState.swift": {
-    "mtime": 1780139406.878889,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/SuggestionCard.swift": {
+    "mtime": 1783708501.103824,
+    "ast_hash": "8e153e1a1e8731c8cc51b739445c0dcf",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationUIState.swift": {
+    "mtime": 1782585762.529,
+    "ast_hash": "ce6881136a30c22178a6ca7c300500fb",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/LocalModelSupport.swift": {
+    "mtime": 1783344230.814,
+    "ast_hash": "6f82441d4b411a1642073317a4e00051",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationProviderRequest.swift": {
+    "mtime": 1781899289.361,
+    "ast_hash": "786ec8dab939ce6dad974c6e18a9be43",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/CaptureRuntimeState.swift": {
+    "mtime": 1780139406.878,
     "ast_hash": "748a5c709d5bb0eee88ce0a974f6ebe6",
-    "semantic_hash": "748a5c709d5bb0eee88ce0a974f6ebe6"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/DocumentRecord.swift": {
-    "mtime": 1780138448.1714694,
-    "ast_hash": "da888ab56c1e71f6ab99f63293f82a35",
-    "semantic_hash": "da888ab56c1e71f6ab99f63293f82a35"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationStageBResult.swift": {
+    "mtime": 1781899902.397,
+    "ast_hash": "cd108281e2000ee64df3d8ec6c7fc7d2",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Models/TranscriptSegment.swift": {
-    "mtime": 1780136183.8702734,
-    "ast_hash": "c55d2988666ed1ab78092a2b451eb12a",
-    "semantic_hash": "c55d2988666ed1ab78092a2b451eb12a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/GenerationProviderResult.swift": {
+    "mtime": 1781899692.07,
+    "ast_hash": "79abba22dc702d0ce8dd1f361cb91557",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/ContextBudgeter.swift": {
-    "mtime": 1779816671.742369,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/QuestionAnswerAlignment.swift": {
+    "mtime": 1783884804.9485488,
+    "ast_hash": "62f53f5bfd63e917407a6dca08664dfa",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/DocumentRecord.swift": {
+    "mtime": 1780523158.766,
+    "ast_hash": "c8aef677b523ef7f9885b6f5e9781fb3",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/QuestionIntentPromptPolicy.swift": {
+    "mtime": 1783711093.6870575,
+    "ast_hash": "ae4f1a960cf8cc96316b3bbb9c49c8f3",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/TranscriptSegment.swift": {
+    "mtime": 1783259078.116,
+    "ast_hash": "b68a290cbbe897a713ed969768395876",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Models/TranscriptRuntimeEvent.swift": {
+    "mtime": 1783633141.1463244,
+    "ast_hash": "3d62b36d2b3b002c01e7d14dbf17cad4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/ContextBudgeter.swift": {
+    "mtime": 1779816671.742,
     "ast_hash": "15655487332768af63c74961f5e20ac7",
-    "semantic_hash": "15655487332768af63c74961f5e20ac7"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/DocumentTextSanitizer.swift": {
-    "mtime": 1780138441.5251467,
-    "ast_hash": "4218620fd9ea7c0bd4f976f327607c29",
-    "semantic_hash": "4218620fd9ea7c0bd4f976f327607c29"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/DocumentTextSanitizer.swift": {
+    "mtime": 1781017219.547,
+    "ast_hash": "574f3784fcddbe20278b3aac75dcd910",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/AppPaths.swift": {
-    "mtime": 1779816596.341092,
-    "ast_hash": "5444c2f0d55398a9285a8c3c3985d117",
-    "semantic_hash": "5444c2f0d55398a9285a8c3c3985d117"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/AppPaths.swift": {
+    "mtime": 1783937830.3208046,
+    "ast_hash": "93d57fca823b544a621cc5ffe707cd67",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/DateCoding.swift": {
-    "mtime": 1779816596.3413062,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/DateCoding.swift": {
+    "mtime": 1779816596.341,
     "ast_hash": "1a3a24dd8d5d1b904bba9cb0cf9eb510",
-    "semantic_hash": "1a3a24dd8d5d1b904bba9cb0cf9eb510"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/Logger.swift": {
-    "mtime": 1779889082.4577155,
-    "ast_hash": "43b39003698b4e53cf19473705ceb110",
-    "semantic_hash": "43b39003698b4e53cf19473705ceb110"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/Logger.swift": {
+    "mtime": 1783936842.8785198,
+    "ast_hash": "612a0bf99ae5721bbbc590344a185ece",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/TestEnvironment.swift": {
-    "mtime": 1780087512.521308,
-    "ast_hash": "7c34bbfbf6c1a85534bbacd73b9128ed",
-    "semantic_hash": "7c34bbfbf6c1a85534bbacd73b9128ed"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/HirevaMigration.swift": {
+    "mtime": 1783937628.1966531,
+    "ast_hash": "5996355efd524a3abd46d3199638b266",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/JSONParsing.swift": {
-    "mtime": 1779816671.7418785,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/HirevaMaintenance.swift": {
+    "mtime": 1783936725.2230277,
+    "ast_hash": "c8ae02a5fff2d5b2b6671f7fa6193859",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/StreamingSuggestionSectionParser.swift": {
+    "mtime": 1780558475.801,
+    "ast_hash": "aa00b0f72a7c60628ac23c842a412444",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/RealtimePromptBudgeter.swift": {
+    "mtime": 1780558491.158,
+    "ast_hash": "7501a6e9982c5124b81176965ab2baf0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/StreamingUpdateThrottle.swift": {
+    "mtime": 1780558499.347,
+    "ast_hash": "79fe73660cf2a44373e1fbe29090088f",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/BuildIdentity.swift": {
+    "mtime": 1783936868.7507632,
+    "ast_hash": "4bca2b247032307fe679d0ab0a474a2b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/TestEnvironment.swift": {
+    "mtime": 1781861974.993,
+    "ast_hash": "0d53ca7d935c2bc7a2ca1483135562d7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/JSONParsing.swift": {
+    "mtime": 1779816671.741,
     "ast_hash": "28143a24cec93442d7c1eda1fe4cf743",
-    "semantic_hash": "28143a24cec93442d7c1eda1fe4cf743"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/SSEParser.swift": {
-    "mtime": 1780085107.4932685,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/SSEParser.swift": {
+    "mtime": 1780085107.493,
     "ast_hash": "4f2d7589312a3eed4d37b27f75532527",
-    "semantic_hash": "4f2d7589312a3eed4d37b27f75532527"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/AnswerQualityValidator.swift": {
-    "mtime": 1780138840.0758812,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/AnswerQualityValidator.swift": {
+    "mtime": 1780138840.075,
     "ast_hash": "77a6f40c36a3fb34ef5a915c18ad8d89",
-    "semantic_hash": "77a6f40c36a3fb34ef5a915c18ad8d89"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Utilities/TextChunker.swift": {
-    "mtime": 1779912630.761287,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Utilities/TextChunker.swift": {
+    "mtime": 1779912630.761,
     "ast_hash": "14f968f3b156a86ae2cd22266482bada",
-    "semantic_hash": "14f968f3b156a86ae2cd22266482bada"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/LLMProviderQuickSwitcherView.swift": {
-    "mtime": 1779889820.3315413,
-    "ast_hash": "585457edb7f4ad6311d313391dcd26bb",
-    "semantic_hash": "585457edb7f4ad6311d313391dcd26bb"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/LocalModelsSetupView.swift": {
+    "mtime": 1783936842.8774893,
+    "ast_hash": "f7a196a6398db2adc91ed0bac889c21d",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SessionsView.swift": {
-    "mtime": 1779817587.467315,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/LLMProviderQuickSwitcherView.swift": {
+    "mtime": 1781005895.407,
+    "ast_hash": "f078b7eb68a57148e5fe81e47b4e4311",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/SessionsView.swift": {
+    "mtime": 1779817587.467,
     "ast_hash": "9aa70a8c832b509946277333985ca809",
-    "semantic_hash": "9aa70a8c832b509946277333985ca809"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SettingsView.swift": {
-    "mtime": 1780138465.291879,
-    "ast_hash": "54d606038b5c46859bb64f2c746016ef",
-    "semantic_hash": "54d606038b5c46859bb64f2c746016ef"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/SettingsView.swift": {
+    "mtime": 1783803344.5965211,
+    "ast_hash": "76b57fef11d7a4171d69d1c036031cba",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SessionDetailView.swift": {
-    "mtime": 1779915769.7996747,
-    "ast_hash": "b869241ff001c2af624962f021b19036",
-    "semantic_hash": "b869241ff001c2af624962f021b19036"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/SessionDetailView.swift": {
+    "mtime": 1780945618.678,
+    "ast_hash": "f211ba496e7bac3c50d952b2dbc5bd62",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/FloatingAssistantPanel.swift": {
-    "mtime": 1779831925.2710445,
-    "ast_hash": "7dcbafe21a49a64500577e288d479d9b",
-    "semantic_hash": "7dcbafe21a49a64500577e288d479d9b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/FloatingAssistantPanel.swift": {
+    "mtime": 1783936842.8777153,
+    "ast_hash": "cf3b8fc8313aa1505bcbcadbc1e57d29",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/HomeView.swift": {
-    "mtime": 1779915609.3272233,
-    "ast_hash": "ac70179433b9b1c21c88c493fcb0877e",
-    "semantic_hash": "ac70179433b9b1c21c88c493fcb0877e"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/HomeView.swift": {
+    "mtime": 1783936842.876915,
+    "ast_hash": "6b562e19001956ac003d40fd5806cd52",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/RootView.swift": {
-    "mtime": 1779819468.911665,
-    "ast_hash": "b2ae37a8678ef92b071e08a330ba056b",
-    "semantic_hash": "b2ae37a8678ef92b071e08a330ba056b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/RootView.swift": {
+    "mtime": 1783936842.8765807,
+    "ast_hash": "705890620e00bd27448aecb7992ccf5d",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/ProviderDiagnosticsView.swift": {
-    "mtime": 1780139813.7980862,
-    "ast_hash": "c9c928434d1ab09a64ffe076c5a5ddda",
-    "semantic_hash": "c9c928434d1ab09a64ffe076c5a5ddda"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/ProviderDiagnosticsView.swift": {
+    "mtime": 1780945899.644,
+    "ast_hash": "ceef97e9fe597b566423b3855d50a708",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/RAGDiagnosticsView.swift": {
-    "mtime": 1780138471.9444077,
-    "ast_hash": "54ba8049c2b316eecf4c7837547172b1",
-    "semantic_hash": "54ba8049c2b316eecf4c7837547172b1"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/RAGDiagnosticsView.swift": {
+    "mtime": 1780945791.151,
+    "ast_hash": "1e5028421f7c25da80301c52e6b4ecc8",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/FloatingAssistantView.swift": {
-    "mtime": 1780139783.9415843,
-    "ast_hash": "bc626363a3f43705ba31171500d30a86",
-    "semantic_hash": "bc626363a3f43705ba31171500d30a86"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/FloatingAssistantView.swift": {
+    "mtime": 1783875719.341348,
+    "ast_hash": "40bffdc702e43d8c4522fe2c6e5e1818",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/TranscriptView.swift": {
-    "mtime": 1779825183.2763333,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/TranscriptView.swift": {
+    "mtime": 1779825183.276,
     "ast_hash": "9a68fb130f54d663593733dd80f429f5",
-    "semantic_hash": "9a68fb130f54d663593733dd80f429f5"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/PermissionsDiagnosticView.swift": {
-    "mtime": 1780136716.70407,
-    "ast_hash": "e9e9fd9ece4ebe61ca9214073930445b",
-    "semantic_hash": "e9e9fd9ece4ebe61ca9214073930445b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/PermissionsDiagnosticView.swift": {
+    "mtime": 1783937179.1689806,
+    "ast_hash": "d0d9e61e438cfabd6548aad68deaafc6",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/SuggestionCardView.swift": {
-    "mtime": 1779950993.7963076,
-    "ast_hash": "a66fc7de1bf480e16b24392ce65157eb",
-    "semantic_hash": "a66fc7de1bf480e16b24392ce65157eb"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/SuggestionCardView.swift": {
+    "mtime": 1780523265.605,
+    "ast_hash": "a45d31a3ae7de72e8f464502365230ac",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/DocumentsView.swift": {
-    "mtime": 1779818208.6366808,
-    "ast_hash": "480558fac83e025c000d954008149bb8",
-    "semantic_hash": "480558fac83e025c000d954008149bb8"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/DocumentsView.swift": {
+    "mtime": 1783805801.516298,
+    "ast_hash": "4578787b143fb5ba14c68aaf40236fe1",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/LiveInterviewView.swift": {
-    "mtime": 1780139790.216443,
-    "ast_hash": "96fe07f6bf2e113c672184aed58c99bd",
-    "semantic_hash": "96fe07f6bf2e113c672184aed58c99bd"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/DiagnosticsView.swift": {
+    "mtime": 1783806634.1395538,
+    "ast_hash": "943d497979fd57ee55d9bbdf582bf884",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/OnboardingView.swift": {
-    "mtime": 1779819628.0436773,
-    "ast_hash": "8fe6e970eca6a6d724a690ce2c2ff2d0",
-    "semantic_hash": "8fe6e970eca6a6d724a690ce2c2ff2d0"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/LiveInterviewView.swift": {
+    "mtime": 1783936743.820972,
+    "ast_hash": "e3bf46ea3f937611fdb7f20513a29d0b",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/ProviderEditorView.swift": {
-    "mtime": 1779819570.3355641,
-    "ast_hash": "951e646afe5e08ce680f4cb2ad73b735",
-    "semantic_hash": "951e646afe5e08ce680f4cb2ad73b735"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/OnboardingView.swift": {
+    "mtime": 1783936842.8761396,
+    "ast_hash": "bd1297dc2eceeb46357c0c0adcccce4d",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/StatusPill.swift": {
-    "mtime": 1779889465.8913407,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/ReadinessCheckView.swift": {
+    "mtime": 1783710053.3912976,
+    "ast_hash": "a738e09b3b3f3827138ca4cdc5f7d8e2",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/ProviderEditorView.swift": {
+    "mtime": 1780945819.013,
+    "ast_hash": "7872859aeab4ed66d74169ff7d1c41dc",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/StatusPill.swift": {
+    "mtime": 1779889465.891,
     "ast_hash": "0d75c7fc572c7831249af9c3e3e45ba6",
-    "semantic_hash": "0d75c7fc572c7831249af9c3e3e45ba6"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/LoadingOverlay.swift": {
-    "mtime": 1779817442.084004,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/BuildIdentityCardView.swift": {
+    "mtime": 1781006231.551,
+    "ast_hash": "6da1304134a9005162c7a60772cc6572",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/LoadingOverlay.swift": {
+    "mtime": 1779817442.084,
     "ast_hash": "876bea6f9b9e37791197ac557348af1c",
-    "semantic_hash": "876bea6f9b9e37791197ac557348af1c"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/MicLevelIndicatorView.swift": {
-    "mtime": 1779889471.190244,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/ActionFeedbackViews.swift": {
+    "mtime": 1780944738.691,
+    "ast_hash": "2a06ac64234c234c6d0a2aed39a7b32d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/MicLevelIndicatorView.swift": {
+    "mtime": 1779889471.19,
     "ast_hash": "bc7fcd89654f2b40003823f1d6ee53d5",
-    "semantic_hash": "bc7fcd89654f2b40003823f1d6ee53d5"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/EmptyStateView.swift": {
-    "mtime": 1779817442.0837815,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/EmptyStateView.swift": {
+    "mtime": 1779817442.083,
     "ast_hash": "b90e454a72c6a3d0f3098054b04f30f9",
-    "semantic_hash": "b90e454a72c6a3d0f3098054b04f30f9"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Views/Components/PrimaryButton.swift": {
-    "mtime": 1779889467.4386797,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Views/Components/PrimaryButton.swift": {
+    "mtime": 1779889467.438,
     "ast_hash": "18fdc3de6795d205db15f62727bbf7d6",
-    "semantic_hash": "18fdc3de6795d205db15f62727bbf7d6"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/TranscriptRepository.swift": {
-    "mtime": 1780136234.438325,
-    "ast_hash": "05de02411c96426531fd21747b329f01",
-    "semantic_hash": "05de02411c96426531fd21747b329f01"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/StructuredEvidenceExtractor.swift": {
+    "mtime": 1783871333.5730617,
+    "ast_hash": "e06f9d4948b1cb50fd8553941bba65e2",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SimpleContextRetrievalService.swift": {
-    "mtime": 1780138579.6827385,
-    "ast_hash": "d9cf228e3bbb71439f988514bba9910a",
-    "semantic_hash": "d9cf228e3bbb71439f988514bba9910a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/TranscriptRepository.swift": {
+    "mtime": 1783259097.306,
+    "ast_hash": "2410d31af45d27059612d7cf56be28cb",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/DocumentRepository.swift": {
-    "mtime": 1780138456.9086244,
-    "ast_hash": "d3a79a0723f74dc941079e9743fe345b",
-    "semantic_hash": "d3a79a0723f74dc941079e9743fe345b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/InterviewContextRepository.swift": {
+    "mtime": 1783805773.5402625,
+    "ast_hash": "917f082ba0b07a686f0a40b218256968",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/PromptEvaluationService.swift": {
-    "mtime": 1779819285.141506,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SimpleContextRetrievalService.swift": {
+    "mtime": 1780523181.945,
+    "ast_hash": "bacb7adc204052337dfa7c9bfde202ac",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/DocumentRepository.swift": {
+    "mtime": 1783764155.3494096,
+    "ast_hash": "f2aa5e686a1c32f7085b1598f83b2381",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ASRCanonicalizer.swift": {
+    "mtime": 1783711479.8267581,
+    "ast_hash": "89fde540bb1fec2cfe17eebfb8defbe1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/PromptEvaluationService.swift": {
+    "mtime": 1779819285.141,
     "ast_hash": "8a9e090a96ad814489c09ce10f068767",
-    "semantic_hash": "8a9e090a96ad814489c09ce10f068767"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AppDatabase.swift": {
-    "mtime": 1780138446.3318017,
-    "ast_hash": "d49207097e72f2b92584c20ff788d9df",
-    "semantic_hash": "d49207097e72f2b92584c20ff788d9df"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AppDatabase.swift": {
+    "mtime": 1783936581.0205848,
+    "ast_hash": "f4829dfe6622e455c0d0dc133db36a5a",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/OpenAICompatibleLLMClient.swift": {
-    "mtime": 1780085111.6256278,
-    "ast_hash": "faca75977dc8bbb773258ea0e23dde14",
-    "semantic_hash": "faca75977dc8bbb773258ea0e23dde14"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/TranscriptReconciler.swift": {
+    "mtime": 1783351091.912,
+    "ast_hash": "2feee499b21f7b3132d8b7ec8e52aff3",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/CoreAudioProcessTapCaptureService.swift": {
-    "mtime": 1779830287.840537,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/QuestionRuntimeAcceptanceGuard.swift": {
+    "mtime": 1783711546.435947,
+    "ast_hash": "bb0f531afb35fb0a9d4ab7d2f95c8afe",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/OpenAICompatibleLLMClient.swift": {
+    "mtime": 1783192880.022,
+    "ast_hash": "a28cd8310e4e14689e52a968df7a1d21",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/CoreAudioProcessTapCaptureService.swift": {
+    "mtime": 1779830287.84,
     "ast_hash": "4bcde19d8e04a70a3eb7d686ce6d9a43",
-    "semantic_hash": "4bcde19d8e04a70a3eb7d686ce6d9a43"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/RecapRepository.swift": {
-    "mtime": 1779819363.4717886,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/RecapRepository.swift": {
+    "mtime": 1779819363.471,
     "ast_hash": "192b10b6cb2eddc4b1ef58910f079c52",
-    "semantic_hash": "192b10b6cb2eddc4b1ef58910f079c52"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/FutureLLMClients.swift": {
-    "mtime": 1779819145.7058108,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/FutureLLMClients.swift": {
+    "mtime": 1779819145.705,
     "ast_hash": "31096dcffba42f4d5bc871eec988a34a",
-    "semantic_hash": "31096dcffba42f4d5bc871eec988a34a"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/FutureTranscriptionServices.swift": {
-    "mtime": 1779829706.7227037,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/RuntimeTranscriptTraceStore.swift": {
+    "mtime": 1783936842.8788376,
+    "ast_hash": "e0ae12c2b1ae20a90927c36126bb4257",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ProjectGroundedFallbackPolicy.swift": {
+    "mtime": 1783710604.3480484,
+    "ast_hash": "1351f90fcfa580117e0663659ca37ea3",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/FutureTranscriptionServices.swift": {
+    "mtime": 1779829706.722,
     "ast_hash": "ab01144841b0ef4061610d9aebda458a",
-    "semantic_hash": "ab01144841b0ef4061610d9aebda458a"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ContextRetrievalService.swift": {
-    "mtime": 1780138529.4568658,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SystemAudioQuestionExtractor.swift": {
+    "mtime": 1781970634.311,
+    "ast_hash": "caf7a5c28ff7a6f763b327361081a573",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ContextRetrievalService.swift": {
+    "mtime": 1780138529.456,
     "ast_hash": "9165fd7c50befd3cd773674179b1f35a",
-    "semantic_hash": "9165fd7c50befd3cd773674179b1f35a"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/RoleFitAnalyzer.swift": {
-    "mtime": 1779819285.1412063,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/RoleFitAnalyzer.swift": {
+    "mtime": 1779819285.141,
     "ast_hash": "ca0fbcb654269e6f0651f51d449d05fa",
-    "semantic_hash": "ca0fbcb654269e6f0651f51d449d05fa"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/LLMClientProtocol.swift": {
-    "mtime": 1780084955.2371833,
-    "ast_hash": "af9df7c02ed339581a3049cab858c34d",
-    "semantic_hash": "af9df7c02ed339581a3049cab858c34d"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/IntentRouter.swift": {
+    "mtime": 1783884024.1138155,
+    "ast_hash": "5134d1a6b5d2896f592e9ee33e3cfe13",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/LLMRouter.swift": {
-    "mtime": 1780084971.77564,
-    "ast_hash": "2c891cc5f5f8e67ddb692a21769d23be",
-    "semantic_hash": "2c891cc5f5f8e67ddb692a21769d23be"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/LLMClientProtocol.swift": {
+    "mtime": 1780387987.785,
+    "ast_hash": "9d8d405a67a5a8f7f9809fba07929b87",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/KeychainService.swift": {
-    "mtime": 1780139265.3651776,
-    "ast_hash": "bec9a26daf089232482e076980af4e41",
-    "semantic_hash": "bec9a26daf089232482e076980af4e41"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/OllamaQwenProvider.swift": {
+    "mtime": 1783803098.9068642,
+    "ast_hash": "bf23dd05cc710ddd987cd444c870d5d5",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SuggestionGenerationService.swift": {
-    "mtime": 1780138481.067072,
-    "ast_hash": "2c457872028cf1851378c5a5f37cafd6",
-    "semantic_hash": "2c457872028cf1851378c5a5f37cafd6"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/LLMRouter.swift": {
+    "mtime": 1780386809.549,
+    "ast_hash": "b889cc277301d2840962ecb8c8162c3d",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/LocalDataService.swift": {
-    "mtime": 1779816803.3867006,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/LocalASRProviders.swift": {
+    "mtime": 1783936860.4328072,
+    "ast_hash": "ccb56f4744c04476d92bb7c8569fad72",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/KeychainService.swift": {
+    "mtime": 1783936622.1037276,
+    "ast_hash": "11db31bcead10848f2d839a72f74007b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SuggestionGenerationService.swift": {
+    "mtime": 1783713965.624136,
+    "ast_hash": "5866ea2053b1801f4eff9c5b37764777",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/LocalDataService.swift": {
+    "mtime": 1779816803.386,
     "ast_hash": "395629f08cf3b9ce9345822b78859778",
-    "semantic_hash": "395629f08cf3b9ce9345822b78859778"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioDeviceManager.swift": {
-    "mtime": 1779829812.380797,
-    "ast_hash": "f1a9f9bfc66f4a82defa5c3e7cf1eb71",
-    "semantic_hash": "f1a9f9bfc66f4a82defa5c3e7cf1eb71"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/QuestionCandidatePipeline.swift": {
+    "mtime": 1783889273.661526,
+    "ast_hash": "1bc2afaf3d5b4bc0756025e09a97ae10",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioEngineManager.swift": {
-    "mtime": 1779828958.648918,
-    "ast_hash": "f0d8d5f9e38916d67ec7293bc2f1313b",
-    "semantic_hash": "f0d8d5f9e38916d67ec7293bc2f1313b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AudioDeviceManager.swift": {
+    "mtime": 1783936860.4324045,
+    "ast_hash": "bccdaaff1d3669fba36462f167e51c4f",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioDeviceRouteMonitor.swift": {
-    "mtime": 1779828960.8664856,
-    "ast_hash": "1bcbdc10af97ceacd77f688bdb30df38",
-    "semantic_hash": "1bcbdc10af97ceacd77f688bdb30df38"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/DynamicInterviewContextEngine.swift": {
+    "mtime": 1783765960.0036893,
+    "ast_hash": "4a4af7f2296ac4bc3b02a252928f3fc0",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/PromptLibrary.swift": {
-    "mtime": 1779816865.5748117,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AudioEngineManager.swift": {
+    "mtime": 1783936860.432077,
+    "ast_hash": "44bc2eafd704ba67bed7a2b7d02c0de1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AudioDeviceRouteMonitor.swift": {
+    "mtime": 1781861747.002,
+    "ast_hash": "ea6e379730f8eb178702cb9fd310b7b7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/PromptLibrary.swift": {
+    "mtime": 1779816865.574,
     "ast_hash": "23358cad8e31387910f684b613e6cbd4",
-    "semantic_hash": "23358cad8e31387910f684b613e6cbd4"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/RecapGenerationService.swift": {
-    "mtime": 1779819248.7726555,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/RecapGenerationService.swift": {
+    "mtime": 1779819248.772,
     "ast_hash": "c84f5041a477cb7953808ec61511f103",
-    "semantic_hash": "c84f5041a477cb7953808ec61511f103"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/DeepSeekClient.swift": {
-    "mtime": 1779816913.504874,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/DeepSeekClient.swift": {
+    "mtime": 1779816913.504,
     "ast_hash": "b5cb25c3b1c466cc695c62b5d6fea8f0",
-    "semantic_hash": "b5cb25c3b1c466cc695c62b5d6fea8f0"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/MicrophoneDiagnosticsService.swift": {
-    "mtime": 1779828858.1776614,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/MicrophoneDiagnosticsService.swift": {
+    "mtime": 1779828858.177,
     "ast_hash": "221dace255af57a62bbf6fa5efd19aba",
-    "semantic_hash": "221dace255af57a62bbf6fa5efd19aba"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SessionRepository.swift": {
-    "mtime": 1779816741.080596,
-    "ast_hash": "11b62287794332d2cd8e8b884e50d89a",
-    "semantic_hash": "11b62287794332d2cd8e8b884e50d89a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SessionRepository.swift": {
+    "mtime": 1783708920.9871604,
+    "ast_hash": "9681eac6b2bd54579b3e8b4788705277",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ScreenCaptureKitSystemAudioCaptureService.swift": {
-    "mtime": 1780087524.1778884,
-    "ast_hash": "5d5aaf710d53110ae869c1963bae614d",
-    "semantic_hash": "5d5aaf710d53110ae869c1963bae614d"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ScreenCaptureKitSystemAudioCaptureService.swift": {
+    "mtime": 1783936860.431747,
+    "ast_hash": "ff3f6e57f555f7ec5df74b7976610e8e",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/TranscriptionService.swift": {
-    "mtime": 1779829708.326466,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SystemAudioUtteranceClassifier.swift": {
+    "mtime": 1783711546.4352715,
+    "ast_hash": "08c77b673fb947e4430ac0dd2c2d0ac0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/DynamicContextMigration.swift": {
+    "mtime": 1783708078.1669674,
+    "ast_hash": "f964178a29b3c67928d500f83eebd34e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/TranscriptionService.swift": {
+    "mtime": 1779829708.326,
     "ast_hash": "1ba37afa0d1137e00c66183e4ba7ffe1",
-    "semantic_hash": "1ba37afa0d1137e00c66183e4ba7ffe1"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ManualQuestionTranscriptionService.swift": {
-    "mtime": 1779875742.3237195,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ManualQuestionTranscriptionService.swift": {
+    "mtime": 1779875742.323,
     "ast_hash": "013b67048f5c136ca7a6c30d7f49cb3d",
-    "semantic_hash": "013b67048f5c136ca7a6c30d7f49cb3d"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/VectorStore.swift": {
-    "mtime": 1779951162.615605,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/VectorStore.swift": {
+    "mtime": 1779951162.615,
     "ast_hash": "6c13325f6be6da421d343915e442d97c",
-    "semantic_hash": "6c13325f6be6da421d343915e442d97c"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/QuestionDetectionService.swift": {
-    "mtime": 1780084981.648536,
-    "ast_hash": "0a5872b4ee1065b8ec1a103101940609",
-    "semantic_hash": "0a5872b4ee1065b8ec1a103101940609"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/QuestionDetectionService.swift": {
+    "mtime": 1783711546.4373662,
+    "ast_hash": "5b6cfe649e0eb5fbedce87b6b679bab4",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/HybridContextRetrievalService.swift": {
-    "mtime": 1780138725.6955295,
-    "ast_hash": "92f9d7f4ba37200129455561769e117d",
-    "semantic_hash": "92f9d7f4ba37200129455561769e117d"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/HybridContextRetrievalService.swift": {
+    "mtime": 1783711546.436918,
+    "ast_hash": "d0782de82ff9d84d64d80659946bcf37",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SettingsRepository.swift": {
-    "mtime": 1779819192.6441069,
-    "ast_hash": "a91fa942294877217bab1e6374936fe7",
-    "semantic_hash": "a91fa942294877217bab1e6374936fe7"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/QuestionCompletenessGate.swift": {
+    "mtime": 1783871554.2293153,
+    "ast_hash": "75129192be5fd3e57193888f2d2b27e7",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AudioInputService.swift": {
-    "mtime": 1779824818.9072187,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AutomaticInterviewContextBuilder.swift": {
+    "mtime": 1783875389.8211958,
+    "ast_hash": "4c9f140b92197e2864c555136d9113c1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SettingsRepository.swift": {
+    "mtime": 1780522727.332,
+    "ast_hash": "05619ff9062fe499edad707eca8369a8",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AudioInputService.swift": {
+    "mtime": 1779824818.907,
     "ast_hash": "e222da7c410c522d4f0f4eda9f6987d7",
-    "semantic_hash": "e222da7c410c522d4f0f4eda9f6987d7"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SampleBufferAudioConverter.swift": {
-    "mtime": 1779830278.4127424,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SampleBufferAudioConverter.swift": {
+    "mtime": 1779830278.412,
     "ast_hash": "a7fb5e82b2ecaae6d1cefce8e4aea269",
-    "semantic_hash": "a7fb5e82b2ecaae6d1cefce8e4aea269"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/AppleSpeechTranscriptionService.swift": {
-    "mtime": 1780136698.219037,
-    "ast_hash": "376cdd12e4a87d3825e3aec34c5e6356",
-    "semantic_hash": "376cdd12e4a87d3825e3aec34c5e6356"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/GenerationCoordinator.swift": {
+    "mtime": 1781899902.397,
+    "ast_hash": "d0c2c64c952460308c73810ac032d7f6",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/PermissionService.swift": {
-    "mtime": 1780087536.3769476,
-    "ast_hash": "9921c85728077071ec3b9048670fb5d8",
-    "semantic_hash": "9921c85728077071ec3b9048670fb5d8"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/AppleSpeechTranscriptionService.swift": {
+    "mtime": 1783259103.588,
+    "ast_hash": "22f6b69d12ab03b5e3d6dd7b250f84ea",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ScreenSystemAudioPermissionProbe.swift": {
-    "mtime": 1780087521.1870487,
-    "ast_hash": "5cdc046206ccfbf9f0b162ec15bd5bd5",
-    "semantic_hash": "5cdc046206ccfbf9f0b162ec15bd5bd5"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/PermissionService.swift": {
+    "mtime": 1781016808.171,
+    "ast_hash": "2a2387d566313cdd08ee547e8fc23332",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/QuestionBankGenerationService.swift": {
-    "mtime": 1779819285.141823,
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ScreenSystemAudioPermissionProbe.swift": {
+    "mtime": 1783936842.8743906,
+    "ast_hash": "2f3c50aac008bd72714525fd45a172cb",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/QuestionBankGenerationService.swift": {
+    "mtime": 1779819285.141,
     "ast_hash": "28a4110e90d4b8a8038cafac55bd861a",
-    "semantic_hash": "28a4110e90d4b8a8038cafac55bd861a"
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/SuggestionRepository.swift": {
-    "mtime": 1780136707.487754,
-    "ast_hash": "c4dfa61ef19768fa3e78d4607c87412b",
-    "semantic_hash": "c4dfa61ef19768fa3e78d4607c87412b"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/SuggestionRepository.swift": {
+    "mtime": 1783708620.5464997,
+    "ast_hash": "789c094a0cd9b8f3b7fa12f58ef98d8d",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/EmbeddingProvider.swift": {
-    "mtime": 1779951195.3153048,
-    "ast_hash": "78e1d3511dc3c7a20c28e29fce3a5a95",
-    "semantic_hash": "78e1d3511dc3c7a20c28e29fce3a5a95"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/FileLocalModelManager.swift": {
+    "mtime": 1783344275.125,
+    "ast_hash": "535844c85bad7cc19d3260a5a9ef8444",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/ManualQuestionCaptureService.swift": {
-    "mtime": 1779875736.4600763,
-    "ast_hash": "6d8d973cecd22eb79b1b1f91352ad8e0",
-    "semantic_hash": "6d8d973cecd22eb79b1b1f91352ad8e0"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/EmbeddingProvider.swift": {
+    "mtime": 1783711593.1488276,
+    "ast_hash": "7d5bf7d31280a260ce9021a74b019b6c",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/Sources/InterviewCopilotMac/Services/OllamaLLMClient.swift": {
-    "mtime": 1779916577.4225137,
-    "ast_hash": "66c08384c77b647d9cdcde9d7e22c273",
-    "semantic_hash": "66c08384c77b647d9cdcde9d7e22c273"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/Hireva/Services/ManualQuestionCaptureService.swift": {
+    "mtime": 1783936860.431422,
+    "ast_hash": "7fbbfe83d12b8c75dbf38e3f700ea56f",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/.vscode/launch.json": {
-    "mtime": 1779881739.1275096,
-    "ast_hash": "87afdaf930868f1b5401a8cbf3732d92",
-    "semantic_hash": "87afdaf930868f1b5401a8cbf3732d92"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Sources/HirevaRunner/main.swift": {
+    "mtime": 1783936725.2226858,
+    "ast_hash": "bbef915dc3e05343cd39be376aa871f1",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/README.md": {
-    "mtime": 1779874785.4634597,
-    "ast_hash": "ce7207a23ee80870f7e5d12019ca5382",
-    "semantic_hash": "ce7207a23ee80870f7e5d12019ca5382"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/.vscode/launch.json": {
+    "mtime": 1783936970.7631419,
+    "ast_hash": "60b21dd7f8de68171b5a3c12708b79b9",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/docs/signing-notarization.md": {
-    "mtime": 1779817656.99318,
-    "ast_hash": "a60e94bae245d4f34d4bb08b9d1410b3",
-    "semantic_hash": "a60e94bae245d4f34d4bb08b9d1410b3"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/README.md": {
+    "mtime": 1783936970.7628498,
+    "ast_hash": "21dd4bd2599c62e6ec579a2ea5208d30",
+    "semantic_hash": ""
   },
-  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/ai_interview/docs/security-threat-model.md": {
-    "mtime": 1779817656.9928114,
-    "ast_hash": "9f201b4507452bce83d234a7da68eb5a",
-    "semantic_hash": "9f201b4507452bce83d234a7da68eb5a"
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/job_description.md": {
+    "mtime": 1783851020.8093245,
+    "ast_hash": "ebed2a5affc7a4b149d325efac39557e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/resume.md": {
+    "mtime": 1783851020.8095767,
+    "ast_hash": "f9cb6b0ae5e24ddc542e45f081ab595e",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/optional_notes.md": {
+    "mtime": 1783851020.8100035,
+    "ast_hash": "b6ed3ba34c769a834ea7aaa7243c216a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/data_scientist_001/interview_dialogue_readable.md": {
+    "mtime": 1783851020.8109782,
+    "ast_hash": "c7c8dde23eab83f7032c1689eb538c9f",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/job_description.md": {
+    "mtime": 1783851020.8147707,
+    "ast_hash": "6750d148a38ac2c8f1e1ae38d918df99",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/resume.md": {
+    "mtime": 1783851020.814985,
+    "ast_hash": "3d62cf67317408f1109671c3429d05e2",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/optional_notes.md": {
+    "mtime": 1783851020.8152282,
+    "ast_hash": "b6ed3ba34c769a834ea7aaa7243c216a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/product_manager_001/interview_dialogue_readable.md": {
+    "mtime": 1783851020.815891,
+    "ast_hash": "da315a31f975a94bc59778fb6248e63a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/job_description.md": {
+    "mtime": 1783851020.820573,
+    "ast_hash": "a6cfe80f1a6aa04a8700e72c4ce8a4e0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/resume.md": {
+    "mtime": 1783851020.820861,
+    "ast_hash": "f73d635e05ce50a2ed6a206d4eb46f42",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/optional_notes.md": {
+    "mtime": 1783851020.8211377,
+    "ast_hash": "b6ed3ba34c769a834ea7aaa7243c216a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/cybersecurity_analyst_001/interview_dialogue_readable.md": {
+    "mtime": 1783851020.8218489,
+    "ast_hash": "f2ad4799681638f95868b69e5df70886",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/job_description.md": {
+    "mtime": 1783851020.8034706,
+    "ast_hash": "16cd46ba0e48a5e1be8032697329ce5f",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/resume.md": {
+    "mtime": 1783851020.8039658,
+    "ast_hash": "2440aee8a125a774e3111a96a9236a5d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/optional_notes.md": {
+    "mtime": 1783851020.8041937,
+    "ast_hash": "b6ed3ba34c769a834ea7aaa7243c216a",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Tests/HirevaTests/Fixtures/WebSourcedSyntheticContexts/backend_engineer_001/interview_dialogue_readable.md": {
+    "mtime": 1783851020.8049738,
+    "ast_hash": "b31c670797f54fed211cadc8af7480e8",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/button-feedback-audit.md": {
+    "mtime": 1783936970.769603,
+    "ast_hash": "1d09a52f73d977a89430f47cde1cbb3f",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/release-runbook.md": {
+    "mtime": 1783936970.7703404,
+    "ast_hash": "b080baed17102af64dc1aa966ed3e1d0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/runtime-regression-checklist.md": {
+    "mtime": 1783937017.8871827,
+    "ast_hash": "9cbf39966675ebddfcc9ec403ffe3178",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/local-workspace-migration.md": {
+    "mtime": 1783936970.7713072,
+    "ast_hash": "fa71ae1147bcb7785c88b466176574f0",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/notarization-prep.md": {
+    "mtime": 1783936970.77064,
+    "ast_hash": "9e5167ec30769d49c4c221176356e7b4",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/signing-notarization.md": {
+    "mtime": 1783936970.769364,
+    "ast_hash": "c05743be11855cbeacf1a6ebd6c2e8f1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/ui-product-polish-sprint.md": {
+    "mtime": 1783936970.7683334,
+    "ast_hash": "6e258378a57ed4cb5c8d355aa0fff72d",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/security-threat-model.md": {
+    "mtime": 1783936970.7674806,
+    "ast_hash": "e011a1ccdcb9fe0a8ca778a81375888b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/runtime-transcript-answer-pipeline-audit.md": {
+    "mtime": 1783936970.7710247,
+    "ast_hash": "09da1aaa6d1248bfb2a30871655fdeee",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/appstate-modularization.md": {
+    "mtime": 1783936970.7700403,
+    "ast_hash": "2dc41f937bc62e705a138f5910def9a6",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/parakeet-local-asr-runtime.md": {
+    "mtime": 1783936970.7688315,
+    "ast_hash": "3849a002a92bffae51752fda96056c07",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/ai-coding-agent-rules.md": {
+    "mtime": 1783936970.767756,
+    "ast_hash": "d9f74ab8dd41a7433d591c9d043399ac",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/rollback-known-good.md": {
+    "mtime": 1781881077.655,
+    "ast_hash": "5a3c9695e3ecff499eb762fc2e8df426",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/release-checklist.md": {
+    "mtime": 1783936970.7685986,
+    "ast_hash": "df1f897de722eecfb2668fdd525db9d7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/macos-local-signing.md": {
+    "mtime": 1783937017.8869112,
+    "ast_hash": "ca7fa9bd0f2c87a7c54df2dd79bb5bac",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/code-map.md": {
+    "mtime": 1783936970.7668662,
+    "ast_hash": "1837a54ece5e08831f8a28c2622efc45",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/docs/open-source-reference-map.md": {
+    "mtime": 1783936970.7657168,
+    "ast_hash": "9bf8298526d3cc1c365173aa12aa1ddd",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIconSource/app-icon.png": {
+    "mtime": 1781188115.329,
+    "ast_hash": "a0c5129c6ca2f7c3236f57d1609e4068",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_32x32@2x.png": {
+    "mtime": 1781188115.438,
+    "ast_hash": "6343f38b5bfb442d5bdf3bb15ada6aa1",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_128x128.png": {
+    "mtime": 1781188115.465,
+    "ast_hash": "66fd594f17cc5bef2d613f79b7b69e41",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_256x256@2x.png": {
+    "mtime": 1781188115.566,
+    "ast_hash": "65d8746626813c85e3b1ecb180d3b649",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_32x32.png": {
+    "mtime": 1781188115.413,
+    "ast_hash": "3ba23eb296730472c91ff33bb867a4f7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_512x512.png": {
+    "mtime": 1781188115.603,
+    "ast_hash": "65d8746626813c85e3b1ecb180d3b649",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_16x16.png": {
+    "mtime": 1781188115.362,
+    "ast_hash": "5b87e7eddebefee32a9fa03e19fe061b",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_16x16@2x.png": {
+    "mtime": 1781188115.388,
+    "ast_hash": "3ba23eb296730472c91ff33bb867a4f7",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_128x128@2x.png": {
+    "mtime": 1781188115.499,
+    "ast_hash": "7795d6ca46141249264a659e9a38ce65",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_512x512@2x.png": {
+    "mtime": 1781188115.671,
+    "ast_hash": "6189aee402cf74c29c86ef07922988b8",
+    "semantic_hash": ""
+  },
+  "/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva/Resources/AppIcon.iconset/icon_256x256.png": {
+    "mtime": 1781188115.528,
+    "ast_hash": "7795d6ca46141249264a659e9a38ce65",
+    "semantic_hash": ""
   }
 }

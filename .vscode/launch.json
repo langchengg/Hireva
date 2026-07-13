@@ -4,21 +4,21 @@
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:ai_interview}",
-            "name": "Debug InterviewCopilotMac",
-            "target": "InterviewCopilotMac",
+            "cwd": "${workspaceFolder:Hireva}",
+            "name": "Debug Hireva",
+            "target": "Hireva",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug InterviewCopilotMac"
+            "preLaunchTask": "swift: Build Debug Hireva"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:ai_interview}",
-            "name": "Release InterviewCopilotMac",
-            "target": "InterviewCopilotMac",
+            "cwd": "${workspaceFolder:Hireva}",
+            "name": "Release Hireva",
+            "target": "Hireva",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release InterviewCopilotMac"
+            "preLaunchTask": "swift: Build Release Hireva"
         }
     ]
 }

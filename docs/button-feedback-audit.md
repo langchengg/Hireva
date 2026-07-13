@@ -1,6 +1,6 @@
 # Button Feedback Audit
 
-Interaction Feedback / Button Responsiveness Sprint for InterviewCopilotMac.
+Interaction Feedback / Button Responsiveness Sprint for Hireva.
 
 ## Feedback Contract
 

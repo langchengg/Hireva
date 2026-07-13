@@ -30,8 +30,8 @@ over. Record command output rather than relying on an earlier run.
 
 - [ ] `./script/build_and_run.sh --verify` passes.
 - [ ] The launched process is
-      `dist/InterviewCopilotMac.app/Contents/MacOS/InterviewCopilotMacRunner`.
-- [ ] The bundle ID is `com.langcheng.InterviewCopilotMac`.
+      `dist/Hireva.app/Contents/MacOS/Hireva`.
+- [ ] The bundle ID is `com.langcheng.Hireva`.
 
 ## Full Stability Gate
 
@@ -57,7 +57,7 @@ over. Record command output rather than relying on an earlier run.
 - [ ] `./scripts/signing_status.sh` reports the expected explicit status.
 - [ ] `security find-identity -v -p codesigning` output is recorded.
 - [ ] Signing mode is recorded as Apple Development or ad-hoc fallback.
-- [ ] `codesign --verify --deep --strict --verbose=4 dist/InterviewCopilotMac.app`
+- [ ] `codesign --verify --deep --strict --verbose=4 dist/Hireva.app`
       passes.
 - [ ] Any Gatekeeper rejection is classified separately from signature validity.
 - [ ] Local handoff limitations are documented using `docs/macos-local-signing.md`.

@@ -1,15 +1,15 @@
 # Release Runbook
 
 This runbook covers local release preparation and operator handoff for
-InterviewCopilotMac. It does not replace notarization requirements for public
+Hireva. It does not replace notarization requirements for public
 distribution.
 
 ## Canonical Paths
 
-- App bundle: `dist/InterviewCopilotMac.app`
-- Runner: `dist/InterviewCopilotMac.app/Contents/MacOS/InterviewCopilotMacRunner`
-- SQLite database: `$HOME/Library/Application Support/InterviewCopilotMac/interview_copilot.sqlite`
-- Runtime trace: `$HOME/Library/Application Support/InterviewCopilotMac/runtime_transcript_trace.jsonl`
+- App bundle: `dist/Hireva.app`
+- Runner: `dist/Hireva.app/Contents/MacOS/Hireva`
+- SQLite database: `$HOME/Library/Application Support/Hireva/hireva.sqlite`
+- Runtime trace: `$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl`
 
 Always launch the app bundle. Do not use the raw SwiftPM executable when
 validating macOS permissions or stable app identity.
@@ -25,7 +25,7 @@ From the repository root:
 To launch an already-built bundle without rebuilding:
 
 ```bash
-open dist/InterviewCopilotMac.app
+open dist/Hireva.app
 ```
 
 To rebuild, sign, launch, and verify the exact packaged runner:
@@ -71,7 +71,7 @@ is still rebuilt and verified:
 ./scripts/package_local_release.sh --skip-verify
 ```
 
-Output is written under `release/InterviewCopilotMac-local-YYYYMMDD-HHMMSS/`
+Output is written under `release/Hireva-local-YYYYMMDD-HHMMSS/`
 with a sibling ZIP and `RELEASE_INFO.txt`. Inspect signing state with
 `scripts/signing_status.sh`. The package intentionally excludes repository,
 build cache, DB, trace, Keychain, and transcript data.
@@ -79,12 +79,12 @@ build cache, DB, trace, Keychain, and transcript data.
 This is a local handoff/archive package, not a portable installed-app release.
 The current build identity embeds the source workspace's absolute `dist` path,
 so launching the copied app elsewhere can display the existing stale-build
-warning. Run and verify the canonical `dist/InterviewCopilotMac.app` when an
+warning. Run and verify the canonical `dist/Hireva.app` when an
 unambiguous build-identity check is required.
 
 ## Configure the DeepSeek Key
 
-1. Launch `dist/InterviewCopilotMac.app`.
+1. Launch `dist/Hireva.app`.
 2. During onboarding, enter the key in **Optional DeepSeek API Key**, or open
    **Settings** and use the DeepSeek provider key field.
 3. Save the key, then run **Test DeepSeek**.
@@ -98,7 +98,7 @@ in the project or database.
 
 Repeated prompts commonly mean the app was rebuilt with a different signing
 identity or CDHash. Confirm that the bundle ID is
-`com.langcheng.InterviewCopilotMac`, launch from `dist/InterviewCopilotMac.app`,
+`com.langcheng.Hireva`, launch from `dist/Hireva.app`,
 and use a stable Apple Development identity as described in
 `docs/macos-local-signing.md`.
 
@@ -128,8 +128,8 @@ it. That is a trust-policy limitation, not a compilation failure.
 ## If System Audio Does Not Work
 
 1. Open **System Settings → Privacy & Security → Screen & System Audio Recording**
-   and enable Interview Copilot.
-2. Quit the app completely and reopen `dist/InterviewCopilotMac.app`; permission
+   and enable Hireva.
+2. Quit the app completely and reopen `dist/Hireva.app`; permission
    changes do not take effect in the existing process.
 3. Select **System Audio Only** or **Mic + System**, play audible content from
    the interview source, and confirm the System Audio meter moves in Diagnostics.

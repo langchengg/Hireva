@@ -2,9 +2,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="${SIGNING_STATUS_APP_BUNDLE:-$ROOT_DIR/dist/InterviewCopilotMac.app}"
+APP_BUNDLE="${SIGNING_STATUS_APP_BUNDLE:-$ROOT_DIR/dist/Hireva.app}"
 
-echo "=== InterviewCopilotMac Signing Status ==="
+echo "=== Hireva Signing Status ==="
 echo "App bundle: $APP_BUNDLE"
 echo ""
 echo "Available code signing identities:"
@@ -20,10 +20,10 @@ DEVELOPER_ID_COUNT="$(printf '%s\n' "$IDENTITY_OUTPUT" | grep -c '"Developer ID 
 echo "Apple Development identities: $APPLE_DEVELOPMENT_COUNT"
 echo "Developer ID Application identities: $DEVELOPER_ID_COUNT"
 
-if [[ -n "${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}" ]]; then
-    echo "INTERVIEW_COPILOT_SIGNING_IDENTITY: $INTERVIEW_COPILOT_SIGNING_IDENTITY"
+if [[ -n "${HIREVA_SIGNING_IDENTITY:-${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}}" ]]; then
+    echo "HIREVA_SIGNING_IDENTITY: ${HIREVA_SIGNING_IDENTITY:-$INTERVIEW_COPILOT_SIGNING_IDENTITY}"
 else
-    echo "INTERVIEW_COPILOT_SIGNING_IDENTITY: unset"
+    echo "HIREVA_SIGNING_IDENTITY: unset"
 fi
 
 echo ""

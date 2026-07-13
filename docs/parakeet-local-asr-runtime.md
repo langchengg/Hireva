@@ -9,7 +9,7 @@ the model files and a sidecar executable are present.
 - Descriptor id: `parakeet-tdt-0.6b-v3-int8`
 - Display name: `Parakeet TDT 0.6B`
 - ASR source metadata: `local_parakeet_asr`
-- Local path: `~/Library/Application Support/InterviewCopilotMac/LocalModels/asr/parakeet-tdt-0.6b-v3-int8`
+- Local path: `~/Library/Application Support/Hireva/LocalModels/asr/parakeet-tdt-0.6b-v3-int8`
 - Download URL: `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2`
 - Checksum: not configured
 
@@ -27,7 +27,7 @@ does not publish a single checksum manifest for this app to verify.
 ## Runtime contract
 
 The app launches a sidecar process from `PARAKEET_ASR_SIDECAR_PATH` or the
-`InterviewCopilot.parakeetSidecarPath` user default. The executable must accept:
+`Hireva.parakeetSidecarPath` user default. The executable must accept:
 
 ```text
 --model-dir <absolute model directory>
@@ -96,7 +96,7 @@ Direct WAV validation:
 say -o /tmp/parakeet_test.aiff "How did the robot decide which object to approach?"
 afconvert -f WAVE -d LEI16@16000 /tmp/parakeet_test.aiff /tmp/parakeet_test.wav
 scripts/parakeet_asr_sidecar.py \
-  --model-dir "$HOME/Library/Application Support/InterviewCopilotMac/LocalModels/asr/parakeet-tdt-0.6b-v3-int8" \
+  --model-dir "$HOME/Library/Application Support/Hireva/LocalModels/asr/parakeet-tdt-0.6b-v3-int8" \
   --session-id direct-test \
   --capture-mode systemAudioOnly \
   --jsonl \
@@ -112,7 +112,7 @@ export PARAKEET_ASR_SIDECAR_PATH="$PWD/scripts/parakeet_asr_sidecar.py"
 or persist the path for the app bundle domain:
 
 ```bash
-defaults write com.langcheng.InterviewCopilotMac InterviewCopilot.parakeetSidecarPath "$PWD/scripts/parakeet_asr_sidecar.py"
+defaults write com.langcheng.Hireva Hireva.parakeetSidecarPath "$PWD/scripts/parakeet_asr_sidecar.py"
 ```
 
 ## Limitations

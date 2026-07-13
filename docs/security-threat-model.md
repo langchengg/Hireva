@@ -1,8 +1,8 @@
-# InterviewCopilotMac Threat Model
+# Hireva Threat Model
 
 ## Scope
 
-InterviewCopilotMac is a local native macOS SwiftUI app. In scope: CV/JD document storage, transcript/session storage, Keychain API key storage, DeepSeek API calls, microphone/Speech permissions, mock interview input, markdown export, and local diagnostics. Out of scope: remote backend services, stealth overlays, anti-detection behavior, and local model inference.
+Hireva is a local native macOS SwiftUI app. In scope: CV/JD document storage, transcript/session storage, Keychain API key storage, DeepSeek API calls, microphone/Speech permissions, mock interview input, markdown export, and local diagnostics. Out of scope: remote backend services, stealth overlays, anti-detection behavior, and local model inference.
 
 ## Assets
 

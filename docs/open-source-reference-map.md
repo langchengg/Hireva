@@ -1,12 +1,12 @@
 # Open-Source Reference Map
 
-This document maps selected open-source repositories to InterviewCopilotMac subsystems. It is a research and architecture reference only. It does not add dependencies, vendor source code, or recommend production behavior changes in this pass.
+This document maps selected open-source repositories to Hireva subsystems. It is a research and architecture reference only. It does not add dependencies, vendor source code, or recommend production behavior changes in this pass.
 
 License notes below are conservative engineering guidance, not legal advice. Before copying or vendoring any third-party code, re-check the upstream license, notices, dependency tree, platform support, and distribution requirements.
 
 ## Subsystem Mapping
 
-| Repository | Primary subsystem mapping | Recommended use in InterviewCopilotMac |
+| Repository | Primary subsystem mapping | Recommended use in Hireva |
 |---|---|---|
 | [insidegui/AudioCap](https://github.com/insidegui/AudioCap) | System/process audio capture | Conceptual reference for future macOS 14.4+ Core Audio process tap work. |
 | [argmaxinc/argmax-oss-swift](https://github.com/argmaxinc/argmax-oss-swift) / WhisperKit | Future local/on-device ASR architecture | Reference only for ASR stream architecture, model selection, and local server ideas. |

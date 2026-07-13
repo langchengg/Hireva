@@ -1,4 +1,4 @@
-# InterviewCopilotMac UI Product Polish Sprint
+# Hireva UI Product Polish Sprint
 
 ## Current Problems
 

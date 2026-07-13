@@ -6,15 +6,15 @@ requirement for broadly distributing an app outside a trusted local workflow.
 ## Current Local Signing State
 
 `script/build_and_run.sh` uses an explicit
-`INTERVIEW_COPILOT_SIGNING_IDENTITY` when provided. Otherwise it falls back to
+`HIREVA_SIGNING_IDENTITY` when provided. Otherwise it falls back to
 ad-hoc signing. Ad-hoc signing can satisfy structural `codesign` verification,
 but it does not establish a stable trusted developer identity and Gatekeeper
 may still reject the app.
 
 The stable local identity consists of all three values:
 
-- bundle ID: `com.langcheng.InterviewCopilotMac`;
-- bundle path: `dist/InterviewCopilotMac.app`;
+- bundle ID: `com.langcheng.Hireva`;
+- bundle path: `dist/Hireva.app`;
 - code-signing identity/designated requirement.
 
 ## Why Rebuilds Can Trigger Keychain or TCC Prompts
@@ -41,7 +41,7 @@ identity signing.
 ## Build and Verify with Apple Development Signing
 
 ```bash
-INTERVIEW_COPILOT_SIGNING_IDENTITY="Apple Development: NAME (TEAMID)" ./script/build_and_run.sh --verify
+HIREVA_SIGNING_IDENTITY="Apple Development: NAME (TEAMID)" ./script/build_and_run.sh --verify
 ```
 
 Use the exact identity string returned by `security find-identity`. Do not put
@@ -50,10 +50,10 @@ the identity or API keys into source files.
 ## Diagnose Signing and Gatekeeper Failures
 
 ```bash
-codesign -dv --verbose=4 dist/InterviewCopilotMac.app
-codesign --verify --deep --strict --verbose=4 dist/InterviewCopilotMac.app
-spctl --assess --type execute --verbose=4 dist/InterviewCopilotMac.app || true
-xattr -lr dist/InterviewCopilotMac.app || true
+codesign -dv --verbose=4 dist/Hireva.app
+codesign --verify --deep --strict --verbose=4 dist/Hireva.app
+spctl --assess --type execute --verbose=4 dist/Hireva.app || true
+xattr -lr dist/Hireva.app || true
 ```
 
 Interpret the results separately:

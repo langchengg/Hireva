@@ -3,15 +3,15 @@ set -uo pipefail
 
 DEFAULT_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="${RELEASE_STATUS_ROOT_DIR:-$DEFAULT_ROOT_DIR}"
-APP_BUNDLE="${RELEASE_STATUS_APP_BUNDLE:-$ROOT_DIR/dist/InterviewCopilotMac.app}"
-APP_BINARY="${RELEASE_STATUS_APP_BINARY:-$APP_BUNDLE/Contents/MacOS/InterviewCopilotMacRunner}"
+APP_BUNDLE="${RELEASE_STATUS_APP_BUNDLE:-$ROOT_DIR/dist/Hireva.app}"
+APP_BINARY="${RELEASE_STATUS_APP_BINARY:-$APP_BUNDLE/Contents/MacOS/Hireva}"
 INFO_PLIST="${RELEASE_STATUS_INFO_PLIST:-$APP_BUNDLE/Contents/Info.plist}"
-DB_PATH="${RELEASE_STATUS_DB_PATH:-$HOME/Library/Application Support/InterviewCopilotMac/interview_copilot.sqlite}"
-TRACE_PATH="${RELEASE_STATUS_TRACE_PATH:-$HOME/Library/Application Support/InterviewCopilotMac/runtime_transcript_trace.jsonl}"
-EXPECTED_BUNDLE_ID="com.langcheng.InterviewCopilotMac"
+DB_PATH="${RELEASE_STATUS_DB_PATH:-$HOME/Library/Application Support/Hireva/hireva.sqlite}"
+TRACE_PATH="${RELEASE_STATUS_TRACE_PATH:-$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl}"
+EXPECTED_BUNDLE_ID="com.langcheng.Hireva"
 OVERALL_STATUS=0
 
-echo "=== InterviewCopilotMac Release Status ==="
+echo "=== Hireva Release Status ==="
 echo "Repository root: $ROOT_DIR"
 echo "Current branch: $(git -C "$ROOT_DIR" branch --show-current 2>/dev/null || echo unknown)"
 echo "Latest commit: $(git -C "$ROOT_DIR" log -1 --format='%h %cI %s' 2>/dev/null || echo unavailable)"
@@ -92,10 +92,10 @@ for relative_path in \
     fi
 done
 
-if [[ -n "${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}" ]]; then
-    echo "INTERVIEW_COPILOT_SIGNING_IDENTITY: set"
+if [[ -n "${HIREVA_SIGNING_IDENTITY:-${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}}" ]]; then
+    echo "HIREVA_SIGNING_IDENTITY: set"
 else
-    echo "INTERVIEW_COPILOT_SIGNING_IDENTITY: unset (ad-hoc fallback)"
+    echo "HIREVA_SIGNING_IDENTITY: unset (ad-hoc fallback)"
 fi
 
 IDENTITY_OUTPUT="$(security find-identity -v -p codesigning 2>/dev/null || true)"

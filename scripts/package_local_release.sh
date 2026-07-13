@@ -5,7 +5,7 @@ usage() {
     cat <<'USAGE'
 Usage: ./scripts/package_local_release.sh [--skip-verify]
 
-Build and validate a local InterviewCopilotMac release package.
+Build and validate a local Hireva release package.
 
 Options:
   --skip-verify  Skip verify_runtime_stability.sh only. The packaged app is
@@ -34,12 +34,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/dist/InterviewCopilotMac.app"
-APP_BINARY="$APP_BUNDLE/Contents/MacOS/InterviewCopilotMacRunner"
+APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/Hireva"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
-EXPECTED_BUNDLE_ID="com.langcheng.InterviewCopilotMac"
-DB_PATH="$HOME/Library/Application Support/InterviewCopilotMac/interview_copilot.sqlite"
-TRACE_PATH="$HOME/Library/Application Support/InterviewCopilotMac/runtime_transcript_trace.jsonl"
+EXPECTED_BUNDLE_ID="com.langcheng.Hireva"
+DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
+TRACE_PATH="$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl"
 RELEASE_ROOT="$ROOT_DIR/release"
 STARTED_AT="$(date +%s)"
 
@@ -91,13 +91,13 @@ elif printf '%s\n' "$SIGNING_DETAILS" | grep -q '^Authority=Apple Development:';
 else
     SIGNING_MODE="UNKNOWN"
 fi
-SIGNING_IDENTITY="${INTERVIEW_COPILOT_SIGNING_IDENTITY:-not configured}"
+SIGNING_IDENTITY="${HIREVA_SIGNING_IDENTITY:-${INTERVIEW_COPILOT_SIGNING_IDENTITY:-not configured}}"
 
 TIMESTAMP="$(date -u +'%Y%m%d-%H%M%S')"
-RELEASE_NAME="InterviewCopilotMac-local-$TIMESTAMP"
+RELEASE_NAME="Hireva-local-$TIMESTAMP"
 RELEASE_DIR="$RELEASE_ROOT/$RELEASE_NAME"
 ZIP_PATH="$RELEASE_ROOT/$RELEASE_NAME.zip"
-PACKAGED_APP="$RELEASE_DIR/InterviewCopilotMac.app"
+PACKAGED_APP="$RELEASE_DIR/Hireva.app"
 RELEASE_INFO="$RELEASE_DIR/RELEASE_INFO.txt"
 
 mkdir -p "$RELEASE_ROOT"
@@ -140,11 +140,11 @@ GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 GIT_STATUS="$(git status --short 2>/dev/null || true)"
 LATEST_TAG="$(git tag --sort=-creatordate 2>/dev/null | head -n 1 || true)"
 TAG_LIST="$(git tag --sort=-creatordate 2>/dev/null | head -n 10 || true)"
-BUNDLE_SOURCE_COMMIT="$(/usr/libexec/PlistBuddy -c 'Print :ICGitCommitHash' "$INFO_PLIST" 2>/dev/null || echo unavailable)"
+BUNDLE_SOURCE_COMMIT="$(/usr/libexec/PlistBuddy -c 'Print :HirevaGitCommitHash' "$INFO_PLIST" 2>/dev/null || echo unavailable)"
 APP_BINARY_TIMESTAMP="$(stat -f '%Sm' "$APP_BINARY" 2>/dev/null || echo unavailable)"
 
 {
-    echo "InterviewCopilotMac Local Release"
+    echo "Hireva Local Release"
     echo "Generated UTC: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     echo "Git branch: $GIT_BRANCH"
     echo "Git commit: $GIT_COMMIT"
@@ -156,7 +156,7 @@ APP_BINARY_TIMESTAMP="$(stat -f '%Sm' "$APP_BINARY" 2>/dev/null || echo unavaila
     if [[ -n "$GIT_STATUS" ]]; then printf '%s\n' "$GIT_STATUS"; else echo "(clean)"; fi
     echo "Bundle ID: $BUNDLE_ID"
     echo "Source app path: $APP_BUNDLE"
-    echo "Packaged app path: $RELEASE_NAME/InterviewCopilotMac.app"
+    echo "Packaged app path: $RELEASE_NAME/Hireva.app"
     echo "Signing mode: $SIGNING_MODE"
     echo "Signing identity if used: $SIGNING_IDENTITY"
     echo "App binary timestamp: $APP_BINARY_TIMESTAMP"
@@ -167,7 +167,7 @@ APP_BINARY_TIMESTAMP="$(stat -f '%Sm' "$APP_BINARY" 2>/dev/null || echo unavaila
     echo "Expected DB path: $DB_PATH"
     echo "Expected trace path: $TRACE_PATH"
     echo "WARNING: The packaged app is a local handoff artifact, not a portable installed-app release."
-    echo "WARNING: Launching it outside the source workspace's dist path can show the existing stale-build warning because ICExpectedBundlePath is absolute."
+    echo "WARNING: Launching it outside the source workspace's dist path can show the existing stale-build warning because HirevaExpectedBundlePath is absolute."
     if [[ "$SIGNING_MODE" == "AD_HOC" ]]; then
         echo "WARNING: This package is ad-hoc signed. It is for local development/handoff only."
     fi
@@ -183,7 +183,7 @@ APP_BINARY_TIMESTAMP="$(stat -f '%Sm' "$APP_BINARY" 2>/dev/null || echo unavaila
 # appears despite the allowlisted copy above.
 FORBIDDEN_PATH="$(find "$RELEASE_DIR" \
     \( -name '.git' -o -name '.build' -o -name '.DS_Store' -o -name '._*' \
-       -o -name 'interview_copilot.sqlite' -o -name 'runtime_transcript_trace.jsonl' \
+       -o -name 'hireva.sqlite' -o -name 'runtime_transcript_trace.jsonl' \
        -o -name '*.sqlite' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \) \
     -print -quit 2>/dev/null || true)"
 if [[ -n "$FORBIDDEN_PATH" ]]; then
@@ -204,7 +204,7 @@ if [[ ! -f "$ZIP_PATH" ]]; then
 fi
 
 ARCHIVE_LISTING="$(/usr/bin/unzip -Z1 "$ZIP_PATH")"
-if printf '%s\n' "$ARCHIVE_LISTING" | grep -Eq '(^|/)(\.git|\.build|__MACOSX)(/|$)|(^|/)(\.DS_Store|\._[^/]*)$|interview_copilot\.sqlite|runtime_transcript_trace\.jsonl|\.sqlite-(wal|shm)$'; then
+if printf '%s\n' "$ARCHIVE_LISTING" | grep -Eq '(^|/)(\.git|\.build|__MACOSX)(/|$)|(^|/)(\.DS_Store|\._[^/]*)$|\.sqlite($|-)|runtime_transcript_trace\.jsonl'; then
     echo "error: ZIP archive contains a forbidden path" >&2
     printf '%s\n' "$ARCHIVE_LISTING" >&2
     exit 1

@@ -21,7 +21,7 @@ assisted changes.
 9. Do not accept `swift test` alone for runtime changes. Run
    `./scripts/verify_runtime_stability.sh` and complete any manual smoke required
    by `docs/runtime-regression-checklist.md`.
-10. Rebuild and verify the actual `dist/InterviewCopilotMac.app` after every
+10. Rebuild and verify the actual `dist/Hireva.app` after every
     implementation change; do not validate runtime permissions from `.build`.
 
 ## Release-Readiness References

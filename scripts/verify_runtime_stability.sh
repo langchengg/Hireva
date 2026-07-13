@@ -2,10 +2,10 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/dist/InterviewCopilotMac.app"
-APP_BINARY="$ROOT_DIR/dist/InterviewCopilotMac.app/Contents/MacOS/InterviewCopilotMacRunner"
+APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
+APP_BINARY="$ROOT_DIR/dist/Hireva.app/Contents/MacOS/Hireva"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
-DB_PATH="$HOME/Library/Application Support/InterviewCopilotMac/interview_copilot.sqlite"
+DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
 TOTAL_STARTED_AT="$(date +%s)"
 
 STEP_NAMES=()
@@ -112,11 +112,11 @@ print_bundle_timestamps() {
 
     stat -f "%Sm  %N" "$APP_BUNDLE"
     stat -f "%Sm  %N" "$APP_BINARY"
-    if ! build_timestamp_utc="$(/usr/libexec/PlistBuddy -c 'Print :ICBuildTimestampUTC' "$INFO_PLIST")"; then
-        echo "error: ICBuildTimestampUTC is missing from $INFO_PLIST" >&2
+    if ! build_timestamp_utc="$(/usr/libexec/PlistBuddy -c 'Print :HirevaBuildTimestampUTC' "$INFO_PLIST")"; then
+        echo "error: HirevaBuildTimestampUTC is missing from $INFO_PLIST" >&2
         return 1
     fi
-    echo "ICBuildTimestampUTC: $build_timestamp_utc"
+    echo "HirevaBuildTimestampUTC: $build_timestamp_utc"
 }
 
 cd "$ROOT_DIR" || {

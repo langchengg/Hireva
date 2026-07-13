@@ -3,41 +3,41 @@
 import PackageDescription
 
 let package = Package(
-    name: "InterviewCopilotMac",
+    name: "Hireva",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .library(name: "InterviewCopilotMacCore", targets: ["InterviewCopilotMac"]),
-        .executable(name: "InterviewCopilotMac", targets: ["InterviewCopilotMacRunner"])
+        .library(name: "HirevaCore", targets: ["Hireva"]),
+        .executable(name: "Hireva", targets: ["HirevaRunner"])
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.3")
     ],
     targets: [
         .target(
-            name: "InterviewCopilotMac",
+            name: "Hireva",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
-            path: "Sources/InterviewCopilotMac",
+            path: "Sources/Hireva",
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug))
             ]
         ),
         .executableTarget(
-            name: "InterviewCopilotMacRunner",
+            name: "HirevaRunner",
             dependencies: [
-                .target(name: "InterviewCopilotMac")
+                .target(name: "Hireva")
             ],
-            path: "Sources/InterviewCopilotMacRunner"
+            path: "Sources/HirevaRunner"
         ),
         .testTarget(
-            name: "InterviewCopilotMacTests",
+            name: "HirevaTests",
             dependencies: [
-                .target(name: "InterviewCopilotMac")
+                .target(name: "Hireva")
             ],
-            path: "Tests/InterviewCopilotMacTests",
+            path: "Tests/HirevaTests",
             resources: [
                 .process("Fixtures/backend_candidate_profile.json"),
                 .process("Fixtures/backend_opportunity_context.json"),

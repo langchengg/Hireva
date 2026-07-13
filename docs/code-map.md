@@ -1,11 +1,11 @@
-# InterviewCopilotMac Code Map
+# Hireva Code Map
 
 This document maps the live interview pipeline and the boundaries that should
 stay intact during future refactors.
 
 ## High-Level Architecture
 
-InterviewCopilotMac is a native macOS interview copilot. The product flow is:
+Hireva is a native macOS interview copilot. The product flow is:
 
 `audio -> transcript -> question detection -> prompt/context -> RAG -> DeepSeek -> suggestion -> alignment -> UI/DB`
 

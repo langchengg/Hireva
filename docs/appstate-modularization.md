@@ -6,44 +6,44 @@ schema, and System Audio capture rules are intentionally unchanged.
 
 ## Extracted File List
 
-- `Sources/InterviewCopilotMac/AppState.swift`
+- `Sources/Hireva/AppState.swift`
   - Root `@MainActor` observable object.
   - Published state storage, dependency construction, initialization, app active
     observer setup, test mock injection, and the main `generateSuggestion()`
     pipeline.
-- `Sources/InterviewCopilotMac/AppState+Actions.swift`
+- `Sources/Hireva/AppState+Actions.swift`
   - Action feedback, loading states, and user-facing action notifications.
-- `Sources/InterviewCopilotMac/AppState+Audio.swift`
+- `Sources/Hireva/AppState+Audio.swift`
   - Live listening start/stop, live session reset/clear, audio route restart,
     audio signal monitoring, and continuous pipeline stopping.
-- `Sources/InterviewCopilotMac/AppState+Diagnostics.swift`
+- `Sources/Hireva/AppState+Diagnostics.swift`
   - Main-thread heartbeat, active task diagnostics, capture event logging, and
     SQLite operation summaries.
-- `Sources/InterviewCopilotMac/AppState+Documents.swift`
+- `Sources/Hireva/AppState+Documents.swift`
   - CV/JD/notes saving and document-related refresh hooks.
-- `Sources/InterviewCopilotMac/AppState+Generation.swift`
+- `Sources/Hireva/AppState+Generation.swift`
   - Generation lifecycle helpers, active generation guards, fallback cards,
     watchdog registration, streaming section publishing, alignment display
     guards, stale callback accounting, and suggestion persistence helpers.
-- `Sources/InterviewCopilotMac/AppState+ManualCapture.swift`
+- `Sources/Hireva/AppState+ManualCapture.swift`
   - Manual push-to-ask recording, transcription, cleanup, retry, and manual
     suggestion generation.
-- `Sources/InterviewCopilotMac/AppState+Permissions.swift`
+- `Sources/Hireva/AppState+Permissions.swift`
   - macOS permission status refresh, permission probes, and permission actions.
-- `Sources/InterviewCopilotMac/AppState+Providers.swift`
+- `Sources/Hireva/AppState+Providers.swift`
   - Provider configuration, provider testing, API key save/delete flow, and
     provider selection.
-- `Sources/InterviewCopilotMac/AppState+QuestionDetection.swift`
+- `Sources/Hireva/AppState+QuestionDetection.swift`
   - System-audio question extraction, utterance classification, duplicate
     suppression, automatic detection, and automatic suggestion trigger routing.
-- `Sources/InterviewCopilotMac/AppState+RAG.swift`
+- `Sources/Hireva/AppState+RAG.swift`
   - RAG cache keys, realtime context trimming, compact document summaries,
     embedding provider resolution, embedding rebuild/cancel, clean RAG rebuild,
     and latency refresh.
-- `Sources/InterviewCopilotMac/AppState+Sessions.swift`
+- `Sources/Hireva/AppState+Sessions.swift`
   - Session loading, session details, export/delete, floating panel visibility,
     and user-facing error helpers.
-- `Sources/InterviewCopilotMac/AppState+Transcript.swift`
+- `Sources/Hireva/AppState+Transcript.swift`
   - Transcript ingestion, transcript persistence, source attribution, and RAG
     precompute scheduling.
 
@@ -133,4 +133,4 @@ Create coordinator types after runtime acceptance is stable:
      real System Audio smoke tests are passing reliably.
 
 Phase 2 should be test-driven and should not start until full tests and manual
-runtime smoke tests pass against the rebuilt `dist/InterviewCopilotMac.app`.
+runtime smoke tests pass against the rebuilt `dist/Hireva.app`.

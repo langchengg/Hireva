@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # =============================================================================
-# Interview Copilot Mac — Build, Sign & Launch
+# Hireva - Build, Sign & Launch
 #
 # Key requirement: keep the bundle identifier and path stable.
 #
@@ -16,19 +16,18 @@ set -euo pipefail
 # =============================================================================
 
 MODE="${1:-run}"
-REQUESTED_SIGNING_IDENTITY="${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}"
-REQUESTED_SWIFTPM_BUILD_PATH="${INTERVIEW_COPILOT_SWIFTPM_BUILD_PATH:-}"
-REQUESTED_PREBUILT_BINARY="${INTERVIEW_COPILOT_PREBUILT_BINARY:-}"
-REQUESTED_FIXED_USER_HOME="${INTERVIEW_COPILOT_FIXED_USER_HOME:-}"
+REQUESTED_SIGNING_IDENTITY="${HIREVA_SIGNING_IDENTITY:-${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}}"
+REQUESTED_SWIFTPM_BUILD_PATH="${HIREVA_SWIFTPM_BUILD_PATH:-${INTERVIEW_COPILOT_SWIFTPM_BUILD_PATH:-}}"
+REQUESTED_PREBUILT_BINARY="${HIREVA_PREBUILT_BINARY:-${INTERVIEW_COPILOT_PREBUILT_BINARY:-}}"
+REQUESTED_FIXED_USER_HOME="${HIREVA_FIXED_USER_HOME:-${INTERVIEW_COPILOT_FIXED_USER_HOME:-}}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
-APP_NAME="InterviewCopilotMac"                    # .app bundle name
-EXECUTABLE_NAME="InterviewCopilotMacRunner"       # CFBundleExecutable (binary inside .app)
-LEGACY_EXECUTABLE_NAME="InterviewCopilotMac"
-SPM_PRODUCT_NAME="InterviewCopilotMac"            # SPM product name (output of swift build)
-BUNDLE_ID="com.langcheng.InterviewCopilotMac"
+APP_NAME="Hireva"                                  # .app bundle name
+EXECUTABLE_NAME="Hireva"                           # CFBundleExecutable (binary inside .app)
+SPM_PRODUCT_NAME="Hireva"                          # SPM product name (output of swift build)
+BUNDLE_ID="com.langcheng.Hireva"
 ADHOC_DESIGNATED_REQUIREMENT="=designated => identifier \"$BUNDLE_ID\""
-DISPLAY_NAME="Interview Copilot"
+DISPLAY_NAME="Hireva"
 VERSION="0.1.0"
 BUILD_NUMBER="1"
 MIN_SYSTEM_VERSION="14.0"
@@ -44,6 +43,10 @@ APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.icns"
 APP_ICON_BUNDLE="$APP_RESOURCES/AppIcon.icns"
+PARAKEET_SIDECAR_SOURCE="$ROOT_DIR/scripts/parakeet_asr_sidecar"
+PARAKEET_SIDECAR_PYTHON_SOURCE="$ROOT_DIR/scripts/parakeet_asr_sidecar.py"
+PARAKEET_SIDECAR_BUNDLE="$APP_RESOURCES/parakeet_asr_sidecar"
+PARAKEET_SIDECAR_PYTHON_BUNDLE="$APP_RESOURCES/parakeet_asr_sidecar.py"
 BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
@@ -113,8 +116,10 @@ usage: $0 [run|--relaunch|--debug|--logs|--telemetry|--verify|--identity-check|-
   --reset-tcc       Reset all TCC permissions for the app's bundle ID
 
 Environment:
-  INTERVIEW_COPILOT_FIXED_USER_HOME=/path
+  HIREVA_FIXED_USER_HOME=/path
                      Pass CFFIXED_USER_HOME only to the launched app process
+  HIREVA_SIGNING_IDENTITY, HIREVA_SWIFTPM_BUILD_PATH, HIREVA_PREBUILT_BINARY
+                     Configure signing and build inputs.
 EOF
 }
 
@@ -138,11 +143,6 @@ if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
     tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null || true
     tccutil reset SpeechRecognition "$BUNDLE_ID" 2>/dev/null || true
     tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null || true
-    echo ""
-    echo "Also resetting old bundle ID (com.interviewcopilot.mac) ..."
-    tccutil reset Microphone com.interviewcopilot.mac 2>/dev/null || true
-    tccutil reset SpeechRecognition com.interviewcopilot.mac 2>/dev/null || true
-    tccutil reset ScreenCapture com.interviewcopilot.mac 2>/dev/null || true
     echo "Done. Rebuild and relaunch to re-grant permissions."
     exit 0
 fi
@@ -189,10 +189,9 @@ if [[ "$MODE" == "--relaunch" || "$MODE" == "relaunch" ]]; then
     exit 1
 fi
 
-# --- Quit existing app instance (both old and new executable names) ---
+# --- Quit existing app instance ---
 # Required first step for every build: stop the user-facing process name.
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-pkill -x "$LEGACY_EXECUTABLE_NAME" >/dev/null 2>&1 || true
 pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
 echo "[quit] Attempting graceful quit of $BUNDLE_ID ..."
 osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 &
@@ -212,7 +211,7 @@ fi
 
 # Wait up to 3 seconds for the processes to exit
 for i in {1..12}; do
-    if ! pgrep -x "$EXECUTABLE_NAME" >/dev/null && ! pgrep -x "$SPM_PRODUCT_NAME" >/dev/null && ! pgrep -x "$LEGACY_EXECUTABLE_NAME" >/dev/null; then
+    if ! pgrep -x "$EXECUTABLE_NAME" >/dev/null && ! pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
         echo "[quit] Application exited gracefully."
         break
     fi
@@ -220,12 +219,11 @@ for i in {1..12}; do
 done
 
 # Path-specific fallback kill if still running after 3 seconds
-if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/null || pgrep -x "$LEGACY_EXECUTABLE_NAME" >/dev/null; then
+if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
     echo "[quit] WARNING: Application did not quit gracefully within 3 seconds. Using pkill fallback..."
     pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
     pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
     pkill -x "$SPM_PRODUCT_NAME" >/dev/null 2>&1 || true
-    pkill -x "$LEGACY_EXECUTABLE_NAME" >/dev/null 2>&1 || true
     sleep 0.5
 fi
 
@@ -292,24 +290,24 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert NSPrincipalClass           -string "NSApplication"        "$INFO_PLIST"
 /usr/bin/plutil -insert NSHighResolutionCapable    -bool true                     "$INFO_PLIST"
 /usr/bin/plutil -insert NSHumanReadableCopyright   -string "Copyright 2026"       "$INFO_PLIST"
-/usr/bin/plutil -insert ICBuildTimestampUTC        -string "$BUILD_TIMESTAMP_UTC" "$INFO_PLIST"
-/usr/bin/plutil -insert ICGitCommitHash            -string "$GIT_COMMIT_HASH"     "$INFO_PLIST"
-/usr/bin/plutil -insert ICGitBranch                -string "$GIT_BRANCH"          "$INFO_PLIST"
-/usr/bin/plutil -insert ICSourceRoot               -string "$ROOT_DIR"            "$INFO_PLIST"
-/usr/bin/plutil -insert ICExpectedBundlePath       -string "$EXPECTED_BUNDLE_PATH" "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaBuildTimestampUTC    -string "$BUILD_TIMESTAMP_UTC" "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaGitCommitHash        -string "$GIT_COMMIT_HASH"     "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaGitBranch            -string "$GIT_BRANCH"          "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaSourceRoot           -string "$ROOT_DIR"            "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaExpectedBundlePath   -string "$EXPECTED_BUNDLE_PATH" "$INFO_PLIST"
 
 # --- Usage descriptions (required for TCC prompts) ---
 /usr/bin/plutil -insert NSMicrophoneUsageDescription \
-    -string "Interview Copilot uses the microphone to transcribe interview audio in real time." \
+    -string "Hireva uses the microphone to transcribe interview audio in real time." \
     "$INFO_PLIST"
 /usr/bin/plutil -insert NSSpeechRecognitionUsageDescription \
-    -string "Interview Copilot uses Apple Speech Recognition to create live interview transcripts." \
+    -string "Hireva uses Apple Speech Recognition to create live interview transcripts." \
     "$INFO_PLIST"
 /usr/bin/plutil -insert NSScreenCaptureUsageDescription \
-    -string "Interview Copilot captures system audio to detect interviewer questions automatically." \
+    -string "Hireva captures system audio to detect interviewer questions automatically." \
     "$INFO_PLIST"
 /usr/bin/plutil -insert NSAudioCaptureUsageDescription \
-    -string "Interview Copilot captures system audio for real-time interviewer question detection." \
+    -string "Hireva captures system audio for real-time interviewer question detection." \
     "$INFO_PLIST"
 
 # --- App Icon ---
@@ -319,6 +317,15 @@ if [[ ! -f "$APP_ICON_SOURCE" ]]; then
 fi
 echo "[bundle] Copying app icon to bundle resources..."
 cp "$APP_ICON_SOURCE" "$APP_ICON_BUNDLE"
+
+if [[ ! -x "$PARAKEET_SIDECAR_SOURCE" || ! -f "$PARAKEET_SIDECAR_PYTHON_SOURCE" ]]; then
+    echo "[bundle] ERROR: Parakeet sidecar files are missing or not executable." >&2
+    exit 1
+fi
+echo "[bundle] Copying Parakeet sidecar to bundle resources..."
+cp "$PARAKEET_SIDECAR_SOURCE" "$PARAKEET_SIDECAR_BUNDLE"
+cp "$PARAKEET_SIDECAR_PYTHON_SOURCE" "$PARAKEET_SIDECAR_PYTHON_BUNDLE"
+chmod +x "$PARAKEET_SIDECAR_BUNDLE"
 
 # Google Drive/Finder can leave extended attributes or AppleDouble files inside
 # the assembled bundle; codesign rejects those as resource-fork detritus.
@@ -374,9 +381,9 @@ print_signing_diagnostics() {
     spctl --assess --type execute --verbose=4 "$APP_BUNDLE" 2>&1 || true
     echo "+ xattr -lr $APP_BUNDLE"
     xattr -lr "$APP_BUNDLE" 2>&1 || true
-    echo "+ log show --predicate 'process == \"amfid\" OR eventMessage CONTAINS \"InterviewCopilotMac\"' --last 5m --style compact"
+    echo "+ log show --predicate 'process == \"amfid\" OR eventMessage CONTAINS \"Hireva\"' --last 5m --style compact"
     /usr/bin/log show \
-        --predicate 'process == "amfid" OR eventMessage CONTAINS "InterviewCopilotMac"' \
+        --predicate 'process == "amfid" OR eventMessage CONTAINS "Hireva"' \
         --last 5m \
         --style compact 2>&1 || true
     echo "======================================================================"
@@ -385,7 +392,7 @@ print_signing_diagnostics() {
 # --- Code Signing ---
 # Use an explicit local identity so Keychain/TCC can trust the same designated
 # requirement across rebuilds:
-#   INTERVIEW_COPILOT_SIGNING_IDENTITY="Apple Development: Name (TEAMID)" ./script/build_and_run.sh --verify
+#   HIREVA_SIGNING_IDENTITY="Apple Development: Name (TEAMID)" ./script/build_and_run.sh --verify
 echo "[sign] Available code-signing identities:"
 security find-identity -v -p codesigning || true
 SIGNING_IDENTITY="$REQUESTED_SIGNING_IDENTITY"
@@ -401,7 +408,7 @@ else
     echo "Using a stable identifier-only designated requirement for local TCC continuity."
     echo "Security note: this does not authenticate the publisher; use Apple Development signing when available."
     echo "For stable verification, install/configure Apple Development signing identity."
-    echo "Set INTERVIEW_COPILOT_SIGNING_IDENTITY=\"Apple Development: Name (TEAMID)\""
+    echo "Set HIREVA_SIGNING_IDENTITY=\"Apple Development: Name (TEAMID)\""
     echo "================================================================================"
     codesign --force --deep \
         --sign - \

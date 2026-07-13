@@ -1,4 +1,4 @@
-# Interview Copilot Mac
+# Hireva Mac
 
 A native macOS SwiftUI application that acts as an interview copilot with real-time audio transcription and automated suggestion generation.
 
@@ -46,8 +46,8 @@ If the system capture does not automatically recover after a route change, you c
 
 macOS tracks permissions (TCC) by **bundle identifier + code signing identity + bundle path**. To avoid being re-prompted for microphone, speech, and screen recording permissions after every rebuild:
 
-- **Bundle Identifier**: `com.langcheng.InterviewCopilotMac` (set in `build_and_run.sh`, never change without resetting TCC)
-- **Bundle Path**: Always `dist/InterviewCopilotMac.app` (stable across rebuilds)
+- **Bundle Identifier**: `com.langcheng.Hireva` (set in `build_and_run.sh`, never change without resetting TCC)
+- **Bundle Path**: Always `dist/Hireva.app` (stable across rebuilds)
 - **Signing**: The build script automatically signs the .app bundle (Apple Development certificate if available, ad-hoc fallback otherwise)
 
 ### Build, Sign & Launch
@@ -70,7 +70,7 @@ macOS tracks permissions (TCC) by **bundle identifier + code signing identity + 
 Screen Recording / Screen & System Audio Recording permission in macOS requires the app to **quit and reopen** after being granted in System Settings. This is a macOS system requirement, not an app bug.
 
 1. Open **System Settings → Privacy & Security → Screen & System Audio Recording**
-2. Enable **Interview Copilot**
+2. Enable **Hireva**
 3. **Quit** the app completely
 4. Reopen from the same .app bundle path
 
@@ -85,16 +85,16 @@ If permissions become stuck during development (e.g. after changing bundle ID or
 ./script/build_and_run.sh --reset-tcc
 
 # Option 2: Manual reset
-tccutil reset Microphone com.langcheng.InterviewCopilotMac
-tccutil reset SpeechRecognition com.langcheng.InterviewCopilotMac
-tccutil reset ScreenCapture com.langcheng.InterviewCopilotMac
+tccutil reset Microphone com.langcheng.Hireva
+tccutil reset SpeechRecognition com.langcheng.Hireva
+tccutil reset ScreenCapture com.langcheng.Hireva
 ```
 
 Then rebuild, launch the same .app bundle path, and grant permissions again.
 
 ### Verifying Permission Persistence
 
-1. Launch app from `dist/InterviewCopilotMac.app`
+1. Launch app from `dist/Hireva.app`
 2. Grant microphone permission
 3. Quit app
 4. Reopen same app bundle → microphone permission should remain granted
@@ -107,31 +107,31 @@ Then rebuild, launch the same .app bundle path, and grant permissions again.
 Run these commands in terminal to inspect application packaging, signing authority, and running processes:
 
 1. **Verify Info.plist Bundle Identifier**:
-   Ensure the bundle ID is exactly `com.langcheng.InterviewCopilotMac`:
+   Ensure the bundle ID is exactly `com.langcheng.Hireva`:
    ```bash
-   defaults read "$(pwd)/dist/InterviewCopilotMac.app/Contents/Info.plist" CFBundleIdentifier
+   defaults read "$(pwd)/dist/Hireva.app/Contents/Info.plist" CFBundleIdentifier
    ```
 
 2. **Verify Code Signature & Entitlements**:
    Check if the app bundle is signed properly:
    ```bash
-   codesign -dvvvv dist/InterviewCopilotMac.app
+   codesign -dvvvv dist/Hireva.app
    ```
 
 3. **Verify Designated Requirement**:
    ```bash
-   codesign -d -r- dist/InterviewCopilotMac.app
+   codesign -d -r- dist/Hireva.app
    ```
 
 4. **Check Running Instances and Process Paths**:
    Ensure only the signed bundle is running, and no raw binaries are active:
    ```bash
-   ps aux | grep -E "InterviewCopilotMac|Contents/MacOS" | grep -v grep
+   ps aux | grep -E "Hireva|Contents/MacOS" | grep -v grep
    ```
 
 5. **Reset TCC Permissions**:
    ```bash
-   tccutil reset Microphone com.langcheng.InterviewCopilotMac && \
-   tccutil reset ScreenCapture com.langcheng.InterviewCopilotMac && \
-   tccutil reset SpeechRecognition com.langcheng.InterviewCopilotMac
+   tccutil reset Microphone com.langcheng.Hireva && \
+   tccutil reset ScreenCapture com.langcheng.Hireva && \
+   tccutil reset SpeechRecognition com.langcheng.Hireva
    ```

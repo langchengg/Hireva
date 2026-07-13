@@ -9,7 +9,7 @@ Run the complete automated stability gate from the repository root:
 ```
 
 This command runs the Swift build, full test suite, terminal runtime smoke
-harness, and verified rebuild/launch of `dist/InterviewCopilotMac.app`. A
+harness, and verified rebuild/launch of `dist/Hireva.app`. A
 passing `swift test` result alone is not sufficient acceptance for runtime
 changes.
 
@@ -32,7 +32,7 @@ security find-identity -v -p codesigning
 Run verification with a configured identity:
 
 ```bash
-INTERVIEW_COPILOT_SIGNING_IDENTITY="Apple Development: NAME (TEAMID)" ./script/build_and_run.sh --verify
+HIREVA_SIGNING_IDENTITY="Apple Development: NAME (TEAMID)" ./script/build_and_run.sh --verify
 ```
 
 The repository is currently under a Google Drive file-provider path. Cloud
@@ -45,11 +45,11 @@ When launch verification fails, `build_and_run.sh` prints the following
 diagnostics automatically. They can also be run manually:
 
 ```bash
-codesign -dv --verbose=4 dist/InterviewCopilotMac.app
-codesign --verify --deep --strict --verbose=4 dist/InterviewCopilotMac.app
-spctl --assess --type execute --verbose=4 dist/InterviewCopilotMac.app || true
-xattr -lr dist/InterviewCopilotMac.app || true
-log show --predicate 'process == "amfid" OR eventMessage CONTAINS "InterviewCopilotMac"' --last 5m --style compact
+codesign -dv --verbose=4 dist/Hireva.app
+codesign --verify --deep --strict --verbose=4 dist/Hireva.app
+spctl --assess --type execute --verbose=4 dist/Hireva.app || true
+xattr -lr dist/Hireva.app || true
+log show --predicate 'process == "amfid" OR eventMessage CONTAINS "Hireva"' --last 5m --style compact
 ```
 
 Use the read-only database diagnostic when investigating persisted runtime
