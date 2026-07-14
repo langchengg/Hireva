@@ -521,6 +521,21 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func firstThirtyDaysImprovementQuestionUsesPlanIntentAndAcceptsFutureActions() {
+        let question = "What would your first 30 days of security monitoring improvement look like?"
+        let answer = "I would make security monitoring improvement my first priority by reviewing alert quality and validating control gaps. I would measure success through timely investigation, preserved evidence, reduced repeat risk, and proportionate escalation."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(IntentRouter.answerIntent(for: question) == .improvementPlan)
+        #expect(alignment.questionIntent == .improvementPlan)
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+    }
+
+    @Test
     func villaProjectQuestionCanonicalizesAndAlignsAsProjectComparison() {
         let question = "Can you explain the difference between your VLA project and your LeoRover project"
         let answer = "The VLA project was a MuJoCo Franka learning-policy evaluation using DROID trajectories and decoder comparisons, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The difference is learned policy research in simulation versus deployed robotic system integration."

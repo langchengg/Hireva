@@ -907,6 +907,42 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
+    func localQwenImprovementPlanGroundedRecoveryUsesFuturePlanConstraints() async throws {
+        let questionText = "What would your first 30 days of security monitoring improvement look like?"
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState(
+            questionText: questionText
+        )
+        let answer = "I would make security monitoring improvement my first priority by reviewing alert quality and validating control gaps. I would measure success through timely investigation, preserved evidence, reduced repeat risk, and proportionate escalation."
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [[], [], [], [answer]])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Security monitoring and incident triage.",
+            jdSummary: "Improve security monitoring controls.",
+            generationID: generationID,
+            cardID: "qwen-improvement-recovery-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 4)
+        let groundedPrompt = try #require(provider.requests.last?.prompt)
+        #expect(groundedPrompt.contains("future improvement-plan question"))
+        #expect(groundedPrompt.contains("Do not add any number, metric, target"))
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.currentSuggestion?.softFallbackUsed == false)
+    }
+
+    @Test @MainActor
     func localQwenPrimaryRetriesAfterNonAlignedNonEmptyAnswer() async throws {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [
@@ -1060,7 +1096,9 @@ struct LocalModelsSetupTests {
     }
 
     @MainActor
-    private func makeLocalQwenRuntimeState() throws -> (AppState, InterviewSession, DetectedQuestion, String, Date) {
+    private func makeLocalQwenRuntimeState(
+        questionText: String = "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+    ) throws -> (AppState, InterviewSession, DetectedQuestion, String, Date) {
         let appState = try AppState(database: AppDatabase(inMemory: true))
         let session = try appState.sessionRepository.createSession(mode: .microphone)
         appState.currentSession = session
@@ -1068,7 +1106,7 @@ struct LocalModelsSetupTests {
             id: "qwen-question-\(UUID().uuidString)",
             sessionID: session.id,
             transcriptSegmentID: nil,
-            questionText: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
+            questionText: questionText,
             intent: .technical,
             answerStrategy: .technicalExplanation,
             confidence: 0.95,
@@ -1251,6 +1289,7 @@ private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
     let displayName = "Mock Ollama Qwen Sequence"
     private let tokenBatches: [[String]]
     private(set) var generateCallCount = 0
+    private(set) var requests: [LocalLLMRequest] = []
 
     init(tokenBatches: [[String]]) {
         self.tokenBatches = tokenBatches
@@ -1275,6 +1314,7 @@ private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
         generateCallCount += 1
+        requests.append(request)
         let index = min(generateCallCount - 1, max(tokenBatches.count - 1, 0))
         let tokens = tokenBatches.isEmpty ? [] : tokenBatches[index]
         return AsyncThrowingStream { continuation in

@@ -55,7 +55,12 @@ enum IntentRouter {
         if containsAny(text, ["noisy", "error handling", "handled errors", "failure recovery", "recover from"]) {
             return .errorHandling
         }
-        if containsAny(text, ["another month", "one more month", "change first", "improve first", "do differently"]) {
+        if containsAny(text, [
+            "another month", "one more month", "change first", "improve first", "do differently",
+            "what would your first 30 days", "what would your first thirty days",
+            "what would your first 90 days", "what would your first three months",
+            "what would your first month", "improvement plan"
+        ]) {
             return .improvementPlan
         }
         if containsAny(text, ["comfortable with", "experience with", "proficiency", "skill level", "how well do you know"]) {

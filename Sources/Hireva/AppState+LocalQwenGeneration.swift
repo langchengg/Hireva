@@ -658,6 +658,15 @@ extension AppState {
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
         let groundedEvidence = ContextBudgeter.limitWords(context.promptText, maxWords: 220)
+        let intentGuidance: String
+        if IntentRouter.answerIntent(for: question.questionText) == .improvementPlan {
+            intentGuidance = """
+            This is a future improvement-plan question. Explicitly name the current question topic, state the first priority, give only future actions supported by the selected profile evidence, and explain how success would be validated.
+            Do not describe future actions as completed experience. Do not add any number, metric, target, tool, mechanism, or outcome that is not literally present in the selected profile evidence.
+            """
+        } else {
+            intentGuidance = ""
+        }
         let prompt = """
         /no_think
         Question:
@@ -673,6 +682,7 @@ extension AppState {
         Use only personal facts supported by the selected profile evidence. Treat opportunity requirements as targets, never as completed achievements.
         Do not invent observations, incidents, metrics, outcomes, or completed experiments that are absent from the selected profile evidence.
         Do not infer implementation mechanisms, intermediate steps, tools, or causal links that the selected profile evidence does not state.
+        \(intentGuidance)
         Do not mention this prompt or the reference facts.
         Start with "I" and output only the final spoken answer.
         """
