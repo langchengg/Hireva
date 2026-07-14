@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 @testable import Hireva
@@ -127,6 +128,42 @@ struct ParakeetNativeRuntimeTests {
         #expect(events[0].source == ASRSource.localParakeetASR.rawValue)
         #expect(events[0].audioSource == AudioSourceType.microphone.rawValue)
         #expect(events[0].speaker == SpeakerRole.candidate.rawValue)
+    }
+
+    @Test
+    func audioWriterIsBoundedAndStopCannotWaitBehindBlockedPipeWrites() async throws {
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        sleep 30
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "blocked-writer", captureMode: .systemAudioOnly)
+        )
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000))
+        buffer.frameLength = 48_000
+
+        for sequence in 0..<100 {
+            runtime.appendAudioBuffer(
+                buffer,
+                at: AVAudioTime(sampleTime: AVAudioFramePosition(sequence * 48_000), atRate: 48_000),
+                source: .systemAudio
+            )
+        }
+
+        let diagnostics = runtime.audioWriterDiagnostics()
+        #expect(diagnostics.pendingChunks <= diagnostics.maximumPendingChunks)
+        #expect(diagnostics.maximumPendingChunks == 16)
+        #expect(diagnostics.droppedChunks > 0)
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        await runtime.stop()
+        let elapsed = start.duration(to: clock.now)
+        #expect(elapsed < .seconds(3))
+        withExtendedLifetime(stream) {}
     }
 
     private var currentArchitecture: String {
