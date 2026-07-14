@@ -13,6 +13,7 @@ struct BuildIdentity: Hashable {
     let buildTimestampUTC: String
     let gitCommitHash: String
     let gitBranch: String
+    let distributionBuild: Bool
     let sourceRoot: String
     let expectedBundlePath: String
     let executableModifiedAt: Date?
@@ -69,6 +70,7 @@ struct BuildIdentity: Hashable {
         let buildTimestampUTC = info["HirevaBuildTimestampUTC"] as? String ?? "Unknown"
         let gitCommitHash = info["HirevaGitCommitHash"] as? String ?? "Unknown"
         let gitBranch = info["HirevaGitBranch"] as? String ?? "Unknown"
+        let distributionBuild = info["HirevaDistributionBuild"] as? Bool ?? false
         let sourceRoot = info["HirevaSourceRoot"] as? String ?? Self.inferSourceRoot(bundlePath: bundlePath, fileManager: fileManager)
         let expectedBundlePath = info["HirevaExpectedBundlePath"] as? String
             ?? Self.expectedBundlePath(sourceRoot: sourceRoot, bundlePath: bundlePath)
@@ -85,13 +87,14 @@ struct BuildIdentity: Hashable {
             buildTimestampUTC: buildTimestampUTC,
             gitCommitHash: gitCommitHash,
             gitBranch: gitBranch,
+            distributionBuild: distributionBuild,
             sourceRoot: sourceRoot,
             expectedBundlePath: expectedBundlePath,
             executableModifiedAt: modificationDate(at: executablePath, fileManager: fileManager),
             infoPlistModifiedAt: modificationDate(at: infoPlistPath, fileManager: fileManager),
             latestSourceModifiedAt: latestSourceModificationDate(sourceRoot: sourceRoot, fileManager: fileManager),
-            runningFromDistApp: standardizedBundlePath.hasSuffix(Self.expectedDistBundleSuffix),
-            expectedBundlePathMatches: standardizedBundlePath == standardizedExpectedPath,
+            runningFromDistApp: distributionBuild || standardizedBundlePath.hasSuffix(Self.expectedDistBundleSuffix),
+            expectedBundlePathMatches: distributionBuild || standardizedBundlePath == standardizedExpectedPath,
             bundleIdentifierMatches: bundleIdentifier == Self.expectedBundleIdentifier
         )
     }

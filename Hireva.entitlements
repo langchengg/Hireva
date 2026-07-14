@@ -3,12 +3,10 @@
 <!--
   Hireva Entitlements
   
-  This app is NOT sandboxed (standard SwiftPM development build).
-  Microphone access is controlled by NSMicrophoneUsageDescription + TCC, not entitlements.
-  
-  This file is intentionally empty. It exists as a placeholder for future use
-  with hardened runtime signing (e.g. release builds). Do not add
-  com.apple.security.device.audio-input unless the app becomes sandboxed.
+  This file is intentionally empty for local ad-hoc and Apple Development
+  builds. Developer ID distribution uses the separately reviewed
+  script/release/HirevaRelease.entitlements file. TCC usage descriptions remain
+  in Info.plist for every build mode.
 -->
 <plist version="1.0">
 <dict>

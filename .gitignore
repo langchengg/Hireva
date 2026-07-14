@@ -2,6 +2,8 @@
 .swiftpm/
 dist/
 release/
+!script/release/
+!script/release/**
 DerivedData/
 *.xcuserdata/
 *.swp

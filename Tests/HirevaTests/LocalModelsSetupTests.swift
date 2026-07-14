@@ -443,9 +443,16 @@ struct LocalModelsSetupTests {
         #expect(await missing.isRuntimeAvailable() == false)
 
         let executable = temporaryDirectory().appendingPathComponent("fake-sidecar.sh")
+#if arch(arm64)
+        let architecture = "arm64"
+#elseif arch(x86_64)
+        let architecture = "x86_64"
+#else
+        let architecture = "unknown"
+#endif
         try """
         #!/bin/sh
-        exit 0
+        printf '%s\\n' '{"status":"ok","runtimeMode":"bundled_native","runtimeVersion":"1","sherpaVersion":"1.13.4","onnxRuntimeVersion":"1.27.0","architecture":"\(architecture)","source":"local_parakeet_asr","modelStatus":"not_probed"}'
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 

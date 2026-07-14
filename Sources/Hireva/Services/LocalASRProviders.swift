@@ -1,4 +1,5 @@
 import AVFoundation
+import Darwin
 import Foundation
 
 enum ASRProviderID: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -126,6 +127,8 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
     let endTime: TimeInterval?
     let confidence: Double?
     let source: String?
+    let audioSource: String?
+    let speaker: String?
 
     init(
         segmentId: String,
@@ -134,7 +137,9 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
         startTime: TimeInterval?,
         endTime: TimeInterval?,
         confidence: Double? = nil,
-        source: String? = nil
+        source: String? = ASRSource.localParakeetASR.rawValue,
+        audioSource: String? = nil,
+        speaker: String? = nil
     ) {
         self.segmentId = segmentId
         self.text = text
@@ -143,14 +148,78 @@ struct ParakeetTranscriptEvent: Codable, Equatable {
         self.endTime = endTime
         self.confidence = confidence
         self.source = source
+        self.audioSource = audioSource
+        self.speaker = speaker
+    }
+}
+
+struct ParakeetRuntimeDiagnostics: Codable, Hashable {
+    let runtimeMode: String
+    let helperPath: String
+    let helperBundled: Bool
+    let helperExecutable: Bool
+    let helperArchitecture: String
+    let runtimeVersion: String
+    let sherpaVersion: String
+    let onnxRuntimeVersion: String
+    let healthStatus: String
+    let modelStatus: String
+    let lastHealthError: String?
+
+    static func unavailable(path: String = "Not configured", error: String? = nil) -> Self {
+        Self(
+            runtimeMode: "unavailable",
+            helperPath: path,
+            helperBundled: false,
+            helperExecutable: false,
+            helperArchitecture: "unknown",
+            runtimeVersion: "unknown",
+            sherpaVersion: "unknown",
+            onnxRuntimeVersion: "unknown",
+            healthStatus: "failed",
+            modelStatus: "not_probed",
+            lastHealthError: error
+        )
     }
 }
 
 protocol ParakeetRuntimeClient: AnyObject {
     func isRuntimeAvailable() async -> Bool
+    func runtimeDiagnostics() async -> ParakeetRuntimeDiagnostics
+    func probeModel(at modelDirectory: URL) async -> Bool
     func startTranscription(modelDirectory: URL, config: ASRConfig) async throws -> AsyncThrowingStream<ParakeetTranscriptEvent, Error>
     func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime)
+    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime, source: AudioSourceType)
     func stop() async
+}
+
+extension ParakeetRuntimeClient {
+    func runtimeDiagnostics() async -> ParakeetRuntimeDiagnostics {
+        let available = await isRuntimeAvailable()
+        return available
+            ? ParakeetRuntimeDiagnostics(
+                runtimeMode: "test_or_legacy",
+                helperPath: "Injected runtime",
+                helperBundled: false,
+                helperExecutable: true,
+                helperArchitecture: "unknown",
+                runtimeVersion: "unknown",
+                sherpaVersion: "unknown",
+                onnxRuntimeVersion: "unknown",
+                healthStatus: "ok",
+                modelStatus: "not_probed",
+                lastHealthError: nil
+            )
+            : .unavailable(error: "Runtime health check failed")
+    }
+
+    func probeModel(at modelDirectory: URL) async -> Bool {
+        await isRuntimeAvailable()
+    }
+
+    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime, source: AudioSourceType) {
+        appendAudioBuffer(buffer, at: time)
+    }
 }
 
 enum ParakeetSidecarError: LocalizedError, Equatable {
@@ -158,6 +227,7 @@ enum ParakeetSidecarError: LocalizedError, Equatable {
     case launchFailed(String)
     case invalidEvent(String)
     case exited(Int32)
+    case healthCheckFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -169,12 +239,25 @@ enum ParakeetSidecarError: LocalizedError, Equatable {
             return "Parakeet sidecar emitted invalid transcript JSON: \(line)"
         case .exited(let code):
             return "Parakeet sidecar exited with code \(code)."
+        case .healthCheckFailed(let message):
+            return "Parakeet runtime health check failed: \(message)"
         }
     }
 }
 
 final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     static let sidecarPathDefaultsKey = HirevaPreferenceKeys.parakeetSidecarPath
+
+    private struct HelperHealth: Decodable {
+        let status: String
+        let runtimeMode: String
+        let runtimeVersion: String
+        let sherpaVersion: String
+        let onnxRuntimeVersion: String
+        let architecture: String
+        let source: String
+        let modelStatus: String
+    }
 
     private let executableURLProvider: () -> URL?
     private var process: Process?
@@ -183,32 +266,77 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     private var audioSequence = 0
 
     init(executableURLProvider: @escaping () -> URL? = {
-        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("parakeet_asr_sidecar"),
-           FileManager.default.isExecutableFile(atPath: bundled.path) {
-            return bundled
-        }
-        if let envPath = ProcessInfo.processInfo.environment["PARAKEET_ASR_SIDECAR_PATH"], !envPath.isEmpty {
-            return URL(fileURLWithPath: envPath)
-        }
-        if let storedPath = UserDefaults.standard.string(forKey: sidecarPathDefaultsKey), !storedPath.isEmpty {
-            return URL(fileURLWithPath: storedPath)
-        }
-#if DEBUG
-        let developmentSidecar = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("scripts/parakeet_asr_sidecar")
-        if FileManager.default.isExecutableFile(atPath: developmentSidecar.path) {
-            return developmentSidecar
-        }
-#endif
-        return nil
+        ParakeetSidecarRuntimeClient.discoverExecutable(
+            bundleURL: Bundle.main.bundleURL,
+            environment: ProcessInfo.processInfo.environment,
+            storedDevelopmentPath: UserDefaults.standard.string(forKey: sidecarPathDefaultsKey),
+            currentDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            allowDevelopmentOverrides: _isDebugAssertConfiguration()
+        )
     }) {
         self.executableURLProvider = executableURLProvider
     }
 
+    static func discoverExecutable(
+        bundleURL: URL,
+        environment: [String: String],
+        storedDevelopmentPath: String?,
+        currentDirectory: URL,
+        allowDevelopmentOverrides: Bool,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let bundled = bundleURL.appendingPathComponent("Contents/Helpers/parakeet_asr_helper")
+        if fileManager.isExecutableFile(atPath: bundled.path) {
+            return bundled
+        }
+        guard allowDevelopmentOverrides else { return nil }
+
+        for key in ["PARAKEET_ASR_HELPER_PATH", "PARAKEET_ASR_SIDECAR_PATH"] {
+            if let path = environment[key], !path.isEmpty {
+                return URL(fileURLWithPath: path)
+            }
+        }
+        if let storedDevelopmentPath, !storedDevelopmentPath.isEmpty {
+            return URL(fileURLWithPath: storedDevelopmentPath)
+        }
+        let developmentHelper = currentDirectory
+            .appendingPathComponent(".build/parakeet-helper/Helpers/parakeet_asr_helper")
+        if fileManager.isExecutableFile(atPath: developmentHelper.path) {
+            return developmentHelper
+        }
+        let legacyBundled = bundleURL.appendingPathComponent("Contents/Resources/parakeet_asr_sidecar")
+        if fileManager.isExecutableFile(atPath: legacyBundled.path) {
+            return legacyBundled
+        }
+        return nil
+    }
+
     func isRuntimeAvailable() async -> Bool {
-        guard let executableURL = executableURLProvider() else { return false }
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else { return false }
-        return Self.sidecarHealthCheck(executableURL: executableURL)
+        (await runtimeDiagnostics()).healthStatus == "ok"
+    }
+
+    func runtimeDiagnostics() async -> ParakeetRuntimeDiagnostics {
+        guard let executableURL = executableURLProvider() else {
+            return .unavailable(error: "Bundled native Parakeet helper is missing")
+        }
+        let executable = FileManager.default.isExecutableFile(atPath: executableURL.path)
+        guard executable else {
+            return .unavailable(path: executableURL.path, error: "Helper is not executable")
+        }
+        return Self.runHealthCheck(executableURL: executableURL, arguments: ["--health"], timeout: 3)
+    }
+
+    func probeModel(at modelDirectory: URL) async -> Bool {
+        guard let executableURL = executableURLProvider(),
+              FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            return false
+        }
+        let diagnostics = Self.runHealthCheck(
+            executableURL: executableURL,
+            arguments: ["--health", "--probe-model", "--model-dir", modelDirectory.path],
+            timeout: 15
+        )
+        return diagnostics.healthStatus == "ok" && diagnostics.modelStatus == "ready"
     }
 
     func startTranscription(modelDirectory: URL, config: ASRConfig) async throws -> AsyncThrowingStream<ParakeetTranscriptEvent, Error> {
@@ -225,6 +353,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             "--capture-mode", config.captureMode.rawValue,
             "--jsonl"
         ]
+        process.environment = Self.minimalRuntimeEnvironment()
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -238,6 +367,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         } catch {
             throw ParakeetSidecarError.launchFailed(error.localizedDescription)
         }
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         self.process = process
         self.stdinHandle = stdin.fileHandleForWriting
 
@@ -280,7 +410,15 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     }
 
     func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) {
-        guard let audioEvent = Self.audioEventData(from: buffer, sequence: nextAudioSequence()) else { return }
+        appendAudioBuffer(buffer, at: time, source: .systemAudio)
+    }
+
+    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime, source: AudioSourceType) {
+        guard let audioEvent = Self.audioEventData(
+            from: buffer,
+            sequence: nextAudioSequence(),
+            source: source
+        ) else { return }
         inputQueue.async { [weak self] in
             guard let self, let stdinHandle = self.stdinHandle else { return }
             do {
@@ -294,11 +432,24 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
 
     func stop() async {
         inputQueue.sync {
+            if let stdinHandle {
+                let stopEvent = try? JSONSerialization.data(withJSONObject: ["type": "stop"])
+                if let stopEvent {
+                    try? stdinHandle.write(contentsOf: stopEvent)
+                    try? stdinHandle.write(contentsOf: Data([0x0A]))
+                }
+            }
             try? stdinHandle?.close()
             stdinHandle = nil
         }
         if let process, process.isRunning {
-            process.terminate()
+            let deadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            if process.isRunning {
+                process.terminate()
+            }
         }
         process = nil
     }
@@ -310,7 +461,11 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         }
     }
 
-    private static func audioEventData(from buffer: AVAudioPCMBuffer, sequence: Int) -> Data? {
+    private static func audioEventData(
+        from buffer: AVAudioPCMBuffer,
+        sequence: Int,
+        source: AudioSourceType
+    ) -> Data? {
         guard let channelData = buffer.floatChannelData else { return nil }
         let channelCount = Int(buffer.format.channelCount)
         let frameLength = Int(buffer.frameLength)
@@ -335,33 +490,101 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             "sampleRate": buffer.format.sampleRate,
             "channels": 1,
             "encoding": "float32le",
+            "audioSource": source.rawValue,
             "audio": audioData.base64EncodedString()
         ]
         return try? JSONSerialization.data(withJSONObject: payload)
     }
 
-    private static func sidecarHealthCheck(executableURL: URL) -> Bool {
+    private static func runHealthCheck(
+        executableURL: URL,
+        arguments: [String],
+        timeout: TimeInterval
+    ) -> ParakeetRuntimeDiagnostics {
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = ["--health"]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
+        process.arguments = arguments
+        process.environment = minimalRuntimeEnvironment()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
 
         do {
             try process.run()
         } catch {
-            return false
+            return .unavailable(path: executableURL.path, error: error.localizedDescription)
         }
 
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(timeout)
         while process.isRunning && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
         if process.isRunning {
             process.terminate()
-            return false
+            return .unavailable(path: executableURL.path, error: "Health check timed out")
         }
-        return process.terminationStatus == 0
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        let errorOutput = stderr.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            let message = String(data: errorOutput, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .unavailable(
+                path: executableURL.path,
+                error: message?.isEmpty == false ? message : "Helper exited with \(process.terminationStatus)"
+            )
+        }
+        guard let health = try? JSONDecoder().decode(HelperHealth.self, from: output),
+              health.status == "ok",
+              health.source == ASRSource.localParakeetASR.rawValue,
+              health.runtimeMode == "bundled_native" else {
+            return .unavailable(path: executableURL.path, error: "Invalid helper health response")
+        }
+        guard health.architecture == currentArchitecture else {
+            return .unavailable(
+                path: executableURL.path,
+                error: "Helper architecture \(health.architecture) does not match \(currentArchitecture)"
+            )
+        }
+        let bundlePath = Bundle.main.bundleURL.standardizedFileURL.path
+        let helperPath = executableURL.standardizedFileURL.path
+        let bundled = helperPath.hasPrefix(bundlePath + "/Contents/Helpers/")
+        return ParakeetRuntimeDiagnostics(
+            runtimeMode: health.runtimeMode,
+            helperPath: helperPath,
+            helperBundled: bundled,
+            helperExecutable: true,
+            helperArchitecture: health.architecture,
+            runtimeVersion: health.runtimeVersion,
+            sherpaVersion: health.sherpaVersion,
+            onnxRuntimeVersion: health.onnxRuntimeVersion,
+            healthStatus: health.status,
+            modelStatus: health.modelStatus,
+            lastHealthError: nil
+        )
+    }
+
+    private static func minimalRuntimeEnvironment() -> [String: String] {
+        let environment = ProcessInfo.processInfo.environment
+        var result = [
+            "HOME": environment["HOME"] ?? NSHomeDirectory(),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "LC_CTYPE": "UTF-8"
+        ]
+        if let temporaryDirectory = environment["TMPDIR"] {
+            result["TMPDIR"] = temporaryDirectory
+        }
+        return result
+    }
+
+    private static var currentArchitecture: String {
+#if arch(arm64)
+        return "arm64"
+#elseif arch(x86_64)
+        return "x86_64"
+#else
+        return "unknown"
+#endif
     }
 }
 
@@ -401,9 +624,15 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         guard await runtimeClient.isRuntimeAvailable() else {
             throw ASRProviderError.localASRRuntimeNotImplemented(.localParakeet)
         }
+        let modelDirectory = modelManager.fileURL(for: model)
+        guard await runtimeClient.probeModel(at: modelDirectory) else {
+            throw ASRProviderError.providerUnavailable(
+                "The Parakeet runtime could not load the verified model. Repair the model before retrying."
+            )
+        }
 
         let eventStream = try await runtimeClient.startTranscription(
-            modelDirectory: modelManager.fileURL(for: model),
+            modelDirectory: modelDirectory,
             config: config
         )
         do {
@@ -416,17 +645,20 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
             let task = Task {
                 do {
                     for try await event in eventStream {
-                        if let source = event.source,
-                           source != ASRSource.localParakeetASR.rawValue {
-                            throw ASRProviderError.providerUnavailable("Parakeet sidecar emitted unexpected source: \(source)")
+                        guard event.source == ASRSource.localParakeetASR.rawValue else {
+                            throw ASRProviderError.providerUnavailable(
+                                "Parakeet helper emitted an untrusted or missing ASR source."
+                            )
                         }
                         let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !text.isEmpty else { continue }
+                        let audioSource = try Self.audioSource(for: config.captureMode, event: event)
+                        let speaker = try Self.speaker(for: audioSource, event: event)
                         continuation.yield(TranscriptSegment(
                             id: event.segmentId,
                             sessionID: config.sessionID,
-                            source: Self.audioSource(for: config.captureMode),
-                            speaker: Self.speaker(for: config.captureMode),
+                            source: audioSource,
+                            speaker: speaker,
                             text: text,
                             startTime: event.startTime,
                             endTime: event.endTime,
@@ -491,7 +723,7 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         didReceive buffer: AVAudioPCMBuffer,
         at time: AVAudioTime
     ) {
-        runtimeClient.appendAudioBuffer(buffer, at: time)
+        runtimeClient.appendAudioBuffer(buffer, at: time, source: .microphone)
     }
 
     func audioEngineManager(
@@ -506,7 +738,7 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         didReceive buffer: AVAudioPCMBuffer,
         at time: AVAudioTime
     ) {
-        runtimeClient.appendAudioBuffer(buffer, at: time)
+        runtimeClient.appendAudioBuffer(buffer, at: time, source: .systemAudio)
     }
 
     func systemAudioCaptureService(
@@ -516,21 +748,39 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         print("[LocalParakeetASRProvider] System audio capture failed: \(error.localizedDescription)")
     }
 
-    private static func audioSource(for captureMode: AudioCaptureMode) -> AudioSourceType {
+    private static func audioSource(
+        for captureMode: AudioCaptureMode,
+        event: ParakeetTranscriptEvent
+    ) throws -> AudioSourceType {
+        if let rawSource = event.audioSource,
+           let source = AudioSourceType(rawValue: rawSource),
+           source == .microphone || source == .systemAudio {
+            return source
+        }
         switch captureMode {
         case .microphoneOnly:
             return .microphone
-        case .systemAudioOnly, .microphoneAndSystem:
+        case .systemAudioOnly:
             return .systemAudio
+        case .microphoneAndSystem:
+            throw ASRProviderError.providerUnavailable(
+                "Parakeet mixed capture emitted a transcript without channel attribution."
+            )
         }
     }
 
-    private static func speaker(for captureMode: AudioCaptureMode) -> SpeakerRole {
-        switch captureMode {
-        case .microphoneOnly:
-            return .candidate
-        case .systemAudioOnly, .microphoneAndSystem:
-            return .interviewer
+    private static func speaker(
+        for audioSource: AudioSourceType,
+        event: ParakeetTranscriptEvent
+    ) throws -> SpeakerRole {
+        let expected: SpeakerRole = audioSource == .microphone ? .candidate : .interviewer
+        if let rawSpeaker = event.speaker {
+            guard let emitted = SpeakerRole(rawValue: rawSpeaker), emitted == expected else {
+                throw ASRProviderError.providerUnavailable(
+                    "Parakeet helper emitted speaker metadata that conflicts with its audio channel."
+                )
+            }
         }
+        return expected
     }
 }

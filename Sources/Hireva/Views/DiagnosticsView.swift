@@ -4,6 +4,7 @@ import SwiftUI
 struct DiagnosticsView: View {
     @ObservedObject var appState: AppState
     @StateObject private var localModels = LocalModelsSetupViewModel()
+    @State private var parakeetRuntimeDiagnostics = ParakeetRuntimeDiagnostics.unavailable()
 
     var body: some View {
         TabView {
@@ -57,6 +58,7 @@ struct DiagnosticsView: View {
         .navigationTitle("Diagnostics")
         .task {
             await localModels.refresh(qwenModel: appState.selectedQwenModelName)
+            parakeetRuntimeDiagnostics = await ParakeetSidecarRuntimeClient().runtimeDiagnostics()
         }
     }
 
@@ -121,6 +123,13 @@ struct DiagnosticsView: View {
                 diagnosticRow("qwenModelInstalled", localModels.qwenHealth.modelInstalled ? "true" : "false")
                 diagnosticRow("localQwenReady", localModels.qwenHealth.isReady ? "true" : "false")
                 diagnosticRow("selectedAnswerProvider", appState.selectedAnswerProviderMode.rawValue)
+                diagnosticRow("activeAnswerProvider", appState.activeRealtimeProviderBadge)
+                diagnosticRow(
+                    "activeLLMSource",
+                    appState.finalVisibleSource
+                        ?? appState.currentSuggestion?.finalVisibleSource
+                        ?? "None"
+                )
                 diagnosticRow("defaultAnswerProvider", AnswerProviderMode.localQwenPrimary.rawValue)
                 diagnosticRow("lastOllamaError", localModels.qwenHealth.lastError ?? "None")
                 diagnosticRow("selectedASRProvider", appState.selectedASRProviderID.rawValue)
@@ -129,7 +138,20 @@ struct DiagnosticsView: View {
                 diagnosticRow("asrModelStatus", localModels.transcriptionStatus.displayName)
                 diagnosticRow("recommendedLocalASR", LocalModelDescriptor.defaultParakeetASR.displayName)
                 diagnosticRow("parakeetModelPath", localModels.modelPath(for: .defaultParakeetASR).path)
+                diagnosticRow("modelVersion", LocalModelDescriptor.defaultParakeetASR.version ?? "unversioned")
                 diagnosticRow("parakeetRuntimeStatus", localModels.parakeetRuntimeStatusText)
+                diagnosticRow("parakeetRuntimeReady", parakeetRuntimeDiagnostics.healthStatus == "ok" ? "true" : "false")
+                diagnosticRow("runtimeMode", parakeetRuntimeDiagnostics.runtimeMode)
+                diagnosticRow("helperPath", parakeetRuntimeDiagnostics.helperPath)
+                diagnosticRow("helperBundled", parakeetRuntimeDiagnostics.helperBundled ? "true" : "false")
+                diagnosticRow("helperExecutable", parakeetRuntimeDiagnostics.helperExecutable ? "true" : "false")
+                diagnosticRow("helperArchitecture", parakeetRuntimeDiagnostics.helperArchitecture)
+                diagnosticRow("runtimeVersion", parakeetRuntimeDiagnostics.runtimeVersion)
+                diagnosticRow("sherpaVersion", parakeetRuntimeDiagnostics.sherpaVersion)
+                diagnosticRow("onnxRuntimeVersion", parakeetRuntimeDiagnostics.onnxRuntimeVersion)
+                diagnosticRow("runtimeHealthStatus", parakeetRuntimeDiagnostics.healthStatus)
+                diagnosticRow("runtimeModelStatus", parakeetRuntimeDiagnostics.modelStatus)
+                diagnosticRow("lastRuntimeHealthError", parakeetRuntimeDiagnostics.lastHealthError ?? "None")
                 diagnosticRow("latestTranscriptASRSource", appState.latestTranscriptASRSource)
                 diagnosticRow("Answer source", AnswerSource.ollamaQwen.rawValue)
                 diagnosticRow("ASR sources", ASRSource.allCases.map(\.rawValue).joined(separator: ", "))
