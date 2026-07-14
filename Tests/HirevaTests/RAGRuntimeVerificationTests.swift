@@ -118,6 +118,7 @@ struct RAGRuntimeVerificationTests {
             }
             return chunkRows.count
         }
+        #expect(chunksCount > 0)
 
         // 8. Verify suggestion_card_retrieved_chunks persistence
         print("\n--- 2. Retrieved Chunks Persistence Verification (suggestion_card_retrieved_chunks) ---")

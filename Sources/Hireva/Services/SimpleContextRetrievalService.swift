@@ -64,7 +64,7 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
                 return (ranked, false)
             }
 
-            var scored = chunks.map { chunk -> (chunk: DocumentChunk, score: Double, keyOverlap: Int, contentOverlap: Int) in
+            let scored = chunks.map { chunk -> (chunk: DocumentChunk, score: Double, keyOverlap: Int, contentOverlap: Int) in
                 let keywordTokens = Set(chunk.keywords)
                 let contentTokens = Set(TextChunker.tokenize(chunk.content))
                 let keyOverlap = keywordTokens.intersection(queryTokens).count
