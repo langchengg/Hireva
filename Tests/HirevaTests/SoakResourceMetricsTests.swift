@@ -125,20 +125,37 @@ struct SoakResourceMetricsTests {
     }
 
     @Test
-    func fileMetricsAggregateOnlyLifecycleNumbersFromTrace() throws {
+    func fileMetricsReadTraceSizeOnlyAndUseBoundedLifecycleSummary() throws {
         let directory = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let traceURL = directory.appendingPathComponent("runtime_transcript_trace.jsonl")
+        let lifecycleURL = directory.appendingPathComponent("runtime_lifecycle_metrics.csv")
         let lines = [
             #"{"timestamp":"2026-07-14T11:00:00Z","event_type":"capture.stop.completed","rejection_reason":"cleanup_ms=42|reason=userRequested","raw_text":"private"}"#,
             #"{"timestamp":"2026-07-14T11:01:00Z","event_type":"capture.stop.completed","rejection_reason":"cleanup_ms=17|reason=userRequested","raw_text":"private"}"#,
             #"{"timestamp":"2026-07-14T11:02:00Z","event_type":"transcript.final","raw_text":"must not be exported"}"#
         ]
-        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: traceURL)
+        let privateTrace = lines.joined(separator: "\n") + "\n"
+        try Data(privateTrace.utf8).write(to: traceURL)
+        try Data((SoakCaptureLifecycleMetrics.csvHeader + "\n5,2,4,17\n").utf8).write(to: lifecycleURL)
 
-        let metrics = SoakFileMetrics.collect(databaseURL: nil, traceURL: traceURL)
+        let lifecycleMetrics = try SoakCaptureLifecycleMetrics.read(from: lifecycleURL)
+        let metrics = SoakFileMetrics.collect(
+            databaseURL: nil,
+            traceURL: traceURL,
+            lifecycleMetrics: lifecycleMetrics
+        )
+        #expect(metrics.traceBytes == UInt64(privateTrace.utf8.count))
+        #expect(metrics.captureStopCount == 5)
+        #expect(metrics.captureRestartCount == 2)
+        #expect(metrics.captureCleanupCount == 4)
         #expect(metrics.stopStartCount == 2)
         #expect(metrics.lastCleanupDurationMS == 17)
+
+        try Data(repeating: 0, count: SoakCaptureLifecycleMetrics.maximumFileSizeBytes + 1).write(to: lifecycleURL)
+        #expect(throws: SoakResourceMetricsError.self) {
+            try SoakCaptureLifecycleMetrics.read(from: lifecycleURL)
+        }
     }
 
     @Test
@@ -230,6 +247,171 @@ struct SoakResourceMetricsTests {
     }
 
     @Test
+    func fixedIntervalScheduleUsesAbsoluteDeadlinesAndSkipsMissedSlots() {
+        #expect(SoakFixedIntervalSchedule.expectedSampleCount(durationSeconds: 10, intervalSeconds: 5) == 3)
+        #expect(SoakFixedIntervalSchedule.delay(
+            startTime: 100,
+            sampleIndex: 2,
+            intervalSeconds: 5,
+            now: 107
+        ) == 3)
+        #expect(SoakFixedIntervalSchedule.delay(
+            startTime: 100,
+            sampleIndex: 2,
+            intervalSeconds: 5,
+            now: 111
+        ) == 0)
+        #expect(SoakFixedIntervalSchedule.sampleIndex(
+            nextSampleIndex: 1,
+            startTime: 100,
+            now: 112,
+            intervalSeconds: 5,
+            expectedSampleCount: 5
+        ) == 2)
+    }
+
+    @Test
+    func collectorFailsWhenTargetIsNeverObserved() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestSoakMonotonicClock()
+        let runner = ScriptedSoakCommandRunner(outputs: ["", ""])
+        let configuration = try collectorConfiguration(directory: directory, durationSeconds: 5)
+
+        #expect(throws: SoakResourceMetricsError.targetNotObserved(processName: "Hireva")) {
+            try SoakResourceMetricsCollector(
+                configuration: configuration,
+                runner: runner,
+                clock: clock
+            ).run()
+        }
+    }
+
+    @Test
+    func collectorRequiresExactlyOneTargetProcess() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestSoakMonotonicClock()
+        let runner = ScriptedSoakCommandRunner(outputs: [psOutput(appProcessIDs: [100, 101])])
+        let configuration = try collectorConfiguration(directory: directory, durationSeconds: 5)
+
+        #expect(throws: SoakResourceMetricsError.unexpectedTargetProcessCount(
+            processName: "Hireva",
+            actual: 2
+        )) {
+            try SoakResourceMetricsCollector(
+                configuration: configuration,
+                runner: runner,
+                clock: clock
+            ).run()
+        }
+    }
+
+    @Test
+    func collectorFailsAfterSustainedTargetDisappearance() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestSoakMonotonicClock()
+        let runner = ScriptedSoakCommandRunner(outputs: [
+            psOutput(appProcessIDs: [100]),
+            "",
+            "",
+            ""
+        ])
+        let configuration = try collectorConfiguration(directory: directory, durationSeconds: 15)
+
+        #expect(throws: SoakResourceMetricsError.targetDisappeared(
+            processName: "Hireva",
+            consecutiveSamples: 3
+        )) {
+            try SoakResourceMetricsCollector(
+                configuration: configuration,
+                runner: runner,
+                clock: clock
+            ).run()
+        }
+    }
+
+    @Test
+    func collectorFailsWhenSlowCollectionDropsExpectedCoverage() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestSoakMonotonicClock()
+        let runner = ScriptedSoakCommandRunner(
+            outputs: [psOutput(appProcessIDs: [100])],
+            clock: clock,
+            collectionDurationSeconds: 11
+        )
+        let configuration = try collectorConfiguration(directory: directory, durationSeconds: 10)
+
+        #expect(throws: SoakResourceMetricsError.insufficientSampleCoverage(
+            expected: 3,
+            observed: 1,
+            minimum: 0.9
+        )) {
+            try SoakResourceMetricsCollector(
+                configuration: configuration,
+                runner: runner,
+                clock: clock
+            ).run()
+        }
+    }
+
+    @Test
+    func collectorFailsWhenCollectionErrorsExceedBudget() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestSoakMonotonicClock()
+        let runner = ScriptedSoakCommandRunner(outputs: [nil])
+        let configuration = try collectorConfiguration(
+            directory: directory,
+            durationSeconds: 5,
+            maximumCollectionErrorCount: 0
+        )
+
+        #expect(throws: SoakResourceMetricsError.collectionErrorLimitExceeded(actual: 1, maximum: 0)) {
+            try SoakResourceMetricsCollector(
+                configuration: configuration,
+                runner: runner,
+                clock: clock
+            ).run()
+        }
+    }
+
+    @Test
+    func collectorSucceedsWithExactTargetCoverageOnFixedIntervals() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestSoakMonotonicClock()
+        let appOutput = psOutput(appProcessIDs: [100])
+        let runner = ScriptedSoakCommandRunner(
+            outputs: [appOutput, appOutput, appOutput],
+            clock: clock,
+            collectionDurationSeconds: 2
+        )
+        let configuration = try collectorConfiguration(directory: directory, durationSeconds: 10)
+
+        let summary = try SoakResourceMetricsCollector(
+            configuration: configuration,
+            runner: runner,
+            clock: clock
+        ).run()
+
+        #expect(summary.sampleCount == 3)
+        #expect(summary.expectedSampleCount == 3)
+        #expect(summary.exactTargetSampleCount == 3)
+        #expect(summary.collectionErrorCount == 0)
+        #expect(clock.sleepDurations == [3, 3])
+
+        let rows = try String(contentsOf: configuration.outputURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+        let elapsedValues = rows.dropFirst().compactMap { row in
+            Double(row.split(separator: ",", omittingEmptySubsequences: false)[1])
+        }
+        #expect(elapsedValues == [0, 5, 10])
+    }
+
+    @Test
     func soakRunnerBuildsAssignedSourceAndAvoidsNameBasedKilling() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -241,9 +423,80 @@ struct SoakResourceMetricsTests {
         #expect(script.contains("Sources/Hireva/Services/SoakResourceMetrics.swift"))
         #expect(script.contains("xcrun swiftc -parse-as-library"))
         #expect(script.contains("--interval"))
+        #expect(script.contains("--lifecycle-metrics"))
         #expect(script.contains("--max-bytes"))
         #expect(!script.contains("pkill"))
         #expect(!script.contains("killall"))
+    }
+
+    private func collectorConfiguration(
+        directory: URL,
+        durationSeconds: Double,
+        maximumCollectionErrorCount: Int = SoakResourceMetricsConfiguration.defaultMaximumCollectionErrorCount
+    ) throws -> SoakResourceMetricsConfiguration {
+        try SoakResourceMetricsConfiguration(
+            outputURL: directory.appendingPathComponent("metrics.csv"),
+            processName: "Hireva",
+            intervalSeconds: 5,
+            durationSeconds: durationSeconds,
+            maximumFileSizeBytes: 4 * 1_024,
+            maximumFileCount: 2,
+            minimumSampleCoverage: 0.9,
+            maximumCollectionErrorCount: maximumCollectionErrorCount,
+            maximumConsecutiveMissingAppSamples: 3
+        )
+    }
+
+    private func psOutput(appProcessIDs: [Int32]) -> String {
+        appProcessIDs.map { processID in
+            "\(processID) 1 1.0 1024 /Applications/Hireva.app/Contents/MacOS/Hireva"
+        }.joined(separator: "\n")
+    }
+
+    private final class TestSoakMonotonicClock: SoakMonotonicClock {
+        private(set) var currentTime: TimeInterval = 100
+        private(set) var sleepDurations: [TimeInterval] = []
+
+        func now() -> TimeInterval {
+            currentTime
+        }
+
+        func sleep(for seconds: TimeInterval) {
+            sleepDurations.append(seconds)
+            currentTime += seconds
+        }
+
+        func advance(by seconds: TimeInterval) {
+            currentTime += seconds
+        }
+    }
+
+    private enum ScriptedRunnerError: Error {
+        case requestedFailure
+        case exhausted
+    }
+
+    private final class ScriptedSoakCommandRunner: SoakCommandRunning {
+        private var outputs: [String?]
+        private weak var clock: TestSoakMonotonicClock?
+        private let collectionDurationSeconds: TimeInterval
+
+        init(
+            outputs: [String?],
+            clock: TestSoakMonotonicClock? = nil,
+            collectionDurationSeconds: TimeInterval = 0
+        ) {
+            self.outputs = outputs
+            self.clock = clock
+            self.collectionDurationSeconds = collectionDurationSeconds
+        }
+
+        func run(executableURL: URL, arguments: [String]) throws -> SoakCommandResult {
+            defer { clock?.advance(by: collectionDurationSeconds) }
+            guard !outputs.isEmpty else { throw ScriptedRunnerError.exhausted }
+            guard let output = outputs.removeFirst() else { throw ScriptedRunnerError.requestedFailure }
+            return SoakCommandResult(status: 0, standardOutput: output)
+        }
     }
 
     private func snapshot(
@@ -274,6 +527,9 @@ struct SoakResourceMetricsTests {
                 traceBytes: 100,
                 databaseBytes: 200,
                 walBytes: 50,
+                captureStopCount: 8,
+                captureRestartCount: 6,
+                captureCleanupCount: 8,
                 stopStartCount: 6,
                 lastCleanupDurationMS: 75
             ),

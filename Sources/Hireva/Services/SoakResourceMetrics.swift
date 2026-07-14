@@ -4,6 +4,12 @@ enum SoakResourceMetricsError: Error, LocalizedError, Equatable {
     case invalidConfiguration(String)
     case invalidArguments(String)
     case commandFailed(String)
+    case invalidLifecycleMetrics(String)
+    case targetNotObserved(processName: String)
+    case unexpectedTargetProcessCount(processName: String, actual: Int)
+    case targetDisappeared(processName: String, consecutiveSamples: Int)
+    case insufficientSampleCoverage(expected: Int, observed: Int, minimum: Double)
+    case collectionErrorLimitExceeded(actual: Int, maximum: Int)
     case rowExceedsFileLimit
 
     var errorDescription: String? {
@@ -12,6 +18,19 @@ enum SoakResourceMetricsError: Error, LocalizedError, Equatable {
             return message
         case .commandFailed(let executable):
             return "Resource metrics command failed: \(executable)"
+        case .invalidLifecycleMetrics(let message):
+            return message
+        case .targetNotObserved(let processName):
+            return "Resource soak failed: no running \(processName) process was observed."
+        case .unexpectedTargetProcessCount(let processName, let actual):
+            return "Resource soak failed: expected exactly one \(processName) process, observed \(actual)."
+        case .targetDisappeared(let processName, let consecutiveSamples):
+            return "Resource soak failed: \(processName) was missing for \(consecutiveSamples) consecutive samples."
+        case .insufficientSampleCoverage(let expected, let observed, let minimum):
+            let percentage = String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), minimum * 100)
+            return "Resource soak failed: exact-target sample coverage was \(observed)/\(expected); required at least \(percentage)%."
+        case .collectionErrorLimitExceeded(let actual, let maximum):
+            return "Resource soak failed: collection errors \(actual) exceeded the allowed maximum of \(maximum)."
         case .rowExceedsFileLimit:
             return "A resource metrics CSV header and row exceed the configured file-size limit."
         }
@@ -25,17 +44,24 @@ struct SoakResourceMetricsConfiguration: Equatable {
     static let minimumFileSizeBytes = 1_024
     static let maximumFileSizeBytes = 64 * 1_024 * 1_024
     static let maximumFileCount = 10
+    static let defaultMinimumSampleCoverage = 0.9
+    static let defaultMaximumCollectionErrorCount = 3
+    static let defaultMaximumConsecutiveMissingAppSamples = 3
 
     let outputURL: URL
     let processName: String
     let helperProcessNames: Set<String>
     let databaseURL: URL?
     let traceURL: URL?
+    let lifecycleMetricsURL: URL?
     let sqliteExecutableURL: URL?
     let intervalSeconds: Double
     let durationSeconds: Double
     let maximumFileSizeBytes: Int
     let maximumFileCount: Int
+    let minimumSampleCoverage: Double
+    let maximumCollectionErrorCount: Int
+    let maximumConsecutiveMissingAppSamples: Int
 
     init(
         outputURL: URL,
@@ -43,11 +69,15 @@ struct SoakResourceMetricsConfiguration: Equatable {
         helperProcessNames: Set<String> = [],
         databaseURL: URL? = nil,
         traceURL: URL? = nil,
+        lifecycleMetricsURL: URL? = nil,
         sqliteExecutableURL: URL? = nil,
         intervalSeconds: Double = 5,
         durationSeconds: Double = 300,
         maximumFileSizeBytes: Int = 5 * 1_024 * 1_024,
-        maximumFileCount: Int = 4
+        maximumFileCount: Int = 4,
+        minimumSampleCoverage: Double = Self.defaultMinimumSampleCoverage,
+        maximumCollectionErrorCount: Int = Self.defaultMaximumCollectionErrorCount,
+        maximumConsecutiveMissingAppSamples: Int = Self.defaultMaximumConsecutiveMissingAppSamples
     ) throws {
         guard outputURL.pathExtension.lowercased() == "csv" else {
             throw SoakResourceMetricsError.invalidConfiguration("Resource metrics output must use a .csv extension.")
@@ -68,17 +98,30 @@ struct SoakResourceMetricsConfiguration: Equatable {
         guard 1...Self.maximumFileCount ~= maximumFileCount else {
             throw SoakResourceMetricsError.invalidConfiguration("Resource metrics file-count limit must be between 1 and 10.")
         }
+        guard minimumSampleCoverage > 0, minimumSampleCoverage <= 1 else {
+            throw SoakResourceMetricsError.invalidConfiguration("Resource metrics sample coverage must be greater than 0 and at most 1.")
+        }
+        guard maximumCollectionErrorCount >= 0 else {
+            throw SoakResourceMetricsError.invalidConfiguration("Resource metrics collection-error limit must not be negative.")
+        }
+        guard maximumConsecutiveMissingAppSamples >= 2 else {
+            throw SoakResourceMetricsError.invalidConfiguration("Resource metrics missing-app limit must be at least two consecutive samples.")
+        }
 
         self.outputURL = outputURL
         self.processName = processName
         self.helperProcessNames = helperProcessNames
         self.databaseURL = databaseURL
         self.traceURL = traceURL
+        self.lifecycleMetricsURL = lifecycleMetricsURL
         self.sqliteExecutableURL = sqliteExecutableURL
         self.intervalSeconds = intervalSeconds
         self.durationSeconds = durationSeconds
         self.maximumFileSizeBytes = maximumFileSizeBytes
         self.maximumFileCount = maximumFileCount
+        self.minimumSampleCoverage = minimumSampleCoverage
+        self.maximumCollectionErrorCount = maximumCollectionErrorCount
+        self.maximumConsecutiveMissingAppSamples = maximumConsecutiveMissingAppSamples
     }
 }
 
@@ -259,10 +302,18 @@ struct SoakFileMetrics: Equatable {
     let traceBytes: UInt64
     let databaseBytes: UInt64
     let walBytes: UInt64
+    let captureStopCount: Int
+    let captureRestartCount: Int
+    let captureCleanupCount: Int
     let stopStartCount: Int
     let lastCleanupDurationMS: Int?
 
-    static func collect(databaseURL: URL?, traceURL: URL?, fileManager: FileManager = .default) -> SoakFileMetrics {
+    static func collect(
+        databaseURL: URL?,
+        traceURL: URL?,
+        lifecycleMetrics: SoakCaptureLifecycleMetrics = .unavailable,
+        fileManager: FileManager = .default
+    ) -> SoakFileMetrics {
         let collectedTraceMetrics = traceURL.map { Self.traceMetrics(for: $0, fileManager: fileManager) } ?? .empty
         let databaseBytes = databaseURL.map { fileSize(at: $0, fileManager: fileManager) } ?? 0
         let walBytes = databaseURL.map {
@@ -274,18 +325,19 @@ struct SoakFileMetrics: Equatable {
             traceBytes: collectedTraceMetrics.bytes,
             databaseBytes: databaseBytes,
             walBytes: walBytes,
-            stopStartCount: collectedTraceMetrics.stopStartCount,
-            lastCleanupDurationMS: collectedTraceMetrics.lastCleanupDurationMS
+            captureStopCount: lifecycleMetrics.stopCompletedCount,
+            captureRestartCount: lifecycleMetrics.restartCompletedCount,
+            captureCleanupCount: lifecycleMetrics.cleanupCompletedCount,
+            stopStartCount: lifecycleMetrics.pairedStopRestartCount,
+            lastCleanupDurationMS: lifecycleMetrics.lastCleanupDurationMS
         )
     }
 
     private struct TraceMetrics {
-        static let empty = TraceMetrics(fileCount: 0, bytes: 0, stopStartCount: 0, lastCleanupDurationMS: nil)
+        static let empty = TraceMetrics(fileCount: 0, bytes: 0)
 
         let fileCount: Int
         let bytes: UInt64
-        let stopStartCount: Int
-        let lastCleanupDurationMS: Int?
     }
 
     private static func traceMetrics(for traceURL: URL, fileManager: FileManager) -> TraceMetrics {
@@ -316,41 +368,13 @@ struct SoakFileMetrics: Equatable {
 
         var fileCount = 0
         var bytes = UInt64(0)
-        var stopStartCount = 0
-        var latestCleanup: (timestamp: String, durationMS: Int)?
         for url in matching {
             fileCount += 1
             let size = fileSize(at: url, fileManager: fileManager)
             let sum = bytes.addingReportingOverflow(size)
             bytes = sum.overflow ? UInt64.max : sum.partialValue
-            guard let data = try? Data(contentsOf: url),
-                  let text = String(data: data, encoding: .utf8) else { continue }
-            for line in text.split(whereSeparator: \.isNewline) {
-                guard let lineData = String(line).data(using: .utf8),
-                      let payload = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                      payload["event_type"] as? String == "capture.stop.completed" else { continue }
-                stopStartCount += 1
-                guard let reason = payload["rejection_reason"] as? String,
-                      let durationMS = cleanupDuration(from: reason) else { continue }
-                let timestamp = payload["timestamp"] as? String ?? ""
-                if latestCleanup == nil || timestamp >= latestCleanup!.timestamp {
-                    latestCleanup = (timestamp, durationMS)
-                }
-            }
         }
-        return TraceMetrics(
-            fileCount: fileCount,
-            bytes: bytes,
-            stopStartCount: stopStartCount,
-            lastCleanupDurationMS: latestCleanup?.durationMS
-        )
-    }
-
-    private static func cleanupDuration(from reason: String) -> Int? {
-        guard let field = reason.split(separator: "|").first(where: { $0.hasPrefix("cleanup_ms=") }) else {
-            return nil
-        }
-        return Int(field.dropFirst("cleanup_ms=".count))
+        return TraceMetrics(fileCount: fileCount, bytes: bytes)
     }
 
     private static func fileSize(at url: URL, fileManager: FileManager) -> UInt64 {
@@ -360,6 +384,92 @@ struct SoakFileMetrics: Equatable {
             return 0
         }
         return size
+    }
+}
+
+struct SoakCaptureLifecycleMetrics: Equatable {
+    static let maximumFileSizeBytes = 4 * 1_024
+    static let csvHeader = "stop_completed_count,restart_completed_count,cleanup_completed_count,last_cleanup_duration_ms"
+    static let unavailable = SoakCaptureLifecycleMetrics(
+        stopCompletedCount: 0,
+        restartCompletedCount: 0,
+        cleanupCompletedCount: 0,
+        lastCleanupDurationMS: nil
+    )
+
+    let stopCompletedCount: Int
+    let restartCompletedCount: Int
+    let cleanupCompletedCount: Int
+    let lastCleanupDurationMS: Int?
+
+    var pairedStopRestartCount: Int {
+        min(stopCompletedCount, restartCompletedCount)
+    }
+
+    static func read(from url: URL?, fileManager: FileManager = .default) throws -> SoakCaptureLifecycleMetrics {
+        guard let url else { return .unavailable }
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw SoakResourceMetricsError.invalidLifecycleMetrics(
+                "Lifecycle metrics file was not found: \(url.path)"
+            )
+        }
+
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw SoakResourceMetricsError.invalidLifecycleMetrics(
+                "Lifecycle metrics input must be a regular, non-symbolic-link file."
+            )
+        }
+        guard let fileSize = values.fileSize, fileSize <= maximumFileSizeBytes else {
+            throw SoakResourceMetricsError.invalidLifecycleMetrics(
+                "Lifecycle metrics input exceeds the 4096-byte privacy limit."
+            )
+        }
+
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: maximumFileSizeBytes + 1) ?? Data()
+        guard data.count <= maximumFileSizeBytes,
+              let text = String(data: data, encoding: .utf8) else {
+            throw SoakResourceMetricsError.invalidLifecycleMetrics(
+                "Lifecycle metrics input is not bounded UTF-8 data."
+            )
+        }
+
+        let lines = text.split(whereSeparator: \.isNewline)
+        guard lines.count == 2, lines[0] == Substring(csvHeader) else {
+            throw SoakResourceMetricsError.invalidLifecycleMetrics(
+                "Lifecycle metrics input does not match the privacy-safe numeric schema."
+            )
+        }
+        let fields = lines[1].split(separator: ",", omittingEmptySubsequences: false)
+        guard fields.count == 4,
+              let stopCompletedCount = nonnegativeInteger(fields[0]),
+              let restartCompletedCount = nonnegativeInteger(fields[1]),
+              let cleanupCompletedCount = nonnegativeInteger(fields[2]),
+              let lastCleanupDurationMS = optionalNonnegativeInteger(fields[3]) else {
+            throw SoakResourceMetricsError.invalidLifecycleMetrics(
+                "Lifecycle metrics input must contain only nonnegative numeric values."
+            )
+        }
+
+        return SoakCaptureLifecycleMetrics(
+            stopCompletedCount: stopCompletedCount,
+            restartCompletedCount: restartCompletedCount,
+            cleanupCompletedCount: cleanupCompletedCount,
+            lastCleanupDurationMS: lastCleanupDurationMS
+        )
+    }
+
+    private static func nonnegativeInteger(_ value: Substring) -> Int? {
+        guard let parsed = Int(value), parsed >= 0 else { return nil }
+        return parsed
+    }
+
+    private static func optionalNonnegativeInteger(_ value: Substring) -> Int?? {
+        guard !value.isEmpty else { return .some(nil) }
+        guard let parsed = nonnegativeInteger(value) else { return nil }
+        return .some(parsed)
     }
 }
 
@@ -508,6 +618,9 @@ struct SoakResourceMetricsSample: Equatable {
         "detected_question_count",
         "suggestion_count",
         "generation_count",
+        "capture_stop_count",
+        "capture_restart_count",
+        "capture_cleanup_count",
         "stop_start_count",
         "last_cleanup_duration_ms",
         "app_restart_count",
@@ -553,6 +666,9 @@ struct SoakResourceMetricsSample: Equatable {
         values.append(databaseCounts.detectedQuestions.map(String.init) ?? "")
         values.append(databaseCounts.suggestions.map(String.init) ?? "")
         values.append(databaseCounts.generations.map(String.init) ?? "")
+        values.append(String(fileMetrics.captureStopCount))
+        values.append(String(fileMetrics.captureRestartCount))
+        values.append(String(fileMetrics.captureCleanupCount))
         values.append(String(fileMetrics.stopStartCount))
         values.append(fileMetrics.lastCleanupDurationMS.map(String.init) ?? "")
         values.append(String(lifecycleCounts.appRestarts))
@@ -730,20 +846,69 @@ final class SoakResourceMetricsCSVWriter {
 
 struct SoakResourceMetricsRunSummary: Equatable {
     let sampleCount: Int
+    let expectedSampleCount: Int
+    let exactTargetSampleCount: Int
+    let collectionErrorCount: Int
     let rotationCount: Int
     let cleanupCount: Int
+}
+
+protocol SoakMonotonicClock {
+    func now() -> TimeInterval
+    func sleep(for seconds: TimeInterval)
+}
+
+struct SystemSoakMonotonicClock: SoakMonotonicClock {
+    func now() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    func sleep(for seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        Thread.sleep(forTimeInterval: seconds)
+    }
+}
+
+enum SoakFixedIntervalSchedule {
+    static func expectedSampleCount(durationSeconds: Double, intervalSeconds: Double) -> Int {
+        Int(floor(durationSeconds / intervalSeconds)) + 1
+    }
+
+    static func sampleIndex(
+        nextSampleIndex: Int,
+        startTime: TimeInterval,
+        now: TimeInterval,
+        intervalSeconds: Double,
+        expectedSampleCount: Int
+    ) -> Int {
+        let elapsed = max(0, now - startTime)
+        let dueSampleIndex = Int(floor(elapsed / intervalSeconds))
+        return min(max(nextSampleIndex, dueSampleIndex), expectedSampleCount - 1)
+    }
+
+    static func delay(
+        startTime: TimeInterval,
+        sampleIndex: Int,
+        intervalSeconds: Double,
+        now: TimeInterval
+    ) -> TimeInterval {
+        max(0, startTime + (Double(sampleIndex) * intervalSeconds) - now)
+    }
 }
 
 final class SoakResourceMetricsCollector {
     private let configuration: SoakResourceMetricsConfiguration
     private let runner: any SoakCommandRunning
+    private let clock: any SoakMonotonicClock
 
     init(
         configuration: SoakResourceMetricsConfiguration,
-        runner: any SoakCommandRunning = FoundationSoakCommandRunner()
+        runner: any SoakCommandRunning = FoundationSoakCommandRunner(),
+        clock: any SoakMonotonicClock = SystemSoakMonotonicClock()
     ) {
         self.configuration = configuration
         self.runner = runner
+        self.clock = clock
     }
 
     func run() throws -> SoakResourceMetricsRunSummary {
@@ -756,11 +921,42 @@ final class SoakResourceMetricsCollector {
         var lifecycleTracker = SoakProcessLifecycleTracker()
         var collectionErrorCount = 0
         var sampleCount = 0
-        let startUptime = ProcessInfo.processInfo.systemUptime
+        var exactTargetSampleCount = 0
+        var hasObservedTarget = false
+        var consecutiveMissingTargetSamples = 0
+        let startTime = clock.now()
+        let expectedSampleCount = SoakFixedIntervalSchedule.expectedSampleCount(
+            durationSeconds: configuration.durationSeconds,
+            intervalSeconds: configuration.intervalSeconds
+        )
+        var nextSampleIndex = 0
 
-        while true {
-            let elapsed = ProcessInfo.processInfo.systemUptime - startUptime
+        while nextSampleIndex < expectedSampleCount {
+            let now = clock.now()
+            let elapsedBeforeSleep = max(0, now - startTime)
+            guard elapsedBeforeSleep <= configuration.durationSeconds else { break }
+
+            nextSampleIndex = SoakFixedIntervalSchedule.sampleIndex(
+                nextSampleIndex: nextSampleIndex,
+                startTime: startTime,
+                now: now,
+                intervalSeconds: configuration.intervalSeconds,
+                expectedSampleCount: expectedSampleCount
+            )
+            let sleepDuration = SoakFixedIntervalSchedule.delay(
+                startTime: startTime,
+                sampleIndex: nextSampleIndex,
+                intervalSeconds: configuration.intervalSeconds,
+                now: now
+            )
+            if sleepDuration > 0 {
+                clock.sleep(for: sleepDuration)
+            }
+
+            let elapsed = max(0, clock.now() - startTime)
+            guard elapsed <= configuration.durationSeconds else { break }
             let processRecords: [SoakProcessRecord]
+            let processCollectionSucceeded: Bool
             do {
                 let result = try runner.run(
                     executableURL: URL(fileURLWithPath: "/bin/ps"),
@@ -770,9 +966,11 @@ final class SoakResourceMetricsCollector {
                     throw SoakResourceMetricsError.commandFailed("ps")
                 }
                 processRecords = SoakProcessListParser.parse(result.standardOutput)
+                processCollectionSucceeded = true
             } catch {
                 collectionErrorCount += 1
                 processRecords = []
+                processCollectionSucceeded = false
             }
 
             let processSnapshot = SoakProcessSnapshot.make(
@@ -791,13 +989,49 @@ final class SoakResourceMetricsCollector {
                 databaseCounts = .unavailable
             }
 
+            let captureLifecycleMetrics: SoakCaptureLifecycleMetrics
+            do {
+                captureLifecycleMetrics = try SoakCaptureLifecycleMetrics.read(
+                    from: configuration.lifecycleMetricsURL
+                )
+            } catch {
+                collectionErrorCount += 1
+                captureLifecycleMetrics = .unavailable
+            }
+
+            var targetFailure: SoakResourceMetricsError?
+            if processCollectionSucceeded {
+                switch processSnapshot.appProcessIDs.count {
+                case 1:
+                    hasObservedTarget = true
+                    consecutiveMissingTargetSamples = 0
+                    exactTargetSampleCount += 1
+                case 0:
+                    consecutiveMissingTargetSamples += 1
+                    if consecutiveMissingTargetSamples >= configuration.maximumConsecutiveMissingAppSamples {
+                        targetFailure = hasObservedTarget
+                            ? .targetDisappeared(
+                                processName: configuration.processName,
+                                consecutiveSamples: consecutiveMissingTargetSamples
+                            )
+                            : .targetNotObserved(processName: configuration.processName)
+                    }
+                default:
+                    targetFailure = .unexpectedTargetProcessCount(
+                        processName: configuration.processName,
+                        actual: processSnapshot.appProcessIDs.count
+                    )
+                }
+            }
+
             let sample = SoakResourceMetricsSample(
                 timestamp: Date(),
                 elapsedSeconds: elapsed,
                 processSnapshot: processSnapshot,
                 fileMetrics: SoakFileMetrics.collect(
                     databaseURL: configuration.databaseURL,
-                    traceURL: configuration.traceURL
+                    traceURL: configuration.traceURL,
+                    lifecycleMetrics: captureLifecycleMetrics
                 ),
                 databaseCounts: databaseCounts,
                 lifecycleCounts: lifecycleTracker.update(with: processSnapshot),
@@ -805,14 +1039,36 @@ final class SoakResourceMetricsCollector {
             )
             try writer.append(sample)
             sampleCount += 1
+            nextSampleIndex += 1
 
-            let remaining = configuration.durationSeconds - elapsed
-            guard remaining > 0 else { break }
-            Thread.sleep(forTimeInterval: min(configuration.intervalSeconds, remaining))
+            if collectionErrorCount > configuration.maximumCollectionErrorCount {
+                throw SoakResourceMetricsError.collectionErrorLimitExceeded(
+                    actual: collectionErrorCount,
+                    maximum: configuration.maximumCollectionErrorCount
+                )
+            }
+            if let targetFailure {
+                throw targetFailure
+            }
+        }
+
+        guard hasObservedTarget else {
+            throw SoakResourceMetricsError.targetNotObserved(processName: configuration.processName)
+        }
+        let requiredSampleCount = Int(ceil(Double(expectedSampleCount) * configuration.minimumSampleCoverage))
+        guard exactTargetSampleCount >= requiredSampleCount else {
+            throw SoakResourceMetricsError.insufficientSampleCoverage(
+                expected: expectedSampleCount,
+                observed: exactTargetSampleCount,
+                minimum: configuration.minimumSampleCoverage
+            )
         }
 
         return SoakResourceMetricsRunSummary(
             sampleCount: sampleCount,
+            expectedSampleCount: expectedSampleCount,
+            exactTargetSampleCount: exactTargetSampleCount,
+            collectionErrorCount: collectionErrorCount,
             rotationCount: writer.rotationCount,
             cleanupCount: writer.cleanupCount
         )
@@ -827,11 +1083,21 @@ enum SoakResourceMetricsCLI {
       --interval SECONDS      Sampling interval from 5 through 10 (default: 5)
       --database PATH         SQLite database to count in read-only mode
       --trace PATH            Runtime trace base file to measure by size only
+      --lifecycle-metrics PATH
+                              Bounded numeric capture lifecycle summary
       --helper-name NAME      Helper executable basename; may be repeated
       --sqlite3 PATH          sqlite3 executable used for predefined count-only queries
       --max-bytes BYTES       Per-file CSV limit from 1024 through 67108864
       --max-files COUNT       Total active plus rotated CSV files from 1 through 10
       --help                  Show this message
+
+    A valid run requires exactly one target process in at least 90% of expected
+    samples, fails after three consecutive missing samples, and allows at most
+    three collection errors. Lifecycle input is limited to 4096 bytes and the
+    numeric schema printed by --help; interview trace content is never read.
+
+    Lifecycle schema:
+    \(SoakCaptureLifecycleMetrics.csvHeader)
     """
 
     static func parse(arguments: [String]) throws -> SoakResourceMetricsConfiguration {
@@ -840,6 +1106,7 @@ enum SoakResourceMetricsCLI {
         var helperProcessNames = Set<String>()
         var databaseURL: URL?
         var traceURL: URL?
+        var lifecycleMetricsURL: URL?
         var sqliteExecutableURL: URL?
         var intervalSeconds = 5.0
         var durationSeconds = 300.0
@@ -867,6 +1134,8 @@ enum SoakResourceMetricsCLI {
                 databaseURL = URL(fileURLWithPath: try value(after: option))
             case "--trace":
                 traceURL = URL(fileURLWithPath: try value(after: option))
+            case "--lifecycle-metrics":
+                lifecycleMetricsURL = URL(fileURLWithPath: try value(after: option))
             case "--sqlite3":
                 sqliteExecutableURL = URL(fileURLWithPath: try value(after: option))
             case "--interval":
@@ -909,6 +1178,7 @@ enum SoakResourceMetricsCLI {
             helperProcessNames: helperProcessNames,
             databaseURL: databaseURL,
             traceURL: traceURL,
+            lifecycleMetricsURL: lifecycleMetricsURL,
             sqliteExecutableURL: sqliteExecutableURL,
             intervalSeconds: intervalSeconds,
             durationSeconds: durationSeconds,

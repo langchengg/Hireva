@@ -10,6 +10,7 @@ OUTPUT="$OUTPUT_DIR/resource-metrics-$(date -u +%Y%m%dT%H%M%SZ).csv"
 PROCESS_NAME="Hireva"
 DATABASE="$DEFAULT_DATA_DIR/hireva.sqlite"
 TRACE="$DEFAULT_DATA_DIR/runtime_transcript_trace.jsonl"
+LIFECYCLE_METRICS="$DEFAULT_DATA_DIR/runtime_lifecycle_metrics.csv"
 INTERVAL="5"
 DURATION="300"
 MAX_BYTES="$((5 * 1024 * 1024))"
@@ -26,6 +27,8 @@ Options:
   --process-name NAME    Exact app executable basename (default: Hireva)
   --database PATH        Runtime SQLite path measured read-only
   --trace PATH           Runtime trace base path measured by size only
+  --lifecycle-metrics PATH
+                         Bounded numeric lifecycle summary (default: runtime_lifecycle_metrics.csv)
   --interval SECONDS     Sampling interval from 5 through 10 (default: 5)
   --duration SECONDS     Bounded duration up to 86400 (default: 300)
   --max-bytes BYTES      Per-file CSV cap (default: 5242880)
@@ -36,6 +39,8 @@ Options:
 The optional command is started for this isolated run. On exit, the runner only
 terminates that command wrapper if it is still active; it never kills processes
 discovered by name. CSV output contains numeric metrics and timestamps only.
+The collector exits nonzero unless exactly one target process meets the required
+sample coverage and error limits.
 USAGE
 }
 
@@ -45,6 +50,7 @@ while [[ $# -gt 0 ]]; do
         --process-name) PROCESS_NAME="$2"; shift 2 ;;
         --database) DATABASE="$2"; shift 2 ;;
         --trace) TRACE="$2"; shift 2 ;;
+        --lifecycle-metrics) LIFECYCLE_METRICS="$2"; shift 2 ;;
         --interval) INTERVAL="$2"; shift 2 ;;
         --duration) DURATION="$2"; shift 2 ;;
         --max-bytes) MAX_BYTES="$2"; shift 2 ;;
@@ -94,6 +100,7 @@ COLLECTOR_ARGS=(
     --process-name "$PROCESS_NAME"
     --database "$DATABASE"
     --trace "$TRACE"
+    --lifecycle-metrics "$LIFECYCLE_METRICS"
     --sqlite3 "$SQLITE3_PATH"
     --interval "$INTERVAL"
     --duration "$DURATION"
