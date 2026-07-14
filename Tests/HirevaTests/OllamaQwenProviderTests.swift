@@ -5,6 +5,16 @@ import Testing
 @Suite(.serialized)
 struct OllamaQwenProviderTests {
     @Test
+    func localQwenGenerationErrorIncludesSafeDiagnostic() {
+        let error = LocalQwenGenerationError(
+            category: .alignmentRejectedNonemptyContent,
+            diagnostic: "unsupported_personal_claim"
+        )
+
+        #expect(error.errorDescription == "Local Qwen request failed: alignment_rejected_nonempty_content (unsupported_personal_claim).")
+    }
+
+    @Test
     func ollamaChatStreamReadsMessageContent() throws {
         var accumulator = OllamaResponseAccumulator(schema: .chatMessageContent)
 
@@ -199,6 +209,8 @@ struct OllamaQwenProviderTests {
             Issue.record("Expected a non-empty alignment rejection")
         } catch let error as LocalQwenGenerationError {
             #expect(error.category == .alignmentRejectedNonemptyContent)
+            #expect(error.diagnostic == "unsupported_personal_claim")
+            #expect(error.errorDescription?.contains("unsupported_personal_claim") == true)
         }
 
         #expect(runtime.appState.ollamaDiagnostics.rawContentCharacters > 0)

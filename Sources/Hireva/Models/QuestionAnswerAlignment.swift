@@ -252,7 +252,10 @@ enum QuestionAnswerAlignmentEvaluator {
             ])
         case .improvementPlan:
             require("specific priority", ["first", "priority", "improve", "change", "next"])
-            require("concrete action", ["test", "measure", "add", "redesign", "evaluate", "validate", "instrument", "expand"])
+            require("concrete action", [
+                "test", "measure", "add", "redesign", "evaluate", "validate", "instrument", "expand",
+                "assess", "establish", "define", "review", "investigate", "prioritize", "tune", "implement", "document"
+            ])
         case .whyRole:
             require("motivation", ["interested", "motivated", "want", "drawn", "excited", "align"])
             require("target relevance", ["role", "team", "organisation", "organization", "research", "company", "responsibility"])

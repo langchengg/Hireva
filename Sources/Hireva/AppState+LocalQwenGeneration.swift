@@ -5,7 +5,11 @@ struct LocalQwenGenerationError: LocalizedError, Equatable {
     let diagnostic: String
 
     var errorDescription: String? {
-        "Local Qwen request failed: \(category.rawValue)."
+        let detail = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.isEmpty else {
+            return "Local Qwen request failed: \(category.rawValue)."
+        }
+        return "Local Qwen request failed: \(category.rawValue) (\(detail))."
     }
 }
 
@@ -144,6 +148,7 @@ extension AppState {
 
         var cleanedAnswer = ""
         var lastFailureCategory: OllamaFailureCategory = .providerReturnedNoContent
+        var lastFailureDiagnostic = lastFailureCategory.rawValue
         var firstContentRecorded = false
         let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
         for requestIndex in requests.indices {
@@ -257,6 +262,7 @@ extension AppState {
                 )
                 if let parserFailure = parsed.failureCategory {
                     lastFailureCategory = parserFailure
+                    lastFailureDiagnostic = parsed.sectionParserResult
                 }
                 if !cleanedAnswer.isEmpty {
                     appendOllamaLifecycleEvent(
@@ -284,6 +290,7 @@ extension AppState {
                     )
                     guard validation.accepted else {
                         lastFailureCategory = validation.failureCategory ?? .alignmentRejectedNonemptyContent
+                        lastFailureDiagnostic = validation.diagnostic
                         markProviderOperation("Local Qwen returned a non-aligned answer; retrying with recovery prompt")
                         cleanedAnswer = ""
                         continue
@@ -308,7 +315,7 @@ extension AppState {
             failLocalQwenDiagnostics(lastFailureCategory)
             throw LocalQwenGenerationError(
                 category: lastFailureCategory,
-                diagnostic: "Local Qwen exhausted all grounded answer attempts."
+                diagnostic: lastFailureDiagnostic
             )
         }
 

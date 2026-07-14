@@ -912,7 +912,7 @@ struct LocalModelsSetupTests {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState(
             questionText: questionText
         )
-        let answer = "I would make security monitoring improvement my first priority by reviewing alert quality and validating control gaps. I would measure success through timely investigation, preserved evidence, reduced repeat risk, and proportionate escalation."
+        let answer = "I would focus my first 30 days on establishing a baseline of security events across endpoints, identity, and cloud sources to identify credible indicators. My priority is to define clear monitoring criteria and validation methods, then investigate credible threats against those criteria."
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [[], [], [], [answer]])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
