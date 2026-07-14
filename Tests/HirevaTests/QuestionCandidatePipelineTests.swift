@@ -14,6 +14,20 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func pipelineAcceptsTellMeHowInterviewRequestWithoutNarrativeFalsePositive() throws {
+        let question = "Tell me how you would make an experiment result reproducible for another analyst."
+        let canonicalQuestion = "Tell me how you would make an experiment result reproducible for another analyst"
+        let candidate = try #require(QuestionCandidatePipeline.extract(from: question).first)
+
+        #expect(candidate.text == canonicalQuestion)
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        #expect(QuestionCandidatePipeline.extract(from: "Please \(question)").map(\.text) == [canonicalQuestion])
+        #expect(QuestionCandidatePipeline.extract(
+            from: "The report can tell me how the experiment result was reproduced for another analyst."
+        ).isEmpty)
+    }
+
+    @Test
     func repeatedQuestionAtNewSourceSpanRemainsASeparateCandidate() {
         let question = "What was the hardest technical challenge in making the real robot work reliably?"
         let transcript = "\(question) The interviewer asks it again. \(question)"

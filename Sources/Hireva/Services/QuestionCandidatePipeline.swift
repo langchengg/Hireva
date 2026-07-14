@@ -261,6 +261,7 @@ enum MultiQuestionSplitter {
         let imperativeQuestionStarts = [
             "\\btell\\s+me\\s+about\\b",
             "\\btell\\s+us\\s+about\\b",
+            "\\btell\\s+(?:me|us)\\s+(?:how|what|why|which|where|when)\\b",
             "\\bwalk\\s+me\\s+through\\b",
             "\\bdescribe\\b",
             "\\bexplain\\b",
@@ -617,6 +618,8 @@ enum MultiQuestionSplitter {
         let clause = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
         guard clause.hasPrefix("explain ") ||
                 clause.hasPrefix("describe ") ||
+                clause.hasPrefix("tell me ") ||
+                clause.hasPrefix("tell us ") ||
                 clause.hasPrefix("talk about ") ||
                 clause.hasPrefix("elaborate ") ||
                 clause.hasPrefix("imagine ") else {
