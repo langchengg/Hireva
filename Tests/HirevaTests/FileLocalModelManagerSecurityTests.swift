@@ -109,6 +109,181 @@ struct FileLocalModelManagerSecurityTests {
     }
 
     @Test
+    func configuredRootSymlinkRemainsSupported() async throws {
+        let fixture = try makeArchiveFixture(id: "linked-root-model", payload: Data("linked root".utf8))
+        let realRoot = fixture.root.appendingPathComponent("real-models", isDirectory: true)
+        let linkedRoot = fixture.root.appendingPathComponent("linked-models", isDirectory: true)
+        try FileManager.default.createDirectory(at: realRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: realRoot)
+        let manager = FileLocalModelManager(rootDirectory: linkedRoot)
+
+        try await consume(manager.downloadModel(fixture.descriptor))
+
+        #expect(try await manager.verifyModel(fixture.descriptor))
+        #expect(FileManager.default.fileExists(
+            atPath: realRoot.appendingPathComponent("linked-root-model/v1/model.bin").path
+        ))
+    }
+
+    @Test
+    func rootSymlinkCreatedAfterInitializationIsRejectedWithoutWritingOutsideRoot() async throws {
+        let fixture = try makeArchiveFixture(id: "late-linked-root-model", payload: Data("late link".utf8))
+        let root = fixture.root.appendingPathComponent("late-linked-models", isDirectory: true)
+        let outside = fixture.root.appendingPathComponent("outside-late-linked-root", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let manager = FileLocalModelManager(rootDirectory: root)
+        try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside)
+
+        await expectRejectedManagedPath {
+            try await consume(manager.downloadModel(fixture.descriptor))
+        }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+    }
+
+    @Test
+    func installRejectsDestinationParentSymlinkWithoutWritingTemporaryFilesOutsideRoot() async throws {
+        let fixture = try makeArchiveFixture(id: "linked-install-model", payload: Data("install".utf8))
+        let root = fixture.root.appendingPathComponent("models", isDirectory: true)
+        let outside = fixture.root.appendingPathComponent("outside-install", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(fixture.descriptor.id, isDirectory: true),
+            withDestinationURL: outside
+        )
+        let manager = FileLocalModelManager(rootDirectory: root)
+
+        await expectRejectedManagedPath {
+            try await consume(manager.downloadModel(fixture.descriptor))
+        }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+    }
+
+    @Test
+    func repairRejectsDestinationParentSymlinkWithoutChangingOutsideInstallOrRollback() async throws {
+        let fixture = try makeArchiveFixture(id: "linked-repair-model", payload: Data("stable".utf8))
+        let root = fixture.root.appendingPathComponent("models", isDirectory: true)
+        let outside = fixture.root.appendingPathComponent("outside-repair", isDirectory: true)
+        let outsideInstall = outside.appendingPathComponent("v1", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideInstall, withIntermediateDirectories: true)
+        try Data("stable".utf8).write(to: outsideInstall.appendingPathComponent("model.bin"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(fixture.descriptor.id, isDirectory: true),
+            withDestinationURL: outside
+        )
+        let manager = FileLocalModelManager(rootDirectory: root)
+
+        await expectRejectedManagedPath {
+            try await consume(manager.repairModel(fixture.descriptor))
+        }
+
+        #expect(try Data(contentsOf: outsideInstall.appendingPathComponent("model.bin")) == Data("stable".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == ["v1"])
+    }
+
+    @Test
+    func deleteRejectsDestinationParentSymlinkWithoutRemovingOutsideInstallOrRollback() async throws {
+        let fixture = try makeArchiveFixture(id: "linked-delete-model", payload: Data("preserve".utf8))
+        let root = fixture.root.appendingPathComponent("models", isDirectory: true)
+        let outside = fixture.root.appendingPathComponent("outside-delete", isDirectory: true)
+        let outsideInstall = outside.appendingPathComponent("v1", isDirectory: true)
+        let outsideRollback = outside.appendingPathComponent(".v1.rollback", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideInstall, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRollback, withIntermediateDirectories: true)
+        try Data("preserve".utf8).write(to: outsideInstall.appendingPathComponent("model.bin"))
+        try Data("rollback".utf8).write(to: outsideRollback.appendingPathComponent("model.bin"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(fixture.descriptor.id, isDirectory: true),
+            withDestinationURL: outside
+        )
+        let manager = FileLocalModelManager(rootDirectory: root)
+
+        await expectRejectedManagedPath {
+            try await manager.deleteModel(fixture.descriptor)
+        }
+
+        #expect(try Data(contentsOf: outsideInstall.appendingPathComponent("model.bin")) == Data("preserve".utf8))
+        #expect(try Data(contentsOf: outsideRollback.appendingPathComponent("model.bin")) == Data("rollback".utf8))
+    }
+
+    @Test
+    func rollbackSiblingSymlinkIsRejectedBeforeRollbackOrDeleteMutatesAnything() async throws {
+        let payload = Data("installed model".utf8)
+        let fixture = try makeArchiveFixture(id: "linked-rollback-model", payload: payload)
+        let root = fixture.root.appendingPathComponent("models", isDirectory: true)
+        let manager = FileLocalModelManager(rootDirectory: root)
+        try await consume(manager.downloadModel(fixture.descriptor))
+
+        let destination = manager.fileURL(for: fixture.descriptor)
+        let outside = fixture.root.appendingPathComponent("outside-rollback-sibling", isDirectory: true)
+        let rollback = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).rollback", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try payload.write(to: outside.appendingPathComponent("model.bin"))
+        try FileManager.default.createSymbolicLink(at: rollback, withDestinationURL: outside)
+
+        await expectRejectedManagedPath {
+            try await manager.rollbackModel(fixture.descriptor)
+        }
+        await expectRejectedManagedPath {
+            try await manager.deleteModel(fixture.descriptor)
+        }
+
+        #expect(try Data(contentsOf: destination.appendingPathComponent("model.bin")) == payload)
+        #expect(try Data(contentsOf: outside.appendingPathComponent("model.bin")) == payload)
+    }
+
+    @Test
+    func nestedLegacyMigrationRejectsNamespaceSymlinkWithoutMovingOrWritingOutsideRoot() async throws {
+        let root = temporaryDirectory().appendingPathComponent("models", isDirectory: true)
+        let outside = temporaryDirectory().appendingPathComponent("outside-migration", isDirectory: true)
+        let legacyInstall = outside.appendingPathComponent("nested-legacy-model", isDirectory: true)
+        let payload = Data("preserve legacy".utf8)
+        let model = LocalModelDescriptor(
+            id: "nested-legacy-model",
+            version: "v1",
+            displayName: "Nested Legacy Model",
+            kind: .transcription,
+            sizeBytes: nil,
+            downloadURL: nil,
+            checksum: nil,
+            storageRelativePath: "asr/nested-legacy-model/v1",
+            requiredFiles: [
+                LocalModelFileRequirement(
+                    relativePath: "model.bin",
+                    exactBytes: Int64(payload.count),
+                    sha256: sha256(payload)
+                )
+            ],
+            legacyStorageRelativePaths: ["asr/nested-legacy-model"],
+            storageNamespace: "asr"
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyInstall, withIntermediateDirectories: true)
+        try payload.write(to: legacyInstall.appendingPathComponent("model.bin"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("asr", isDirectory: true),
+            withDestinationURL: outside
+        )
+        let manager = FileLocalModelManager(rootDirectory: root)
+
+        await expectRejectedManagedPath {
+            _ = try await manager.verifyModel(model)
+        }
+
+        #expect(try Data(contentsOf: legacyInstall.appendingPathComponent("model.bin")) == payload)
+        #expect(FileManager.default.fileExists(atPath: legacyInstall.appendingPathComponent("v1").path) == false)
+        #expect(FileManager.default.fileExists(
+            atPath: legacyInstall.appendingPathComponent(".legacy-migration.json").path
+        ) == false)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == ["nested-legacy-model"])
+    }
+
+    @Test
     func repairCreatesVerifiedRollbackAndDeleteRemovesManagedCopies() async throws {
         let fixture = try makeArchiveFixture(id: "rollback-model", payload: Data("stable".utf8))
         let manager = FileLocalModelManager(rootDirectory: fixture.root.appendingPathComponent("models"))
@@ -365,6 +540,22 @@ private func descriptorForUntrustedArchive(id: String, archiveURL: URL) -> Local
 
 private func consume(_ stream: AsyncThrowingStream<ModelDownloadProgress, Error>) async throws {
     for try await _ in stream {}
+}
+
+private func expectRejectedManagedPath(_ operation: () async throws -> Void) async {
+    do {
+        try await operation()
+        Issue.record("Expected a managed path containing a symbolic link to be rejected")
+    } catch let error as LocalModelManagerError {
+        switch error {
+        case .invalidRelativePath, .unsafeArchiveEntry:
+            return
+        default:
+            Issue.record("Unexpected local model manager error: \(error)")
+        }
+    } catch {
+        Issue.record("Unexpected managed path error: \(error)")
+    }
 }
 
 private func temporaryDirectory() -> URL {

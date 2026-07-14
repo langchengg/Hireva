@@ -98,9 +98,24 @@ final class FileLocalModelManager: LocalModelManager {
         fileManager: FileManager = .default,
         modelSmokeValidator: @escaping (LocalModelDescriptor, URL) async throws -> Void = FileLocalModelManager.defaultModelSmokeValidator
     ) {
-        self.rootDirectory = rootDirectory.standardizedFileURL
+        self.rootDirectory = Self.resolvedRootDirectory(rootDirectory, fileManager: fileManager)
         self.fileManager = fileManager
         self.modelSmokeValidator = modelSmokeValidator
+    }
+
+    private static func resolvedRootDirectory(_ rootDirectory: URL, fileManager: FileManager) -> URL {
+        var existingAncestor = rootDirectory.standardizedFileURL
+        var missingComponents: [String] = []
+        while existingAncestor.path != "/", !fileManager.fileExists(atPath: existingAncestor.path) {
+            missingComponents.append(existingAncestor.lastPathComponent)
+            existingAncestor.deleteLastPathComponent()
+        }
+
+        var resolvedRoot = existingAncestor.resolvingSymlinksInPath().standardizedFileURL
+        for component in missingComponents.reversed() {
+            resolvedRoot.appendPathComponent(component, isDirectory: true)
+        }
+        return resolvedRoot.standardizedFileURL
     }
 
     func fileURL(for model: LocalModelDescriptor) -> URL {
@@ -165,24 +180,31 @@ final class FileLocalModelManager: LocalModelManager {
         await Self.operationGate.acquire(key)
         do {
             let destinationURL = try validatedDestinationURL(for: model)
+            let rollbackURL = try rollbackURL(for: destinationURL)
+            try validateManagedModelPaths(model, at: destinationURL)
+            try validateManagedModelPaths(model, at: rollbackURL)
+            let legacyURLs = try model.legacyStorageRelativePaths.map(validatedURL(relativePath:))
+            for legacyURL in legacyURLs {
+                try validateManagedModelPaths(model, at: legacyURL)
+                try validateManagedPath(legacyMigrationMarkerURL(in: legacyURL))
+            }
             let modelLock = try acquireExclusiveModelLock(for: model)
             defer { withExtendedLifetime(modelLock) {} }
-            let legacyURLs = try model.legacyStorageRelativePaths.map(validatedURL(relativePath:))
-            for url in [destinationURL, rollbackURL(for: destinationURL)] where fileManager.fileExists(atPath: url.path) {
-                try fileManager.removeItem(at: url)
+            for url in [destinationURL, rollbackURL] where fileManager.fileExists(atPath: url.path) {
+                try removeManagedItem(at: url)
             }
             for legacyURL in legacyURLs where fileManager.fileExists(atPath: legacyURL.path) {
                 let containsDestination = isStrictDescendant(destinationURL, of: legacyURL)
                 let isUnversionedInstall = (try? validateInstalledModel(model, at: legacyURL)) != nil
                 if !containsDestination || isUnversionedInstall {
-                    try fileManager.removeItem(at: legacyURL)
+                    try removeManagedItem(at: legacyURL)
                     continue
                 }
 
                 let markerURL = legacyMigrationMarkerURL(in: legacyURL)
                 if fileManager.fileExists(atPath: markerURL.path) {
                     try removeLegacyManifestFiles(for: model, at: legacyURL)
-                    try fileManager.removeItem(at: markerURL)
+                    try removeManagedItem(at: markerURL)
                 }
                 try removeDirectoryIfEmpty(legacyURL)
             }
@@ -199,18 +221,20 @@ final class FileLocalModelManager: LocalModelManager {
         await Self.operationGate.acquire(key)
         do {
             let destinationURL = try validatedDestinationURL(for: model)
-            let modelLock = try acquireExclusiveModelLock(for: model)
-            defer { withExtendedLifetime(modelLock) {} }
-            let rollbackURL = rollbackURL(for: destinationURL)
+            let rollbackURL = try rollbackURL(for: destinationURL)
+            try validateManagedModelPaths(model, at: destinationURL)
+            try validateManagedModelPaths(model, at: rollbackURL)
             guard fileManager.fileExists(atPath: rollbackURL.path) else {
                 throw LocalModelManagerError.rollbackUnavailable(model.displayName)
             }
             try validateInstalledModel(model, at: rollbackURL)
+            let modelLock = try acquireExclusiveModelLock(for: model)
+            defer { withExtendedLifetime(modelLock) {} }
 
             if fileManager.fileExists(atPath: destinationURL.path) {
                 try atomicSwap(destinationURL, rollbackURL)
             } else {
-                try fileManager.moveItem(at: rollbackURL, to: destinationURL)
+                try moveManagedItem(at: rollbackURL, to: destinationURL)
             }
             setActiveStatus(nil, for: key)
             await Self.operationGate.release(key)
@@ -265,12 +289,13 @@ final class FileLocalModelManager: LocalModelManager {
         }
         try validateDownloadURL(sourceURL, for: model)
         let destinationURL = try validatedDestinationURL(for: model)
-        try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try rollbackURL(for: destinationURL)
+        try createManagedDirectory(at: rootDirectory)
+        try createManagedDirectory(at: destinationURL.deletingLastPathComponent())
 
         if isArchiveDownload(sourceURL) {
-            let archiveURL = uniqueSiblingURL(of: destinationURL, label: "archive")
-            defer { try? fileManager.removeItem(at: archiveURL) }
+            let archiveURL = try uniqueSiblingURL(of: destinationURL, label: "archive")
+            defer { try? removeManagedItemIfPresent(at: archiveURL) }
             try await transferFile(
                 from: sourceURL,
                 to: archiveURL,
@@ -281,9 +306,11 @@ final class FileLocalModelManager: LocalModelManager {
             try validateArchive(archiveURL, for: model)
             try preflightArchive(archiveURL, for: model)
 
-            let extractionRoot = uniqueSiblingURL(of: destinationURL, label: "staging")
-            defer { try? fileManager.removeItem(at: extractionRoot) }
-            try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
+            let extractionRoot = try uniqueSiblingURL(of: destinationURL, label: "staging")
+            defer { try? removeManagedItemIfPresent(at: extractionRoot) }
+            try createManagedDirectory(at: extractionRoot)
+            try validateManagedPath(archiveURL)
+            try validateManagedPath(extractionRoot)
             try runTar(["-xf", archiveURL.path, "-C", extractionRoot.path], operation: "extraction")
             try validateExtractedTree(at: extractionRoot)
 
@@ -294,8 +321,8 @@ final class FileLocalModelManager: LocalModelManager {
             defer { withExtendedLifetime(modelLock) {} }
             try atomicInstall(stagedModelURL, at: destinationURL, for: model)
         } else {
-            let stagedFileURL = uniqueSiblingURL(of: destinationURL, label: "staging")
-            defer { try? fileManager.removeItem(at: stagedFileURL) }
+            let stagedFileURL = try uniqueSiblingURL(of: destinationURL, label: "staging")
+            defer { try? removeManagedItemIfPresent(at: stagedFileURL) }
             try await transferFile(
                 from: sourceURL,
                 to: stagedFileURL,
@@ -350,6 +377,7 @@ final class FileLocalModelManager: LocalModelManager {
         let totalBytes = (attributes[.size] as? NSNumber)?.int64Value
         let input = try FileHandle(forReadingFrom: sourceURL)
         defer { try? input.close() }
+        try validateManagedPath(destinationURL)
         guard fileManager.createFile(atPath: destinationURL.path, contents: nil) else {
             throw LocalModelManagerError.downloadFailed("Could not create the model staging file.")
         }
@@ -396,6 +424,7 @@ final class FileLocalModelManager: LocalModelManager {
             throw LocalModelManagerError.downloadFailed("Download failed with HTTP \(http.statusCode).")
         }
         let totalBytes = response.expectedContentLength > 0 ? response.expectedContentLength : model.sizeBytes
+        try validateManagedPath(destinationURL)
         guard fileManager.createFile(atPath: destinationURL.path, contents: nil) else {
             throw LocalModelManagerError.downloadFailed("Could not create the model staging file.")
         }
@@ -562,6 +591,7 @@ final class FileLocalModelManager: LocalModelManager {
     }
 
     private func validateStandaloneFile(_ fileURL: URL, for model: LocalModelDescriptor) throws {
+        try validateManagedPath(fileURL)
         let values = try fileURL.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
         guard values.isSymbolicLink != true, values.isRegularFile == true else {
             throw LocalModelManagerError.unsafeArchiveEntry(fileURL.path)
@@ -581,6 +611,7 @@ final class FileLocalModelManager: LocalModelManager {
     }
 
     private func validateInstalledModel(_ model: LocalModelDescriptor, at rootURL: URL) throws {
+        try validateManagedModelPaths(model, at: rootURL)
         if model.requiredFiles.isEmpty {
             guard fileManager.fileExists(atPath: rootURL.path) else {
                 throw InstalledValidationError.missing(rootURL.path)
@@ -639,16 +670,18 @@ final class FileLocalModelManager: LocalModelManager {
     }
 
     private func atomicInstall(_ stagedURL: URL, at destinationURL: URL, for model: LocalModelDescriptor) throws {
+        try validateManagedPath(stagedURL)
+        try validateManagedPath(destinationURL)
         guard fileManager.fileExists(atPath: destinationURL.path) else {
-            try fileManager.moveItem(at: stagedURL, to: destinationURL)
+            try moveManagedItem(at: stagedURL, to: destinationURL)
             return
         }
 
-        let rollbackURL = rollbackURL(for: destinationURL)
-        let retiredRollbackURL = uniqueSiblingURL(of: destinationURL, label: "retired-rollback")
+        let rollbackURL = try rollbackURL(for: destinationURL)
+        let retiredRollbackURL = try uniqueSiblingURL(of: destinationURL, label: "retired-rollback")
         let hadRollback = fileManager.fileExists(atPath: rollbackURL.path)
         if hadRollback {
-            try fileManager.moveItem(at: rollbackURL, to: retiredRollbackURL)
+            try moveManagedItem(at: rollbackURL, to: retiredRollbackURL)
         }
 
         var didSwap = false
@@ -657,14 +690,14 @@ final class FileLocalModelManager: LocalModelManager {
             didSwap = true
 
             if (try? validateInstalledModel(model, at: stagedURL)) != nil {
-                try fileManager.moveItem(at: stagedURL, to: rollbackURL)
+                try moveManagedItem(at: stagedURL, to: rollbackURL)
                 if hadRollback {
-                    try fileManager.removeItem(at: retiredRollbackURL)
+                    try removeManagedItem(at: retiredRollbackURL)
                 }
             } else {
-                try fileManager.removeItem(at: stagedURL)
+                try removeManagedItem(at: stagedURL)
                 if hadRollback {
-                    try fileManager.moveItem(at: retiredRollbackURL, to: rollbackURL)
+                    try moveManagedItem(at: retiredRollbackURL, to: rollbackURL)
                 }
             }
         } catch {
@@ -676,13 +709,15 @@ final class FileLocalModelManager: LocalModelManager {
             if hadRollback,
                fileManager.fileExists(atPath: retiredRollbackURL.path),
                !fileManager.fileExists(atPath: rollbackURL.path) {
-                try? fileManager.moveItem(at: retiredRollbackURL, to: rollbackURL)
+                try? moveManagedItem(at: retiredRollbackURL, to: rollbackURL)
             }
             throw error
         }
     }
 
     private func atomicSwap(_ first: URL, _ second: URL) throws {
+        try validateManagedPath(first)
+        try validateManagedPath(second)
         let result: Int32 = first.withUnsafeFileSystemRepresentation { firstPath in
             second.withUnsafeFileSystemRepresentation { secondPath -> Int32 in
                 guard let firstPath, let secondPath else { return -1 }
@@ -703,6 +738,8 @@ final class FileLocalModelManager: LocalModelManager {
     }
 
     private func migrateLegacyInstallIfAvailable(for model: LocalModelDescriptor, to destinationURL: URL) async throws {
+        try validateManagedModelPaths(model, at: destinationURL)
+        _ = try rollbackURL(for: destinationURL)
         for relativePath in model.legacyStorageRelativePaths {
             let legacyURL = try validatedURL(relativePath: relativePath)
             guard fileManager.fileExists(atPath: legacyURL.path) else { continue }
@@ -714,18 +751,15 @@ final class FileLocalModelManager: LocalModelManager {
                 try migrateNestedLegacyInstall(model, from: legacyURL, to: destinationURL)
                 return
             }
-            let stagingURL = rootDirectory.appendingPathComponent(
+            let stagingURL = try validatedManagedURL(rootDirectory.appendingPathComponent(
                 ".legacy-migration.\(UUID().uuidString)",
                 isDirectory: true
-            )
-            defer { try? fileManager.removeItem(at: stagingURL) }
-            try fileManager.copyItem(at: legacyURL, to: stagingURL)
+            ))
+            defer { try? removeManagedItemIfPresent(at: stagingURL) }
+            try copyManagedItem(at: legacyURL, to: stagingURL)
             try validateInstalledModel(model, at: stagingURL)
             try await modelSmokeValidator(model, stagingURL)
-            try fileManager.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
+            try createManagedDirectory(at: destinationURL.deletingLastPathComponent())
             try atomicInstall(stagingURL, at: destinationURL, for: model)
             return
         }
@@ -736,23 +770,23 @@ final class FileLocalModelManager: LocalModelManager {
         from legacyURL: URL,
         to destinationURL: URL
     ) throws {
-        let movedLegacyURL = uniqueSiblingURL(of: legacyURL, label: "legacy-migration")
+        let movedLegacyURL = try uniqueSiblingURL(of: legacyURL, label: "legacy-migration")
         var movedLegacy = false
         do {
-            try fileManager.moveItem(at: legacyURL, to: movedLegacyURL)
+            try moveManagedItem(at: legacyURL, to: movedLegacyURL)
             movedLegacy = true
-            try fileManager.createDirectory(at: legacyURL, withIntermediateDirectories: true)
-            try fileManager.moveItem(at: movedLegacyURL, to: destinationURL)
+            try createManagedDirectory(at: legacyURL)
+            try moveManagedItem(at: movedLegacyURL, to: destinationURL)
             movedLegacy = false
             try validateInstalledModel(model, at: destinationURL)
             try writeLegacyMigrationMarker(for: model, in: legacyURL)
         } catch {
             if fileManager.fileExists(atPath: destinationURL.path) {
-                try? fileManager.removeItem(at: legacyURL)
-                try? fileManager.moveItem(at: destinationURL, to: legacyURL)
+                try? removeManagedItemIfPresent(at: legacyURL)
+                try? moveManagedItem(at: destinationURL, to: legacyURL)
             } else if movedLegacy {
-                try? fileManager.removeItem(at: legacyURL)
-                try? fileManager.moveItem(at: movedLegacyURL, to: legacyURL)
+                try? removeManagedItemIfPresent(at: legacyURL)
+                try? moveManagedItem(at: movedLegacyURL, to: legacyURL)
             }
             throw error
         }
@@ -769,7 +803,9 @@ final class FileLocalModelManager: LocalModelManager {
             "verifiedFileHashes": hashes
         ]
         let data = try JSONSerialization.data(withJSONObject: marker, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: legacyMigrationMarkerURL(in: parentURL), options: .atomic)
+        let markerURL = legacyMigrationMarkerURL(in: parentURL)
+        try validateManagedPath(markerURL)
+        try data.write(to: markerURL, options: .atomic)
     }
 
     private func legacyMigrationMarkerURL(in parentURL: URL) -> URL {
@@ -783,8 +819,10 @@ final class FileLocalModelManager: LocalModelManager {
         } else {
             lockDirectory = rootDirectory
         }
+        let lockURL = lockDirectory.appendingPathComponent(".\(model.id).use.lock", isDirectory: false)
+        try validateManagedPath(lockURL)
         return try ExclusiveModelFileLock(
-            url: lockDirectory.appendingPathComponent(".\(model.id).use.lock", isDirectory: false),
+            url: lockURL,
             modelName: model.displayName,
             fileManager: fileManager
         )
@@ -801,8 +839,9 @@ final class FileLocalModelManager: LocalModelManager {
             guard isContained(fileURL, in: legacyURL) else {
                 throw LocalModelManagerError.invalidRelativePath(requirement.relativePath)
             }
+            try validateManagedPath(fileURL)
             if fileManager.fileExists(atPath: fileURL.path) {
-                try fileManager.removeItem(at: fileURL)
+                try removeManagedItem(at: fileURL)
             }
 
             var directoryURL = fileURL.deletingLastPathComponent()
@@ -819,9 +858,10 @@ final class FileLocalModelManager: LocalModelManager {
     }
 
     private func removeDirectoryIfEmpty(_ directoryURL: URL) throws {
+        try validateManagedPath(directoryURL)
         let entries = try fileManager.contentsOfDirectory(atPath: directoryURL.path)
         if entries.isEmpty {
-            try fileManager.removeItem(at: directoryURL)
+            try removeManagedItem(at: directoryURL)
         }
     }
 
@@ -871,7 +911,11 @@ final class FileLocalModelManager: LocalModelManager {
         let prefix = rootURL.standardizedFileURL.path + "/"
         var paths = Set<String>()
         for case let itemURL as URL in enumerator {
-            let values = try itemURL.resourceValues(forKeys: [.isRegularFileKey])
+            try validateManagedPath(itemURL)
+            let values = try itemURL.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
+            guard values.isSymbolicLink != true else {
+                throw LocalModelManagerError.unsafeArchiveEntry(itemURL.path)
+            }
             guard values.isRegularFile == true else { continue }
             let path = itemURL.standardizedFileURL.path
             guard path.hasPrefix(prefix) else {
@@ -908,7 +952,7 @@ final class FileLocalModelManager: LocalModelManager {
         guard isContained(candidate, in: rootDirectory) else {
             throw LocalModelManagerError.invalidRelativePath(relativePath)
         }
-        return candidate
+        return try validatedManagedURL(candidate)
     }
 
     private func validateRelativePath(_ path: String, allowTrailingSlash: Bool = false) throws {
@@ -932,14 +976,103 @@ final class FileLocalModelManager: LocalModelManager {
         return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
     }
 
-    private func rollbackURL(for destinationURL: URL) -> URL {
-        destinationURL.deletingLastPathComponent()
-            .appendingPathComponent(".\(destinationURL.lastPathComponent).rollback", isDirectory: destinationURL.hasDirectoryPath)
+    private func validatedManagedURL(_ url: URL) throws -> URL {
+        let candidate = url.standardizedFileURL
+        guard isContained(candidate, in: rootDirectory) else {
+            throw LocalModelManagerError.invalidRelativePath(candidate.path)
+        }
+        try validateManagedPath(candidate)
+        return candidate
     }
 
-    private func uniqueSiblingURL(of destinationURL: URL, label: String) -> URL {
-        destinationURL.deletingLastPathComponent()
+    private func validateManagedModelPaths(_ model: LocalModelDescriptor, at modelURL: URL) throws {
+        try validateManagedPath(modelURL)
+        for requirement in model.requiredFiles {
+            try validateRelativePath(requirement.relativePath)
+            let fileURL = modelURL.appendingPathComponent(requirement.relativePath, isDirectory: false)
+            guard isContained(fileURL, in: modelURL) else {
+                throw LocalModelManagerError.invalidRelativePath(requirement.relativePath)
+            }
+            try validateManagedPath(fileURL)
+        }
+    }
+
+    private func validateManagedPath(_ url: URL) throws {
+        let candidate = url.standardizedFileURL
+        guard isContained(candidate, in: rootDirectory) else {
+            throw LocalModelManagerError.invalidRelativePath(candidate.path)
+        }
+        if try isSymbolicLink(at: rootDirectory) {
+            throw LocalModelManagerError.invalidRelativePath(candidate.path)
+        }
+
+        var current = rootDirectory
+        for component in candidate.pathComponents.dropFirst(rootDirectory.pathComponents.count) {
+            current.appendPathComponent(component)
+            if try isSymbolicLink(at: current) {
+                throw LocalModelManagerError.invalidRelativePath(candidate.path)
+            }
+        }
+    }
+
+    private func isSymbolicLink(at url: URL) throws -> Bool {
+        var itemStatus = stat()
+        let result = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return lstat(path, &itemStatus)
+        }
+        if result == 0 {
+            return itemStatus.st_mode & S_IFMT == S_IFLNK
+        }
+
+        let inspectionError = errno
+        if inspectionError == ENOENT || inspectionError == ENOTDIR {
+            return false
+        }
+        throw LocalModelManagerError.downloadFailed(
+            "Could not inspect local model path \(url.path): \(String(cString: strerror(inspectionError)))"
+        )
+    }
+
+    private func createManagedDirectory(at url: URL) throws {
+        try validateManagedPath(url)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    private func copyManagedItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try validateManagedPath(sourceURL)
+        try validateManagedPath(destinationURL)
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    private func moveManagedItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try validateManagedPath(sourceURL)
+        try validateManagedPath(destinationURL)
+        try fileManager.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    private func removeManagedItem(at url: URL) throws {
+        try validateManagedPath(url)
+        try fileManager.removeItem(at: url)
+    }
+
+    private func removeManagedItemIfPresent(at url: URL) throws {
+        try validateManagedPath(url)
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private func rollbackURL(for destinationURL: URL) throws -> URL {
+        try validatedManagedURL(destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(destinationURL.lastPathComponent).rollback", isDirectory: destinationURL.hasDirectoryPath)
+        )
+    }
+
+    private func uniqueSiblingURL(of destinationURL: URL, label: String) throws -> URL {
+        try validatedManagedURL(destinationURL.deletingLastPathComponent()
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(label).\(UUID().uuidString)")
+        )
     }
 
     private func isArchiveDownload(_ url: URL) -> Bool {
