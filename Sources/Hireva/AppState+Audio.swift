@@ -65,6 +65,7 @@ extension AppState {
         self.stopReason = nil
         self.lastCaptureStartedAt = Date()
         addCaptureEvent(name: "startListeningAsync", stateBefore: "idle", stateAfter: "starting", reason: "userRequested")
+        recordLifecycleTrace("capture.start.requested", reason: "user_requested")
 
         do {
             liveState = .requestingPermission
@@ -611,6 +612,12 @@ extension AppState {
         }
         liveState = .stopped
         currentCaptureRuntimeState = .stopped(reason: reason)
+
+        let cleanupDurationMS = max(0, Int(Date().timeIntervalSince(stoppedAt) * 1_000))
+        recordLifecycleTrace(
+            "capture.stop.completed",
+            reason: "cleanup_ms=\(cleanupDurationMS)|reason=\(reason.rawValue)"
+        )
 
         addCaptureEvent(
             name: "listeningStopped",
