@@ -178,6 +178,14 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func hyphenatedWhatNounPhraseWithAuxiliaryVerbIsAccepted() {
+        let question = "What follow-up evidence would confirm that your initial security hypothesis was correct?"
+
+        #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+    }
+
+    @Test
     func embeddedWhatNounPhraseStatementIsNotAccepted() {
         let questions = QuestionCandidatePipeline.extract(
             from: "I explained what product management experience best represents how our team works.",
