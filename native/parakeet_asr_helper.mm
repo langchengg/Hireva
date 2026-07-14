@@ -2,14 +2,20 @@
 
 #include <algorithm>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <deque>
+#include <functional>
+#include <future>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <sys/file.h>
+#include <thread>
 #include <fcntl.h>
 #include <unistd.h>
 #include <unordered_map>
@@ -253,16 +259,23 @@ NSString *SpeakerForAudioSource(NSString *audioSource) {
                                                         : @"interviewer";
 }
 
-class UtteranceDecoder {
+struct PendingUtterance {
+  std::vector<float> samples;
+  std::string audioSource;
+  float startTime = 0;
+  float endTime = 0;
+};
+
+class UtteranceSegmenter {
  public:
-  UtteranceDecoder(const SherpaOnnxOfflineRecognizer *recognizer,
-                   const Options &options, std::string audioSource)
-      : recognizer_(recognizer),
-        silenceThreshold_(options.silenceThreshold),
+  UtteranceSegmenter(const Options &options, std::string audioSource,
+                     std::function<void(PendingUtterance)> emit)
+      : silenceThreshold_(options.silenceThreshold),
         trailingSilenceSeconds_(options.trailingSilenceSeconds),
         minimumUtteranceSeconds_(options.minimumUtteranceSeconds),
         maximumUtteranceSeconds_(options.maximumUtteranceSeconds),
-        audioSource_(std::move(audioSource)) {}
+        audioSource_(std::move(audioSource)),
+        emit_(std::move(emit)) {}
 
   void Accept(const float *samples, size_t count, int32_t sourceRate) {
     std::vector<float> resampled = Resample(samples, count, sourceRate);
@@ -278,7 +291,6 @@ class UtteranceDecoder {
     const float rms =
         static_cast<float>(std::sqrt(energy / resampled.size()));
     const bool speechLike = rms >= silenceThreshold_;
-
     if (speechLike && samples_.empty()) {
       segmentStart_ = audioClock_;
       silenceSeconds_ = 0;
@@ -306,32 +318,18 @@ class UtteranceDecoder {
     const float duration =
         static_cast<float>(samples_.size()) / kTargetSampleRate;
     if (duration >= minimumUtteranceSeconds_) {
-      const std::string text = Decode(recognizer_, samples_);
-      NSString *trimmed = [[NSString stringWithUTF8String:text.c_str()]
-          stringByTrimmingCharactersInSet:
-              NSCharacterSet.whitespaceAndNewlineCharacterSet];
-      if (trimmed.length > 0) {
-        NSString *audioSource =
-            [NSString stringWithUTF8String:audioSource_.c_str()];
-        WriteJSON(@{
-          @"segmentId" : NSUUID.UUID.UUIDString,
-          @"text" : trimmed,
-          @"isFinal" : @YES,
-          @"startTime" : @(segmentStart_),
-          @"endTime" : @(segmentStart_ + duration),
-          @"confidence" : NSNull.null,
-          @"source" : [NSString stringWithUTF8String:kSource],
-          @"audioSource" : audioSource,
-          @"speaker" : SpeakerForAudioSource(audioSource)
-        });
-      }
+      emit_(PendingUtterance{
+          std::move(samples_),
+          audioSource_,
+          segmentStart_,
+          segmentStart_ + duration,
+      });
     }
     samples_.clear();
     silenceSeconds_ = 0;
   }
 
  private:
-  const SherpaOnnxOfflineRecognizer *recognizer_;
   float silenceThreshold_;
   float trailingSilenceSeconds_;
   float minimumUtteranceSeconds_;
@@ -341,7 +339,98 @@ class UtteranceDecoder {
   float segmentStart_ = 0;
   float silenceSeconds_ = 0;
   std::vector<float> samples_;
+  std::function<void(PendingUtterance)> emit_;
 };
+
+enum class DecodeEventType { Utterance, Stop };
+
+struct DecodeEvent {
+  DecodeEventType type = DecodeEventType::Utterance;
+  PendingUtterance utterance;
+  double audioSeconds = 0;
+};
+
+class DecodeQueue {
+ public:
+  static constexpr double kMaximumQueuedAudioSeconds = 60.0;
+
+  void PushUtterance(PendingUtterance utterance) {
+    if (utterance.samples.empty()) {
+      return;
+    }
+    const double duration =
+        static_cast<double>(utterance.samples.size()) / kTargetSampleRate;
+    if (duration > kMaximumQueuedAudioSeconds) {
+      Fail("One utterance exceeds the bounded decode queue");
+    }
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    notFull_.wait(lock, [&] {
+      return queuedAudioSeconds_ + duration <= kMaximumQueuedAudioSeconds;
+    });
+    queuedAudioSeconds_ += duration;
+    events_.push_back(DecodeEvent{
+        DecodeEventType::Utterance,
+        std::move(utterance),
+        duration,
+    });
+    lock.unlock();
+    notEmpty_.notify_one();
+  }
+
+  void PushStop() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      events_.push_back(DecodeEvent{DecodeEventType::Stop});
+    }
+    notEmpty_.notify_one();
+  }
+
+  DecodeEvent Pop() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    notEmpty_.wait(lock, [&] { return !events_.empty(); });
+    DecodeEvent event = std::move(events_.front());
+    events_.pop_front();
+    if (event.type == DecodeEventType::Utterance) {
+      queuedAudioSeconds_ =
+          std::max(0.0, queuedAudioSeconds_ - event.audioSeconds);
+    }
+    lock.unlock();
+    notFull_.notify_one();
+    return event;
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable notEmpty_;
+  std::condition_variable notFull_;
+  std::deque<DecodeEvent> events_;
+  double queuedAudioSeconds_ = 0;
+};
+
+void DecodeAndWrite(const SherpaOnnxOfflineRecognizer *recognizer,
+                    const PendingUtterance &utterance) {
+  const std::string text = Decode(recognizer, utterance.samples);
+  NSString *trimmed = [[NSString stringWithUTF8String:text.c_str()]
+      stringByTrimmingCharactersInSet:
+          NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  if (trimmed.length == 0) {
+    return;
+  }
+  NSString *audioSource =
+      [NSString stringWithUTF8String:utterance.audioSource.c_str()];
+  WriteJSON(@{
+    @"segmentId" : NSUUID.UUID.UUIDString,
+    @"text" : trimmed,
+    @"isFinal" : @YES,
+    @"startTime" : @(utterance.startTime),
+    @"endTime" : @(utterance.endTime),
+    @"confidence" : NSNull.null,
+    @"source" : [NSString stringWithUTF8String:kSource],
+    @"audioSource" : audioSource,
+    @"speaker" : SpeakerForAudioSource(audioSource)
+  });
+}
 
 NSDictionary *ParseJSONLine(const std::string &line) {
   NSData *data = [NSData dataWithBytes:line.data() length:line.size()];
@@ -358,19 +447,46 @@ std::string DefaultAudioSource(const Options &options) {
   return options.captureMode == "microphoneOnly" ? "microphone" : "systemAudio";
 }
 
-int RunJSONL(const Options &options,
-             const SherpaOnnxOfflineRecognizer *recognizer) {
-  std::unordered_map<std::string, std::unique_ptr<UtteranceDecoder>> decoders;
-  auto decoderFor = [&](const std::string &audioSource) -> UtteranceDecoder * {
-    auto found = decoders.find(audioSource);
-    if (found != decoders.end()) {
+int RunJSONL(const Options &options) {
+  DecodeQueue decodeQueue;
+  std::promise<void> decoderReady;
+  std::future<void> decoderReadyFuture = decoderReady.get_future();
+  std::thread decoderThread([&] {
+    @autoreleasepool {
+      Recognizer recognizer = CreateRecognizer(options);
+      decoderReady.set_value();
+      while (true) {
+        DecodeEvent event = decodeQueue.Pop();
+        if (event.type == DecodeEventType::Stop) {
+          break;
+        }
+        @autoreleasepool {
+          DecodeAndWrite(recognizer.get(), event.utterance);
+        }
+      }
+    }
+  });
+  decoderReadyFuture.get();
+
+  std::unordered_map<std::string, std::unique_ptr<UtteranceSegmenter>> segmenters;
+  auto segmenterFor = [&](const std::string &audioSource) -> UtteranceSegmenter * {
+    auto found = segmenters.find(audioSource);
+    if (found != segmenters.end()) {
       return found->second.get();
     }
-    auto decoder =
-        std::make_unique<UtteranceDecoder>(recognizer, options, audioSource);
-    UtteranceDecoder *pointer = decoder.get();
-    decoders.emplace(audioSource, std::move(decoder));
+    auto segmenter = std::make_unique<UtteranceSegmenter>(
+        options, audioSource,
+        [&](PendingUtterance utterance) {
+          decodeQueue.PushUtterance(std::move(utterance));
+        });
+    UtteranceSegmenter *pointer = segmenter.get();
+    segmenters.emplace(audioSource, std::move(segmenter));
     return pointer;
+  };
+  auto flushAll = [&] {
+    for (auto &entry : segmenters) {
+      entry.second->Flush();
+    }
   };
 
   std::fprintf(stderr, "native Parakeet ready session=%s capture_mode=%s\n",
@@ -380,6 +496,7 @@ int RunJSONL(const Options &options,
     if (line.empty()) {
       continue;
     }
+    bool shouldStop = false;
     @autoreleasepool {
       NSDictionary *event = ParseJSONLine(line);
       NSString *type = event[@"type"];
@@ -417,30 +534,30 @@ int RunJSONL(const Options &options,
         NSString *sourceValue = [event[@"audioSource"]
             isKindOfClass:NSString.class]
             ? event[@"audioSource"]
-            : [NSString stringWithUTF8String:DefaultAudioSource(options).c_str()];
+            : [NSString
+                  stringWithUTF8String:DefaultAudioSource(options).c_str()];
         if (![sourceValue isEqualToString:@"microphone"] &&
             ![sourceValue isEqualToString:@"systemAudio"]) {
           Fail("Unsupported audioSource");
         }
-        decoderFor(sourceValue.UTF8String)
+        segmenterFor(sourceValue.UTF8String)
             ->Accept(mono.data(), mono.size(), sampleRate);
       } else if ([type isEqualToString:@"flush"]) {
-        for (auto &entry : decoders) {
-          entry.second->Flush();
-        }
+        flushAll();
       } else if ([type isEqualToString:@"stop"]) {
-        for (auto &entry : decoders) {
-          entry.second->Flush();
-        }
-        return 0;
+        shouldStop = true;
       } else {
         Fail("Unsupported JSONL event type");
       }
     }
+    if (shouldStop) {
+      break;
+    }
   }
-  for (auto &entry : decoders) {
-    entry.second->Flush();
-  }
+
+  flushAll();
+  decodeQueue.PushStop();
+  decoderThread.join();
   return 0;
 }
 
@@ -502,6 +619,9 @@ int main(int argc, char **argv) {
       return 0;
     }
     ModelUseLock modelUseLock(options.modelDirectory);
+    if (options.jsonl && !options.probeModel && options.wavPath.empty()) {
+      return RunJSONL(options);
+    }
     Recognizer recognizer = CreateRecognizer(options);
     if (options.probeModel) {
       WriteJSON(HealthPayload(@"ok", @"ready"));
@@ -513,6 +633,6 @@ int main(int argc, char **argv) {
     if (!options.jsonl) {
       Fail("--jsonl, --wav, --probe-model, or --health is required");
     }
-    return RunJSONL(options, recognizer.get());
+    Fail("Conflicting Parakeet runtime modes");
   }
 }

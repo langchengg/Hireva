@@ -131,6 +131,61 @@ struct ParakeetNativeRuntimeTests {
     }
 
     @Test
+    func transcriptReaderPreservesDelayedJSONLLines() async throws {
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        printf '%s\n' '{"segmentId":"line-1","text":"First question?","isFinal":true,"source":"local_parakeet_asr","audioSource":"systemAudio","speaker":"interviewer"}'
+        sleep 1
+        printf '%s\n' '{"segmentId":"line-2","text":"Second question?","isFinal":true,"source":"local_parakeet_asr","audioSource":"systemAudio","speaker":"interviewer"}'
+        sleep 1
+        printf '%s\n' '{"segmentId":"line-3","text":"Third question?","isFinal":true,"source":"local_parakeet_asr","audioSource":"systemAudio","speaker":"interviewer"}'
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "delayed-lines", captureMode: .systemAudioOnly)
+        )
+
+        var events: [ParakeetTranscriptEvent] = []
+        for try await event in stream {
+            events.append(event)
+        }
+
+        #expect(events.map(\.segmentId) == ["line-1", "line-2", "line-3"])
+    }
+
+    @Test
+    func immediateStopDrainsAcceptedAudioBeforeStopCommand() async throws {
+        let inputLog = temporaryDirectory().appendingPathComponent("helper-input.jsonl")
+        let escapedInputLog = inputLog.path.replacingOccurrences(of: "'", with: "'\\''")
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        cat > '\(escapedInputLog)'
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "immediate-stop", captureMode: .systemAudioOnly)
+        )
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 960))
+        buffer.frameLength = 960
+
+        runtime.appendAudioBuffer(
+            buffer,
+            at: AVAudioTime(sampleTime: 0, atRate: 48_000),
+            source: .systemAudio
+        )
+        await runtime.stop()
+
+        let helperInput = try String(contentsOf: inputLog, encoding: .utf8)
+        #expect(helperInput.contains("\"type\":\"audio\""))
+        #expect(helperInput.contains("\"type\":\"stop\""))
+        #expect(runtime.audioWriterDiagnostics().pendingChunks == 0)
+        withExtendedLifetime(stream) {}
+    }
+
+    @Test
     func audioWriterIsBoundedAndStopCannotWaitBehindBlockedPipeWrites() async throws {
         let helper = try makeExecutable("""
         #!/bin/sh
@@ -145,7 +200,7 @@ struct ParakeetNativeRuntimeTests {
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000))
         buffer.frameLength = 48_000
 
-        for sequence in 0..<100 {
+        for sequence in 0..<200 {
             runtime.appendAudioBuffer(
                 buffer,
                 at: AVAudioTime(sampleTime: AVAudioFramePosition(sequence * 48_000), atRate: 48_000),
@@ -155,15 +210,64 @@ struct ParakeetNativeRuntimeTests {
 
         let diagnostics = runtime.audioWriterDiagnostics()
         #expect(diagnostics.pendingChunks <= diagnostics.maximumPendingChunks)
-        #expect(diagnostics.maximumPendingChunks == 16)
+        #expect(diagnostics.maximumPendingChunks == 2_048)
+        #expect(diagnostics.pendingBytes <= diagnostics.maximumPendingBytes)
+        #expect(diagnostics.maximumPendingBytes == 8 * 1_024 * 1_024)
         #expect(diagnostics.droppedChunks > 0)
 
         let clock = ContinuousClock()
         let start = clock.now
         await runtime.stop()
         let elapsed = start.duration(to: clock.now)
-        #expect(elapsed < .seconds(3))
+        #expect(elapsed < .seconds(5))
         withExtendedLifetime(stream) {}
+    }
+
+    @Test
+    func realRuntimePreservesMultipleUtterancesInOneStream() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HIREVA_REAL_PARAKEET_STREAM_TEST"] == "1" else { return }
+        let helperPath = try #require(environment["HIREVA_PARAKEET_HELPER_PATH"])
+        let modelPath = try #require(environment["HIREVA_PARAKEET_MODEL_PATH"])
+        let audioPath = try #require(environment["HIREVA_PARAKEET_TEST_AUDIO"])
+        let runtime = ParakeetSidecarRuntimeClient(
+            executableURLProvider: { URL(fileURLWithPath: helperPath) }
+        )
+        let stream = try await runtime.startTranscription(
+            modelDirectory: URL(fileURLWithPath: modelPath),
+            config: ASRConfig(sessionID: "real-multi-utterance", captureMode: .systemAudioOnly)
+        )
+        let collector = Task { () throws -> [ParakeetTranscriptEvent] in
+            var events: [ParakeetTranscriptEvent] = []
+            for try await event in stream {
+                events.append(event)
+            }
+            return events
+        }
+
+        let audioFile = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))
+        let format = audioFile.processingFormat
+        let chunkFrames = AVAudioFrameCount(max(1, Int(format.sampleRate / 50)))
+        var sampleTime: AVAudioFramePosition = 0
+        while audioFile.framePosition < audioFile.length {
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames))
+            try audioFile.read(into: buffer, frameCount: chunkFrames)
+            guard buffer.frameLength > 0 else { break }
+            runtime.appendAudioBuffer(
+                buffer,
+                at: AVAudioTime(sampleTime: sampleTime, atRate: format.sampleRate),
+                source: .systemAudio
+            )
+            sampleTime += AVAudioFramePosition(buffer.frameLength)
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        try await Task.sleep(for: .seconds(15))
+        await runtime.stop()
+        let events = try await collector.value
+        #expect(events.count == 3)
+        #expect(events.allSatisfy { $0.source == ASRSource.localParakeetASR.rawValue })
+        #expect(runtime.audioWriterDiagnostics().droppedChunks == 0)
     }
 
     private var currentArchitecture: String {

@@ -247,13 +247,107 @@ enum ParakeetSidecarError: LocalizedError, Equatable {
 
 struct ParakeetAudioWriterDiagnostics: Equatable {
     let maximumPendingChunks: Int
+    let maximumPendingBytes: Int
     let pendingChunks: Int
+    let pendingBytes: Int
     let droppedChunks: Int
+}
+
+private final class ParakeetLineBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = Data()
+
+    func append(_ data: Data) -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        pending.append(data)
+        return drainCompleteLines()
+    }
+
+    func finish() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        var lines = drainCompleteLines()
+        if !pending.isEmpty {
+            lines.append(String(decoding: pending, as: UTF8.self))
+            pending.removeAll(keepingCapacity: false)
+        }
+        return lines
+    }
+
+    private func drainCompleteLines() -> [String] {
+        var lines: [String] = []
+        while let newline = pending.firstIndex(of: 0x0A) {
+            let line = pending[..<newline]
+            lines.append(String(decoding: line, as: UTF8.self))
+            pending.removeSubrange(...newline)
+        }
+        return lines
+    }
+}
+
+private final class ParakeetOutputStreamState: @unchecked Sendable {
+    private let lock = NSLock()
+    private let buffer = ParakeetLineBuffer()
+    private let continuation: AsyncThrowingStream<ParakeetTranscriptEvent, Error>.Continuation
+    private let process: Process
+    private var finished = false
+
+    init(
+        continuation: AsyncThrowingStream<ParakeetTranscriptEvent, Error>.Continuation,
+        process: Process
+    ) {
+        self.continuation = continuation
+        self.process = process
+    }
+
+    func receive(_ data: Data, from handle: FileHandle) {
+        guard !data.isEmpty else {
+            handle.readabilityHandler = nil
+            buffer.finish().forEach(emit)
+            process.waitUntilExit()
+            finish(process.terminationStatus == 0 ? nil : ParakeetSidecarError.exited(process.terminationStatus))
+            return
+        }
+        buffer.append(data).forEach(emit)
+    }
+
+    private func emit(_ line: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let data = trimmed.data(using: .utf8),
+              let event = try? JSONDecoder().decode(ParakeetTranscriptEvent.self, from: data) else {
+            finish(ParakeetSidecarError.invalidEvent(line))
+            return
+        }
+        lock.lock()
+        let shouldYield = !finished
+        lock.unlock()
+        if shouldYield {
+            continuation.yield(event)
+        }
+    }
+
+    private func finish(_ error: Error?) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        lock.unlock()
+        if let error {
+            continuation.finish(throwing: error)
+        } else {
+            continuation.finish()
+        }
+    }
 }
 
 final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     static let sidecarPathDefaultsKey = HirevaPreferenceKeys.parakeetSidecarPath
-    static let maximumPendingAudioChunks = 16
+    static let maximumPendingAudioChunks = 2_048
+    static let maximumPendingAudioBytes = 8 * 1_024 * 1_024
 
     private struct HelperHealth: Decodable {
         let status: String
@@ -271,11 +365,11 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     private var stdinHandle: FileHandle?
     private let inputQueue = DispatchQueue(label: "com.langcheng.hireva.parakeet.sidecar.stdin")
     private let inputStateLock = NSLock()
-    private let pendingAudioSlots = DispatchSemaphore(value: maximumPendingAudioChunks)
     private var acceptsAudio = false
     private var streamGeneration = 0
     private var audioSequence = 0
     private var pendingAudioChunks = 0
+    private var pendingAudioBytes = 0
     private var droppedAudioChunks = 0
 
     init(executableURLProvider: @escaping () -> URL? = {
@@ -357,6 +451,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
               FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             throw ParakeetSidecarError.executableNotConfigured
         }
+        await stop()
 
         let process = Process()
         process.executableURL = executableURL
@@ -381,48 +476,43 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             throw ParakeetSidecarError.launchFailed(error.localizedDescription)
         }
         _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        withInputStateLock {
+        let generation = withInputStateLock {
             streamGeneration += 1
             audioSequence = 0
+            droppedAudioChunks = 0
             acceptsAudio = true
             self.process = process
             stdinHandle = stdin.fileHandleForWriting
+            return streamGeneration
         }
 
         return AsyncThrowingStream { continuation in
             let stdoutHandle = stdout.fileHandleForReading
             let stderrHandle = stderr.fileHandleForReading
-            let stderrTask = Task {
-                for try await line in stderrHandle.bytes.lines {
-                    guard !line.isEmpty else { continue }
-                    print("[ParakeetSidecar] \(line)")
-                }
+            let outputState = ParakeetOutputStreamState(
+                continuation: continuation,
+                process: process
+            )
+            let stderrBuffer = ParakeetLineBuffer()
+            stdoutHandle.readabilityHandler = { handle in
+                outputState.receive(handle.availableData, from: handle)
             }
-            let task = Task {
-                do {
-                    for try await line in stdoutHandle.bytes.lines {
-                        guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                        guard let data = line.data(using: .utf8),
-                              let event = try? JSONDecoder().decode(ParakeetTranscriptEvent.self, from: data) else {
-                            throw ParakeetSidecarError.invalidEvent(line)
-                        }
-                        continuation.yield(event)
+            stderrHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                    for line in stderrBuffer.finish() where !line.isEmpty {
+                        print("[ParakeetSidecar] \(line)")
                     }
-                    process.waitUntilExit()
-                    if process.terminationStatus == 0 || Task.isCancelled {
-                        continuation.finish()
-                    } else {
-                        continuation.finish(throwing: ParakeetSidecarError.exited(process.terminationStatus))
-                    }
-                } catch {
-                    continuation.finish(throwing: error)
+                    return
+                }
+                for line in stderrBuffer.append(data) where !line.isEmpty {
+                    print("[ParakeetSidecar] \(line)")
                 }
             }
 
             continuation.onTermination = { [weak self] _ in
-                task.cancel()
-                stderrTask.cancel()
-                Task { await self?.stop() }
+                Task { await self?.stop(generation: generation) }
             }
         }
     }
@@ -432,32 +522,44 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     }
 
     func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime, source: AudioSourceType) {
-        guard let reservation = reserveAudioWrite() else { return }
+        guard let reservation = reserveAudioSequence() else { return }
         guard let audioEvent = Self.audioEventData(
             from: buffer,
             sequence: reservation.sequence,
             source: source
-        ) else {
-            releaseAudioWrite()
-            return
-        }
+        ) else { return }
         var audioLine = audioEvent
         audioLine.append(0x0A)
-        inputQueue.async { [weak self] in
-            guard let self else { return }
-            defer { self.releaseAudioWrite() }
-            guard let stdinHandle = self.inputHandle(for: reservation.generation) else { return }
+        guard let inputHandle = commitAudioWrite(
+            generation: reservation.generation,
+            byteCount: audioLine.count
+        ) else { return }
+        inputQueue.async { [self] in
+            defer { self.releaseAudioWrite(byteCount: audioLine.count) }
             do {
-                try stdinHandle.write(contentsOf: audioLine)
+                try inputHandle.write(contentsOf: audioLine)
             } catch {
-                print("[ParakeetSidecar] Failed to write audio chunk: \(error.localizedDescription)")
+                let currentStreamStillOwnsInput = self.withInputStateLock {
+                    self.acceptsAudio && reservation.generation == self.streamGeneration
+                }
+                if currentStreamStillOwnsInput {
+                    print("[ParakeetSidecar] Failed to write audio chunk: \(error.localizedDescription)")
+                }
             }
         }
     }
 
     func stop() async {
-        let (stoppingProcess, stoppingInput) = withInputStateLock {
+        await stop(generation: nil)
+    }
+
+    private func stop(generation ownerGeneration: Int?) async {
+        let stoppingRuntime: (Process?, FileHandle?)? = withInputStateLock {
+            if let ownerGeneration, ownerGeneration != streamGeneration {
+                return nil
+            }
             acceptsAudio = false
+            guard process != nil || stdinHandle != nil else { return (nil, nil) }
             streamGeneration += 1
             let stoppingProcess = process
             let stoppingInput = stdinHandle
@@ -465,6 +567,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             stdinHandle = nil
             return (stoppingProcess, stoppingInput)
         }
+        guard let (stoppingProcess, stoppingInput) = stoppingRuntime else { return }
 
         if let stoppingInput {
             inputQueue.async {
@@ -476,7 +579,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         }
 
         if let stoppingProcess, stoppingProcess.isRunning {
-            let gracefulDeadline = Date().addingTimeInterval(1)
+            let gracefulDeadline = Date().addingTimeInterval(3)
             while stoppingProcess.isRunning && Date() < gracefulDeadline {
                 try? await Task.sleep(for: .milliseconds(25))
             }
@@ -497,38 +600,43 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         withInputStateLock {
             ParakeetAudioWriterDiagnostics(
                 maximumPendingChunks: Self.maximumPendingAudioChunks,
+                maximumPendingBytes: Self.maximumPendingAudioBytes,
                 pendingChunks: pendingAudioChunks,
+                pendingBytes: pendingAudioBytes,
                 droppedChunks: droppedAudioChunks
             )
         }
     }
 
-    private func reserveAudioWrite() -> (generation: Int, sequence: Int)? {
-        guard pendingAudioSlots.wait(timeout: .now()) == .success else {
-            withInputStateLock { droppedAudioChunks += 1 }
-            return nil
-        }
-        guard let reservation = withInputStateLock({ () -> (generation: Int, sequence: Int)? in
+    private func reserveAudioSequence() -> (generation: Int, sequence: Int)? {
+        withInputStateLock {
             guard acceptsAudio, stdinHandle != nil else { return nil }
             audioSequence += 1
-            pendingAudioChunks += 1
             return (streamGeneration, audioSequence)
-        }) else {
-            pendingAudioSlots.signal()
-            return nil
         }
-        return reservation
     }
 
-    private func releaseAudioWrite() {
-        withInputStateLock { pendingAudioChunks = max(0, pendingAudioChunks - 1) }
-        pendingAudioSlots.signal()
-    }
-
-    private func inputHandle(for generation: Int) -> FileHandle? {
+    private func commitAudioWrite(generation: Int, byteCount: Int) -> FileHandle? {
         withInputStateLock {
-            guard acceptsAudio, generation == streamGeneration else { return nil }
+            guard acceptsAudio,
+                  generation == streamGeneration,
+                  let stdinHandle,
+                  byteCount <= Self.maximumPendingAudioBytes,
+                  pendingAudioChunks < Self.maximumPendingAudioChunks,
+                  pendingAudioBytes <= Self.maximumPendingAudioBytes - byteCount else {
+                droppedAudioChunks += 1
+                return nil
+            }
+            pendingAudioChunks += 1
+            pendingAudioBytes += byteCount
             return stdinHandle
+        }
+    }
+
+    private func releaseAudioWrite(byteCount: Int) {
+        withInputStateLock {
+            pendingAudioChunks = max(0, pendingAudioChunks - 1)
+            pendingAudioBytes = max(0, pendingAudioBytes - byteCount)
         }
     }
 
