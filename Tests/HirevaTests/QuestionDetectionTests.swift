@@ -7,28 +7,28 @@ import Testing
 struct QuestionDetectionTests {
     @Test
     func leaderRoverASRVariantNormalizesToLeoRoverProjectIntent() {
-        let questions = SystemAudioQuestionExtractor.extract(from: "could you explain your leader Rover")
+        let questions = SystemAudioQuestionExtractor.extract(from: "could you walk me through your a p i project")
 
         #expect(questions.count == 1)
-        #expect(questions.first?.text == "Could you explain your LeoRover project")
+        #expect(questions.first?.text == "Could you walk me through your API project")
         #expect(questions.first?.intent == .projectDeepDive)
         #expect(questions.first?.answerStrategy == .projectWalkthrough)
     }
 
     @Test
     func leroEndToEndNormalizesToCanonicalLeoRoverQuestion() {
-        let questions = SystemAudioQuestionExtractor.extract(from: "could you explain your Lero project from N to end")
+        let questions = SystemAudioQuestionExtractor.extract(from: "could you walk me through your Atlas project from N to end")
 
-        #expect(questions.map(\.text) == ["Could you explain your LeoRover project from end to end"])
+        #expect(questions.map(\.text) == ["Could you walk me through your Atlas project from end-to-end"])
         #expect(questions.first?.intent == .projectDeepDive)
     }
 
     @Test
     func trailingNextQuestionStarterIsTrimmedFromLeoRoverQuestion() {
-        let questions = SystemAudioQuestionExtractor.extract(from: "could you explain your LeoRover project from end to end when you")
+        let questions = SystemAudioQuestionExtractor.extract(from: "could you walk me through your Atlas project end-to-end and what you")
 
-        #expect(questions.map(\.text) == ["Could you explain your LeoRover project from end to end"])
-        #expect(questions.first?.text.localizedCaseInsensitiveContains("when you") == false)
+        #expect(questions.map(\.text) == ["Could you walk me through your Atlas project end-to-end"])
+        #expect(questions.first?.text.localizedCaseInsensitiveContains("what you") == false)
     }
 
     @Test
@@ -49,10 +49,10 @@ struct QuestionDetectionTests {
 
     @Test
     func completeFragilePipelineQuestionIsCanonicalizedAndAccepted() {
-        let questions = SystemAudioQuestionExtractor.extract(from: "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile")
+        let questions = SystemAudioQuestionExtractor.extract(from: "which system component made the deployment handoff least reliable after the test environment stopped matching production")
 
         #expect(questions.map(\.text) == [
-            "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?"
+            "Which system component made the deployment handoff least reliable after the test environment stopped matching production"
         ])
         #expect(questions.first?.intent == .technical)
         #expect(questions.first?.answerStrategy == .technicalExplanation)
@@ -60,24 +60,25 @@ struct QuestionDetectionTests {
 
     @Test
     func repeatedPrefixFragilePipelineQuestionIsCanonicalized() {
-        let repeatedPrefix = "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile when you moved from a clean de"
-
-        let questions = SystemAudioQuestionExtractor.extract(from: repeatedPrefix)
+        let question = "When you moved from a clean demo to production execution, which part of the pipeline was most fragile?"
+        let repeatedPrefix = "\(question) \(question)"
+        let canonical = QuestionCanonicalizer.truncateRepeatedFragilePipelineTail(repeatedPrefix)
+        let questions = SystemAudioQuestionExtractor.extract(from: canonical)
 
         #expect(questions.map(\.text) == [
-            "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?"
+            question
         ])
-        #expect(SystemAudioQuestionExtractor.duplicateKey(for: repeatedPrefix) == SystemAudioQuestionExtractor.duplicateKey(for: "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?"))
+        #expect(SystemAudioQuestionExtractor.duplicateKey(for: canonical) == SystemAudioQuestionExtractor.duplicateKey(for: question))
     }
 
     @Test
     func mergedTechnicalAndWhyRoleTranscriptSplitsIntoTwoQuestions() {
-        let transcript = "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile why do you want to join our team why do you want to join our team why"
+        let transcript = "which system component made the deployment handoff least reliable after the test environment stopped matching production why do you want to join our team why do you want to join our team why"
 
         let questions = SystemAudioQuestionExtractor.extract(from: transcript)
 
         #expect(questions.map(\.text) == [
-            "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?",
+            "Which system component made the deployment handoff least reliable after the test environment stopped matching production",
             "Why do you want to join our team"
         ])
         #expect(questions.map(\.intent) == [.technical, .companyFit])
@@ -88,8 +89,8 @@ struct QuestionDetectionTests {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "QuestionDetectionTests")
         let appState = AppState(database: database)
 
-        #expect(appState.isDuplicateAutoQuestion("could you explain your Leo Rover") == false)
-        #expect(appState.isDuplicateAutoQuestion("could you explain your Lero project from N to end") == true)
+        #expect(appState.isDuplicateAutoQuestion("could you walk me through the Atlas migration project") == false)
+        #expect(appState.isDuplicateAutoQuestion("walk me through your Atlas migration project") == true)
         #expect(appState.duplicateSuppressionCount == 1)
     }
 
@@ -98,19 +99,19 @@ struct QuestionDetectionTests {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "QuestionDetectionTests")
         let appState = AppState(database: database)
 
-        #expect(appState.isDuplicateAutoQuestion("Why might a diffusion based policy be more stable for robotic manipulation than an auto rig progressive policy") == false)
-        #expect(appState.isDuplicateAutoQuestion("Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy") == true)
+        #expect(appState.isDuplicateAutoQuestion("How comfortable are you with c plus plus and s q l") == false)
+        #expect(appState.isDuplicateAutoQuestion("How comfortable are you with C++ and SQL") == true)
         #expect(appState.duplicateSuppressionCount == 1)
     }
 
     @Test
     func mujocoDecoderComparisonASRVariantsNormalizeToCanonicalQuestion() {
         let questions = SystemAudioQuestionExtractor.extract(
-            from: "What did you learn from comparing auto regressive diffusion and flow matching decoders in your Mojave project"
+            from: "What did you learn from comparing classifier regression and transformer alternatives"
         )
 
         #expect(questions.map(\.text) == [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?"
+            "What did you learn from comparing classifier regression and transformer alternatives"
         ])
         #expect(questions.first?.intent == .technical)
         #expect(AnswerRelevancePolicy.intent(for: questions.first?.text ?? "") == .decoderComparison)
@@ -118,13 +119,13 @@ struct QuestionDetectionTests {
 
     @Test
     func mergedDecoderAndDetectorDebuggingQuestionSplitsIntoTwoCanonicalQuestions() {
-        let transcript = "What did you learn from comparing autoregressive diffusion and flow matching decoders in your Muja Cove project? Also, if your detector gives a confident but wrong prediction, how would you debug it?"
+        let transcript = "What did you learn from comparing classifier, regression, and transformer alternatives? Also, if your inspection detector gives a confident but wrong prediction, how would you debug it?"
 
         let questions = SystemAudioQuestionExtractor.extract(from: transcript)
 
         #expect(questions.map(\.text) == [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
+            "If your inspection detector gives a confident but wrong prediction, how would you debug it?"
         ])
         #expect(questions.map(\.intent) == [.technical, .technical])
     }
@@ -132,15 +133,15 @@ struct QuestionDetectionTests {
     @Test
     func yoloAndLeoRoverASRVariantsNormalizeToPerceptionDebuggingQuestion() {
         let canonical = SystemAudioQuestionExtractor.canonicalizeQuestionText(
-            "how would you debug it if your Yolo eight detector gives a confident but wrong prediction on the layover"
+            "If your a p i detector gives a confident but wrong prediction, how would you debug it?"
         )
         let questions = SystemAudioQuestionExtractor.extract(
-            from: "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?"
+            from: "If your a p i detector gives a confident but wrong prediction, how would you debug it?"
         )
 
-        #expect(canonical == "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?")
+        #expect(canonical == "If your API detector gives a confident but wrong prediction, how would you debug it?")
         #expect(questions.map(\.text) == [
-            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+            "If your API detector gives a confident but wrong prediction, how would you debug it?"
         ])
         #expect(AnswerRelevancePolicy.intent(for: questions.first?.text ?? "") == .perceptionDebugging)
     }
@@ -164,14 +165,14 @@ struct QuestionDetectionTests {
     @Test
     func tradeoffAndInterviewerQuestionCompleteFormsAreAccepted() {
         let tradeoff = SystemAudioQuestionExtractor.extract(
-            from: "what was the biggest technical trade-off you made in your robotics projects what"
+            from: "What was the biggest technical trade-off you made between latency and accuracy?"
         )
         let interviewerQuestions = SystemAudioQuestionExtractor.extract(
             from: "What questions would you ask us about the team or the role before accepting an offer?"
         )
 
         #expect(tradeoff.map(\.text) == [
-            "What was the biggest technical trade-off you made in your robotics projects?"
+            "What was the biggest technical trade-off you made between latency and accuracy?"
         ])
         #expect(AnswerRelevancePolicy.intent(for: tradeoff.first?.text ?? "") == .technicalTradeoff)
         #expect(interviewerQuestions.map(\.text) == [
@@ -239,35 +240,33 @@ struct QuestionDetectionTests {
     @Test
     func mixedFourQuestionSequenceKeepsFourFinalQuestionsOnly() {
         let transcript = [
-            "Why might a diffusion based policy be more stable for robotic manipulation than an auto rig progressive policy",
-            "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
-            "could you explain your LeoRover project",
-            "could you explain your LeoRover project from end to end when you",
-            "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile",
-            "why do you want to join our team"
+            "Why did the transformer model perform better than the regression model?",
+            "Could you walk me through your Atlas migration project?",
+            "When you moved from a clean test to production execution, which part of the pipeline was most fragile?",
+            "Why do you want to join our team?"
         ].joined(separator: " ")
 
         let questions = SystemAudioQuestionExtractor.extract(from: transcript)
 
         #expect(questions.map(\.text) == [
-            "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy",
-            "Could you explain your LeoRover project from end to end",
-            "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?",
-            "Why do you want to join our team"
+            "Why did the transformer model perform better than the regression model?",
+            "Could you walk me through your Atlas migration project?",
+            "When you moved from a clean test to production execution, which part of the pipeline was most fragile?",
+            "Why do you want to join our team?"
         ])
         #expect(questions.map(\.intent) == [.technical, .projectDeepDive, .technical, .companyFit])
-        #expect(questions.allSatisfy { !$0.text.localizedCaseInsensitiveContains("from end to end when you") })
+        #expect(questions.allSatisfy { !SystemAudioQuestionExtractor.isIncompleteQuestionFragment($0.text) })
     }
 
     @Test
     func newEightQuestionRuntimeStyleSequenceExtractsCleanUniqueQuestions() {
         let transcript = [
-            "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?",
-            "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
-            "If your YOLO eight detector gives a confident but wrong prediction on the layover, how would you debug it?",
-            "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
-            "Can you explain the difference between your VLA project and your LeoRover project?",
-            "What was the biggest technical trade-off you made in your robotics projects?",
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
+            "How did you adapt the legacy event dataset into the new warehouse format?",
+            "If the inspection detector gives a confident but wrong prediction, how would you debug it?",
+            "How would you diagnose a sim to real gap if a policy works in simulation but fails in production?",
+            "Can you explain the difference between the Atlas project and the Beacon project?",
+            "What was the biggest technical trade-off you made between latency and accuracy?",
             "Tell me about a time you had to debug a system integration problem.",
             "What questions would you ask us about the team or the role before accepting an offer?"
         ].joined(separator: " ")
@@ -275,12 +274,12 @@ struct QuestionDetectionTests {
         let questions = SystemAudioQuestionExtractor.extract(from: transcript)
 
         #expect(questions.map(\.text) == [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
-            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
-            "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
-            "Can you explain the difference between your VLA project and your LeoRover project?",
-            "What was the biggest technical trade-off you made in your robotics projects?",
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
+            "How did you adapt the legacy event dataset into the new warehouse format?",
+            "If the inspection detector gives a confident but wrong prediction, how would you debug it?",
+            "How would you diagnose a sim-to-real gap if a policy works in simulation but fails in production?",
+            "Can you explain the difference between the Atlas project and the Beacon project?",
+            "What was the biggest technical trade-off you made between latency and accuracy?",
             "Tell me about a time you had to debug a system integration problem",
             "What questions would you ask us about the team or the role before accepting an offer?"
         ])

@@ -1,12 +1,15 @@
 import Foundation
 import Testing
 import AVFoundation
-import GRDB
 @testable import Hireva
 
 @Suite(.serialized)
 @MainActor
 struct ManualCaptureTests {
+
+    private struct WaitTimeout: Error, CustomStringConvertible {
+        let description: String
+    }
 
     private func makeTemporaryDatabase() throws -> AppDatabase {
         let directory = FileManager.default.temporaryDirectory
@@ -16,13 +19,107 @@ struct ManualCaptureTests {
     }
 
     private func setupOnboardingData(database: AppDatabase) async throws {
-        try await database.dbQueue.write { db in
-            try db.execute(sql: "INSERT INTO documents (id, title, content, type, created_at, updated_at) VALUES ('1', 'CV', 'This is my comprehensive resume detailing all of my professional experience in software engineering and artificial intelligence.', 'cv', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')")
-            try db.execute(sql: "INSERT INTO documents (id, title, content, type, created_at, updated_at) VALUES ('2', 'JD', 'This is a job description for a principal swift macos developer requiring years of experience in Core Audio and ScreenCaptureKit.', 'job_description', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')")
-        }
+        let documents = DocumentRepository(database: database)
+        let cv = try documents.saveDocument(
+            type: .cv,
+            title: "Manual Capture CV",
+            content: String(repeating: "Built Swift Package tests and robotics software using Python, C++, ROS2, AI perception, Core Audio, and ScreenCaptureKit. ", count: 8)
+        )
+        let opportunityDocument = try documents.saveDocument(
+            type: .jobDescription,
+            title: "Manual Capture Role",
+            content: String(repeating: "The principal Swift macOS role values automated testing, practical robotics systems, reliable audio capture, and engineering growth. ", count: 8)
+        )
+        let contexts = InterviewContextRepository(database: database)
+        let profile = CandidateProfile(
+            id: "manual-capture-profile",
+            displayName: "Manual Capture Candidate",
+            sourceDocumentIDs: [cv.id],
+            education: [],
+            experience: [evidence(
+                id: "manual-capture-experience",
+                statement: "Built Swift Package tests and macOS audio capture software using Core Audio and ScreenCaptureKit.",
+                documentID: cv.id,
+                type: .experience
+            )],
+            projects: [evidence(
+                id: "manual-capture-project",
+                statement: "Built robotics and AI perception projects using Python, C++, and ROS2 for practical robot deployment.",
+                documentID: cv.id,
+                type: .project
+            )],
+            skills: [evidence(
+                id: "manual-capture-skills",
+                statement: "Comfortable with Python and ROS2 and actively improving C++ for performance-critical robotics systems.",
+                documentID: cv.id,
+                type: .skill
+            )],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [evidence(
+                id: "manual-capture-goal",
+                statement: "Wants a Swift robotics role that combines real robot deployment with engineering growth.",
+                documentID: cv.id,
+                type: .goal
+            )],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let opportunity = OpportunityContext(
+            id: "manual-capture-opportunity",
+            title: "Principal Swift macOS Engineer",
+            organisation: "Test Organisation",
+            opportunityType: .job,
+            responsibilities: [evidence(
+                id: "manual-capture-responsibility",
+                statement: "Build reliable audio capture and practical robotics software.",
+                documentID: opportunityDocument.id,
+                type: .responsibility
+            )],
+            requiredSkills: [evidence(
+                id: "manual-capture-required-skill",
+                statement: "Swift Package testing, Core Audio, ScreenCaptureKit, Python, C++, and ROS2.",
+                documentID: opportunityDocument.id,
+                type: .requiredSkill
+            )],
+            preferredSkills: [],
+            researchTopics: [],
+            evaluationCriteria: [],
+            sourceDocumentIDs: [opportunityDocument.id],
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try contexts.saveCandidateProfile(profile)
+        try contexts.saveOpportunityContext(opportunity)
+        try contexts.saveSelection(InterviewContextSelection(
+            candidateProfileID: profile.id,
+            opportunityContextID: opportunity.id,
+            domainProfileID: .softwareEngineering
+        ))
+        try contexts.saveConfigurationOrigin(.automaticDocuments)
     }
 
-    class MockPermissionService: PermissionService {
+    private func evidence(
+        id: String,
+        statement: String,
+        documentID: String,
+        type: EvidenceType
+    ) -> ProfileEvidence {
+        ProfileEvidence(
+            id: id,
+            statement: statement,
+            sourceDocumentID: documentID,
+            sourceChunkID: "\(id)-chunk",
+            sourceSpan: statement,
+            confidence: 1,
+            evidenceType: type,
+            explicitness: .explicit
+        )
+    }
+
+    private final class MockPermissionService: PermissionService {
         var micRequestedCount = 0
         var speechRequestedCount = 0
 
@@ -58,6 +155,46 @@ struct ManualCaptureTests {
         }
     }
 
+    private func makeAppState(
+        database: AppDatabase,
+        client: any LLMClientProtocol,
+        permissionService: MockPermissionService
+    ) throws -> AppState {
+        let settings = SettingsRepository(database: database)
+        try settings.ensureDefaultProviderConfigurations()
+        if let deepSeek = try settings.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
+            try settings.setActiveRealtimeProvider(id: deepSeek.id)
+        }
+        let router = LLMRouter(settingsRepository: settings, clients: [.deepSeek: client])
+        let appState = AppState(
+            database: database,
+            llmRouter: router,
+            permissionService: permissionService,
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            dialogueDefaults: nil
+        )
+        appState.answerProviderModeOverride = .deepSeekPrimary
+        appState.automaticContextReadiness = .ready
+        ManualQuestionCaptureService.mockCancelCapture = {}
+        ManualQuestionTranscriptionService.mockCancel = {}
+        return appState
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: Duration = .seconds(8),
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            guard clock.now < deadline else {
+                throw WaitTimeout(description: "Timed out waiting for \(description)")
+            }
+            try await clock.sleep(for: .milliseconds(5))
+        }
+    }
+
     final class TrackingLLMClient: LLMClientProtocol {
         let providerKind: LLMProviderKind = .deepSeek
         var chatCallsCount = 0
@@ -79,9 +216,9 @@ struct ManualCaptureTests {
             let content = """
             {
                 "strategy": "Technical Deep Dive",
-                "say_first": "I am comfortable with Python and ROS2 from robotics projects, and I am actively improving C++ for performance-critical robotics systems.",
-                "key_points": ["Python and ROS2 robotics projects", "C++ for performance-critical robotics systems"],
-                "follow_up_ready": ["I can describe where I used each tool in the robotics pipeline."],
+                "say_first": "I am comfortable with Python and ROS2 and actively improving C++, and I also write Swift Package tests for reliable macOS capture workflows.",
+                "key_points": ["Python, ROS2, and C++ robotics work", "Swift Package tests for macOS capture workflows"],
+                "follow_up_ready": ["I can describe where I used each tool and how I tested the workflow."],
                 "confidence": 0.95,
                 "caution": "None"
             }
@@ -93,7 +230,7 @@ struct ManualCaptureTests {
                 providerName: configuration.name,
                 baseURL: configuration.baseURL,
                 latencyMS: 100,
-                isLocal: true,
+                isLocal: false,
                 rawResponse: nil
             )
         }
@@ -133,10 +270,8 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
         defer { appState.cancelManualCapture() }
-        appState.refreshAll()
 
         // 1. Force systemAudio manual capture source
         var settings = appState.settings
@@ -175,10 +310,8 @@ struct ManualCaptureTests {
 
         // Act
         appState.startManualCapture()
-        var elapsedStart = 0
-        while (appState.manualCaptureState != .recording || !captureStarted || !transcriptionStarted) && elapsedStart < 150 {
-            try? await Task.sleep(for: .milliseconds(20))
-            elapsedStart += 1
+        try await waitUntil("system-audio manual recording to start") {
+            appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
         }
 
         // Assert Constraint 1: systemAudio manual capture does not request microphone/speech permission
@@ -197,11 +330,8 @@ struct ManualCaptureTests {
         }
 
         appState.stopAndTranscribeManualCapture()
-        
-        var elapsed = 0
-        while (appState.manualCaptureState != .suggestionReady || appState.transcriptSegments.last == nil) && elapsed < 200 {
-            try? await Task.sleep(for: .milliseconds(50))
-            elapsed += 1
+        try await waitUntil("manual suggestion and transcript persistence") {
+            appState.manualCaptureState == .suggestionReady && appState.transcriptSegments.last != nil
         }
 
         // Assert Constraint 4: Manual captured systemAudio question maps to .interviewer speaker
@@ -227,10 +357,8 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
         defer { appState.cancelManualCapture() }
-        appState.refreshAll()
 
         // 1. Force microphone manual capture source
         var settings = appState.settings
@@ -252,10 +380,8 @@ struct ManualCaptureTests {
 
         // Act
         appState.startManualCapture()
-        var elapsedStart = 0
-        while (appState.manualCaptureState != .recording || !captureStarted || !transcriptionStarted) && elapsedStart < 100 {
-            try? await Task.sleep(for: .milliseconds(20))
-            elapsedStart += 1
+        try await waitUntil("microphone manual recording to start") {
+            appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
         }
 
         // Assert Constraint 2: microphone manual capture requests microphone/speech permissions
@@ -277,9 +403,8 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         // Force both parameters to true
         var settings = appState.settings
@@ -302,10 +427,8 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        var elapsedStart = 0
-        while appState.manualCaptureState != .recording && elapsedStart < 100 {
-            try? await Task.sleep(for: .milliseconds(20))
-            elapsedStart += 1
+        try await waitUntil("review-mode manual recording to start") {
+            appState.manualCaptureState == .recording
         }
 
         // Stop capture
@@ -315,11 +438,8 @@ struct ManualCaptureTests {
         }
 
         appState.stopAndTranscribeManualCapture()
-        
-        var elapsed = 0
-        while appState.manualCaptureState != .transcriptReady && elapsed < 200 {
-            try? await Task.sleep(for: .milliseconds(50))
-            elapsed += 1
+        try await waitUntil("manual transcript review state") {
+            appState.manualCaptureState == .transcriptReady
         }
 
         // Assert Constraint 3: showTranscriptBeforeSending overrides autoSendAfterTranscription
@@ -340,9 +460,8 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         var settings = appState.settings
         settings.manualCaptureSource = .systemAudio
@@ -363,10 +482,8 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        var elapsedStart = 0
-        while appState.manualCaptureState != .recording && elapsedStart < 100 {
-            try? await Task.sleep(for: .milliseconds(20))
-            elapsedStart += 1
+        try await waitUntil("direct-generation manual recording to start") {
+            appState.manualCaptureState == .recording
         }
 
         ManualQuestionCaptureService.mockStopCapture = { return [] }
@@ -375,11 +492,8 @@ struct ManualCaptureTests {
         }
 
         appState.stopAndTranscribeManualCapture()
-        
-        var elapsed = 0
-        while appState.manualCaptureState != .suggestionReady && elapsed < 200 {
-            try? await Task.sleep(for: .milliseconds(50))
-            elapsed += 1
+        try await waitUntil("manual generation to finish") {
+            appState.manualCaptureState == .suggestionReady
         }
 
         // Assert Constraint 5: Bypasses QuestionDetectionService and goes directly to SuggestionGenerationService.
@@ -402,9 +516,8 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         var settings = appState.settings
         settings.manualCaptureSource = .systemAudio
@@ -425,10 +538,8 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        var elapsedStart = 0
-        while appState.manualCaptureState != .recording && elapsedStart < 100 {
-            try? await Task.sleep(for: .milliseconds(20))
-            elapsedStart += 1
+        try await waitUntil("empty-transcript manual recording to start") {
+            appState.manualCaptureState == .recording
         }
 
         ManualQuestionCaptureService.mockStopCapture = { return [] }
@@ -438,13 +549,9 @@ struct ManualCaptureTests {
         }
 
         appState.stopAndTranscribeManualCapture()
-        
-        var elapsed = 0
-        while true {
-            if case .error = appState.manualCaptureState { break }
-            if elapsed >= 200 { break }
-            try? await Task.sleep(for: .milliseconds(50))
-            elapsed += 1
+        try await waitUntil("empty transcript error") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
         }
 
         // Assert Constraint 6: Empty transcript results show a clean error state
@@ -466,9 +573,8 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         var settings = appState.settings
         settings.manualCaptureSource = .systemAudio
@@ -494,10 +600,8 @@ struct ManualCaptureTests {
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
         appState.startManualCapture()
-        var elapsedStart = 0
-        while (appState.manualCaptureState != .recording || capturedTimeoutBlock == nil) && elapsedStart < 100 {
-            try? await Task.sleep(for: .milliseconds(20))
-            elapsedStart += 1
+        try await waitUntil("manual timeout callback installation") {
+            appState.manualCaptureState == .recording && capturedTimeoutBlock != nil
         }
 
         #expect(appState.manualCaptureState == .recording)
@@ -506,22 +610,19 @@ struct ManualCaptureTests {
         // Mock stopping and returning buffers
         ManualQuestionCaptureService.mockStopCapture = { return [] }
         ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
-            return "Timeout test question"
+            return "How do you test Swift packages?"
         }
 
         // Trigger timeout block manually
         timeoutBlock()
-        
-        var elapsed = 0
-        while appState.manualCaptureState != .suggestionReady && elapsed < 200 {
-            try? await Task.sleep(for: .milliseconds(50))
-            elapsed += 1
+        try await waitUntil("max-duration manual generation to finish") {
+            appState.manualCaptureState == .suggestionReady
         }
 
         // Assert Constraint 7: Max duration reached triggers automatic stop
         // The AppState should have handled the timeout, finalized, and turned state to suggestionReady or error
         #expect(appState.manualCaptureState == .suggestionReady)
-        #expect(appState.manualCaptureTranscript == "Timeout test question")
+        #expect(appState.manualCaptureTranscript == "How do you test Swift packages?")
     }
 
     @Test
@@ -534,27 +635,32 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
+
+        let captureService = ManualQuestionCaptureService.shared
+        let originalBufferCount = captureService.capturedBufferCount
+        let originalDuration = captureService.recordingDuration
+        let originalTimestamp = captureService.lastBufferTimestamp
+        defer {
+            captureService.capturedBufferCount = originalBufferCount
+            captureService.recordingDuration = originalDuration
+            captureService.lastBufferTimestamp = originalTimestamp
+        }
 
         appState.manualCaptureState = .recording
-        ManualQuestionCaptureService.shared.capturedBufferCount = 42
-        ManualQuestionCaptureService.shared.recordingDuration = 10.5
+        captureService.capturedBufferCount = 42
+        captureService.recordingDuration = 10.5
         let testTimestamp = Date()
-        ManualQuestionCaptureService.shared.lastBufferTimestamp = testTimestamp
+        captureService.lastBufferTimestamp = testTimestamp
 
         // Stop capture
         ManualQuestionCaptureService.mockStopCapture = { return [] }
         ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in return "What do you offer?" }
 
         appState.stopAndTranscribeManualCapture()
-        
-        // Wait for transcription to complete
-        var elapsed = 0
-        while appState.manualCaptureState == .transcribing && elapsed < 50 {
-            try? await Task.sleep(for: .milliseconds(10))
-            elapsed += 1
+        try await waitUntil("manual buffer diagnostics transcription") {
+            appState.manualCaptureTranscript == "What do you offer?"
         }
 
         #expect(appState.manualCaptureBufferCount == 42)
@@ -585,20 +691,17 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let failingLLM = FailingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: failingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: failingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         appState.manualCaptureState = .transcriptReady
         appState.manualCaptureTranscript = "What do you offer"
         appState.manualCaptureBufferCount = 15
 
         appState.sendManualCaptureToAI()
-
-        var elapsed = 0
-        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
-            try? await Task.sleep(for: .milliseconds(10))
-            elapsed += 1
+        try await waitUntil("manual provider failure") {
+            if case .suggestionError = appState.manualCaptureState { return true }
+            return false
         }
 
         // Verify state is suggestionError, and transcript is retained!
@@ -621,24 +724,20 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: trackingLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         appState.manualCaptureState = .suggestionError("Previous failure")
-        appState.manualCaptureTranscript = "Edited question text"
+        appState.manualCaptureTranscript = "How comfortable are you with Python, C++, and ROS2?"
         appState.manualCaptureBufferCount = 12
 
         appState.sendManualCaptureToAI()
-
-        var elapsed = 0
-        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
-            try? await Task.sleep(for: .milliseconds(10))
-            elapsed += 1
+        try await waitUntil("manual retry generation") {
+            appState.manualCaptureState == .suggestionReady
         }
 
         #expect(appState.manualCaptureState == .suggestionReady)
-        #expect(appState.manualCaptureTranscript == "Edited question text")
+        #expect(appState.manualCaptureTranscript == "How comfortable are you with Python, C++, and ROS2?")
         #expect(appState.manualCaptureSuggestion != nil)
     }
 
@@ -688,19 +787,15 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let malformedLLM = MalformedJSONLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: malformedLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: malformedLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         appState.manualCaptureState = .transcriptReady
         appState.manualCaptureTranscript = "Why do you want to join our team?"
 
         appState.sendManualCaptureToAI()
-
-        var elapsed = 0
-        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
-            try? await Task.sleep(for: .milliseconds(10))
-            elapsed += 1
+        try await waitUntil("malformed JSON repair") {
+            appState.manualCaptureState == .suggestionReady
         }
 
         #expect(appState.manualCaptureState == .suggestionReady)
@@ -743,19 +838,15 @@ struct ManualCaptureTests {
 
         let mockPermission = MockPermissionService()
         let plainLLM = PlainTextLLMClient()
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [.deepSeek: plainLLM])
-        let appState = AppState(database: database, llmRouter: router, permissionService: mockPermission)
-        appState.refreshAll()
+        let appState = try makeAppState(database: database, client: plainLLM, permissionService: mockPermission)
+        defer { appState.cancelManualCapture() }
 
         appState.manualCaptureState = .transcriptReady
         appState.manualCaptureTranscript = "Why do you want to join our team?"
 
         appState.sendManualCaptureToAI()
-
-        var elapsed = 0
-        while appState.manualCaptureState == .generatingSuggestion && elapsed < 50 {
-            try? await Task.sleep(for: .milliseconds(10))
-            elapsed += 1
+        try await waitUntil("plain-text suggestion conversion") {
+            appState.manualCaptureState == .suggestionReady
         }
 
         #expect(appState.manualCaptureState == .suggestionReady)

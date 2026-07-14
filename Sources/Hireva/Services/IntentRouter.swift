@@ -22,7 +22,10 @@ enum IntentRouter {
         if isDecoderComparisonQuestion(text) { return .decoderComparison }
         let modelFamilyCount = ["autoregressive", "diffusion", "flow matching", "flow-matching", "transformer", "regression", "classifier"]
             .filter { text.contains($0) }.count
-        if modelFamilyCount >= 2 && containsAny(text, ["better", "worse", "perform", "compare", "trade-off", "tradeoff"]) {
+        if modelFamilyCount >= 2 && containsAny(text, [
+            "better", "worse", "perform", "compare", "trade-off", "tradeoff",
+            "more stable", "less stable", "more reliable", "less reliable"
+        ]) {
             return .modelComparison
         }
         if containsAny(text, ["sim-to-real", "sim to real", "simulation to production", "works in simulation", "fails in production"]) {
@@ -34,6 +37,9 @@ enum IntentRouter {
         }
         if text.contains("system integration") && containsAny(text, ["debug", "failure", "problem", "issue"]) {
             return .systemIntegrationDebugging
+        }
+        if containsAny(text, ["hardest technical challenge", "hardest challenge", "technically difficult", "most difficult", "most fragile"]) || isRealWorldExecutionQuestion(text) {
+            return .technicalChallenge
         }
         if isSystemIntegrationFamilyQuestion(text) { return .systemIntegrationDebugging }
         if containsAny(text, ["dataset adaptation", "adapt the dataset", "migrate the data", "mapped the data", "data format"]) ||
@@ -49,16 +55,14 @@ enum IntentRouter {
         if containsAny(text, ["noisy", "error handling", "handled errors", "failure recovery", "recover from"]) {
             return .errorHandling
         }
-        if containsAny(text, ["hardest technical challenge", "hardest challenge", "technically difficult", "most difficult", "most fragile"]) || isRealWorldExecutionQuestion(text) {
-            return .technicalChallenge
-        }
         if containsAny(text, ["another month", "one more month", "change first", "improve first", "do differently"]) {
             return .improvementPlan
         }
         if containsAny(text, ["comfortable with", "experience with", "proficiency", "skill level", "how well do you know"]) {
             return .skillComfort
         }
-        if containsAny(text, ["walk me through", "tell me about your project", "describe your project", "project did you work"]) {
+        if containsAny(text, ["walk me through", "tell me about your project", "describe your project", "project did you work"]) ||
+            (text.contains("project") && containsAny(text, ["explain your", "explain the", "describe your"])) {
             return .projectWalkthrough
         }
         return .generic
@@ -66,7 +70,12 @@ enum IntentRouter {
 
     static func transcriptClassification(for questionText: String) -> (intent: QuestionIntent, strategy: AnswerStrategy, confidence: Double) {
         switch answerIntent(for: questionText) {
-        case .tellMeAboutYourself, .technicalChallenge, .errorHandling, .improvementPlan:
+        case .tellMeAboutYourself, .errorHandling, .improvementPlan:
+            return (.behavioral, .starStory, 0.9)
+        case .technicalChallenge:
+            if isSystemIntegrationFamilyQuestion(questionText) {
+                return (.technical, .technicalExplanation, 0.92)
+            }
             return (.behavioral, .starStory, 0.9)
         case .projectWalkthrough, .projectComparison:
             return (.projectDeepDive, .projectWalkthrough, 0.92)
@@ -80,11 +89,13 @@ enum IntentRouter {
     }
 
     static func normalize(_ text: String) -> String {
-        " " + text.lowercased()
+        let collapsed = text.lowercased()
             .replacingOccurrences(of: "\n", with: " ")
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
-            .joined(separator: " ") + " "
+            .joined(separator: " ")
+        return " " + collapsed
+            .replacingOccurrences(of: "auto regressive", with: "autoregressive") + " "
     }
 
     static func isDecoderComparisonQuestion(_ text: String) -> Bool {
@@ -134,8 +145,13 @@ enum IntentRouter {
 
     static func isDebuggingReflectionQuestion(_ text: String) -> Bool {
         let normalized = normalize(text)
-        return containsAny(normalized, ["learn", "lesson", "takeaway", "teach", "taught", "do differently"]) &&
-            containsAny(normalized, ["debug", "failure", "root cause", "logs", "incident", "testing"])
+        let isReflection = containsAny(normalized, ["learn", "lesson", "takeaway", "teach", "taught", "do differently"])
+        let isDebugging = containsAny(normalized, ["debug", "failure", "root cause", "logs", "incident", "testing"])
+        let namesSystemBoundary = containsAny(normalized, [
+            "system", "pipeline", "integration", "handoff", "interface", "module", "component",
+            "architecture", "robot", "simulation", "deployment"
+        ])
+        return isReflection && isDebugging && namesSystemBoundary
     }
 
     static func isEvaluationReliabilityQuestion(_ text: String) -> Bool {

@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Testing
 @testable import Hireva
 
@@ -18,7 +17,9 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
             text: transcript
         ))
 
-        try await waitUntil(timeout: 10.0) {
+        try await waitUntil(timeout: 10.0, stateSnapshot: {
+            runtimeStateSnapshot(appState: appState, session: session, transcript: transcript)
+        }) {
             appState.detectedQuestionsInSessionCount == 9 &&
             appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 9 &&
             appState.currentSuggestion != nil &&
@@ -56,7 +57,9 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
             text: Self.realRuntimeLongTranscriptFixture
         ))
 
-        try await waitUntil(timeout: 10.0) {
+        try await waitUntil(timeout: 10.0, stateSnapshot: {
+            runtimeStateSnapshot(appState: appState, session: session, transcript: Self.realRuntimeLongTranscriptFixture)
+        }) {
             appState.detectedQuestionsInSessionCount == 9 &&
             appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 9 &&
             appState.currentSuggestion != nil
@@ -70,7 +73,7 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
     }
 
     @Test
-    func latestRealDatabaseTranscriptFixtureExtractsQuestionsIfAvailable() async throws {
+    func syntheticRuntimeTranscriptFixtureExtractsQuestionsDeterministically() async throws {
         let (appState, _, session, _) = try makeAppState()
         let transcript = Self.gatedRealDatabaseSystemAudioTranscript() ?? Self.realRuntimeLongTranscriptFixture
 
@@ -108,10 +111,13 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: RuntimeTranscriptEmptyContextRetrievalService()
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            contextRetrievalService: RuntimeTranscriptEmptyContextRetrievalService(),
+            dialogueDefaults: nil
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.02
-        appState.delayProvider = MockDelayProvider()
+        appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 1_000_000_000
 
         var settings = appState.settings
@@ -121,7 +127,7 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         settings.saveTranscriptsLocally = true
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeHermeticContextBoundSession(appState: appState, prefix: "transcript-runtime")
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -151,45 +157,49 @@ struct SystemAudioTranscriptToAnswerRuntimeTests {
         }
     }
 
-    private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
+    private func waitUntil(
+        timeout: TimeInterval,
+        stateSnapshot: (@MainActor () -> String)? = nil,
+        predicate: @escaping @MainActor () -> Bool
+    ) async throws {
         let start = Date()
-        let effectiveTimeout = max(timeout, 90.0)
         while !predicate() {
-            if Date().timeIntervalSince(start) > effectiveTimeout {
+            if Date().timeIntervalSince(start) > timeout {
+                let snapshot = stateSnapshot?() ?? ""
                 throw NSError(
                     domain: "SystemAudioTranscriptToAnswerRuntimeTests",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for long transcript-to-answer state."]
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for long transcript-to-answer state. \(snapshot)"]
                 )
             }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
     }
 
-    private static func gatedRealDatabaseSystemAudioTranscript() -> String? {
-        guard ProcessInfo.processInfo.environment["REAL_APP_DB_TESTS"] == "1" else {
-            return nil
-        }
-        let dbURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Hireva/hireva.sqlite")
-        guard FileManager.default.fileExists(atPath: dbURL.path),
-              let queue = try? DatabaseQueue(path: dbURL.path) else {
-            return nil
-        }
-        return try? queue.read { db in
-            try String.fetchOne(
-                db,
-                sql: """
-                SELECT text
-                FROM transcript_segments
-                WHERE source = 'systemAudio'
-                  AND length(text) >= 120
-                ORDER BY created_at DESC
-                LIMIT 1
-                """
-            )
-        }
+    private func runtimeStateSnapshot(
+        appState: AppState,
+        session: InterviewSession,
+        transcript: String
+    ) -> String {
+        let extracted = SystemAudioQuestionExtractor.extract(from: transcript).map(\.text)
+        let questions = (try? appState.suggestionRepository.questions(sessionID: session.id).count) ?? -1
+        let suggestions = (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? -1
+        let currentQuestion = appState.currentSuggestion?.questionText ?? "nil"
+        return [
+            "pureExtracted=\(extracted.count)",
+            "pureQuestions=\(extracted.joined(separator: " || "))",
+            "detected=\(appState.detectedQuestionsInSessionCount)",
+            "traceExtracted=\(appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount)",
+            "questionRows=\(questions)",
+            "suggestionRows=\(suggestions)",
+            "pending=\(appState.pendingAcceptedQuestions.count)",
+            "current=\(currentQuestion)",
+            "generationState=\(appState.generationUIState.displayName)",
+            "lastAlignmentError=\(appState.lastAlignmentError)"
+        ].joined(separator: " | ")
     }
+
+    private static func gatedRealDatabaseSystemAudioTranscript() -> String? { nil }
 }
 
 private final class RuntimeTranscriptLLMClient: LLMClientProtocol, @unchecked Sendable {
@@ -212,11 +222,13 @@ private final class RuntimeTranscriptLLMClient: LLMClientProtocol, @unchecked Se
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
         lock.withLock { answerCalls += 1 }
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        let answer = hermeticRuntimeAnswer(for: prompt)
         let content = """
         {
           "strategy": "Direct interview answer",
-          "say_first": "I would answer the latest question directly and keep it concise.",
-          "key_points": ["Use a first-person answer", "Connect it to robotics experience", "Keep the response speakable"],
+          "say_first": \(hermeticJSONString(answer)),
+          "key_points": ["\(answer.prefix(90))", "Ground the answer in the synthetic candidate evidence"],
           "follow_up_ready": ["I can add more detail if needed."],
           "confidence": 0.86,
           "caution": "None",
@@ -233,15 +245,19 @@ private final class RuntimeTranscriptLLMClient: LLMClientProtocol, @unchecked Se
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream<String, Error> { continuation in
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        let answer = hermeticRuntimeAnswer(for: prompt)
+        return AsyncThrowingStream<String, Error> { continuation in
             Task {
-                let prompt = messages.map(\.content).joined(separator: "\n")
-                if prompt.contains("Return plain text sections only") {
+                if prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.") {
+                    for token in hermeticRuntimeSectionTokens(for: prompt) {
+                        continuation.yield(token)
+                    }
                     continuation.finish()
                     return
                 }
-                for token in ["I ", "would ", "answer ", "the ", "latest ", "question."] {
-                    continuation.yield(token)
+                for token in answer.split(separator: " ") {
+                    continuation.yield(String(token) + " ")
                 }
                 continuation.finish()
             }

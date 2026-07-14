@@ -37,12 +37,15 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
                 text: text
             ))
 
-            try await waitUntil(timeout: 10.0) {
+            try await waitUntil(appState: appState, timeout: 10.0) {
                 appState.detectedQuestionsInSessionCount == beforeDetected + 1 &&
                 appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
                 appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
                 appState.currentGenerationTelemetry.questionID == appState.lastDetectedQuestion?.id &&
-                appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated
+                appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated &&
+                appState.visibleAnswerExists &&
+                appState.generationUIState.isTerminal &&
+                !appState.currentSpinnerVisible
             }
 
             let question = try #require(appState.lastDetectedQuestion)
@@ -121,11 +124,13 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
             asrFinalizationReason: "final_accepted"
         ))
 
-        try await waitUntil(timeout: 8.0) {
+        try await waitUntil(appState: appState, timeout: 8.0) {
             appState.detectedQuestionsInSessionCount == 1 &&
             appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
             appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
-            appState.visibleAnswerExists
+            appState.visibleAnswerExists &&
+            appState.generationUIState.isTerminal &&
+            !appState.currentSpinnerVisible
         }
 
         #expect(client.detectionCallCount == 0)
@@ -147,10 +152,13 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: QuestionOnlyEmptyContextRetrievalService()
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            contextRetrievalService: QuestionOnlyEmptyContextRetrievalService(),
+            dialogueDefaults: nil
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.02
-        appState.delayProvider = MockDelayProvider()
+        appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 1_000_000_000
 
         var settings = appState.settings
@@ -160,7 +168,7 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
         settings.saveTranscriptsLocally = true
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeHermeticContextBoundSession(appState: appState, prefix: "question-only")
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -185,15 +193,30 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
         )
     }
 
-    private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
+    private func waitUntil(
+        appState: AppState,
+        timeout: TimeInterval,
+        predicate: @escaping @MainActor () -> Bool
+    ) async throws {
         let start = Date()
-        let effectiveTimeout = max(timeout, 90.0)
         while !predicate() {
-            if Date().timeIntervalSince(start) > effectiveTimeout {
+            if Date().timeIntervalSince(start) > timeout {
                 throw NSError(
                     domain: "SystemAudioQuestionOnlyAutoGenerationTests",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for transcript-to-answer state."]
+                    userInfo: [NSLocalizedDescriptionKey: [
+                        "Timed out waiting for transcript-to-answer state.",
+                        "detected=\(appState.detectedQuestionsInSessionCount)",
+                        "lastSegment=\(appState.lastDetectedQuestion?.transcriptSegmentID ?? "nil")",
+                        "lastQuestionID=\(appState.lastDetectedQuestion?.id ?? "nil")",
+                        "suggestionQuestionID=\(appState.currentSuggestion?.questionID ?? "nil")",
+                        "telemetryQuestionID=\(appState.currentGenerationTelemetry.questionID ?? "nil")",
+                        "visible=\(appState.visibleAnswerExists)",
+                        "terminal=\(appState.generationUIState.isTerminal)",
+                        "spinner=\(appState.currentSpinnerVisible)",
+                        "generationError=\(appState.visibleAssistantRenderState.generationErrorText ?? "nil")",
+                        "alignmentError=\(appState.lastAlignmentError)"
+                    ].joined(separator: " | ")]
                 )
             }
             try await Task.sleep(nanoseconds: 25_000_000)
@@ -232,11 +255,12 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
         }
 
         lock.withLock { answerCalls += 1 }
+        let answer = answerText(for: prompt)
         let content = """
         {
           "strategy": "Direct interview answer",
-          "say_first": "I would answer this with a concise first-person robotics example.",
-          "key_points": ["Connect the question to robotics experience", "Explain the technical choice", "Close with the result"],
+          "say_first": \(jsonString(answer)),
+          "key_points": ["\(answer.prefix(90))", "Keep the response grounded in the synthetic candidate evidence"],
           "follow_up_ready": ["I can go deeper into implementation details."],
           "confidence": 0.86,
           "caution": "None",
@@ -254,14 +278,27 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
         let prompt = messages.map(\.content).joined(separator: "\n")
+        let answer = answerText(for: prompt)
         return AsyncThrowingStream<String, Error> { continuation in
             Task {
-                if prompt.contains("Return plain text sections only") {
+                if prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.") {
+                    for section in [
+                        "STRATEGY:\nDirect answer\n",
+                        "SAY_FIRST:\n\(answer)\n",
+                        "KEY_POINTS:\n",
+                        "- \(answer.prefix(90))\n",
+                        "- Keep the response grounded in the synthetic candidate evidence\n",
+                        "FOLLOW_UP_READY:\n",
+                        "- I can go deeper into implementation details.\n",
+                        "CAUTION:\nNone\n"
+                    ] {
+                        continuation.yield(section)
+                    }
                     continuation.finish()
                     return
                 }
-                for token in ["I ", "would ", "answer ", "with ", "a ", "specific ", "robotics ", "example."] {
-                    continuation.yield(token)
+                for token in answer.split(separator: " ") {
+                    continuation.yield(String(token) + " ")
                 }
                 continuation.finish()
             }
@@ -270,6 +307,38 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
 
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
         []
+    }
+
+    private func answerText(for prompt: String) -> String {
+        let lower = prompt.lowercased()
+        if lower.contains("do you have any questions for us") {
+            return "I would ask how the engineering team defines success for reliable deployed robotics and how debugging ownership is shared."
+        }
+        if lower.contains("how comfortable are you with python") {
+            return "I am comfortable with Python, C++, and ROS2 because I have used them to build and debug perception, navigation, and manipulation pipelines."
+        }
+        if lower.contains("why do you want to join our team") {
+            return "I want to join the team because the role matches my experience building reliable deployed robotics systems and my goal to deepen that work."
+        }
+        if lower.contains("what would you change first") || lower.contains("another month") {
+            return "With another month, I would first strengthen real-world evaluation and recovery tests around perception, localization, and manipulation failures."
+        }
+        if lower.contains("diffusion decoder") {
+            return "Compared with the autoregressive decoder, the diffusion decoder performed better in the MuJoCo evaluation because it represented continuous action distributions smoothly and tolerated trajectory uncertainty better."
+        }
+        if lower.contains("noisy detections") || lower.contains("localisation errors") || lower.contains("localization errors") {
+            return "I diagnosed noisy detections and localization errors by inspecting logs, confidence values, timestamps, calibration drift, lighting, and occlusion. Repeated observations, validation guards, and safe stop-and-retry recovery reduced risk before allowing motion."
+        }
+        if lower.contains("hardest technical challenge") {
+            return "The hardest technical challenge was making perception, localization, navigation, and manipulation behave reliably together on the real robot. I debugged each handoff with timestamp logs, isolated frame errors, and validated recovery tests."
+        }
+        if lower.contains("walk me through") || lower.contains("leorover project") {
+            return "I built a LeoRover object-retrieval pipeline that connected YOLOv8 perception to localization, navigation, manipulation, and recovery behavior. The result was repeatable end-to-end retrieval, and I learned that timestamp and frame validation were essential at every handoff."
+        }
+        if lower.contains("tell me a little bit about yourself") {
+            return "I built a LeoRover ROS2 system connecting YOLOv8 perception, localization, navigation, manipulation, and recovery behavior, and that robotics work is the core of my technical background."
+        }
+        return "I would answer the interviewer directly with a specific, evidence-grounded robotics example."
     }
 
     private func detectionResult(for prompt: String) -> LLMChatResult {

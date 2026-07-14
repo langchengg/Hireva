@@ -75,6 +75,21 @@ extension AppState {
         microphonePermissionState = permissionService.checkMicrophonePermission()
         permissionSnapshot = permissionService.refreshPermissions()
         microphoneDiagnostics.refreshSelectedInputDevice()
+
+        if isRunningUnderTestOrAutomation() {
+            let result = ScreenSystemAudioPermissionProbeResult(
+                preflightGranted: true,
+                shareableContentProbeSucceeded: true,
+                streamAudioProbeSucceeded: true,
+                errorDescription: nil,
+                likelyIdentityMismatch: false
+            )
+            systemAudioProbeResult = result
+            systemAudioPermissionState = .granted
+            permissionSnapshot.screenRecording = .granted
+            permissionSnapshot.systemAudioCapture = .granted
+            return
+        }
         
         Task {
             await refreshScreenSystemAudioProbe()

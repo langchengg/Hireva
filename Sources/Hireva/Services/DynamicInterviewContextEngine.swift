@@ -148,6 +148,22 @@ struct DynamicInterviewContextEngine {
         opportunityContext: OpportunityContext?,
         contextSnapshotID: String
     ) -> GroundedFallbackResult {
+        let intent = AnswerRelevancePolicy.intent(for: question)
+        if intent == .candidateQuestions || intent == .interviewerQuestions {
+            return GroundedFallbackResult(
+                answer: "How will success be measured in the first three months? Which constraints most affect the team's delivery workflow? How does the team share ownership when issues reach production?",
+                status: .grounded,
+                candidateEvidenceIDs: [],
+                opportunityEvidenceIDs: retrieveOpportunityEvidence(
+                    question: question,
+                    opportunity: opportunityContext
+                ).map(\.id),
+                contextSnapshotID: contextSnapshotID,
+                groundingDecision: "profile_independent_interviewer_questions",
+                unsupportedClaims: []
+            )
+        }
+
         guard let candidateProfile else {
             return GroundedFallbackResult(
                 answer: "",
@@ -286,8 +302,19 @@ struct DynamicInterviewContextEngine {
         opportunity: [ProfileEvidence]
     ) -> String {
         let lower = question.lowercased()
+        let intent = AnswerRelevancePolicy.intent(for: question)
         let statements = candidate.prefix(3).map(\.statement)
         let candidateText = statements.joined(separator: "; ")
+        let primaryEvidence = statements.first ?? candidateText
+        if intent == .projectWalkthrough {
+            return "I would walk through the documented project evidence in sequence: \(primaryEvidence). This identifies what was built; where the profile does not document the result or validation, I would say so rather than inventing it."
+        }
+        if intent == .improvementPlan {
+            return "My first priority would be to improve the highest-risk part of this documented work: \(primaryEvidence). I would add failure-case tests, instrument the critical path, and validate the change against a measurable baseline."
+        }
+        if intent == .datasetAdaptation {
+            return "The selected profile documents this relevant evidence: \(primaryEvidence). It does not document exactly how the data was converted or validated, so I would verify those implementation details before claiming them."
+        }
         if lower.contains("difficult") || lower.contains("challenge") || lower.contains("technical problem") {
             return "A technically difficult project documented in my selected profile was: \(candidateText)."
         }
@@ -299,7 +326,7 @@ struct DynamicInterviewContextEngine {
             return target.map { "My most relevant evidence is: \(candidateText). This aligns with the target responsibility: \($0)." }
                 ?? "My most relevant evidence is: \(candidateText)."
         }
-        if lower.contains("develop") || lower.contains("gap") || lower.contains("improve") {
+        if lower.contains("develop") || lower.contains("gap") {
             return "The selected profile records this development area: \(candidateText)."
         }
         return "My answer is grounded in this selected-profile evidence: \(candidateText)."
@@ -345,7 +372,13 @@ struct DynamicInterviewContextEngine {
             return type == .project ? 30 : (type == .achievement ? 18 : 0)
         }
         if lower.contains("develop") || lower.contains("gap") || lower.contains("improve") {
-            return type == .declaredGap ? 30 : 0
+            switch type {
+            case .project: return 12
+            case .declaredGap, .goal: return 8
+            case .experience, .achievement: return 6
+            case .skill: return 4
+            default: return 0
+            }
         }
         if lower.contains("about yourself") || lower.contains("background") {
             return [.education, .experience].contains(type) ? 20 : 0
@@ -362,7 +395,7 @@ struct DynamicInterviewContextEngine {
             return [.project, .experience, .achievement].contains(type)
         }
         if lower.contains("develop") || lower.contains("gap") || lower.contains("improve") {
-            return [.declaredGap, .goal, .skill, .experience].contains(type)
+            return [.declaredGap, .goal, .skill, .experience, .project, .achievement].contains(type)
         }
         if lower.contains("about yourself") || lower.contains("background") {
             return [.education, .experience, .project, .skill, .goal].contains(type)

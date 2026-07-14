@@ -1,29 +1,209 @@
+import AVFoundation
 import Foundation
 import Testing
-import AVFoundation
 @testable import Hireva
 
-@Suite
+@Suite(.serialized)
+@MainActor
 struct DualAudioTranscriptionTests {
+    private struct WaitTimeout: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    private final class MockPermissionService: PermissionService {
+        override func checkMicrophonePermission() -> MicrophonePermissionState { .authorized }
+
+        override func snapshot() -> PermissionSnapshot {
+            PermissionSnapshot(
+                microphone: .granted,
+                speechRecognition: .granted,
+                screenRecording: .granted,
+                systemAudioCapture: .granted
+            )
+        }
+
+        override func refreshPermissions() -> PermissionSnapshot { snapshot() }
+    }
+
+    private func makeTemporaryDatabase() throws -> AppDatabase {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DualAudioTranscriptionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+    }
+
+    private func makeAppState() throws -> AppState {
+        let database = try makeTemporaryDatabase()
+        try prepareReadyContext(in: database)
+        let settings = SettingsRepository(database: database)
+        try settings.ensureDefaultProviderConfigurations()
+        if let deepSeek = try settings.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
+            try settings.setActiveRealtimeProvider(id: deepSeek.id)
+        }
+        let appState = AppState(
+            database: database,
+            llmRouter: LLMRouter(
+                settingsRepository: settings,
+                clients: [.deepSeek: DualAudioLLMClient()]
+            ),
+            permissionService: MockPermissionService(),
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            dialogueDefaults: nil
+        )
+        appState.answerProviderModeOverride = .deepSeekPrimary
+        appState.automaticContextReadiness = .ready
+        return appState
+    }
+
+    private func prepareReadyContext(in database: AppDatabase) throws {
+        let documents = DocumentRepository(database: database)
+        let cv = try documents.saveDocument(
+            type: .cv,
+            title: "Dual Audio Candidate",
+            content: String(repeating: "Built deterministic Swift audio pipeline tests for robotics interview software. ", count: 8)
+        )
+        let role = try documents.saveDocument(
+            type: .jobDescription,
+            title: "Dual Audio Role",
+            content: String(repeating: "The role requires reliable Swift audio routing and automated testing. ", count: 8)
+        )
+        let contexts = InterviewContextRepository(database: database)
+        let profile = CandidateProfile(
+            id: "dual-audio-profile",
+            displayName: "Dual Audio Candidate",
+            sourceDocumentIDs: [cv.id],
+            education: [],
+            experience: [evidence(
+                id: "dual-audio-experience",
+                statement: "Built deterministic Swift audio pipeline tests for robotics interview software.",
+                documentID: cv.id,
+                type: .experience
+            )],
+            projects: [],
+            skills: [evidence(
+                id: "dual-audio-skill",
+                statement: "Uses Swift concurrency and automated tests for reliable audio routing.",
+                documentID: cv.id,
+                type: .skill
+            )],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let opportunity = OpportunityContext(
+            id: "dual-audio-opportunity",
+            title: "Swift Audio Engineer",
+            organisation: "Test Organisation",
+            opportunityType: .job,
+            responsibilities: [evidence(
+                id: "dual-audio-responsibility",
+                statement: "Maintain reliable Swift audio routing.",
+                documentID: role.id,
+                type: .responsibility
+            )],
+            requiredSkills: [evidence(
+                id: "dual-audio-required-skill",
+                statement: "Swift concurrency and automated audio tests.",
+                documentID: role.id,
+                type: .requiredSkill
+            )],
+            preferredSkills: [],
+            researchTopics: [],
+            evaluationCriteria: [],
+            sourceDocumentIDs: [role.id],
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try contexts.saveCandidateProfile(profile)
+        try contexts.saveOpportunityContext(opportunity)
+        try contexts.saveSelection(InterviewContextSelection(
+            candidateProfileID: profile.id,
+            opportunityContextID: opportunity.id,
+            domainProfileID: .softwareEngineering
+        ))
+        try contexts.saveConfigurationOrigin(.automaticDocuments)
+    }
+
+    private func evidence(
+        id: String,
+        statement: String,
+        documentID: String,
+        type: EvidenceType
+    ) -> ProfileEvidence {
+        ProfileEvidence(
+            id: id,
+            statement: statement,
+            sourceDocumentID: documentID,
+            sourceChunkID: "\(id)-chunk",
+            sourceSpan: statement,
+            confidence: 1,
+            evidenceType: type,
+            explicitness: .explicit
+        )
+    }
+
+    private func makeSimulatedService(
+        sessionID: String = "dual-audio-session",
+        captureMode: AudioCaptureMode
+    ) async throws -> AppleSpeechTranscriptionService {
+        let service = AppleSpeechTranscriptionService()
+        _ = service.segments
+        try await service.start(sessionID: sessionID, captureMode: captureMode)
+        return service
+    }
+
+    private func stopSimulatedSessions(_ service: AppleSpeechTranscriptionService) {
+        service.microphoneSession?.stop()
+        service.systemAudioSession?.stop()
+    }
+
+    private func cancelAsyncWork(_ appState: AppState) {
+        appState.precomputeDebounceTask?.cancel()
+        appState.activeDetectionTask?.cancel()
+        appState.activeAITask?.cancel()
+        appState.detectionDebounceTask?.cancel()
+        appState.transcriptionTask?.cancel()
+        appState.cancelActiveGenerationForStop()
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: Duration = .seconds(2),
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            guard clock.now < deadline else {
+                throw WaitTimeout(description: "Timed out waiting for \(description)")
+            }
+            try await clock.sleep(for: .milliseconds(5))
+        }
+    }
 
     @Test
     func emittedSegmentsCarryImmutableRecognitionProvenance() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "provenance-session", captureMode: .systemAudioOnly)
-        defer { service.stop() }
-
+        let service = try await makeSimulatedService(captureMode: .systemAudioOnly)
+        defer { stopSimulatedSessions(service) }
         let systemSession = try #require(service.systemAudioSession)
-        let collector = Task { () -> TranscriptSegment? in
+        var segments: [TranscriptSegment] = []
+        let collector = Task { @MainActor in
             for await segment in service.segments {
-                return segment
+                segments.append(segment)
             }
-            return nil
         }
-        await systemSession.simulateEmit(
+        defer { collector.cancel() }
+
+        systemSession.simulateEmit(
             text: "Could you explain your LeoRover project from end to end?",
             isFinal: true
         )
-        let segment = try #require(await collector.value)
+        try await waitUntil("one provenance segment") { segments.count == 1 }
+        let segment = try #require(segments.first)
         let data = try JSONEncoder().encode(segment)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
@@ -33,452 +213,342 @@ struct DualAudioTranscriptionTests {
         #expect((json["sourceTextEndUTF16"] as? Int) == (segment.text as NSString).length)
         #expect((json["recognitionIsFinal"] as? Bool) == true)
     }
-    
+
     @Test
     func microphoneAndSystemCreatesTwoIndependentSessionInstances() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneAndSystem)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
+
         #expect(service.microphoneSession != nil)
         #expect(service.systemAudioSession != nil)
         #expect(service.microphoneSession !== service.systemAudioSession)
-        
-        service.stop()
     }
-    
+
     @Test
     func micAndSystemRecognitionRequestIdentitiesAreDistinct() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneAndSystem)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
+
         let micRequest = try #require(service.microphoneSession?.request)
         let systemRequest = try #require(service.systemAudioSession?.request)
-        
         #expect(micRequest !== systemRequest)
-        
-        service.stop()
     }
-    
+
     @Test
     func micBufferAppendIncrementsOnlyMicCount() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneAndSystem)
-        
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
-        buffer.frameLength = 1024
-        
-        service.audioEngineManager(AudioEngineManager.shared, didReceive: buffer, at: AVAudioTime(hostTime: 0))
-        
-        #expect(service.microphoneSession?.totalBuffersAppended == 1)
-        #expect(service.systemAudioSession?.totalBuffersAppended == 0)
-        
-        service.stop()
+        let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
+        let micSession = try #require(service.microphoneSession)
+        let systemSession = try #require(service.systemAudioSession)
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
+        buffer.frameLength = 1_024
+
+        micSession.appendBuffer(buffer)
+
+        #expect(micSession.totalBuffersAppended == 1)
+        #expect(systemSession.totalBuffersAppended == 0)
     }
-    
+
     @Test
     func systemBufferAppendIncrementsOnlySystemCount() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneAndSystem)
-        
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
-        buffer.frameLength = 1024
-        
-        service.systemAudioCaptureService(ScreenCaptureKitSystemAudioCaptureService.shared, didReceive: buffer, at: AVAudioTime(hostTime: 0))
-        
-        #expect(service.systemAudioSession?.totalBuffersAppended == 1)
-        #expect(service.microphoneSession?.totalBuffersAppended == 0)
-        
-        service.stop()
+        let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
+        let micSession = try #require(service.microphoneSession)
+        let systemSession = try #require(service.systemAudioSession)
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
+        buffer.frameLength = 1_024
+
+        systemSession.appendBuffer(buffer)
+
+        #expect(systemSession.totalBuffersAppended == 1)
+        #expect(micSession.totalBuffersAppended == 0)
     }
-    
+
     @Test
     func micFirstThenSystemStillProducesBothTranscripts() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneAndSystem)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
         let systemSession = try #require(service.systemAudioSession)
-        
-        var segmentsCollected: [TranscriptSegment] = []
-        let segmentStream = service.segments
-        let collectorTask = Task {
-            for await segment in segmentStream {
-                segmentsCollected.append(segment)
-                if segmentsCollected.count >= 2 {
-                    break
-                }
-            }
+        var segments: [TranscriptSegment] = []
+        let collector = Task { @MainActor in
+            for await segment in service.segments { segments.append(segment) }
         }
-        
-        // Speak mic first
-        await micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
-        // Speak system second
-        await systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
-        
-        _ = await collectorTask.result
-        
-        #expect(segmentsCollected.count == 2)
-        #expect(segmentsCollected[0].source == .microphone)
-        #expect(segmentsCollected[0].speaker == .candidate)
-        #expect(segmentsCollected[0].text == "Hello from Microphone")
-        
-        #expect(segmentsCollected[1].source == .systemAudio)
-        #expect(segmentsCollected[1].speaker == .interviewer)
-        #expect(segmentsCollected[1].text == "Hello from System Audio")
-        
-        service.stop()
+        defer { collector.cancel() }
+
+        micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
+        systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
+        try await waitUntil("microphone and system transcript segments") { segments.count == 2 }
+
+        #expect(segments[0].source == .microphone)
+        #expect(segments[0].speaker == .candidate)
+        #expect(segments[0].text == "Hello from Microphone")
+        #expect(segments[1].source == .systemAudio)
+        #expect(segments[1].speaker == .interviewer)
+        #expect(segments[1].text == "Hello from System Audio")
     }
-    
+
     @Test
     func systemFirstThenMicStillProducesBothTranscripts() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneAndSystem)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
         let systemSession = try #require(service.systemAudioSession)
-        
-        var segmentsCollected: [TranscriptSegment] = []
-        let segmentStream = service.segments
-        let collectorTask = Task {
-            for await segment in segmentStream {
-                segmentsCollected.append(segment)
-                if segmentsCollected.count >= 2 {
-                    break
-                }
-            }
+        var segments: [TranscriptSegment] = []
+        let collector = Task { @MainActor in
+            for await segment in service.segments { segments.append(segment) }
         }
-        
-        // Speak system first
-        await systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
-        // Speak mic second
-        await micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
-        
-        _ = await collectorTask.result
-        
-        #expect(segmentsCollected.count == 2)
-        #expect(segmentsCollected[0].source == .systemAudio)
-        #expect(segmentsCollected[0].speaker == .interviewer)
-        #expect(segmentsCollected[0].text == "Hello from System Audio")
-        
-        #expect(segmentsCollected[1].source == .microphone)
-        #expect(segmentsCollected[1].speaker == .candidate)
-        #expect(segmentsCollected[1].text == "Hello from Microphone")
-        
-        service.stop()
+        defer { collector.cancel() }
+
+        systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
+        micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
+        try await waitUntil("system and microphone transcript segments") { segments.count == 2 }
+
+        #expect(segments[0].source == .systemAudio)
+        #expect(segments[0].speaker == .interviewer)
+        #expect(segments[0].text == "Hello from System Audio")
+        #expect(segments[1].source == .microphone)
+        #expect(segments[1].speaker == .candidate)
+        #expect(segments[1].text == "Hello from Microphone")
     }
-    
+
     @Test
-    @MainActor
     func gatingRulesVerifyMicDoesNotAutoTriggerButSystemDoes() async throws {
-        let database = try makeTemporaryDatabase()
-        let appState = AppState(database: database)
-        
-        // Enable auto question detection in settings
+        let appState = try makeAppState()
+        defer { cancelAsyncWork(appState) }
         var settings = appState.settings
         settings.automaticQuestionDetectionEnabled = true
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         settings.manualOnlyMode = false
         appState.settings = settings
-        
-        // 1. Microphone Candidate Segment
+        appState.detectionDebounceSeconds = 60
+
         let micSegment = TranscriptSegment(
-            id: UUID().uuidString,
-            sessionID: "test_session_id",
+            id: "mic-gating",
+            sessionID: "dual-audio-gating",
             source: .microphone,
             speaker: .candidate,
             text: "Hello this is a microphone test response from candidate."
         )
-        
         appState.last10SegmentsDiagnostics.removeAll()
         await appState.handleTranscriptSegment(micSegment)
-        
-        let micDiag = try #require(appState.last10SegmentsDiagnostics.first)
-        #expect(!micDiag.eligibleForAutoDetection)
-        #expect(micDiag.skipReason.contains("allowQuestionDetectionFromMicrophoneOnly = false") || micDiag.skipReason.contains("speaker is candidate"))
-        
-        // 2. System Audio Interviewer Segment
-        let sysSegment = TranscriptSegment(
-            id: UUID().uuidString,
-            sessionID: "test_session_id",
+        let micDiagnostic = try #require(appState.last10SegmentsDiagnostics.first)
+        #expect(!micDiagnostic.eligibleForAutoDetection)
+        #expect(micDiagnostic.source == .microphone)
+        #expect(micDiagnostic.speaker == .candidate)
+        #expect(!micDiagnostic.skipReason.isEmpty)
+
+        let systemSegment = TranscriptSegment(
+            id: "system-gating",
+            sessionID: "dual-audio-gating",
             source: .systemAudio,
             speaker: .interviewer,
             text: "Can you describe your robotics projects?"
         )
-        
         appState.last10SegmentsDiagnostics.removeAll()
-        await appState.handleTranscriptSegment(sysSegment)
-        
-        let sysDiag = try #require(appState.last10SegmentsDiagnostics.first)
-        #expect(sysDiag.eligibleForAutoDetection)
+        await appState.handleTranscriptSegment(systemSegment)
+        let systemDiagnostic = try #require(appState.last10SegmentsDiagnostics.first)
+        #expect(systemDiagnostic.eligibleForAutoDetection)
+        #expect(systemDiagnostic.source == .systemAudio)
+        #expect(systemDiagnostic.speaker == .interviewer)
     }
-    
+
     @Test
-    @MainActor
-    func manualCaptureStillWorksAfterRefactor() async throws {
-        let database = try makeTemporaryDatabase()
-        let appState = AppState(database: database)
-        
-        // Verify default status of ASR continuous manager is nil
-        #expect(appState.isMicPipelineActive == false)
-        #expect(appState.isSystemAudioASRActive == false)
-        
-        // Set manual capture mode
+    func manualOnlyModeSuppressesSystemTranscriptQuestionDetectionWithoutStartingAudioPipelines() async throws {
+        let appState = try makeAppState()
+        defer {
+            cancelAsyncWork(appState)
+        }
         var settings = appState.settings
         settings.manualOnlyMode = true
+        settings.automaticQuestionDetectionEnabled = true
         appState.settings = settings
-        
-        // Start listening
-        appState.startListening(mode: .microphone)
-        
-        // Continuous session manager should NOT be active in manual capture
+        let session = try appState.createContextBoundSession(mode: .mock, title: "Manual Only")
+        appState.currentSession = session
+
+        await appState.handleTranscriptSegment(TranscriptSegment(
+            id: "manual-only-system-question",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "Can you describe your robotics projects?",
+            recognitionIsFinal: true
+        ))
+
         #expect(appState.isMicPipelineActive == false)
         #expect(appState.isSystemAudioASRActive == false)
-        
-        appState.stopListening()
+        let diagnostic = try #require(appState.last10SegmentsDiagnostics.first)
+        #expect(diagnostic.eligibleForAutoDetection == false)
+        #expect(diagnostic.skipReason.localizedCaseInsensitiveContains("manual only mode enabled"))
+        #expect(appState.detectedQuestionsInSessionCount == 0)
+        #expect(appState.currentSuggestion == nil)
     }
-    
+
     @Test
-    @MainActor
+    func audioDeviceNameFallbackAndRouteFormattingAreDeterministic() {
+        #expect(AudioDeviceManager.resolvedDeviceName(nil, fallback: "Unknown Input") == "Unknown Input")
+        #expect(AudioDeviceManager.resolvedDeviceName("  \n", fallback: "Unknown Output") == "Unknown Output")
+        #expect(AudioDeviceManager.resolvedDeviceName("  Studio Mic  ", fallback: "Unknown Input") == "Studio Mic")
+        #expect(AudioDeviceManager.makeRouteDescription(
+            inputName: "Studio Mic",
+            outputName: "USB Headphones"
+        ) == "Input: Studio Mic, Output: USB Headphones")
+    }
+
+    @Test
     func longPartialWithShortFinalASRQualityLogic() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneOnly)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneOnly)
+        defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
-        
-        var segmentsCollected: [TranscriptSegment] = []
-        let segmentStream = service.segments
-        let collectorTask = Task {
-            for await segment in segmentStream {
-                segmentsCollected.append(segment)
-                if segmentsCollected.count >= 2 {
-                    break
-                }
-            }
+        var segments: [TranscriptSegment] = []
+        let collector = Task { @MainActor in
+            for await segment in service.segments { segments.append(segment) }
         }
-        
-        // 1. Emit a long, complete partial
+        defer { collector.cancel() }
+
         micSession.simulateEmit(text: "This is my complete candidate answer regarding robotics experience", isFinal: false)
-        
-        // 2. Emit a short final pass (less than 50% words)
         micSession.simulateEmit(text: "Take", isFinal: true)
-        
-        // Stop service to complete AsyncStream
-        service.stop()
-        _ = await collectorTask.result
-        
+        try await waitUntil("partial and truncated final segments") { segments.count == 2 }
+
         #expect(micSession.lastPartialTranscript == "This is my complete candidate answer regarding robotics experience")
         #expect(micSession.lastFinalTranscript == "Take")
         #expect(micSession.bestTranscriptUsed == "This is my complete candidate answer regarding robotics experience")
         #expect(micSession.finalizationReason == "final much shorter than recent partial")
-        
-        // Assert that the final segment was finalized using the partial transcript
-        #expect(segmentsCollected.last?.text == "This is my complete candidate answer regarding robotics experience")
+        #expect(segments.last?.text == "This is my complete candidate answer regarding robotics experience")
     }
-    
+
     @Test
-    @MainActor
     func emptyFinalWithMeaningfulPartialQualityLogic() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneOnly)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneOnly)
+        defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
-        
-        var segmentsCollected: [TranscriptSegment] = []
-        let segmentStream = service.segments
-        let collectorTask = Task {
-            for await segment in segmentStream {
-                segmentsCollected.append(segment)
-                if segmentsCollected.count >= 2 {
-                    break
-                }
-            }
+        var segments: [TranscriptSegment] = []
+        let collector = Task { @MainActor in
+            for await segment in service.segments { segments.append(segment) }
         }
-        
-        // 1. Emit a meaningful partial
+        defer { collector.cancel() }
+
         micSession.simulateEmit(text: "Robotics and VLA policies", isFinal: false)
-        
-        // 2. Emit an empty final pass
         micSession.simulateEmit(text: "", isFinal: true)
-        
-        service.stop()
-        _ = await collectorTask.result
-        
+        try await waitUntil("partial and empty final segments") { segments.count == 2 }
+
         #expect(micSession.lastPartialTranscript == "Robotics and VLA policies")
         #expect(micSession.lastFinalTranscript == "")
         #expect(micSession.bestTranscriptUsed == "Robotics and VLA policies")
         #expect(micSession.finalizationReason == "final empty but partial meaningful")
-        
-        #expect(segmentsCollected.last?.text == "Robotics and VLA policies")
+        #expect(segments.last?.text == "Robotics and VLA policies")
     }
-    
+
     @Test
-    @MainActor
     func goodFinalUsesFinalQualityLogic() async throws {
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: "test_session_id", captureMode: .microphoneOnly)
-        
+        let service = try await makeSimulatedService(captureMode: .microphoneOnly)
+        defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
-        
-        var segmentsCollected: [TranscriptSegment] = []
-        let segmentStream = service.segments
-        let collectorTask = Task {
-            for await segment in segmentStream {
-                segmentsCollected.append(segment)
-                if segmentsCollected.count >= 2 {
-                    break
-                }
-            }
+        var segments: [TranscriptSegment] = []
+        let collector = Task { @MainActor in
+            for await segment in service.segments { segments.append(segment) }
         }
-        
-        // 1. Emit partial
+        defer { collector.cancel() }
+
         micSession.simulateEmit(text: "This is a good candidate", isFinal: false)
-        
-        // 2. Emit a good final (similar or longer)
         micSession.simulateEmit(text: "This is a good candidate answer.", isFinal: true)
-        
-        service.stop()
-        _ = await collectorTask.result
-        
+        try await waitUntil("partial and complete final segments") { segments.count == 2 }
+
         #expect(micSession.lastPartialTranscript == "This is a good candidate")
         #expect(micSession.lastFinalTranscript == "This is a good candidate answer.")
         #expect(micSession.bestTranscriptUsed == "This is a good candidate answer.")
         #expect(micSession.finalizationReason == "final is longer or similar")
-        
-        #expect(segmentsCollected.last?.text == "This is a good candidate answer.")
+        #expect(segments.last?.text == "This is a good candidate answer.")
     }
-    
-    @Test
-    func realRuntimeASRQualityAndDatabaseVerification() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping realRuntimeASRQualityAndDatabaseVerification: set REAL_APP_DB_TESTS=1 to allow real app database access.")
-            return
-        }
 
-        print("=== STARTING REAL RUNTIME ASR QUALITY VERIFICATION ===")
-        
-        // 1. Initialize real AppDatabase and repositories using AppPaths.databaseURL
-        let db = try AppDatabase(path: AppPaths.databaseURL)
-        let sessionRepo = SessionRepository(database: db)
-        let transcriptRepo = TranscriptRepository(database: db)
-        
-        // 2. Create a clean test interview session (mode: .microphone)
-        let testSession = try sessionRepo.createSession(mode: .microphone, title: "ASR Quality Real Runtime verification")
-        print("Created real test session in database: \(testSession.id)")
-        
-        // 3. Set up the unified AppleSpeechTranscriptionService
-        let service = AppleSpeechTranscriptionService()
-        try await service.start(sessionID: testSession.id, captureMode: AudioCaptureMode.microphoneAndSystem)
-        
+    @Test
+    func simulatedASRQualityPersistsToTemporaryDatabase() async throws {
+        let database = try makeTemporaryDatabase()
+        let sessionRepository = SessionRepository(database: database)
+        let transcriptRepository = TranscriptRepository(database: database)
+        let session = try sessionRepository.createSession(mode: .microphone, title: "Simulated ASR quality")
+        let service = try await makeSimulatedService(sessionID: session.id, captureMode: .microphoneAndSystem)
+        defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
         let systemSession = try #require(service.systemAudioSession)
-        
-        // Enable simulation hooks
-        micSession.simulatedTaskActive = true
-        systemSession.simulatedTaskActive = true
-        
-        var segmentsCollected: [TranscriptSegment] = []
-        let segmentStream = service.segments
-        let collectorTask = Task {
-            for await segment in segmentStream {
-                print("[VerificationStream] Yielded segment: id = \(segment.id) | source = \(segment.source.rawValue) | speaker = \(segment.speaker.rawValue) | text = \"\(segment.text)\"")
-                segmentsCollected.append(segment)
-                try? transcriptRepo.saveSegment(segment)
+        var segments: [TranscriptSegment] = []
+        var persistenceError: Error?
+        let collector = Task { @MainActor in
+            for await segment in service.segments {
+                segments.append(segment)
+                do {
+                    try transcriptRepository.saveSegment(segment)
+                } catch {
+                    persistenceError = error
+                    break
+                }
             }
         }
-        
-        // Test 1: Truncated final on Microphone (e.g. "Take")
-        print("\n--- Test A: Truncated Final (Mic speaks first) ---")
-        await micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
-        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
-        await micSession.simulateEmit(text: "Take", isFinal: true)
-        
-        print("Mic Diagnostics (Truncated Final):")
-        print(" - Quality Last Partial: \"\(micSession.lastPartialTranscript)\"")
-        print(" - Quality Last Final:   \"\(micSession.lastFinalTranscript)\"")
-        print(" - Best Transcript Used: \"\(micSession.bestTranscriptUsed)\"")
-        print(" - Finalization Reason:  \"\(micSession.finalizationReason)\"")
-        
-        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
-        #expect(micSession.finalizationReason == "final much shorter than recent partial")
-        
-        // Test 2: Empty final with meaningful partial on Microphone
-        print("\n--- Test B: Empty Final (Mic) ---")
-        await micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        await micSession.simulateEmit(text: "", isFinal: true)
-        
-        print("Mic Diagnostics (Empty Final):")
-        print(" - Quality Last Partial: \"\(micSession.lastPartialTranscript)\"")
-        print(" - Quality Last Final:   \"\(micSession.lastFinalTranscript)\"")
-        print(" - Best Transcript Used: \"\(micSession.bestTranscriptUsed)\"")
-        print(" - Finalization Reason:  \"\(micSession.finalizationReason)\"")
-        
-        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
-        #expect(micSession.finalizationReason == "final empty but partial meaningful")
+        defer { collector.cancel() }
 
-        // Test 3: Good final on Microphone
-        print("\n--- Test C: Good Final (Mic) ---")
-        await micSession.simulateEmit(text: "This is my candidate answer", isFinal: false)
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        await micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
-        
-        print("Mic Diagnostics (Good Final):")
-        print(" - Quality Last Partial: \"\(micSession.lastPartialTranscript)\"")
-        print(" - Quality Last Final:   \"\(micSession.lastFinalTranscript)\"")
-        print(" - Best Transcript Used: \"\(micSession.bestTranscriptUsed)\"")
-        print(" - Finalization Reason:  \"\(micSession.finalizationReason)\"")
-        
-        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
-        #expect(micSession.finalizationReason == "final is longer or similar")
-        
-        // Test 4: Concurrent System Audio stream segment (proves no shared state)
-        print("\n--- Test D: Concurrent System Audio Stream (System speaks first) ---")
-        await systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        await systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
-        
-        print("System Diagnostics:")
-        print(" - Quality Last Partial: \"\(systemSession.lastPartialTranscript)\"")
-        print(" - Quality Last Final:   \"\(systemSession.lastFinalTranscript)\"")
-        print(" - Best Transcript Used: \"\(systemSession.bestTranscriptUsed)\"")
-        print(" - Finalization Reason:  \"\(systemSession.finalizationReason)\"")
-        
-        #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")
-        
-        // Stop service to finish
-        service.stop()
-        collectorTask.cancel()
-        
-        // Verify database segments
-        let savedSegments = try transcriptRepo.segments(sessionID: testSession.id)
-        print("\n--- DB Verification: Stored transcript segments for session \(testSession.id) ---")
-        for segment in savedSegments {
-            print("DB Row -> id: \(segment.id) | speaker: \(segment.speaker.rawValue) | source: \(segment.source.rawValue) | text: \"\(segment.text)\"")
+        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+        micSession.simulateEmit(text: "Take", isFinal: true)
+        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+        micSession.simulateEmit(text: "", isFinal: true)
+        micSession.simulateEmit(text: "This is my candidate answer", isFinal: false)
+        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
+        systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
+        systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
+        try await waitUntil("eight persisted simulated ASR events") {
+            segments.count == 8 || persistenceError != nil
         }
-        
-        // Assertions for DB properties:
-        // 1. Assert no duplicate rows for the same segment ID (utteranceID)
-        let segmentIDs = savedSegments.map { $0.id }
-        #expect(segmentIDs.count == Set(segmentIDs).count, "Database contains duplicate transcript segment rows for the same utterance ID!")
-        
-        // 2. Assert microphone/candidate transcript is complete (uses best transcript)
-        let micFinals = savedSegments.filter { $0.source == AudioSourceType.microphone }
-        #expect(micFinals.contains { $0.text == "This is my candidate answer about my robotics project" })
-        
-        // 3. Assert systemAudio/interviewer transcript is complete
-        let systemFinals = savedSegments.filter { $0.source == AudioSourceType.systemAudio }
-        #expect(systemFinals.contains { $0.text == "Can you tell me about your robotics project?" })
-        
-        print("\n=== REAL RUNTIME VERIFICATION SUCCEEDED ===")
+        if let persistenceError { throw persistenceError }
+
+        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
+        #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")
+        let savedSegments = try transcriptRepository.segments(sessionID: session.id)
+        let segmentIDs = savedSegments.map(\.id)
+        #expect(segmentIDs.count == Set(segmentIDs).count)
+        #expect(savedSegments.filter { $0.source == .microphone }.contains {
+            $0.text == "This is my candidate answer about my robotics project"
+        })
+        #expect(savedSegments.filter { $0.source == .systemAudio }.contains {
+            $0.text == "Can you tell me about your robotics project?"
+        })
+    }
+}
+
+private final class DualAudioLLMClient: LLMClientProtocol {
+    let providerKind: LLMProviderKind = .deepSeek
+
+    func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
+        LLMConnectionTestResult(success: true, message: "fixture", latencyMS: 0, models: [])
     }
 
-    // Helper to create a temp in-memory SQLite DB for tests
-    private func makeTemporaryDatabase() throws -> AppDatabase {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("HirevaTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+    func chatCompletion(
+        configuration: LLMProviderConfiguration,
+        messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?,
+        options: LLMRequestOptions
+    ) async throws -> LLMChatResult {
+        let content = """
+        {
+          "strategy": "Direct Answer",
+          "say_first": "I built deterministic Swift audio pipeline tests for robotics interview software.",
+          "key_points": ["Tested microphone and system attribution", "Used finite deterministic synchronization"],
+          "follow_up_ready": [],
+          "confidence": 0.95,
+          "caution": "Keep the answer grounded in the fixture profile."
+        }
+        """
+        return LLMChatResult(
+            content: content,
+            modelName: "dual-audio-fixture",
+            providerKind: .deepSeek,
+            providerName: "Dual Audio Fixture",
+            baseURL: "fixture://dual-audio",
+            latencyMS: 0,
+            isLocal: false,
+            rawResponse: content
+        )
     }
+
+    func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] { [] }
 }

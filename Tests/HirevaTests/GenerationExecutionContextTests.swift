@@ -74,13 +74,14 @@ struct GenerationExecutionContextTests {
     @Test
     func diffusionProviderRequestContainsModelComparisonGuidance() {
         let context = makeExecutionContext(
-            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+            questionText: "Why did the diffusion model perform better than the autoregressive model?"
         )
 
         let request = GenerationProviderRequest(context: context, streamingEnabled: true)
 
-        #expect(request.prompt.localizedCaseInsensitiveContains("diffusion vs autoregressive vs flow-matching"))
-        #expect(request.prompt.localizedCaseInsensitiveContains("smoother continuous actions"))
+        #expect(context.identity.questionIntent == .modelComparison)
+        #expect(request.prompt.localizedCaseInsensitiveContains("alternatives -> evaluation criteria -> evidence -> trade-off"))
+        #expect(request.prompt.localizedCaseInsensitiveContains(context.question.questionText))
         #expect(request.prompt.localizedCaseInsensitiveContains("CURRENT QUESTION TO ANSWER"))
         #expect(request.promptPrimaryQuestion == context.question.questionText)
     }
@@ -93,9 +94,12 @@ struct GenerationExecutionContextTests {
         )
 
         let request = GenerationProviderRequest(context: context, streamingEnabled: false)
+        let opportunityEvidence = context.retrievedContext.jobDescriptionChunks.first?.content ?? ""
 
-        #expect(request.prompt.localizedCaseInsensitiveContains("role/team alignment"))
-        #expect(request.prompt.localizedCaseInsensitiveContains("real-world deployment interest"))
+        #expect(context.identity.questionIntent == .whyRole)
+        #expect(request.prompt.localizedCaseInsensitiveContains("target need -> supported candidate evidence -> motivation"))
+        #expect(opportunityEvidence.isEmpty == false)
+        #expect(request.prompt.contains(opportunityEvidence))
         #expect(request.prompt.localizedCaseInsensitiveContains("Why do you want to join our team?"))
         #expect(request.streamingEnabled == false)
     }

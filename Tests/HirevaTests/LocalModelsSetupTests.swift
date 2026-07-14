@@ -24,21 +24,10 @@ struct LocalModelsSetupTests {
 
     @Test @MainActor
     func runtimeDefaultsUseLocalQwenAndAppleSpeechSelection() throws {
-        let previousASR = UserDefaults.standard.object(forKey: "Hireva.selectedASRProvider")
-        let previousActiveASR = UserDefaults.standard.object(forKey: "Hireva.activeASRProvider")
-        let previousMode = UserDefaults.standard.object(forKey: "Hireva.answerProviderMode")
-        let previousQwen = UserDefaults.standard.object(forKey: "Hireva.selectedQwenModel")
-        defer {
-            restoreUserDefault(previousASR, forKey: "Hireva.selectedASRProvider")
-            restoreUserDefault(previousActiveASR, forKey: "Hireva.activeASRProvider")
-            restoreUserDefault(previousMode, forKey: "Hireva.answerProviderMode")
-            restoreUserDefault(previousQwen, forKey: "Hireva.selectedQwenModel")
-        }
-        UserDefaults.standard.removeObject(forKey: "Hireva.selectedASRProvider")
-        UserDefaults.standard.set(ASRProviderID.appleSpeech.rawValue, forKey: "Hireva.activeASRProvider")
-        UserDefaults.standard.removeObject(forKey: "Hireva.answerProviderMode")
-        UserDefaults.standard.removeObject(forKey: "Hireva.selectedQwenModel")
-        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let (defaults, suiteName) = makeIsolatedUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(ASRProviderID.appleSpeech.rawValue, forKey: "Hireva.activeASRProvider")
+        let appState = try AppState(database: AppDatabase(inMemory: true), dialogueDefaults: defaults)
 
         #expect(appState.selectedASRProviderID == .appleSpeech)
         #expect(appState.selectedASRProviderID.source == .appleASR)
@@ -63,13 +52,10 @@ struct LocalModelsSetupTests {
 
     @Test @MainActor
     func legacyDeepSeekPreferenceMigratesOnlyWhenQwenReady() throws {
-        let previousMode = UserDefaults.standard.object(forKey: "Hireva.answerProviderMode")
-        defer {
-            restoreUserDefault(previousMode, forKey: "Hireva.answerProviderMode")
-        }
-
-        UserDefaults.standard.set("deepSeek", forKey: "Hireva.answerProviderMode")
-        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let (defaults, suiteName) = makeIsolatedUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("deepSeek", forKey: "Hireva.answerProviderMode")
+        let appState = try AppState(database: AppDatabase(inMemory: true), dialogueDefaults: defaults)
 
         appState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: false)
         #expect(appState.selectedAnswerProviderMode == .deepSeekPrimary)
@@ -82,21 +68,15 @@ struct LocalModelsSetupTests {
     func legacyLocalParakeetASRSelectionMigratesToAppleSpeechDefaultOnce() throws {
         let selectedKey = "Hireva.selectedASRProvider"
         let migrationKey = "Hireva.asrDefaultMigration.appleSpeech.20260706"
-        let previousASR = UserDefaults.standard.object(forKey: selectedKey)
-        let previousMigration = UserDefaults.standard.object(forKey: migrationKey)
-        defer {
-            restoreUserDefault(previousASR, forKey: selectedKey)
-            restoreUserDefault(previousMigration, forKey: migrationKey)
-        }
-
-        UserDefaults.standard.set(ASRProviderID.localParakeet.rawValue, forKey: selectedKey)
-        UserDefaults.standard.removeObject(forKey: migrationKey)
-        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let (defaults, suiteName) = makeIsolatedUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(ASRProviderID.localParakeet.rawValue, forKey: selectedKey)
+        let appState = try AppState(database: AppDatabase(inMemory: true), dialogueDefaults: defaults)
 
         appState.migrateStoredASRProviderToAppleSpeechDefaultIfNeeded()
 
         #expect(appState.selectedASRProviderID == .appleSpeech)
-        #expect(UserDefaults.standard.bool(forKey: migrationKey) == true)
+        #expect(defaults.bool(forKey: migrationKey) == true)
     }
 
     @Test
@@ -767,7 +747,7 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
 
-        let expectedAnswer = "Real-world testing taught me to debug the robot as a timed system: correlate camera, localization, navigation, and manipulation logs, reproduce the exact handoff, then validate one recovery behavior at a time on the LeoRover."
+        let expectedAnswer = "Real-world testing taught me to debug the robot as a timed system: correlate camera, localization, navigation, and manipulation logs, reproduce the exact handoff failure, then validate one recovery behavior at a time on the LeoRover."
         let provider = MockLocalLLMProvider(tokens: [expectedAnswer])
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: q4B.questionText,
@@ -803,7 +783,10 @@ struct LocalModelsSetupTests {
             return rows.contains { $0.detectedQuestionID == q4B.id }
         }
         let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.contains { $0.detectedQuestionID == q4A.id } == false)
+        let q4ASnapshot = try #require(rows.first { $0.detectedQuestionID == q4A.id })
+        #expect(q4ASnapshot.stageBStatus == "superseded")
+        #expect(q4ASnapshot.finalVisibleSource == "local_superseded_question_snapshot")
+        #expect(q4ASnapshot.softFallbackUsed == false)
 
         let q4BCard = try #require(appState.currentSuggestion)
         #expect(q4BCard.detectedQuestionID == q4B.id)
@@ -1055,12 +1038,9 @@ struct LocalModelsSetupTests {
         return data
     }
 
-    private func restoreUserDefault(_ value: Any?, forKey key: String) {
-        if let value {
-            UserDefaults.standard.set(value, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
+    private func makeIsolatedUserDefaults() -> (UserDefaults, String) {
+        let suiteName = "com.langcheng.Hireva.tests.local-models.\(UUID().uuidString)"
+        return (UserDefaults(suiteName: suiteName)!, suiteName)
     }
 
     private func makeTarBz2Archive(sourceDirectoryName: String, parentDirectory: URL, archiveURL: URL) throws {

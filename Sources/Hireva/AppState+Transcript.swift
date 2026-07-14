@@ -30,6 +30,18 @@ extension AppState {
     /// segment can become the single clean current question.
     func handleTranscriptSegment(_ segment: TranscriptSegment) async {
         let ingestionStartedAt = Date()
+        transcriptSegmentIngestedAt[segment.id] = ingestionStartedAt
+        transcriptSegmentHadVisibleAnswerAtIngestion[segment.id] = visibleAnswerExists && currentSuggestion != nil
+        if transcriptSegmentIngestedAt.count > 512 {
+            let oldestIDs = transcriptSegmentIngestedAt
+                .sorted { $0.value < $1.value }
+                .prefix(256)
+                .map(\.key)
+            oldestIDs.forEach {
+                transcriptSegmentIngestedAt.removeValue(forKey: $0)
+                transcriptSegmentHadVisibleAnswerAtIngestion.removeValue(forKey: $0)
+            }
+        }
         let previousSegment = transcriptSegments.first(where: { $0.id == segment.id })
         defer {
             lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)

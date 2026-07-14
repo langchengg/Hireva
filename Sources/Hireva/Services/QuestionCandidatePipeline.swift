@@ -82,13 +82,26 @@ enum QuestionCandidatePipeline {
                 }
                 continue
             }
-            if let existingIndex = questions.firstIndex(where: { $0.duplicateKey == extracted.duplicateKey }),
+            if let existingIndex = questions.firstIndex(where: {
+                $0.duplicateKey == extracted.duplicateKey ||
+                    SemanticDuplicateKeyBuilder.areDuplicates($0.text, extracted.text)
+            }),
                !sourceSliceWasTerminated[existingIndex] {
                 // Consecutive unpunctuated variants in one ASR callback are a
                 // recognizer correction/expansion, not a second utterance.
                 // Keep the more complete physical span. A terminated first
                 // occurrence remains distinct so an explicit later repeat is
                 // preserved.
+                if extracted.text.count >= questions[existingIndex].text.count {
+                    questions[existingIndex] = extracted
+                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
+                }
+                continue
+            }
+            if let existingIndex = questions.indices.first(where: {
+                !sourceSliceWasTerminated[$0] &&
+                    isShortUnpunctuatedExpansion(questions[$0].text, extracted.text)
+            }) {
                 if extracted.text.count >= questions[existingIndex].text.count {
                     questions[existingIndex] = extracted
                     sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
@@ -111,7 +124,63 @@ enum QuestionCandidatePipeline {
             if questions.count >= maxExtractedQuestions { break }
         }
 
-        return questions
+        return removingBoundaryContaminatedCandidates(from: questions)
+    }
+
+    private static func isShortUnpunctuatedExpansion(_ existing: String, _ candidate: String) -> Bool {
+        let existingText = QuestionTextUtilities.collapse(existing)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "?.! "))
+        let candidateText = QuestionTextUtilities.collapse(candidate)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "?.! "))
+        let shorter: String
+        let longer: String
+        if existingText.count <= candidateText.count {
+            shorter = existingText
+            longer = candidateText
+        } else {
+            shorter = candidateText
+            longer = existingText
+        }
+        guard longer.hasPrefix(shorter) else { return false }
+        let suffix = String(longer.dropFirst(shorter.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffixWords = suffix.split(whereSeparator: \.isWhitespace)
+        guard !suffixWords.isEmpty, suffixWords.count <= 4 else { return false }
+        let independentQuestionStarts = ["what ", "how ", "why ", "when ", "where ", "which ", "who ", "could ", "would ", "can ", "do ", "did ", "is ", "are "]
+        return !independentQuestionStarts.contains { suffix.hasPrefix($0) }
+    }
+
+    /// Removes a splitter artifact only when both clean halves are already
+    /// present as independent candidates. This preserves genuine compound
+    /// questions while rejecting a cumulative-ASR span that accidentally
+    /// concatenates two questions already extracted from adjacent spans.
+    private static func removingBoundaryContaminatedCandidates(
+        from questions: [AcceptedQuestionCandidate]
+    ) -> [AcceptedQuestionCandidate] {
+        guard questions.count >= 3 else { return questions }
+        let normalized = questions.map { SemanticDuplicateKeyBuilder.key(for: $0.text) }
+        return questions.indices.compactMap { index in
+            let candidate = normalized[index]
+            let isContaminated = questions.indices.contains { prefixIndex in
+                guard prefixIndex != index else { return false }
+                let prefix = normalized[prefixIndex]
+                guard candidate.count > prefix.count,
+                      candidate.hasPrefix(prefix) else { return false }
+                let suffix = String(candidate.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard suffix.split(whereSeparator: \.isWhitespace).count >= 3 else { return false }
+                return questions.indices.contains { suffixIndex in
+                    guard suffixIndex != index, suffixIndex != prefixIndex else { return false }
+                    let cleanSuffix = normalized[suffixIndex]
+                    return suffix == cleanSuffix ||
+                        suffix.hasPrefix(cleanSuffix) ||
+                        cleanSuffix.hasPrefix(suffix)
+                }
+            }
+            return isContaminated ? nil : questions[index]
+        }
     }
 
     private static func normalizeCoordinatedQuestionPunctuation(_ text: String) -> String {
@@ -413,6 +482,13 @@ enum MultiQuestionSplitter {
     private static func isEmbeddedAuxiliaryTail(previousClause: String, currentClause: String) -> Bool {
         let previous = previousClause.trimmingCharacters(in: .whitespacesAndNewlines)
         let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let conversationalTurnBoundaries = [
+            " great thanks", " great, thanks", " thanks", " thank you",
+            " okay", " all right", " moving on"
+        ]
+        if conversationalTurnBoundaries.contains(where: previous.hasSuffix) {
+            return false
+        }
         if current.hasPrefix("were you involved with"), current.split(whereSeparator: \.isWhitespace).count <= 5 {
             return true
         }

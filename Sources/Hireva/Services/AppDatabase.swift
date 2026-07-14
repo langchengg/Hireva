@@ -4,6 +4,8 @@ import GRDB
 final class AppDatabase {
     let dbQueue: DatabaseQueue
     let databaseURL: URL?
+    private let closeLock = NSLock()
+    private(set) var isClosed = false
 
     init(path: URL = AppPaths.databaseURL) throws {
         if path.standardizedFileURL == AppPaths.databaseURL.standardizedFileURL {
@@ -24,6 +26,19 @@ final class AppDatabase {
         dbQueue = try DatabaseQueue(configuration: Self.makeConfiguration())
         databaseURL = nil
         try migrator.migrate(dbQueue)
+    }
+
+    /// Closes the GRDB queue at an explicit lifecycle boundary.
+    ///
+    /// Production normally keeps one queue for the process lifetime. Tests use
+    /// this hook before removing their temporary database directory so a late
+    /// teardown cannot race an open SQLite handle.
+    func close() throws {
+        closeLock.lock()
+        defer { closeLock.unlock() }
+        guard !isClosed else { return }
+        try dbQueue.close()
+        isClosed = true
     }
 
     private static func makeConfiguration() -> Configuration {

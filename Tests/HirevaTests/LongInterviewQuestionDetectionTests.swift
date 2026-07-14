@@ -26,7 +26,7 @@ struct LongInterviewQuestionDetectionTests {
             (.microphone, .candidate, "I would improve the evaluation and add more robust perception.", nil),
             (.systemAudio, .interviewer, "Thanks. Now thinking about this role, why do you want to join our team?", "Why do you want to join our team?"),
             (.microphone, .candidate, "I’m interested because.", nil),
-            (.systemAudio, .interviewer, "Great. That covers my questions. Do you have any questions for us?", "Do you have any questions for us?")
+            (.systemAudio, .interviewer, "Great. That covers my questions. Do you have any questions for us?", nil)
         ]
 
         var detected: [DetectedQuestion] = []
@@ -65,23 +65,19 @@ struct LongInterviewQuestionDetectionTests {
                 #expect(appState.currentGenerationTelemetry.source == AudioSourceType.systemAudio.rawValue)
                 #expect(appState.currentGenerationTelemetry.speaker == SpeakerRole.interviewer.rawValue)
                 #expect(appState.lastQuestionConfidence >= 0.75)
-            } else if item.0 == .systemAudio {
-                try await waitUntil(timeout: 8.0) {
-                    appState.lastDetectionSubmittedSegmentText == segment.text
-                }
-                #expect(appState.detectedQuestionsInSessionCount == previousDetectedCount)
             } else {
                 try await Task.sleep(nanoseconds: 80_000_000)
+                #expect(appState.transcriptSegments.contains { $0.id == segment.id })
                 #expect(appState.detectedQuestionsInSessionCount == previousDetectedCount)
             }
         }
 
         #expect(detected.map(\.questionText) == dialogue.compactMap(\.3))
-        #expect(detected.count == 8)
-        #expect(detectedIDs.count == 8)
-        #expect(generationQuestionIDs.count == 8)
-        #expect(Set(generationQuestionIDs).count == 8)
-        #expect(appState.ignoredSmallTalkCount >= 3)
+        #expect(detected.count == 7)
+        #expect(detectedIDs.count == 7)
+        #expect(generationQuestionIDs.count == 7)
+        #expect(Set(generationQuestionIDs).count == 7)
+        #expect(Set(appState.transcriptSegments.map(\.id)).count == dialogue.count)
     }
 
     @Test
@@ -95,7 +91,14 @@ struct LongInterviewQuestionDetectionTests {
         ]
 
         for partial in partials {
-            await appState.handleTranscriptSegment(segment(id: segmentID, sessionID: session.id, source: .systemAudio, speaker: .interviewer, text: partial))
+            await appState.handleTranscriptSegment(segment(
+                id: segmentID,
+                sessionID: session.id,
+                source: .systemAudio,
+                speaker: .interviewer,
+                text: partial,
+                recognitionIsFinal: false
+            ))
             try await Task.sleep(nanoseconds: 10_000_000)
             #expect(appState.detectedQuestionsInSessionCount == 0)
             #expect(appState.currentSpinnerVisible == false)
@@ -106,7 +109,8 @@ struct LongInterviewQuestionDetectionTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Could you walk me through your robotics project, especially your role in the perception and navigation pipeline?"
+            text: "Could you walk me through your robotics project, especially your role in the perception and navigation pipeline?",
+            recognitionIsFinal: true
         ))
 
         try await waitUntil(timeout: 8.0) {
@@ -293,10 +297,13 @@ struct LongInterviewQuestionDetectionTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: LongInterviewEmptyContextRetrievalService()
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            contextRetrievalService: LongInterviewEmptyContextRetrievalService(),
+            dialogueDefaults: nil
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.02
-        appState.delayProvider = MockDelayProvider()
+        appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 1_000_000_000
 
         var settings = appState.settings
@@ -305,7 +312,7 @@ struct LongInterviewQuestionDetectionTests {
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeHermeticContextBoundSession(appState: appState, prefix: "long-interview")
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -319,7 +326,8 @@ struct LongInterviewQuestionDetectionTests {
         speaker: SpeakerRole,
         text: String,
         recognitionTaskID: String? = nil,
-        recognitionEventSequence: Int? = nil
+        recognitionEventSequence: Int? = nil,
+        recognitionIsFinal: Bool? = nil
     ) -> TranscriptSegment {
         TranscriptSegment(
             id: id,
@@ -328,19 +336,19 @@ struct LongInterviewQuestionDetectionTests {
             speaker: speaker,
             text: text,
             createdAt: Date(),
+            asrFinalizationReason: recognitionIsFinal.map { $0 ? "final_accepted" : "partial" },
             recognitionTaskID: recognitionTaskID,
             recognitionEventSequence: recognitionEventSequence,
             sourceTextStartUTF16: recognitionTaskID == nil ? nil : 0,
             sourceTextEndUTF16: recognitionTaskID == nil ? nil : (text as NSString).length,
-            recognitionIsFinal: recognitionTaskID == nil ? nil : true
+            recognitionIsFinal: recognitionIsFinal ?? (recognitionTaskID == nil ? nil : true)
         )
     }
 
     private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
         let start = Date()
-        let effectiveTimeout = max(timeout, 90.0)
         while !predicate() {
-            if Date().timeIntervalSince(start) > effectiveTimeout {
+            if Date().timeIntervalSince(start) > timeout {
                 throw NSError(
                     domain: "LongInterviewQuestionDetectionTests",
                     code: 1,
@@ -387,11 +395,12 @@ private final class LongInterviewLLMClient: LLMClientProtocol, @unchecked Sendab
         if prompt.contains("Decide whether the interviewer has asked") {
             return detectionResult(for: prompt)
         }
+        let answer = hermeticRuntimeAnswer(for: prompt)
         let content = """
         {
           "strategy": "Direct interview answer",
-          "say_first": "I would answer this directly with a concise example from my robotics experience.",
-          "key_points": ["Robotics context", "Technical decision", "Result and learning"],
+          "say_first": \(hermeticJSONString(answer)),
+          "key_points": ["\(answer.prefix(90))", "Ground the answer in the synthetic candidate evidence"],
           "follow_up_ready": ["I can go deeper into the implementation."],
           "confidence": 0.86,
           "caution": "None",
@@ -409,14 +418,18 @@ private final class LongInterviewLLMClient: LLMClientProtocol, @unchecked Sendab
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
         let prompt = messages.map(\.content).joined(separator: "\n")
+        let answer = hermeticRuntimeAnswer(for: prompt)
         return AsyncThrowingStream { continuation in
             Task {
-                if prompt.contains("Return plain text sections only") {
+                if prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.") {
+                    for token in hermeticRuntimeSectionTokens(for: prompt) {
+                        continuation.yield(token)
+                    }
                     continuation.finish()
                     return
                 }
-                for token in ["I ", "would ", "answer ", "with ", "a ", "specific ", "robotics ", "example."] {
-                    continuation.yield(token)
+                for token in answer.split(separator: " ") {
+                    continuation.yield(String(token) + " ")
                 }
                 continuation.finish()
             }

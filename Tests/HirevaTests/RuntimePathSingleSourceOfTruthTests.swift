@@ -101,6 +101,11 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             appState.currentSuggestion?.questionText == "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?" &&
             appState.currentSuggestion?.alignmentVerdict == .aligned &&
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true &&
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("autoregressive") == true &&
+            appState.currentSuggestion.map {
+                QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted
+            } == true &&
             client.streamCallCount > 0
         }
 
@@ -203,6 +208,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             providerDetectionQuestion: "would you debug it",
             traceURL: traceURL
         )
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "conditional-yolo-debug",
@@ -1255,7 +1261,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         let originalTimestamp = service.lastBufferReceivedAt
         defer { service.lastBufferReceivedAt = originalTimestamp }
 
-        let (appState, _, _) = try makeAppState()
+        let (appState, _, _) = try makeAppState(systemAudioCaptureService: service)
         var publishedChangeCount = 0
         let subscription = appState.objectWillChange.sink {
             publishedChangeCount += 1
@@ -1553,10 +1559,14 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+            let latestAnswer = rows.last?.sayFirst.lowercased() ?? ""
+            let hasExpectedImprovementDetail = ["evaluation", "perception", "real-robot", "calibration", "recovery"]
+                .contains { latestAnswer.contains($0) }
             return detected.count == 2 &&
                 !rows.isEmpty &&
                 rows.last?.questionIntent == .improvementPlan &&
-                appState.currentSuggestion?.questionIntent == .improvementPlan
+                appState.currentSuggestion?.questionIntent == .improvementPlan &&
+                hasExpectedImprovementDetail
         }
 
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
@@ -1631,7 +1641,9 @@ struct RuntimePathSingleSourceOfTruthTests {
 
         try await waitUntil(timeout: 60.0) {
             appState.currentSuggestion?.questionIntent == .improvementPlan &&
-            appState.currentSuggestion?.alignmentVerdict == .aligned
+            appState.currentSuggestion?.alignmentVerdict == .aligned &&
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true &&
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true
         }
 
         #expect(appState.currentSuggestion?.questionText == secondQuestion)
@@ -2009,7 +2021,8 @@ struct RuntimePathSingleSourceOfTruthTests {
 
     private func makeAppState(
         providerDetectionQuestion: String? = nil,
-        traceURL: URL? = nil
+        traceURL: URL? = nil,
+        systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil
     ) throws -> (AppState, InterviewSession, RuntimePathLLMClient) {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "RuntimePathSingleSourceOfTruth")
         let settingsRepository = try configuredSettingsRepository(database)
@@ -2018,7 +2031,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: RuntimePathEmptyContextRetrievalService()
+            contextRetrievalService: RuntimePathEmptyContextRetrievalService(),
+            systemAudioCaptureService: systemAudioCaptureService
         )
         appState.answerProviderModeOverride = .deepSeekPrimary
         appState.interviewContextMode = .general

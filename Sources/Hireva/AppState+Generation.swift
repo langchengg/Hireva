@@ -855,10 +855,14 @@ func visibleQuestionText(for card: SuggestionCard?) -> String? {
     }
 
     previousGenerationID = controller.generationID
-    persistSupersededAcceptedQuestionSnapshotIfNeeded(controller: controller)
-    if generationHasCancellableWork(controller) {
+    let hasCancellableWork = generationHasCancellableWork(controller)
+    if hasCancellableWork {
         cancelledGenerationCount += 1
         cancelledPersistenceGenerationIDs.insert(controller.generationID)
+        releaseUnpersistedSuggestionPersistenceClaims(forGenerationID: controller.generationID)
+    }
+    persistSupersededAcceptedQuestionSnapshotIfNeeded(controller: controller)
+    if hasCancellableWork {
         rejectCancelledGenerationPersistence(controller: controller, reason: "generation_replaced")
     }
     controller.cancelAll()
@@ -971,16 +975,21 @@ private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
 }
 
 private func acceptedQuestionHistoryAlreadyExists(sessionID: String, questionID: String) -> Bool {
-    if suggestionPersistenceClaims.values.contains(where: { existing in
-        existing.identity.sessionID == sessionID &&
-            existing.identity.acceptedQuestionID == questionID
-    }) {
-        return true
-    }
     guard let rows = try? suggestionRepository.suggestions(sessionID: sessionID) else {
         return false
     }
     return rows.contains { $0.detectedQuestionID == questionID }
+}
+
+private func releaseUnpersistedSuggestionPersistenceClaims(forGenerationID generationID: String) {
+    suggestionPersistenceClaims = suggestionPersistenceClaims.filter {
+        let identity = $0.value.identity
+        guard identity.generationID == generationID else { return true }
+        return acceptedQuestionHistoryAlreadyExists(
+            sessionID: identity.sessionID,
+            questionID: identity.acceptedQuestionID
+        )
+    }
 }
 
 private func cancelLegacyGenerationTaskReferences() {
@@ -1193,6 +1202,19 @@ func displaySuggestionIfAligned(
     speaker: SpeakerRole? = nil,
     allowInactiveGeneration: Bool = false
 ) -> Bool {
+    if !allowInactiveGeneration,
+       let currentSession,
+       currentSession.id != card.sessionID {
+        recordStaleGenerationResultRejected(
+            sessionID: card.sessionID,
+            oldGenerationID: generationID,
+            oldQuestionText: question.questionText,
+            reason: "provider_result_session_not_current",
+            oldAcceptedQuestionID: question.id,
+            sourceCallback: "provider_display"
+        )
+        return false
+    }
     if let generationID, !allowInactiveGeneration {
         guard isActiveGeneration(generationID, questionID: question.id) else {
             recordStaleGenerationResultRejected(
@@ -2068,7 +2090,8 @@ func recordDuplicateSuppression() {
 // internal for AppState extension access only
 func recordVisibleSuggestionInHistory(_ card: SuggestionCard) {
     guard !card.isPartial,
-          !card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+          !card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          currentSession?.id == card.sessionID else {
         return
     }
 
@@ -2119,7 +2142,9 @@ func recordVisibleSuggestionInHistory(_ card: SuggestionCard) {
 func refreshLiveSuggestionHistory(sessionID: String, latestQuestion: String) {
     do {
         let rows = try suggestionRepository.suggestions(sessionID: sessionID)
-        liveSuggestionHistory = rows
+        if currentSession?.id == sessionID {
+            liveSuggestionHistory = rows
+        }
         if selectedSessionID == sessionID {
             selectedSessionSuggestions = rows
         }
@@ -2711,11 +2736,13 @@ func finishGenerationWithVisibleCard(
         return false
     }
 
-    var finalCard = completeSubstantiveProviderFirstAnswerAfterTimeout(
-        card,
-        question: question,
-        requestStart: requestStart
-    ) ?? card
+    var finalCard = timedOut
+        ? (completeSubstantiveProviderFirstAnswerAfterTimeout(
+            card,
+            question: question,
+            requestStart: requestStart
+        ) ?? card)
+        : card
     if timedOut,
        let incompleteReason = QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(finalCard.sayFirst) {
         recordTranscriptRuntimeEvent(.partialAnswerRejectedIncomplete(
@@ -3615,13 +3642,23 @@ func claimSuggestionPersistence(_ card: SuggestionCard, generationID: String?) -
         identity.normalizedQuestionText
     ].joined(separator: "|")
 
-    let sameOwnerClaim = suggestionPersistenceClaims.values.contains { existing in
-        existing.cardID == card.id &&
-            existing.identity.acceptedQuestionID == identity.acceptedQuestionID &&
-            existing.identity.generationID == identity.generationID
-    }
-    if sameOwnerClaim {
-        return true
+    if let sameQuestionClaim = suggestionPersistenceClaims.values.first(where: { existing in
+        existing.identity.acceptedQuestionID == identity.acceptedQuestionID
+    }) {
+        if lastRegenerateQuestionID == identity.acceptedQuestionID,
+           lastRegenerateNewGenerationID == identity.generationID {
+            suggestionPersistenceClaims[logicalKey] = SuggestionPersistenceClaim(
+                cardID: card.id,
+                identity: identity
+            )
+            return true
+        }
+        // A semantic fallback and a late provider response can use different card
+        // or helper-generation IDs while still belonging to one accepted question.
+        // Keep the first persistence owner without misreporting an internal rewrite
+        // as a replay of a previously accepted question.
+        return sameQuestionClaim.identity.generationID == identity.generationID &&
+            sameQuestionClaim.cardID == card.id
     }
 
     if suggestionPersistenceClaims[logicalKey] != nil {

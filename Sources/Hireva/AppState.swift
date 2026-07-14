@@ -303,8 +303,8 @@ final class AppState: ObservableObject {
     @Published public var lastCaptureStartedAt: Date? = nil
     @Published public var lastCaptureStoppedAt: Date? = nil
     
-    public var lastSystemAudioBufferAt: Date? { ScreenCaptureKitSystemAudioCaptureService.shared.lastBufferReceivedAt }
-    public var lastSystemAudioError: String? { ScreenCaptureKitSystemAudioCaptureService.shared.lastError }
+    public var lastSystemAudioBufferAt: Date? { systemAudioCaptureService.lastBufferReceivedAt }
+    public var lastSystemAudioError: String? { systemAudioCaptureService.lastError }
     
     public struct CaptureEvent: Identifiable, Codable, Hashable {
         public let id: String
@@ -339,10 +339,10 @@ final class AppState: ObservableObject {
         anyCaptureRunning || currentCaptureRuntimeState == .starting || currentCaptureRuntimeState == .listening || currentCaptureRuntimeState == .generating
     }
 
-    public var systemCaptureRunning: Bool { ScreenCaptureKitSystemAudioCaptureService.shared.isCapturing }
+    public var systemCaptureRunning: Bool { systemAudioCaptureService.isCapturing }
     var systemBufferCount: Int { appleSpeechService?.systemAudioSession?.totalBuffersAppended ?? 0 }
     var systemLastBufferTimestamp: Date? { appleSpeechService?.systemAudioSession?.lastBufferReceivedAt }
-    var systemLevelDBFS: Double { ScreenCaptureKitSystemAudioCaptureService.shared.decibels }
+    var systemLevelDBFS: Double { systemAudioCaptureService.decibels }
     var systemASRRequestActive: Bool { appleSpeechService?.systemAudioSession?.request != nil }
     var systemASRTaskActive: Bool { appleSpeechService?.systemAudioSession?.recognitionTask != nil }
     var systemLastPartialTranscript: String { appleSpeechService?.systemAudioSession?.partialTranscriptBuffer ?? "" }
@@ -654,6 +654,7 @@ final class AppState: ObservableObject {
     let settingsRepository: SettingsRepository
     let keychainService: KeychainService
     let permissionService: PermissionService
+    let systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService
     let microphoneDiagnostics: MicrophoneDiagnosticsService
     let mockTranscriptionService: MockTranscriptionService
 
@@ -678,6 +679,11 @@ final class AppState: ObservableObject {
     // Retains local ASR providers whose audio delegates are weakly held by the
     // capture services.
     var activeASRProviderRuntime: (any ASRProvider)?
+    // Serializes asynchronous capture startup and teardown so a stopped run
+    // cannot become active after a newer user action.
+    var captureStartupTask: Task<Void, Never>?
+    var captureStartupID: UUID?
+    var captureTeardownTask: Task<Void, Never>?
     // internal for AppState extension access only
     var ownsSystemAudioCaptureRuntime = false
     // internal for AppState extension access only
@@ -690,6 +696,8 @@ final class AppState: ObservableObject {
     }
     // internal for AppState extension access only
     var recentSystemAudioRecords: [RecentSystemAudioRecord] = []
+    var transcriptSegmentIngestedAt = [String: Date]()
+    var transcriptSegmentHadVisibleAnswerAtIngestion = [String: Bool]()
     // internal for AppState extension access only
     var detectionDebounceTask: Task<Void, Never>?
     // internal for AppState extension access only
@@ -733,10 +741,13 @@ final class AppState: ObservableObject {
     let autoQuestionDuplicateCooldownSeconds: TimeInterval = 60
 
     private var activeObserverToken: NSObjectProtocol?
+    private var terminationObserverToken: NSObjectProtocol?
     var liveSystemAudioDiagnosticObserverToken: NSObjectProtocol?
     private var keychainStatusRefreshInFlight = false
+    private var didShutdownForTesting = false
     private let verificationMocksEnabledOverride: Bool?
     private let defaultAppSectionOverride: AppSection?
+    private let ownedPreferenceDefaultsSuiteName: String?
     var dialogueDefaults: UserDefaults?
     // internal for AppState extension access only
     var recentQuestionsFingerprints = [String]()
@@ -776,13 +787,28 @@ final class AppState: ObservableObject {
         database: AppDatabase,
         llmRouter: LLMRouter? = nil,
         permissionService: PermissionService? = nil,
-        keychainService: KeychainService = KeychainService(),
+        keychainService: KeychainService? = nil,
         contextRetrievalService: ContextRetrievalService? = nil,
+        systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil,
         verificationMocksEnabled: Bool? = nil,
         defaultAppSection: AppSection? = nil,
         dialogueDefaults: UserDefaults? = nil
     ) {
-        let dialogueMigration = DialogueSettingsStore.loadAndMigrate(defaults: dialogueDefaults)
+        let testProcess = isRunningUnderTestOrAutomation()
+        let resolvedDialogueDefaults: UserDefaults
+        let ownedPreferenceDefaultsSuiteName: String?
+        if let dialogueDefaults {
+            resolvedDialogueDefaults = dialogueDefaults
+            ownedPreferenceDefaultsSuiteName = nil
+        } else if testProcess {
+            let suiteName = "com.langcheng.Hireva.tests.app-state.\(UUID().uuidString)"
+            resolvedDialogueDefaults = UserDefaults(suiteName: suiteName) ?? .standard
+            ownedPreferenceDefaultsSuiteName = suiteName
+        } else {
+            resolvedDialogueDefaults = .standard
+            ownedPreferenceDefaultsSuiteName = nil
+        }
+        let dialogueMigration = DialogueSettingsStore.loadAndMigrate(defaults: resolvedDialogueDefaults)
         let documents = DocumentRepository(database: database)
         let interviewContexts = InterviewContextRepository(database: database)
         let sessions = SessionRepository(database: database)
@@ -790,7 +816,9 @@ final class AppState: ObservableObject {
         let suggestions = SuggestionRepository(database: database)
         let recaps = RecapRepository(database: database)
         let settings = SettingsRepository(database: database)
-        let keychain = keychainService
+        let keychain = keychainService ?? KeychainService(
+            store: testProcess ? InMemoryMockKeychainStore() : RealKeychainStore()
+        )
         if keychain.store is RealKeychainStore {
             keychain.lastReadStatus = "Deferred"
         } else {
@@ -810,9 +838,13 @@ final class AppState: ObservableObject {
         self.settingsRepository = settings
         self.keychainService = keychain
         self.permissionService = permissionService ?? PermissionService()
+        self.systemAudioCaptureService = systemAudioCaptureService ?? (
+            testProcess ? ScreenCaptureKitSystemAudioCaptureService() : .shared
+        )
         self.verificationMocksEnabledOverride = verificationMocksEnabled
         self.defaultAppSectionOverride = defaultAppSection
-        self.dialogueDefaults = dialogueDefaults
+        self.ownedPreferenceDefaultsSuiteName = ownedPreferenceDefaultsSuiteName
+        self.dialogueDefaults = resolvedDialogueDefaults
         self.microphoneDiagnostics = MicrophoneDiagnosticsService()
         self.mockTranscriptionService = MockTranscriptionService()
         self.localDataService = LocalDataService(
@@ -854,39 +886,55 @@ final class AppState: ObservableObject {
         runLaunchASRProviderDefaultMigrationIfNeeded()
         runLaunchLocalQwenDefaultMigrationIfNeeded()
         scheduleAutomaticContextRebuild()
-        installLiveSystemAudioDiagnosticNotificationObserver()
-        runLaunchLiveSystemAudioDiagnosticIfRequested()
+        if !testProcess {
+            installLiveSystemAudioDiagnosticNotificationObserver()
+            runLaunchLiveSystemAudioDiagnosticIfRequested()
+        }
 
-        AudioDeviceRouteMonitor.shared.$currentInputDeviceName
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] name in
-                self?.currentInputDeviceName = name
+        if !testProcess {
+            let audioDeviceRouteMonitor = AudioDeviceRouteMonitor.shared
+            self.currentInputDeviceName = audioDeviceRouteMonitor.currentInputDeviceName
+            self.isRecoveringAudioRoute = audioDeviceRouteMonitor.isRecoveringAudioRoute
+            if self.isRecoveringAudioRoute {
+                self.audioRouteError = "Audio device changed. Reconnecting..."
+                self.noAudioWarningVisible = true
+                self.microphoneDiagnostics.markAsRecovering()
             }
-            .store(in: &cancellables)
 
-        AudioDeviceRouteMonitor.shared.$isRecoveringAudioRoute
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecovering in
-                guard let self else { return }
-                self.isRecoveringAudioRoute = isRecovering
-                if isRecovering {
-                    self.audioRouteError = "Audio device changed. Reconnecting..."
-                    self.noAudioWarningVisible = true
-                    self.microphoneDiagnostics.markAsRecovering()
-                } else {
-                    let state = AudioEngineManager.shared.audioRecoveryState
-                    if state == "Active" {
-                        self.audioRouteError = "Audio input restored."
-                        self.noAudioWarningVisible = false
-                    } else if state == "Failed" {
-                        self.audioRouteError = "Could not restore audio input. Try Stop Listening and Start Listening again."
+            audioDeviceRouteMonitor.$currentInputDeviceName
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] name in
+                    self?.currentInputDeviceName = name
+                }
+                .store(in: &cancellables)
+
+            audioDeviceRouteMonitor.$isRecoveringAudioRoute
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] isRecovering in
+                    guard let self else { return }
+                    self.isRecoveringAudioRoute = isRecovering
+                    if isRecovering {
+                        self.audioRouteError = "Audio device changed. Reconnecting..."
                         self.noAudioWarningVisible = true
+                        self.microphoneDiagnostics.markAsRecovering()
+                    } else {
+                        let state = AudioEngineManager.shared.audioRecoveryState
+                        if state == "Active" {
+                            self.audioRouteError = "Audio input restored."
+                            self.noAudioWarningVisible = false
+                        } else if state == "Failed" {
+                            self.audioRouteError = "Could not restore audio input. Try Stop Listening and Start Listening again."
+                            self.noAudioWarningVisible = true
+                        }
                     }
                 }
-            }
-            .store(in: &cancellables)
+                .store(in: &cancellables)
+        }
 
-        ScreenCaptureKitSystemAudioCaptureService.shared.$isCapturing
+        self.systemAudioCaptureService.$isCapturing
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] capturing in
                 guard let self = self else { return }
@@ -894,9 +942,13 @@ final class AppState: ObservableObject {
                 // Propagate capture stream end only for the AppState that actually
                 // started the shared ScreenCaptureKit system-audio runtime.
                 let ownsActiveCapture = self.ownsSystemAudioCaptureRuntime
+                let wasActivelyCapturingOrStoppedWithoutReason =
+                    self.currentCaptureRuntimeState == .listening ||
+                    self.currentCaptureRuntimeState == .generating ||
+                    self.currentCaptureRuntimeState == .stopped(reason: nil)
                 if !capturing,
                    ownsActiveCapture,
-                   (self.currentCaptureRuntimeState == .listening || self.currentCaptureRuntimeState == .generating) {
+                   wasActivelyCapturingOrStoppedWithoutReason {
                     if self.stopReason == nil {
                         self.stopListening(reason: .screenCaptureStreamEnded)
                     }
@@ -904,12 +956,14 @@ final class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
-        ScreenCaptureKitSystemAudioCaptureService.shared.$lastBufferReceivedAt
+        self.systemAudioCaptureService.$lastBufferReceivedAt
+            .dropFirst()
             .throttle(for: .seconds(1), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        ScreenCaptureKitSystemAudioCaptureService.shared.$lastError
+        self.systemAudioCaptureService.$lastError
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] err in
                 guard let self = self else { return }
@@ -920,21 +974,32 @@ final class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
-        ManualQuestionCaptureService.shared.$recordingDuration
+        let manualQuestionCaptureService = ManualQuestionCaptureService.shared
+        self.manualCaptureDuration = manualQuestionCaptureService.recordingDuration
+        self.manualCaptureLevel = min(max((manualQuestionCaptureService.decibels + 60) / 60, 0), 1)
+        self.manualCaptureBufferCount = manualQuestionCaptureService.capturedBufferCount
+        self.manualCaptureLastBufferTimestamp = manualQuestionCaptureService.lastBufferTimestamp
+
+        manualQuestionCaptureService.$recordingDuration
+            .dropFirst()
+            .filter { [weak self] _ in self?.manualCaptureState == .recording }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] duration in
                 self?.manualCaptureDuration = duration
             }
             .store(in: &cancellables)
 
-        ManualQuestionCaptureService.shared.$decibels
+        manualQuestionCaptureService.$decibels
+            .dropFirst()
+            .filter { [weak self] _ in self?.manualCaptureState == .recording }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] db in
                 self?.manualCaptureLevel = min(max((db + 60) / 60, 0), 1)
             }
             .store(in: &cancellables)
 
-        ManualQuestionCaptureService.shared.$capturedBufferCount
+        manualQuestionCaptureService.$capturedBufferCount
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] count in
                 if self?.manualCaptureState == .recording {
@@ -943,7 +1008,8 @@ final class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
-        ManualQuestionCaptureService.shared.$lastBufferTimestamp
+        manualQuestionCaptureService.$lastBufferTimestamp
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] timestamp in
                 if self?.manualCaptureState == .recording {
@@ -952,13 +1018,24 @@ final class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
-        self.activeObserverToken = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshPermissions()
+        if !testProcess {
+            self.activeObserverToken = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.refreshPermissions()
+                }
+            }
+            self.terminationObserverToken = NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.handleApplicationWillTerminate()
+                }
             }
         }
     }
@@ -968,14 +1045,118 @@ final class AppState: ObservableObject {
     }
 
     deinit {
+        activeEmbeddingRebuildTask?.cancel()
+        automaticContextBuildTask?.cancel()
+        precomputeDebounceTask?.cancel()
+        detectionDebounceTask?.cancel()
+        activeDetectionTask?.cancel()
+        activeAITask?.cancel()
+        transcriptionTask?.cancel()
+        captureStartupTask?.cancel()
+        stageBTask?.cancel()
+        softFallbackTask?.cancel()
+        fullCardWatchdogTask?.cancel()
+        activeGenerationController?.stageATask?.cancel()
+        activeGenerationController?.stageATimeoutTask?.cancel()
+        activeGenerationController?.stageBTask?.cancel()
+        activeGenerationController?.fallbackWatchdogTask?.cancel()
+        activeGenerationController?.fullCardWatchdogTask?.cancel()
+        partialUtteranceFinalizationTasks.values.forEach { $0.cancel() }
+        actionFeedbackDismissTasks.values.forEach { $0.cancel() }
+        mainThreadHeartbeatTask?.cancel()
+        audioSignalMonitoringTimer?.invalidate()
+        cancellables.forEach { $0.cancel() }
         if let token = activeObserverToken {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = terminationObserverToken {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = liveSystemAudioDiagnosticObserverToken {
             DistributedNotificationCenter.default().removeObserver(token)
         }
+        if let ownedPreferenceDefaultsSuiteName {
+            dialogueDefaults?.removePersistentDomain(forName: ownedPreferenceDefaultsSuiteName)
+        }
+    }
+
+    /// Cancels process-wide observers and every task owned directly by this
+    /// state container. Tests call this before closing their temporary GRDB
+    /// queue. It deliberately does not close `database`, because the fixture
+    /// owns that resource and controls when its directory is removed.
+    func shutdownForTesting() async {
+        guard !didShutdownForTesting else { return }
+        didShutdownForTesting = true
+        let captureStartupTask = captureStartupTask
+        let captureTeardownTask = captureTeardownTask
+        let asrProviderRuntime = activeASRProviderRuntime
+        cancelOwnedWorkForShutdown()
+        await captureStartupTask?.value
+        await captureTeardownTask?.value
+        await asrProviderRuntime?.stopTranscription()
+        await Task.yield()
+        await Task.yield()
+    }
+
+    private func cancelOwnedWorkForShutdown() {
+        activeEmbeddingRebuildTask?.cancel()
+        activeEmbeddingRebuildTask = nil
+        automaticContextBuildTask?.cancel()
+        automaticContextBuildTask = nil
+        precomputeDebounceTask?.cancel()
+        precomputeDebounceTask = nil
+        detectionDebounceTask?.cancel()
+        detectionDebounceTask = nil
+        activeDetectionTask?.cancel()
+        activeDetectionTask = nil
+        activeAITask?.cancel()
+        activeAITask = nil
+        captureStartupID = nil
+        captureStartupTask?.cancel()
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        stageBTask?.cancel()
+        stageBTask = nil
+        softFallbackTask?.cancel()
+        softFallbackTask = nil
+        fullCardWatchdogTask?.cancel()
+        fullCardWatchdogTask = nil
+        cancelActiveGenerationForStop()
+
+        partialUtteranceFinalizationTasks.values.forEach { $0.cancel() }
+        partialUtteranceFinalizationTasks.removeAll()
         actionFeedbackDismissTasks.values.forEach { $0.cancel() }
+        actionFeedbackDismissTasks.removeAll()
         mainThreadHeartbeatTask?.cancel()
+        mainThreadHeartbeatTask = nil
+        audioSignalMonitoringTimer?.invalidate()
+        audioSignalMonitoringTimer = nil
+
+        activeTranscriptionProvider?.stop()
+        activeTranscriptionProvider = nil
+        activeASRProviderRuntime = nil
+        appleSpeechService?.stop()
+        appleSpeechService = nil
+        ownsSystemAudioCaptureRuntime = false
+        AudioEngineManager.shared.unregister(microphoneDiagnostics)
+        microphoneDiagnostics.stopMicTest()
+
+        if let token = activeObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            activeObserverToken = nil
+        }
+        if let token = terminationObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            terminationObserverToken = nil
+        }
+        if let token = liveSystemAudioDiagnosticObserverToken {
+            DistributedNotificationCenter.default().removeObserver(token)
+            liveSystemAudioDiagnosticObserverToken = nil
+        }
+        cancellables.removeAll()
+        if let ownedPreferenceDefaultsSuiteName {
+            dialogueDefaults?.removePersistentDomain(forName: ownedPreferenceDefaultsSuiteName)
+        }
     }
 
     // MARK: - Action Feedback (moved to AppState+Actions.swift)
@@ -1183,12 +1364,17 @@ final class AppState: ObservableObject {
             let shouldLoadKeychain = loadKeychain ?? !(keychainService.store is RealKeychainStore)
             if shouldLoadKeychain {
                 applyKeychainStatusSnapshot(loadKeychainStatusSnapshot())
+            } else if isRunningUnderTestOrAutomation() {
+                self.keychainLastReadStatus = "Disabled for test process"
+                self.keychainMismatchStatus = "Keychain access disabled for test process"
             } else {
                 self.keychainLastReadStatus = "Deferred"
                 if self.keychainMismatchStatus == "Not Checked" || self.keychainMismatchStatus.isEmpty {
                     self.keychainMismatchStatus = "Keychain check deferred"
                 }
-                refreshKeychainStatusInBackground()
+                if selectedAnswerProviderMode != .localQwenPrimary {
+                    refreshKeychainStatusInBackground()
+                }
             }
             let cvCount = (try? documentRepository.chunks(type: .cv).count) ?? 0
             let jdCount = (try? documentRepository.chunks(type: .jobDescription).count) ?? 0

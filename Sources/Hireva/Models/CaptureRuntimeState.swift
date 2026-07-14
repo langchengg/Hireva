@@ -40,6 +40,7 @@ public enum CaptureRuntimeState: Equatable, Hashable {
 
 public enum StopReason: String, Codable, Equatable, Hashable {
     case userRequested
+    case applicationTerminated
     case permissionDenied
     case screenCaptureStreamEnded
     case audioDeviceChanged

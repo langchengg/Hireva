@@ -46,7 +46,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         min(max((decibels + 60) / 60, 0), 1)
     }
 
-    private override init() {
+    override init() {
         super.init()
     }
 

@@ -1,24 +1,195 @@
 import Foundation
-import Testing
 import GRDB
-import AVFoundation
-import Speech
+import Testing
 @testable import Hireva
 
-@Suite(.serialized) @MainActor
+@Suite(.serialized)
+@MainActor
 struct SpeakerAttributionTests {
-    
+    private struct WaitTimeout: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    private final class MockPermissionService: PermissionService {
+        override func checkMicrophonePermission() -> MicrophonePermissionState { .authorized }
+
+        override func snapshot() -> PermissionSnapshot {
+            PermissionSnapshot(
+                microphone: .granted,
+                speechRecognition: .granted,
+                screenRecording: .granted,
+                systemAudioCapture: .granted
+            )
+        }
+
+        override func refreshPermissions() -> PermissionSnapshot { snapshot() }
+    }
+
+    private func makeTemporaryDatabase() throws -> AppDatabase {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpeakerAttributionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+    }
+
+    private func makeAppState(database: AppDatabase) throws -> AppState {
+        try prepareReadyContext(in: database)
+        let settings = SettingsRepository(database: database)
+        try settings.ensureDefaultProviderConfigurations()
+        if let deepSeek = try settings.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
+            try settings.setActiveRealtimeProvider(id: deepSeek.id)
+        }
+        let appState = AppState(
+            database: database,
+            llmRouter: LLMRouter(
+                settingsRepository: settings,
+                clients: [.deepSeek: SpeakerAttributionLLMClient()]
+            ),
+            permissionService: MockPermissionService(),
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            dialogueDefaults: nil
+        )
+        appState.answerProviderModeOverride = .deepSeekPrimary
+        appState.automaticContextReadiness = .ready
+        return appState
+    }
+
+    private func prepareReadyContext(in database: AppDatabase) throws {
+        let documents = DocumentRepository(database: database)
+        let cv = try documents.saveDocument(
+            type: .cv,
+            title: "Speaker Attribution Candidate",
+            content: String(repeating: "Built a LeoRover object retrieval system using ROS2, YOLOv8, localization, navigation, and manipulation. ", count: 8)
+        )
+        let role = try documents.saveDocument(
+            type: .jobDescription,
+            title: "Robotics Software Role",
+            content: String(repeating: "The role requires ROS2 robotics integration, perception, localization, navigation, manipulation, and reliable testing. ", count: 8)
+        )
+        let contexts = InterviewContextRepository(database: database)
+        let profile = CandidateProfile(
+            id: "speaker-attribution-profile",
+            displayName: "Speaker Attribution Candidate",
+            sourceDocumentIDs: [cv.id],
+            education: [],
+            experience: [],
+            projects: [evidence(
+                id: "speaker-attribution-project",
+                statement: "Built a LeoRover autonomous object retrieval system connecting ROS2, YOLOv8 perception, localization, navigation, and manipulation.",
+                documentID: cv.id,
+                type: .project
+            )],
+            skills: [evidence(
+                id: "speaker-attribution-skill",
+                statement: "Tests reliable handoffs between perception, localization, navigation, and manipulation on real robots.",
+                documentID: cv.id,
+                type: .skill
+            )],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let opportunity = OpportunityContext(
+            id: "speaker-attribution-opportunity",
+            title: "Robotics Software Engineer",
+            organisation: "Test Organisation",
+            opportunityType: .job,
+            responsibilities: [evidence(
+                id: "speaker-attribution-responsibility",
+                statement: "Integrate and test perception-to-action robotics pipelines.",
+                documentID: role.id,
+                type: .responsibility
+            )],
+            requiredSkills: [evidence(
+                id: "speaker-attribution-required-skill",
+                statement: "ROS2, perception, localization, navigation, manipulation, and reliable testing.",
+                documentID: role.id,
+                type: .requiredSkill
+            )],
+            preferredSkills: [],
+            researchTopics: [],
+            evaluationCriteria: [],
+            sourceDocumentIDs: [role.id],
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try contexts.saveCandidateProfile(profile)
+        try contexts.saveOpportunityContext(opportunity)
+        try contexts.saveSelection(InterviewContextSelection(
+            candidateProfileID: profile.id,
+            opportunityContextID: opportunity.id,
+            domainProfileID: .roboticsResearch
+        ))
+        try contexts.saveConfigurationOrigin(.automaticDocuments)
+    }
+
+    private func evidence(
+        id: String,
+        statement: String,
+        documentID: String,
+        type: EvidenceType
+    ) -> ProfileEvidence {
+        ProfileEvidence(
+            id: id,
+            statement: statement,
+            sourceDocumentID: documentID,
+            sourceChunkID: "\(id)-chunk",
+            sourceSpan: statement,
+            confidence: 1,
+            evidenceType: type,
+            explicitness: .explicit
+        )
+    }
+
+    private func cancelAsyncWork(_ appState: AppState) {
+        appState.precomputeDebounceTask?.cancel()
+        appState.activeDetectionTask?.cancel()
+        appState.activeAITask?.cancel()
+        appState.detectionDebounceTask?.cancel()
+        appState.transcriptionTask?.cancel()
+        appState.cancelActiveGenerationForStop()
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: Duration = .seconds(3),
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            guard clock.now < deadline else {
+                throw WaitTimeout(description: "Timed out waiting for \(description)")
+            }
+            try await clock.sleep(for: .milliseconds(5))
+        }
+    }
+
+    private func dialogueDecision(
+        for segment: TranscriptSegment,
+        state: DialogueRuntimeState
+    ) -> DialogueTriggerDecision {
+        InterviewDialogueTriggerPolicy.decideDialogueTrigger(
+            segment: segment,
+            sessionMode: state.selectedSessionMode,
+            currentState: state,
+            answerPanelQuestions: true,
+            suppressPresentation: true,
+            suppressCandidateQuestions: true
+        )
+    }
+
     @Test
     func databaseAttributionPersistenceAndLegacyFallback() throws {
-        // 1. Setup in-memory temporary database
         let database = try makeTemporaryDatabase()
         let repository = TranscriptRepository(database: database)
-        
-        // 2. Insert legacy row using raw SQL to simulate pre-migration database records
         let legacyID = UUID().uuidString
         let sessionID = UUID().uuidString
-        
-        // Setup a mock session so the foreign key constraint is satisfied
+
         try database.dbQueue.write { db in
             try db.execute(
                 sql: """
@@ -27,9 +198,6 @@ struct SpeakerAttributionTests {
                 """,
                 arguments: [sessionID, "Legacy Session", "2026-05-26T00:00:00Z", "microphone", "2026-05-26T00:00:00Z"]
             )
-        }
-        
-        try database.dbQueue.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO transcript_segments (id, session_id, speaker, text, created_at)
@@ -38,50 +206,42 @@ struct SpeakerAttributionTests {
                 arguments: [legacyID, sessionID, "audio_input", "Hello legacy speaker", "2026-05-26T12:00:00Z"]
             )
         }
-        
-        // 3. Load historical row and check fallback mapping
-        let segments = try repository.segments(sessionID: sessionID)
-        #expect(segments.count == 1)
-        let legacySegment = segments[0]
+
+        let legacySegment = try #require(repository.segments(sessionID: sessionID).first)
         #expect(legacySegment.id == legacyID)
-        #expect(legacySegment.speaker == .unknown) // mapped from "audio_input"
-        #expect(legacySegment.source == .microphone) // fallback default
-        #expect(legacySegment.confidence == 1.0) // fallback default
-        
-        // 4. Save and load a fully-attributed new segment
+        #expect(legacySegment.speaker == .unknown)
+        #expect(legacySegment.source == .microphone)
+        #expect(legacySegment.confidence == 1.0)
+
         let newID = UUID().uuidString
-        let newSegment = TranscriptSegment(
+        try repository.saveSegment(TranscriptSegment(
             id: newID,
             sessionID: sessionID,
             source: .systemAudio,
             speaker: .interviewer,
             text: "This is the interviewer speaking over system loopback",
             startTime: 10.5,
-            endTime: 15.0,
-            createdAt: Date(),
+            endTime: 15,
+            createdAt: Date(timeIntervalSince1970: 2),
             inputDeviceName: "Virtual Cable Input",
-            outputDeviceName: "AirPods Pro",
+            outputDeviceName: "Test Output",
             deviceID: "virtual_loopback_uid",
             confidence: 0.95
-        )
-        
-        try repository.saveSegment(newSegment)
-        
+        ))
+
         let updatedSegments = try repository.segments(sessionID: sessionID)
         #expect(updatedSegments.count == 2)
-        
-        let loadedNewSegment = updatedSegments.first { $0.id == newID }
-        #expect(loadedNewSegment != nil)
-        #expect(loadedNewSegment?.source == .systemAudio)
-        #expect(loadedNewSegment?.speaker == .interviewer)
-        #expect(loadedNewSegment?.inputDeviceName == "Virtual Cable Input")
-        #expect(loadedNewSegment?.outputDeviceName == "AirPods Pro")
-        #expect(loadedNewSegment?.deviceID == "virtual_loopback_uid")
-        #expect(loadedNewSegment?.confidence == 0.95)
+        let loaded = try #require(updatedSegments.first { $0.id == newID })
+        #expect(loaded.source == .systemAudio)
+        #expect(loaded.speaker == .interviewer)
+        #expect(loaded.inputDeviceName == "Virtual Cable Input")
+        #expect(loaded.outputDeviceName == "Test Output")
+        #expect(loaded.deviceID == "virtual_loopback_uid")
+        #expect(loaded.confidence == 0.95)
     }
-    
+
     @Test
-    func questionDetectionGatingRules() throws {
+    func questionDetectionGatingRules() {
         let state = DialogueRuntimeState.initial(for: .panelQuestions)
         let micCandidate = TranscriptSegment(
             id: "1",
@@ -121,59 +281,43 @@ struct SpeakerAttributionTests {
         #expect(ambiguousDecision.speakerRole == .ambiguous)
         #expect(!ambiguousDecision.shouldEvaluateQuestion)
     }
-    
+
     @Test
-    func audioDeviceManagerFallbackAndSanitization() throws {
-        // AudioDeviceManager when Core Audio is stubbed or uninitialized returns readable names or Unknown Device fallbacks
-        let manager = AudioDeviceManager.shared
-        // Even if Core Audio is uninitialized, confirm current properties have readable non-empty values
-        #expect(!manager.currentInputDeviceName.isEmpty)
-        #expect(!manager.currentOutputDeviceName.isEmpty)
-        #expect(!manager.routeDescription.isEmpty)
-    }
-    
-    // MARK: - Helper Methods
-    
-    private func dialogueDecision(
-        for segment: TranscriptSegment,
-        state: DialogueRuntimeState
-    ) -> DialogueTriggerDecision {
-        InterviewDialogueTriggerPolicy.decideDialogueTrigger(
-            segment: segment,
-            sessionMode: state.selectedSessionMode,
-            currentState: state,
-            answerPanelQuestions: true,
-            suppressPresentation: true,
-            suppressCandidateQuestions: true
+    func audioDeviceInfoFixtureRoundTripsWithoutHardwareAccess() throws {
+        let fixture = AudioDeviceInfo(
+            id: "fixture-input",
+            name: "Virtual Interview Input",
+            transportType: "virtual",
+            isDefaultInput: true,
+            isDefaultOutput: false,
+            isInput: true,
+            isOutput: false
         )
+        let decoded = try JSONDecoder().decode(
+            AudioDeviceInfo.self,
+            from: JSONEncoder().encode(fixture)
+        )
+
+        #expect(decoded == fixture)
+        #expect(decoded.name == "Virtual Interview Input")
+        #expect(decoded.isInput)
+        #expect(!decoded.isOutput)
     }
-    
+
     @Test
     func interviewerCandidateAudioSeparationVerification() async throws {
         let database = try makeTemporaryDatabase()
-        let appState = AppState(database: database)
-        
-        // Ensure onboarding is complete so startListening can run
-        try await database.dbQueue.write { db in
-            try db.execute(sql: "INSERT INTO documents (id, title, content, type, created_at, updated_at) VALUES ('1', 'CV', 'This is my comprehensive resume detailing all of my professional experience in software engineering and artificial intelligence.', 'cv', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')")
-            try db.execute(sql: "INSERT INTO documents (id, title, content, type, created_at, updated_at) VALUES ('2', 'JD', 'This is a job description for a principal swift macos developer requiring years of experience in Core Audio and ScreenCaptureKit.', 'job_description', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')")
-        }
-        appState.refreshAll()
-        
-        // Force settings state
-        var settings = AppSettings.default
+        let appState = try makeAppState(database: database)
+        defer { cancelAsyncWork(appState) }
+        var settings = appState.settings
         settings.automaticQuestionDetectionEnabled = true
         settings.manualOnlyMode = false
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         appState.saveSettings(settings)
-        
-        #expect(appState.onboardingComplete)
-        
-        // Let's create an active mock session
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.detectionDebounceSeconds = 60
+        let session = try appState.createContextBoundSession(mode: .microphone, title: "Speaker attribution")
         appState.currentSession = session
-        
-        // Test 1: System Audio segment processing (source = .systemAudio, speaker = .interviewer)
+
         let systemSegment = TranscriptSegment(
             id: "sys-1",
             sessionID: session.id,
@@ -181,150 +325,89 @@ struct SpeakerAttributionTests {
             speaker: .interviewer,
             text: "Can you describe a challenge you overcame?"
         )
-        
-        // Under default settings:
-        // System audio segment (speaker = .interviewer) MUST trigger detection.
+        appState.last10SegmentsDiagnostics.removeAll()
         await appState.handleTranscriptSegment(systemSegment)
-        
-        #expect(appState.lastSystemAudioTranscript == "Can you describe a challenge you overcame?")
-        #expect(appState.lastDetectionSkipReason.isEmpty) // Should not be skipped, so it goes to detection
-        
-        // Test 2: Microphone segment processing (source = .microphone, speaker = .candidate)
-        let micSegment = TranscriptSegment(
+        let systemDiagnostic = try #require(appState.last10SegmentsDiagnostics.first)
+        #expect(systemDiagnostic.eligibleForAutoDetection)
+        #expect(systemDiagnostic.source == .systemAudio)
+        #expect(systemDiagnostic.speaker == .interviewer)
+        #expect(appState.lastSystemAudioTranscript == systemSegment.text)
+
+        let microphoneSegment = TranscriptSegment(
             id: "mic-1",
-            sessionID: session.id,
-            source: .microphone,
-            speaker: .candidate,
-            text: "What project are we discussing?"
-        )
-        
-        await appState.handleTranscriptSegment(micSegment)
-        // Candidate audio MUST be gated out from triggering auto-detection by default
-        #expect(appState.lastDetectionSkipReason.contains("candidate speech does not request"))
-        
-        // Test 3: Candidate false-trigger protection
-        // Even if the text sounds like a question ("Can you tell me about your project?"),
-        // when said by Candidate/Microphone, it must be gated out.
-        let candidateQuestion = TranscriptSegment(
-            id: "mic-q",
             sessionID: session.id,
             source: .microphone,
             speaker: .candidate,
             text: "Can you tell me about your project?"
         )
-        await appState.handleTranscriptSegment(candidateQuestion)
-        #expect(appState.lastDetectionSkipReason.contains("candidate speech does not request"))
-        
-        // Play it via System Audio (interviewer) -> it triggers detection!
+        appState.last10SegmentsDiagnostics.removeAll()
+        await appState.handleTranscriptSegment(microphoneSegment)
+        let microphoneDiagnostic = try #require(appState.last10SegmentsDiagnostics.first)
+        #expect(!microphoneDiagnostic.eligibleForAutoDetection)
+        #expect(microphoneDiagnostic.source == .microphone)
+        #expect(microphoneDiagnostic.speaker == .candidate)
+        #expect(!microphoneDiagnostic.skipReason.isEmpty)
+
         let interviewerQuestion = TranscriptSegment(
             id: "sys-q",
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Can you tell me about your project?"
+            text: "Can you tell me about your robotics project?"
         )
+        appState.last10SegmentsDiagnostics.removeAll()
         await appState.handleTranscriptSegment(interviewerQuestion)
-        #expect(appState.lastSystemAudioTranscript == "Can you tell me about your project?")
-        #expect(appState.lastDetectionSkipReason.isEmpty)
-        
-        // Test 4: Diagnostics values check
-        #expect(!appState.currentInputDeviceName.isEmpty)
-        #expect(appState.lastSystemAudioTranscript == "Can you tell me about your project?")
+        let interviewerDiagnostic = try #require(appState.last10SegmentsDiagnostics.first)
+        #expect(interviewerDiagnostic.eligibleForAutoDetection)
+        #expect(appState.lastSystemAudioTranscript == interviewerQuestion.text)
     }
 
     @Test
-    func realAudioBufferToSuggestionPipeline() async throws {
-        // 1. Setup in-memory temporary database
+    func systemAudioTranscriptGeneratesGroundedSuggestion() async throws {
         let database = try makeTemporaryDatabase()
-        
-        let settingsRepository = SettingsRepository(database: database)
-        try settingsRepository.ensureDefaultProviderConfigurations()
-        if let deepSeek = try settingsRepository.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
-            try settingsRepository.setActiveRealtimeProvider(id: deepSeek.id)
-        }
-        let mockClient = MockLLMClient()
-        let llmRouter = LLMRouter(
-            settingsRepository: settingsRepository,
-            clients: [.deepSeek: mockClient]
-        )
-        let appState = AppState(database: database, llmRouter: llmRouter)
-        
-        // Ensure onboarding is complete
-        try await database.dbQueue.write { db in
-            try db.execute(sql: "INSERT INTO documents (id, title, content, type, created_at, updated_at) VALUES ('1', 'CV', 'This is my comprehensive resume detailing all of my professional experience in software engineering and artificial intelligence.', 'cv', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')")
-            try db.execute(sql: "INSERT INTO documents (id, title, content, type, created_at, updated_at) VALUES ('2', 'JD', 'This is a job description for a principal swift macos developer requiring years of experience in Core Audio and ScreenCaptureKit.', 'job_description', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')")
-        }
-        appState.refreshAll()
-        
-        // Force settings state
-        var settings = AppSettings.default
+        let appState = try makeAppState(database: database)
+        defer { cancelAsyncWork(appState) }
+        var settings = appState.settings
         settings.automaticQuestionDetectionEnabled = true
         settings.manualOnlyMode = false
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         appState.saveSettings(settings)
-        
-        #expect(appState.onboardingComplete)
-        
-        // Create an active mock session
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.detectionDebounceSeconds = 0.01
+        let session = try appState.createContextBoundSession(mode: .microphone, title: "Speaker suggestion")
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
-        
-        let systemAudioQuestion = TranscriptSegment(
+
+        let question = TranscriptSegment(
             id: "system-audio-question",
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
             text: "Can you tell me about your robotics project?",
-            createdAt: Date(),
-            confidence: 1.0
+            createdAt: Date(timeIntervalSince1970: 3),
+            confidence: 1
         )
-        await appState.handleTranscriptSegment(systemAudioQuestion)
-        print("[E2E_Test] Fed deterministic system audio transcript into AppState. Waiting for suggestion generation...")
-        
-        // Poll for up to 10 seconds to wait for question detection and suggestion generation.
-        var completed = false
-        for _ in 1...100 {
-            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            if appState.currentSuggestion != nil {
-                completed = true
-                break
-            }
+        await appState.handleTranscriptSegment(question)
+        try await waitUntil("grounded system-audio suggestion") {
+            appState.currentSuggestion != nil
         }
-        
-        // 6. Assert and prove results
-        #expect(completed == true)
-        #expect(!appState.lastSystemAudioTranscript.isEmpty)
-        #expect(appState.last10SegmentsDiagnostics.contains { $0.source == .systemAudio && $0.speaker == .interviewer })
-        #expect(appState.lastDetectionShouldTrigger == true)
-        
-        if let card = appState.currentSuggestion {
-            print("[E2E_Test] SUCCESS! Real suggestion card generated from loopback audio buffer:")
-            print("Say First: \"\(card.sayFirst)\"")
-            print("Strategy: \(card.strategy)")
-            print("Key Points: \(card.keyPoints)")
-            print("Caution: \(card.caution ?? "None")")
-            print("Raw Card JSON: \(card.rawJSON ?? "")")
-        } else {
-            print("[E2E_Test] FAILED to generate suggestion card from system audio buffer")
-        }
-    }
 
-
-    private func makeTemporaryDatabase() throws -> AppDatabase {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SpeakerAttributionTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+        let suggestion = try #require(appState.currentSuggestion)
+        #expect(appState.lastSystemAudioTranscript == question.text)
+        #expect(appState.last10SegmentsDiagnostics.contains {
+            $0.source == .systemAudio && $0.speaker == .interviewer
+        })
+        #expect(appState.lastDetectionShouldTrigger)
+        #expect(suggestion.sayFirst.contains("LeoRover"))
+        #expect(suggestion.sayFirst.contains("ROS2"))
     }
 }
 
-final class MockLLMClient: LLMClientProtocol {
+private final class SpeakerAttributionLLMClient: LLMClientProtocol {
     let providerKind: LLMProviderKind = .deepSeek
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
-        return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
+        LLMConnectionTestResult(success: true, message: "fixture", latencyMS: 0, models: [])
     }
 
     func chatCompletion(
@@ -333,56 +416,36 @@ final class MockLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
-        let isQuestionDetection = messages.contains { $0.content.contains("question_complete") || $0.content.contains("should_trigger") }
-        
-        let rawJSON: String
-        if isQuestionDetection {
-            rawJSON = """
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        let content: String
+        if prompt.contains("question_complete") || prompt.contains("should_trigger") {
+            content = """
             {
-                "should_trigger": true,
-                "question_complete": true,
-                "question_text": "Can you tell me about your robotics project?",
-                "intent": "project_deep_dive",
-                "answer_strategy": "project_walkthrough",
-                "confidence": 0.98,
-                "reason": "Interviewer is asking for details on the candidate's robotics project."
+              "should_trigger": true,
+              "question_complete": true,
+              "question_text": "Can you tell me about your robotics project?",
+              "intent": "project_deep_dive",
+              "answer_strategy": "project_walkthrough",
+              "confidence": 0.98,
+              "reason": "The interviewer requested a project walkthrough."
             }
             """
         } else {
-            rawJSON = """
-            {
-                "strategy": "Project Walkthrough",
-                "say_first": "My robotics project was a LeoRover autonomous object retrieval system where I connected ROS2, YOLOv8 perception, localization, navigation, and manipulation so the robot could find and pick up target objects.",
-                "key_points": [
-                    "Built a ROS2-based LeoRover object retrieval pipeline.",
-                    "Connected YOLOv8 perception to localization, navigation, and manipulation.",
-                    "Focused on reliable real-robot handoffs and recovery behavior."
-                ],
-                "follow_up_ready": [
-                    "How did you validate the perception-to-action handoff?",
-                    "What recovery behavior did you add?"
-                ],
-                "confidence": 0.95,
-                "caution": "Keep the answer grounded in the LeoRover project."
-            }
-            """
+            content = Self.suggestionJSON
         }
-        
         return LLMChatResult(
-            content: rawJSON,
-            modelName: "MockModel",
+            content: content,
+            modelName: "speaker-attribution-fixture",
             providerKind: .deepSeek,
-            providerName: "MockClient",
-            baseURL: "https://api.deepseek.com",
-            latencyMS: 42,
-            isLocal: true,
-            rawResponse: rawJSON
+            providerName: "Speaker Attribution Fixture",
+            baseURL: "fixture://speaker-attribution",
+            latencyMS: 0,
+            isLocal: false,
+            rawResponse: content
         )
     }
 
-    func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
-        return [LLMModelInfo(name: "MockModel", modifiedAt: nil, size: nil)]
-    }
+    func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] { [] }
 
     func chatCompletionStream(
         configuration: LLMProviderConfiguration,
@@ -391,34 +454,39 @@ final class MockLLMClient: LLMClientProtocol {
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
         let prompt = messages.map(\.content).joined(separator: "\n")
-        let isStageB = prompt.contains("Return plain text sections only")
-        let sayFirst = "My robotics project was a LeoRover autonomous object retrieval system where I connected ROS2, YOLOv8 perception, localization, navigation, and manipulation so the robot could find and pick up target objects."
-        let tokens: [String]
-        if isStageB {
-            tokens = [
-                "STRATEGY:\nProject Walkthrough\n",
-                "SAY_FIRST:\n\(sayFirst)\n",
-                "KEY_POINTS:\n",
-                "- Built a ROS2-based LeoRover object retrieval pipeline.\n",
-                "- Connected YOLOv8 perception to localization, navigation, and manipulation.\n",
-                "- Focused on reliable real-robot handoffs and recovery behavior.\n",
-                "FOLLOW_UP_READY:\n",
-                "- How did you validate the perception-to-action handoff?\n",
-                "- What recovery behavior did you add?\n",
-                "CAUTION:\nKeep the answer grounded in the LeoRover project.\n"
-            ]
-        } else {
-            tokens = sayFirst.split(separator: " ", omittingEmptySubsequences: false).map { "\($0) " }
-        }
+        let isStructuredStage = prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.")
+        let content = isStructuredStage ? Self.structuredSuggestion : Self.sayFirst
         return AsyncThrowingStream { continuation in
-            let task = Task {
-                for token in tokens {
-                    if Task.isCancelled { break }
-                    continuation.yield(token)
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.yield(content)
+            continuation.finish()
         }
     }
+
+    private static let sayFirst = "My robotics project was a LeoRover autonomous object retrieval system where I connected ROS2, YOLOv8 perception, localization, navigation, and manipulation."
+
+    private static let suggestionJSON = """
+    {
+      "strategy": "Project Walkthrough",
+      "say_first": "\(sayFirst)",
+      "key_points": ["Built a ROS2 LeoRover retrieval pipeline", "Connected perception to navigation and manipulation", "Tested reliable handoffs"],
+      "follow_up_ready": ["I can explain how I validated each handoff."],
+      "confidence": 0.95,
+      "caution": "Keep the answer grounded in the LeoRover project."
+    }
+    """
+
+    private static let structuredSuggestion = """
+    STRATEGY:
+    Project Walkthrough
+    SAY_FIRST:
+    \(sayFirst)
+    KEY_POINTS:
+    - Built a ROS2 LeoRover retrieval pipeline.
+    - Connected perception to navigation and manipulation.
+    - Tested reliable handoffs.
+    FOLLOW_UP_READY:
+    - I can explain how I validated each handoff.
+    CAUTION:
+    Keep the answer grounded in the LeoRover project.
+    """
 }

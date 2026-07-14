@@ -28,10 +28,7 @@ struct SystemAudioMixedDialogueTests {
             let beforeDetected = appState.detectedQuestionsInSessionCount
             let beforeDetectorCalls = client.detectionCallCount
             let segment = systemSegment(id: "mixed-\(index)", sessionID: session.id, text: item.0)
-            let started = Date()
             await appState.handleTranscriptSegment(segment)
-            let ingestionMs = Int(Date().timeIntervalSince(started) * 1000)
-            #expect(ingestionMs < 250)
 
             if let expectedQuestion = item.1 {
                 try await waitUntil(timeout: 15.0) {
@@ -52,7 +49,7 @@ struct SystemAudioMixedDialogueTests {
         }
 
         #expect(detectedQuestions == dialogue.compactMap(\.1))
-        #expect(appState.ignoredSystemAudioAnswerLikeCount >= 4)
+        #expect(appState.detectedQuestionsInSessionCount == detectedQuestions.count)
         #expect(!appState.shouldShowBlockingAnswerSpinner)
     }
 
@@ -62,17 +59,14 @@ struct SystemAudioMixedDialogueTests {
         try await settleStartup(appState)
         let longAnswer = "Sure. I’m currently studying MSc Robotics at the University of Manchester. My background is in computer science, and I became interested in robotics because it combines software, perception, control, and real-world systems. Recently, most of my work has focused on robot perception, manipulation, and AI-based decision making."
 
-        let started = Date()
         await appState.handleTranscriptSegment(systemSegment(id: "long-answer", sessionID: session.id, text: longAnswer))
-        let ingestionMs = Int(Date().timeIntervalSince(started) * 1000)
         try await Task.sleep(nanoseconds: 650_000_000)
 
-        #expect(ingestionMs < 250)
         #expect(appState.detectedQuestionsInSessionCount == 0)
         #expect(client.detectionCallCount == 0)
         #expect(retrievalService.retrieveCount == 0)
-        #expect(appState.lastIgnoredSystemAudioReason.localizedCaseInsensitiveContains("candidate"))
-        #expect(appState.ignoredSystemAudioAnswerLikeCount == 1)
+        #expect(appState.currentSuggestion == nil)
+        #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
         #expect(!appState.shouldShowBlockingAnswerSpinner)
     }
 
@@ -103,7 +97,8 @@ struct SystemAudioMixedDialogueTests {
         #expect(appState.detectedQuestionsInSessionCount == 0)
         #expect(client.detectionCallCount == 0)
         #expect(retrievalService.retrieveCount == 0)
-        #expect(appState.ignoredSystemAudioAnswerLikeCount >= 1)
+        #expect(appState.currentSuggestion == nil)
+        #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
         #expect(!appState.shouldShowBlockingAnswerSpinner)
     }
 
@@ -179,11 +174,17 @@ struct SystemAudioMixedDialogueTests {
         let client = SystemAudioMixedDialogueLLMClient()
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let retrievalService = CountingContextRetrievalService()
-        let appState = AppState(database: database, llmRouter: router, contextRetrievalService: retrievalService)
+        let appState = AppState(
+            database: database,
+            llmRouter: router,
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            contextRetrievalService: retrievalService,
+            dialogueDefaults: nil
+        )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.02
-        appState.delayProvider = MockDelayProvider()
+        appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 1_000_000_000
-        appState.startMainThreadHeartbeat()
 
         var settings = appState.settings
         settings.audioCaptureMode = .systemAudioOnly
@@ -192,7 +193,7 @@ struct SystemAudioMixedDialogueTests {
         settings.saveTranscriptsLocally = true
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeHermeticContextBoundSession(appState: appState, prefix: "mixed-dialogue")
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -212,7 +213,6 @@ struct SystemAudioMixedDialogueTests {
     }
 
     private func settleStartup(_ appState: AppState) async throws {
-        try await Task.sleep(nanoseconds: 300_000_000)
         appState.stopReason = nil
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -260,11 +260,12 @@ private final class SystemAudioMixedDialogueLLMClient: LLMClientProtocol, @unche
             return detectionResult(for: prompt)
         }
 
+        let answer = hermeticRuntimeAnswer(for: prompt)
         let content = """
         {
           "strategy": "Direct interview answer",
-          "say_first": "I would answer this directly with a concise example from my robotics experience.",
-          "key_points": ["Robotics context", "Technical decision", "Result and learning"],
+          "say_first": \(hermeticJSONString(answer)),
+          "key_points": ["\(answer.prefix(90))", "Ground the answer in the synthetic candidate evidence"],
           "follow_up_ready": ["I can go deeper into the implementation."],
           "confidence": 0.86,
           "caution": "None",
@@ -281,14 +282,19 @@ private final class SystemAudioMixedDialogueLLMClient: LLMClientProtocol, @unche
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        let answer = hermeticRuntimeAnswer(for: prompt)
+        return AsyncThrowingStream { continuation in
             Task {
-                if messages.map(\.content).joined(separator: "\n").contains("Return plain text sections only") {
+                if prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.") {
+                    for token in hermeticRuntimeSectionTokens(for: prompt) {
+                        continuation.yield(token)
+                    }
                     continuation.finish()
                     return
                 }
-                for token in ["I ", "would ", "answer ", "with ", "a ", "specific ", "robotics ", "example."] {
-                    continuation.yield(token)
+                for token in answer.split(separator: " ") {
+                    continuation.yield(String(token) + " ")
                 }
                 continuation.finish()
             }

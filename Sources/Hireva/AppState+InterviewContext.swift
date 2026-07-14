@@ -449,7 +449,9 @@ extension AppState {
     }
 
     private func rollContextSnapshotForCurrentSession() throws {
-        guard var session = currentSession else { return }
+        guard let existingSession = currentSession,
+              var session = try sessionRepository.session(id: existingSession.id),
+              session.endedAt == nil else { return }
         if activeGenerationController != nil ||
             activeAITask != nil ||
             isActionLoading(ActionID.generateAnswer) ||

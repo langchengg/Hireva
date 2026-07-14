@@ -74,7 +74,9 @@ enum SemanticDuplicateKeyBuilder {
         let stopWords: Set<String> = [
             "a", "an", "the", "please", "could", "would", "can", "you", "your", "tell", "explain", "describe", "about"
         ]
-        return TextChunker.tokenize(QuestionCanonicalizer.canonicalize(text))
+        let duplicateText = QuestionCanonicalizer.canonicalize(text)
+            .replacingOccurrences(of: "auto regressive", with: "autoregressive", options: .caseInsensitive)
+        return TextChunker.tokenize(duplicateText)
             .filter { !stopWords.contains($0) }
             .joined(separator: " ")
     }

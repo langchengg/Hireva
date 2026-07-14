@@ -77,7 +77,7 @@ extension AppState {
         // One ASR segment can contain several interviewer questions. Persist
         // each accepted detection, but generate only for the newest question so
         // the visible answer stays aligned with the visible current question.
-        let baseDate = Date()
+        let baseDate = transcriptSegmentIngestedAt[segment.id] ?? Date()
         let acceptedQuestions = extractedQuestions.enumerated().compactMap { index, extracted in
             let detected = makeDetectedQuestion(
                 from: extracted,
@@ -817,6 +817,14 @@ extension AppState {
 
     private func shouldQueueAutoSuggestionGeneration(for question: DetectedQuestion) -> Bool {
         guard shouldQueueAutoSuggestionGenerationForCurrentState() else { return false }
+        if let segmentID = question.transcriptSegmentID,
+           let hadVisibleAnswerAtIngestion = transcriptSegmentHadVisibleAnswerAtIngestion[segmentID] {
+            return hadVisibleAnswerAtIngestion && activeQuestionID != question.id
+        }
+        if let firstVisibleAt = currentGenerationTelemetry.firstVisibleAt,
+           question.createdAt <= firstVisibleAt {
+            return false
+        }
         return activeQuestionID != question.id
     }
 

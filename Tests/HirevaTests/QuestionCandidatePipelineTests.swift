@@ -27,13 +27,12 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func asrCanonicalizerNormalizesKnownRuntimeVariants() {
-        let text = "Muja Cove with flowmatching on a layover using yellow of aid detection and YOLO eight, from N to end, and a seem to real gap"
+        let text = "c plus plus with s q l and an a p i, from N to end, with a sim to real gap"
         let canonical = ASRCanonicalizer.canonicalizeTerms(text)
 
-        #expect(canonical.localizedCaseInsensitiveContains("MuJoCo"))
-        #expect(canonical.localizedCaseInsensitiveContains("flow-matching"))
-        #expect(canonical.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(canonical.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(canonical.localizedCaseInsensitiveContains("C++"))
+        #expect(canonical.localizedCaseInsensitiveContains("SQL"))
+        #expect(canonical.localizedCaseInsensitiveContains("API"))
         #expect(canonical.localizedCaseInsensitiveContains("from end to end"))
         #expect(canonical.localizedCaseInsensitiveContains("sim-to-real"))
     }
@@ -41,30 +40,30 @@ struct QuestionCandidatePipelineTests {
     @Test
     func asrCanonicalizerNormalizesAdditionalRuntimeVariantsBeforeSplitting() {
         let canonical = ASRCanonicalizer.canonicalizeTerms(
-            "Muji Mooji Mugi Mu G Mouko Moko MoCo Muko Moco Mojave Muja Cove with yo love eight on the layover and a sim real issue and how did mitigate those issues"
+            "c plus plus C plus plus with s q l S Q L and a p i A P I in an end to end and sim to real system"
         )
 
-        #expect(canonical.components(separatedBy: "MuJoCo").count >= 12)
-        #expect(canonical.localizedCaseInsensitiveContains("YOLOv8"))
-        #expect(canonical.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(canonical.components(separatedBy: "C++").count == 3)
+        #expect(canonical.components(separatedBy: "SQL").count == 3)
+        #expect(canonical.components(separatedBy: "API").count == 3)
+        #expect(canonical.localizedCaseInsensitiveContains("end-to-end"))
         #expect(canonical.localizedCaseInsensitiveContains("sim-to-real"))
-        #expect(canonical.localizedCaseInsensitiveContains("and how did you mitigate those issues"))
     }
 
     @Test
     func asrCanonicalizerNormalizesVLAProjectVariantsBeforeAndAfterSplitting() {
         let variants = [
-            "villa project",
-            "Vila project",
-            "V L A project",
-            "VLA project"
+            (spoken: "c plus plus", canonical: "C++"),
+            (spoken: "s q l", canonical: "SQL"),
+            (spoken: "a p i", canonical: "API"),
+            (spoken: "sim to real", canonical: "sim-to-real")
         ]
 
         for variant in variants {
-            let canonical = ASRCanonicalizer.canonicalizeTerms("Can you explain the difference between your \(variant) and your LeoRover project")
-            #expect(canonical.localizedCaseInsensitiveContains("VLA project"))
+            let canonical = ASRCanonicalizer.canonicalizeTerms("Can you explain the difference between your \(variant.spoken) project and your Beacon project")
+            #expect(canonical.localizedCaseInsensitiveContains("\(variant.canonical) project"))
             let candidates = QuestionCandidatePipeline.extract(from: canonical)
-            #expect(candidates.first?.text == "Can you explain the difference between your VLA project and your LeoRover project")
+            #expect(candidates.first?.text == canonical)
             #expect(candidates.first?.answerRelevanceIntent == .projectComparison)
         }
     }
@@ -99,39 +98,39 @@ struct QuestionCandidatePipelineTests {
     @Test
     func conditionalPerceptionQuestionPreservesAntecedentAndRejectsTailOnlyCandidate() {
         let candidates = QuestionCandidatePipeline.extract(
-            from: "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?"
+            from: "If your inspection detector gives a confident but wrong prediction, how would you debug it?"
         )
 
         #expect(candidates.map(\.text) == [
-            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+            "If your inspection detector gives a confident but wrong prediction, how would you debug it?"
         ])
         #expect(candidates.first?.answerRelevanceIntent == .perceptionDebugging)
-        #expect(!candidates.contains { $0.text.localizedCaseInsensitiveContains("would you debug it") && !$0.text.localizedCaseInsensitiveContains("YOLOv8") })
+        #expect(!candidates.contains { $0.text.localizedCaseInsensitiveContains("would you debug it") && !$0.text.localizedCaseInsensitiveContains("inspection detector") })
         #expect(QuestionCandidatePipeline.extract(from: "would you debug it").isEmpty)
     }
 
     @Test
     func conditionalSplitRepairKeepsIfClauseAfterAlsoIfBoundary() {
-        let transcript = "What did you learn from comparing autoregressive diffusion and flow matching decoders in your MuJoCo VLA project? Also, if your detector gives a confident but wrong prediction, how would you debug it?"
+        let transcript = "What did you learn from comparing classifier, regression, and transformer alternatives? Also, if your inspection detector gives a confident but wrong prediction, how would you debug it?"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
+            "If your inspection detector gives a confident but wrong prediction, how would you debug it?"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [.decoderComparison, .perceptionDebugging])
     }
 
     @Test
     func relatedWhatMadeFollowUpSplitsIntoSeparateCurrentQuestion() {
-        let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
+        let transcript = "How did your billing system connect ingestion with validation, output, and recovery behaviors? What made production execution harder than a clean test environment?"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "How did your LeoRover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?",
-            "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+            "How did your billing system connect ingestion with validation, output, and recovery behaviors?",
+            "What made production execution harder than a clean test environment?"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [.systemIntegrationDebugging, .technicalChallenge])
     }
@@ -271,19 +270,19 @@ struct QuestionCandidatePipelineTests {
     @Test
     func unseenQuestionStartFamiliesSplitAndRouteWithoutExactPhraseRules() {
         let transcript = [
-            "How did the perception module influence the robot's next physical action",
-            "Before the robot moved, what state did it need to estimate",
-            "What happened when the system made a wrong perception decision",
-            "When localization failed, how did recovery behavior decide whether to retry"
+            "How did event input influence the system's next control action",
+            "What state did the system need to check before billing executed",
+            "How did a stale event influence the system's control action",
+            "When input validation failed, how did the system control output and recovery action"
         ].joined(separator: " ")
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "How did the perception module influence the robot's next physical action",
-            "Before the robot moved, what state did it need to estimate?",
-            "What happened when the system made a wrong perception decision",
-            "When localization failed, how did recovery behavior decide whether to retry"
+            "How did event input influence the system's next control action",
+            "What state did the system need to check before billing executed",
+            "How did a stale event influence the system's control action",
+            "When input validation failed, how did the system control output and recovery action"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [
             .systemIntegrationDebugging,
@@ -296,8 +295,8 @@ struct QuestionCandidatePipelineTests {
     @Test
     func dependentTemporalClauseStaysAttachedToWhQuestionWithoutExactPhraseRule() {
         let questions = [
-            "Which subsystem became least reliable when the robot moved from the lab setup into a cluttered hallway",
-            "What component created the biggest risk after the demo environment stopped matching the real robot"
+            "Which subsystem became least reliable when the platform moved from test into production deployment",
+            "What component caused the hardest failure after the demo environment stopped matching production deployment"
         ]
 
         for question in questions {
@@ -310,30 +309,30 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func knownFragilityQuestionIsRegressionFixtureNotProductionSpecialCase() {
-        let question = "Which part of the pipeline was most fragile when moving from a clean demo to real robot execution?"
+        let question = "Which part of the delivery pipeline was most fragile when moving from a clean test environment to production execution?"
         let candidates = QuestionCandidatePipeline.extract(from: question)
 
-        #expect(candidates.map(\.text) == ["Which part of the pipeline was most fragile when moving from a clean demo to real robot execution?"])
+        #expect(candidates.map(\.text) == [question])
         #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
         #expect(candidates.first?.answerRelevanceIntent != .generic)
     }
 
     @Test
     func longRuntimeTranscriptSplitsIntoNineIndependentQuestions() {
-        let transcript = "Hi thanks for joining today first could you tell me a little bit about yourself and what brought you into robotics great thanks could you walk me through your Leah Rover project what was the hardest technical challenge you faced how did you handle noisy detections or localization error errors why did the diffusion decoder perform better in your Mouko evaluation what would you change first if you had another month why do you want to join our team how comfortable are you with python C and Rose two do you have any questions for us"
+        let transcript = "Hi, thanks for joining. Could you tell me a little bit about yourself and what brought you into platform engineering? Could you walk me through your Atlas migration project? What was the hardest technical challenge you faced? How did you handle noisy monitoring alerts? Why did the transformer model perform better than the regression model? What would you change first if you had another month? Why do you want to join our team? How comfortable with s q l and a p i tooling would you say you are? Do you have any questions for us?"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "Could you tell me a little bit about yourself and what brought you into robotics",
-            "Could you walk me through your LeoRover project",
-            "What was the hardest technical challenge you faced",
-            "How did you handle noisy detections or localization error errors",
-            "Why did the diffusion decoder perform better in your MuJoCo evaluation",
-            "What would you change first if you had another month",
-            "Why do you want to join our team",
-            "How comfortable are you with Python, C++, and ROS2",
-            "Do you have any questions for us"
+            "Could you tell me a little bit about yourself and what brought you into platform engineering?",
+            "Could you walk me through your Atlas migration project?",
+            "What was the hardest technical challenge you faced?",
+            "How did you handle noisy monitoring alerts?",
+            "Why did the transformer model perform better than the regression model?",
+            "What would you change first if you had another month?",
+            "Why do you want to join our team?",
+            "How comfortable with SQL and API tooling would you say you are?",
+            "Do you have any questions for us?"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [
             .tellMeAboutYourself,
@@ -403,11 +402,11 @@ struct QuestionCandidatePipelineTests {
     @Test
     func beforeInterviewerPrefaceDoesNotBecomeQuestionCandidate() {
         let candidates = QuestionCandidatePipeline.extract(
-            from: "Before I ask the next question, let me explain a little bit about what this role involves. We work with deployed robotics systems, perception, edge AI, and reliability in real environments. With that context, can you explain how your previous robotics experience prepares you for this role?"
+            from: "Before I ask the next question, let me explain a little bit about what this role involves. We work with deployed platforms, APIs, and reliability in production. With that context, why do you want this role given your previous platform experience?"
         )
 
         #expect(candidates.map(\.text) == [
-            "Can you explain how your previous robotics experience prepares you for this role?"
+            "Why do you want this role given your previous platform experience?"
         ])
         #expect(candidates.first?.answerRelevanceIntent == .whyRole)
     }
@@ -424,15 +423,15 @@ struct QuestionCandidatePipelineTests {
     @Test
     func realScreenshotUnpunctuatedArchitectureTranscriptCanonicalizesAndExtracts() throws {
         let candidates = QuestionCandidatePipeline.extract(
-            from: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"
+            from: "How did your billing system connect a p i input with validation output and recovery behaviors what made real world execution harder than a clean test environment and how did you mitigate those issues"
         )
         let candidate = try #require(candidates.first)
 
         #expect(candidates.count == 2)
-        #expect(candidate.text.localizedCaseInsensitiveContains("YOLOv8 detection"))
-        #expect(candidate.text.localizedCaseInsensitiveContains("localization"))
-        #expect(candidate.text.localizedCaseInsensitiveContains("navigation"))
-        #expect(candidate.text.localizedCaseInsensitiveContains("manipulation"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("API input"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("validation"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("output"))
+        #expect(candidate.text.localizedCaseInsensitiveContains("billing"))
         #expect(candidate.text.localizedCaseInsensitiveContains("recovery"))
         #expect(candidate.answerRelevanceIntent == .systemIntegrationDebugging)
         let mitigationCandidate = try #require(candidates.last)
@@ -455,41 +454,41 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func unrelatedPunctuatedQuestionsSplitIntoSeparateCandidates() {
-        let transcript = "How did your LeoRover system connect YOLOv8 detection with localization and navigation? What questions would you ask us about the team before accepting an offer?"
+        let transcript = "How did your billing system connect API input with validation and output? What questions would you ask us about the team before accepting an offer?"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "How did your LeoRover system connect YOLOv8 detection with localization and navigation?",
-            "What questions would you ask us about the team or the role before accepting an offer?"
+            "How did your billing system connect API input with validation and output?",
+            "What questions would you ask us about the team before accepting an offer?"
         ])
-        #expect(candidates.map(\.answerRelevanceIntent) == [.projectWalkthrough, .interviewerQuestions])
+        #expect(candidates.map(\.answerRelevanceIntent) == [.systemIntegrationDebugging, .interviewerQuestions])
     }
 
     @Test
     func mokoAndSeemToRealCanonicalizeInFullQuestion() {
         let candidates = QuestionCandidatePipeline.extract(
-            from: "How would you diagnose a seem to real gap if your policy works in Muji but fails on a real robot?"
+            from: "How would you diagnose a sim to real gap if your policy works in simulation but fails in production?"
         )
 
         #expect(candidates.map(\.text) == [
-            "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?"
+            "How would you diagnose a sim-to-real gap if your policy works in simulation but fails in production?"
         ])
         #expect(candidates.first?.answerRelevanceIntent == .simToRealDebugging)
     }
 
     @Test
     func observedMergedBTraceExtractsFourUsefulQuestionsAndRejectsBadInterviewerFragment() {
-        let transcript = "What questions would you ask us about that tell me about a time you had tell me about a time you had what did you learn from comparing auto regressive diffusion and flow tell me about a time you had to debug a system integration problem what questions would you ask us about the team or the role before accepting an offer how would you diagnose a seem to real gap if your policy works in Muji but fails on a real robot"
+        let transcript = "What questions would you ask us about that. Tell me about a time you had. What did you learn from comparing classifier, regression, and transformer alternatives? Tell me about a time you had to debug a system integration problem. What questions would you ask us about the team or the role before accepting an offer? How would you diagnose a sim to real gap if your policy works in simulation but fails in production?"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(!candidates.contains { $0.text == "What questions would you ask us about that" })
         #expect(candidates.map(\.text) == [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
             "Tell me about a time you had to debug a system integration problem",
             "What questions would you ask us about the team or the role before accepting an offer?",
-            "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot"
+            "How would you diagnose a sim-to-real gap if your policy works in simulation but fails in production?"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [
             .decoderComparison,
@@ -501,13 +500,13 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func engineeringTeamFitThenLeoRoverImprovementSplitsIntoTwoCandidates() {
-        let transcript = "What would you ask the engineering team to understand whether this role is a good fit if you had one more month to improve your Lero system what would you improve first"
+        let transcript = "What would you ask the engineering team to understand whether this role is a good fit if you had one more month to improve your Atlas system what would you improve first"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
             "What would you ask the engineering team to understand whether this role is a good fit",
-            "If you had one more month to improve your LeoRover system what would you improve first"
+            "If you had one more month to improve your Atlas system what would you improve first"
         ])
         #expect(candidates.map(\.answerRelevanceIntent) == [
             .interviewerQuestions,
@@ -515,7 +514,7 @@ struct QuestionCandidatePipelineTests {
         ])
         #expect(candidates.map(\.intent) == [
             .companyFit,
-            .projectDeepDive
+            .behavioral
         ])
     }
 
@@ -548,12 +547,12 @@ struct QuestionCandidatePipelineTests {
     @Test
     func pipelineAcceptsCompleteEightQuestionRuntimeSequenceWithSpecificIntents() {
         let transcript = [
-            "What did you learn from comparing autoregressive, diffusion, and flowmatching decoders in your Muja Cove VLA project?",
-            "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
-            "If your YOLO eight detector gives a confident but wrong prediction on the layover, how would you debug it?",
-            "How would you diagnose a seem to real gap if your policy works in MuJoCo but fails on a real robot?",
-            "Can you explain the difference between your VLA project and your LeoRover project?",
-            "What was the biggest technical trade-off you made in your robotics projects?",
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
+            "How did you adapt the legacy event dataset into the new warehouse format?",
+            "If the inspection detector gives a confident but wrong prediction, how would you debug it?",
+            "How would you diagnose a sim to real gap if a policy works in simulation but fails in production?",
+            "Can you explain the difference between the Atlas project and the Beacon project?",
+            "What was the biggest technical trade-off you made between latency and accuracy?",
             "Tell me about a time you had to debug a system integration problem.",
             "What questions would you ask us about the team or the role before accepting an offer?"
         ].joined(separator: " ")
@@ -561,12 +560,12 @@ struct QuestionCandidatePipelineTests {
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
-            "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
-            "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
-            "Can you explain the difference between your VLA project and your LeoRover project?",
-            "What was the biggest technical trade-off you made in your robotics projects?",
+            "What did you learn from comparing classifier, regression, and transformer alternatives?",
+            "How did you adapt the legacy event dataset into the new warehouse format?",
+            "If the inspection detector gives a confident but wrong prediction, how would you debug it?",
+            "How would you diagnose a sim-to-real gap if a policy works in simulation but fails in production?",
+            "Can you explain the difference between the Atlas project and the Beacon project?",
+            "What was the biggest technical trade-off you made between latency and accuracy?",
             "Tell me about a time you had to debug a system integration problem",
             "What questions would you ask us about the team or the role before accepting an offer?"
         ])
@@ -586,16 +585,40 @@ struct QuestionCandidatePipelineTests {
     @Test
     func semanticDuplicateKeysNormalizeASRVariantsPerQuestion() {
         #expect(
-            SemanticDuplicateKeyBuilder.key(for: "Why might a diffusion based policy be more stable than an auto rig progressive policy?") ==
-            SemanticDuplicateKeyBuilder.key(for: "Why might a diffusion-based policy be more stable than an autoregressive policy?")
+            SemanticDuplicateKeyBuilder.key(for: "How comfortable are you with c plus plus?") ==
+            SemanticDuplicateKeyBuilder.key(for: "How comfortable are you with C++?")
         )
         #expect(
-            SemanticDuplicateKeyBuilder.key(for: "How would you diagnose a seem to real gap?") ==
+            SemanticDuplicateKeyBuilder.key(for: "How would you diagnose a sim to real gap?") ==
             SemanticDuplicateKeyBuilder.key(for: "How would you diagnose a sim-to-real gap?")
         )
         #expect(
-            SemanticDuplicateKeyBuilder.key(for: "If your YOLO eight detector is wrong on the layover, how would you debug it?") ==
-            SemanticDuplicateKeyBuilder.key(for: "If your YOLOv8 detector is wrong on the LeoRover, how would you debug it?")
+            SemanticDuplicateKeyBuilder.key(for: "How did the a p i handle retries?") ==
+            SemanticDuplicateKeyBuilder.key(for: "How did the API handle retries?")
         )
+        #expect(
+            SemanticDuplicateKeyBuilder.key(for: "Why was the auto regressive model less stable?") ==
+            SemanticDuplicateKeyBuilder.key(for: "Why was the autoregressive model less stable?")
+        )
+    }
+
+    @Test
+    func unpunctuatedConversationalBoundaryPreservesAllNineQuestions() {
+        let transcript = "Hi thanks for joining today first could you tell me a little bit about yourself and what brought you into robotics great thanks could you walk me through your Leah Rover project what was the hardest technical challenge you faced how did you handle noisy detections or localization error errors why did the diffusion decoder perform better in your Mouko evaluation what would you change first if you had another month why do you want to join our team how comfortable are you with python C and Rose two do you have any questions for us"
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+
+        #expect(candidates.map(\.text) == [
+            "Could you tell me a little bit about yourself and what brought you into robotics",
+            "Could you walk me through your Leah Rover project",
+            "What was the hardest technical challenge you faced",
+            "How did you handle noisy detections or localization error errors",
+            "Why did the diffusion decoder perform better in your Mouko evaluation",
+            "What would you change first if you had another month",
+            "Why do you want to join our team",
+            "How comfortable are you with python C and Rose two",
+            "Do you have any questions for us"
+        ])
+        #expect(Set(candidates.map(\.duplicateKey)).count == 9)
     }
 }

@@ -6,9 +6,10 @@ extension AppState {
     private static var selectedQwenModelKey: String { HirevaPreferenceKeys.selectedQwenModel }
     private static var answerProviderModeKey: String { HirevaPreferenceKeys.answerProviderMode }
     private static var appleSpeechASRDefaultMigrationKey: String { HirevaPreferenceKeys.appleSpeechASRDefaultMigration }
+    private var preferenceDefaults: UserDefaults { dialogueDefaults ?? .standard }
 
     var selectedASRProviderID: ASRProviderID {
-        ASRProviderID(rawValue: UserDefaults.standard.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .appleSpeech
+        ASRProviderID(rawValue: preferenceDefaults.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .appleSpeech
     }
 
     var selectedTranscriptionProviderMode: TranscriptionProviderMode {
@@ -16,7 +17,7 @@ extension AppState {
     }
 
     var selectedQwenModelName: String {
-        let stored = UserDefaults.standard.string(forKey: Self.selectedQwenModelKey)
+        let stored = preferenceDefaults.string(forKey: Self.selectedQwenModelKey)
         return (stored?.isEmpty == false) ? stored! : LocalModelDescriptor.defaultQwenLocalLLM.id
     }
 
@@ -24,11 +25,11 @@ extension AppState {
         if let answerProviderModeOverride {
             return answerProviderModeOverride
         }
-        return AnswerProviderMode(storedValue: UserDefaults.standard.string(forKey: Self.answerProviderModeKey))
+        return AnswerProviderMode(storedValue: preferenceDefaults.string(forKey: Self.answerProviderModeKey))
     }
 
     var activeASRProviderID: ASRProviderID? {
-        ASRProviderID(rawValue: UserDefaults.standard.string(forKey: Self.activeASRProviderKey) ?? "")
+        ASRProviderID(rawValue: preferenceDefaults.string(forKey: Self.activeASRProviderKey) ?? "")
     }
 
     var activeASRProviderDisplayName: String {
@@ -40,40 +41,40 @@ extension AppState {
     }
 
     func setSelectedASRProvider(_ provider: ASRProviderID) {
-        UserDefaults.standard.set(provider.rawValue, forKey: Self.selectedASRProviderKey)
+        preferenceDefaults.set(provider.rawValue, forKey: Self.selectedASRProviderKey)
         objectWillChange.send()
     }
 
     func setSelectedAnswerProviderMode(_ mode: AnswerProviderMode) {
-        UserDefaults.standard.set(mode.rawValue, forKey: Self.answerProviderModeKey)
+        preferenceDefaults.set(mode.rawValue, forKey: Self.answerProviderModeKey)
         objectWillChange.send()
     }
 
     func setSelectedQwenModelName(_ modelName: String) {
-        UserDefaults.standard.set(modelName, forKey: Self.selectedQwenModelKey)
+        preferenceDefaults.set(modelName, forKey: Self.selectedQwenModelKey)
         objectWillChange.send()
     }
 
     func markActiveASRProvider(_ provider: ASRProviderID?) {
         if let provider {
-            UserDefaults.standard.set(provider.rawValue, forKey: Self.activeASRProviderKey)
+            preferenceDefaults.set(provider.rawValue, forKey: Self.activeASRProviderKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.activeASRProviderKey)
+            preferenceDefaults.removeObject(forKey: Self.activeASRProviderKey)
         }
         objectWillChange.send()
     }
 
     func clearStaleActiveASRProviderOnLaunch() {
-        UserDefaults.standard.removeObject(forKey: Self.activeASRProviderKey)
+        preferenceDefaults.removeObject(forKey: Self.activeASRProviderKey)
         objectWillChange.send()
     }
 
     func migrateStoredASRProviderToAppleSpeechDefaultIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.appleSpeechASRDefaultMigrationKey) else { return }
+        guard !preferenceDefaults.bool(forKey: Self.appleSpeechASRDefaultMigrationKey) else { return }
         defer {
-            UserDefaults.standard.set(true, forKey: Self.appleSpeechASRDefaultMigrationKey)
+            preferenceDefaults.set(true, forKey: Self.appleSpeechASRDefaultMigrationKey)
         }
-        let rawValue = UserDefaults.standard.string(forKey: Self.selectedASRProviderKey)
+        let rawValue = preferenceDefaults.string(forKey: Self.selectedASRProviderKey)
         guard rawValue == ASRProviderID.localParakeet.rawValue else { return }
         setSelectedASRProvider(.appleSpeech)
     }
@@ -85,7 +86,7 @@ extension AppState {
 
     func migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: Bool) {
         guard qwenReady else { return }
-        let rawValue = UserDefaults.standard.string(forKey: Self.answerProviderModeKey)
+        let rawValue = preferenceDefaults.string(forKey: Self.answerProviderModeKey)
         let isUnset = rawValue == nil || rawValue == ""
         let isLegacyDeepSeek = rawValue == "deepSeek" || rawValue == AnswerProviderMode.deepSeekPrimary.rawValue
         guard isUnset || isLegacyDeepSeek else { return }
@@ -94,7 +95,7 @@ extension AppState {
 
     func runLaunchLocalQwenDefaultMigrationIfNeeded() {
         guard !isRunningUnderTestOrAutomation() else { return }
-        let rawValue = UserDefaults.standard.string(forKey: Self.answerProviderModeKey)
+        let rawValue = preferenceDefaults.string(forKey: Self.answerProviderModeKey)
         let shouldProbe = rawValue == nil ||
             rawValue == "" ||
             rawValue == "deepSeek" ||

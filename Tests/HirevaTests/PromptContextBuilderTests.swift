@@ -6,7 +6,7 @@ import Testing
 struct PromptContextBuilderTests {
     @Test
     func currentQuestionAppearsBeforeContextAndBackground() {
-        let question = makeQuestion("Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?")
+        let question = makeQuestion("Why did the diffusion model perform better than the autoregressive model?")
 
         let snapshot = PromptContextBuilder.generationRequestSnapshot(
             question: question,
@@ -52,7 +52,7 @@ struct PromptContextBuilderTests {
 
     @Test
     func previousTranscriptIsBackgroundAndCannotOverrideCurrentQuestion() {
-        let question = makeQuestion("Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?")
+        let question = makeQuestion("Why did the diffusion model perform better than the autoregressive model?")
 
         let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
@@ -74,7 +74,7 @@ struct PromptContextBuilderTests {
 
     @Test
     func diffusionAutoregressiveQuestionGetsModelComparisonGuidance() {
-        let question = makeQuestion("Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?")
+        let question = makeQuestion("Why did the diffusion model perform better than the autoregressive model?")
 
         let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
@@ -86,8 +86,8 @@ struct PromptContextBuilderTests {
         )
 
         #expect(snapshot.questionIntent == .modelComparison)
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("diffusion vs autoregressive vs flow-matching"))
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("smoother continuous actions"))
+        #expect(snapshot.prompt.localizedCaseInsensitiveContains("alternatives -> evaluation criteria -> evidence -> trade-off"))
+        #expect(snapshot.prompt.localizedCaseInsensitiveContains(question.questionText))
         #expect(snapshot.ragChunkIDs.contains("diffusion"))
         #expect(snapshot.ragChunkIDs.contains("fragility") == false)
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("pipeline was most fragile") == false)
@@ -114,8 +114,8 @@ struct PromptContextBuilderTests {
         #expect(snapshot.questionText == "Why do you want to join our team?")
         #expect(snapshot.promptPrimaryQuestion == "Why do you want to join our team?")
         #expect(snapshot.questionIntent == .whyRole)
-        #expect(snapshot.promptSnapshot.prompt.localizedCaseInsensitiveContains("role/team alignment"))
-        #expect(snapshot.promptSnapshot.prompt.localizedCaseInsensitiveContains("real-world deployment interest"))
+        #expect(snapshot.promptSnapshot.prompt.localizedCaseInsensitiveContains("target need -> supported candidate evidence -> motivation"))
+        #expect(snapshot.promptSnapshot.ragChunkIDs.contains("jd-role"))
         #expect(snapshot.promptSnapshot.prompt.localizedCaseInsensitiveContains("Why do you want"))
     }
 
@@ -133,9 +133,9 @@ struct PromptContextBuilderTests {
         )
 
         #expect(snapshot.questionIntent == .candidateQuestions)
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("ask the interviewer one question"))
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("do not answer about my background"))
-        #expect(snapshot.ragContextSnapshot.cvChunks.isEmpty)
+        #expect(snapshot.prompt.localizedCaseInsensitiveContains("concise questions about success, constraints, team, and evaluation"))
+        #expect(snapshot.ragContextSnapshot.cvChunks.count == 3)
+        #expect(snapshot.ragContextSnapshot.jobDescriptionChunks.map(\.id) == ["jd-role"])
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("MSc Robotics") == true)
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("generic self-introduction") == true)
     }

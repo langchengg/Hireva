@@ -338,13 +338,17 @@ struct ReleaseValidationTests {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "ReleasePersistence")
         let settingsRepository = try configuredSettingsRepository(database)
         let client = ReleaseValidationMockLLMClient()
-        client.stageAStreamDelayByNeedle["engineering team"] = 5_000_000_000
+        client.blockNextStageB(containing: "engineering team")
+        defer { client.releaseBlockedStageB() }
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: ReleaseValidationEmptyContextRetrievalService()
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            contextRetrievalService: ReleaseValidationEmptyContextRetrievalService(),
+            dialogueDefaults: nil
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.01
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
         var settings = appState.settings
@@ -353,7 +357,11 @@ struct ReleaseValidationTests {
         settings.automaticQuestionDetectionEnabled = true
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone, title: "Release persistence validation")
+        let session = try makeHermeticContextBoundSession(
+            appState: appState,
+            prefix: "release-persistence",
+            title: "Release persistence validation"
+        )
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -370,7 +378,8 @@ struct ReleaseValidationTests {
         ))
         try await waitUntil(timeout: 8.0, label: "question A active") {
             appState.activeQuestionID != nil &&
-                appState.currentSuggestion?.questionText == questionA
+                appState.currentSuggestion?.questionText == questionA &&
+                client.blockedStageBStarted
         }
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -380,8 +389,9 @@ struct ReleaseValidationTests {
             recognitionTaskID: "release-db-task-2",
             sequence: 2
         ))
+        client.releaseBlockedStageB()
 
-        try await waitUntil(timeout: 120.0, label: "A and B persisted") {
+        try await waitUntil(timeout: 15.0, label: "A and B persisted") {
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
             return rows.count == 2 &&
                 rows.map(\.questionText) == [questionA, questionB] &&
@@ -394,16 +404,8 @@ struct ReleaseValidationTests {
         #expect(initialRows.map(\.questionText) == [questionA, questionB])
         #expect(Set(initialRows.compactMap(\.detectedQuestionID)).count == 2)
         #expect(initialRows[0].stageBStatus == "queued_next_question")
-        let localSnapshotSources: Set<String> = [
-            "rag_template_soft_fallback",
-            "local_first_answer_fallback",
-            "local_superseded_question_snapshot",
-            "local_semantic_stage_b_fallback",
-            "local_incomplete_stream_fallback",
-            "semantic_intent_fallback"
-        ]
-        #expect(localSnapshotSources.contains(initialRows[0].finalVisibleSource ?? ""))
-        #expect(initialRows[0].finalVisibleSource != "deepseek_stream")
+        #expect(initialRows[0].finalVisibleSource == "deepseek_stream")
+        #expect(initialRows[0].isLocal == false)
         #expect(initialRows[0].stageBCompleted == false)
         #expect(initialRows[0].sayFirst.isEmpty == false)
         #expect(initialRows[1].finalVisibleSource == "deepseek_stream")
@@ -412,8 +414,11 @@ struct ReleaseValidationTests {
         let reloadedAppState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: ReleaseValidationEmptyContextRetrievalService()
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            contextRetrievalService: ReleaseValidationEmptyContextRetrievalService(),
+            dialogueDefaults: nil
         )
+        reloadedAppState.answerProviderModeOverride = .deepSeekPrimary
         reloadedAppState.currentSession = session
         reloadedAppState.refreshLiveSuggestionHistory(sessionID: session.id, latestQuestion: questionB)
         #expect(reloadedAppState.liveSuggestionHistory.map(\.questionText) == [questionA, questionB])
@@ -695,7 +700,25 @@ private struct ReleaseValidationEmptyContextRetrievalService: ContextRetrievalSe
 
 private final class ReleaseValidationMockLLMClient: LLMClientProtocol, @unchecked Sendable {
     let providerKind: LLMProviderKind = .deepSeek
-    var stageAStreamDelayByNeedle = [String: UInt64]()
+    private let blockedStageBGate = ReleaseValidationOneShotAsyncGate()
+    private let blockedStageBLock = NSLock()
+    private var blockedStageBNeedle: String?
+    private var blockedStageBStartedStorage = false
+
+    var blockedStageBStarted: Bool {
+        blockedStageBLock.withLock { blockedStageBStartedStorage }
+    }
+
+    func blockNextStageB(containing needle: String) {
+        blockedStageBLock.withLock {
+            blockedStageBNeedle = needle
+            blockedStageBStartedStorage = false
+        }
+    }
+
+    func releaseBlockedStageB() {
+        blockedStageBGate.open()
+    }
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
         LLMConnectionTestResult(success: true, message: "OK", latencyMS: 0, models: [])
@@ -732,9 +755,18 @@ private final class ReleaseValidationMockLLMClient: LLMClientProtocol, @unchecke
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
         let prompt = messages.map(\.content).joined(separator: "\n")
-        let delay = stageAStreamDelayByNeedle.first { prompt.localizedCaseInsensitiveContains($0.key) }?.value ?? 0
+        let isStageB = prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.")
+        let shouldBlockStageB = isStageB && blockedStageBLock.withLock {
+            guard let needle = blockedStageBNeedle,
+                  prompt.localizedCaseInsensitiveContains(needle) else {
+                return false
+            }
+            blockedStageBNeedle = nil
+            blockedStageBStartedStorage = true
+            return true
+        }
         let text: String
-        if prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.") {
+        if isStageB {
             text = """
             SAY_FIRST: \(Self.sayFirst(for: prompt))
             KEY_POINTS:
@@ -747,13 +779,18 @@ private final class ReleaseValidationMockLLMClient: LLMClientProtocol, @unchecke
             text = Self.sayFirst(for: prompt)
         }
         return AsyncThrowingStream { continuation in
-            Task {
-                if delay > 0 {
-                    try? await Task.sleep(nanoseconds: delay)
+            let task = Task {
+                if shouldBlockStageB {
+                    await blockedStageBGate.wait()
+                }
+                guard !Task.isCancelled else {
+                    continuation.finish()
+                    return
                 }
                 continuation.yield(text)
                 continuation.finish()
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -764,20 +801,55 @@ private final class ReleaseValidationMockLLMClient: LLMClientProtocol, @unchecke
     }
 
     private static func sayFirst(for prompt: String) -> String {
-        if prompt.localizedCaseInsensitiveContains("engineering team") ||
-            prompt.localizedCaseInsensitiveContains("good fit") {
-            return "I would ask the engineering team how they define success, ownership, debugging expectations, deployment cadence, and collaboration for robotics work."
+        let question = currentQuestion(from: prompt)
+        if question.localizedCaseInsensitiveContains("engineering team") ||
+            question.localizedCaseInsensitiveContains("good fit") {
+            return "How does the engineering team define success in the first three months? Which deployment constraints shape the delivery workflow? Who owns debugging and recovery when issues reach production?"
         }
-        if prompt.localizedCaseInsensitiveContains("one more month") ||
-            prompt.localizedCaseInsensitiveContains("improve your LeoRover") {
+        if question.localizedCaseInsensitiveContains("one more month") ||
+            question.localizedCaseInsensitiveContains("improve your LeoRover") {
             return "If I had one more month to improve LeoRover, I would strengthen evaluation, test difficult lighting and occlusion cases, improve perception robustness, and add safer recovery behavior."
         }
         return "I would keep the answer focused on the current interviewer question."
     }
 
+    private static func currentQuestion(from prompt: String) -> String {
+        guard let range = prompt.range(
+            of: #"CURRENT QUESTION TO ANSWER:\s*\n"([^"]+)""#,
+            options: [.regularExpression, .caseInsensitive]
+        ) else {
+            return prompt
+        }
+        return String(prompt[range])
+            .replacingOccurrences(of: "CURRENT QUESTION TO ANSWER:", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \n\"") )
+    }
+
     private static func jsonString(_ value: String) -> String {
         let data = try? JSONEncoder().encode(value)
         return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+}
+
+private final class ReleaseValidationOneShotAsyncGate: @unchecked Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let pair = AsyncStream<Void>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func wait() async {
+        for await _ in stream {
+            return
+        }
+    }
+
+    func open() {
+        continuation.yield(())
+        continuation.finish()
     }
 }
 

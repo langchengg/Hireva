@@ -330,6 +330,7 @@ final class MockDelayProvider: DelayProvider, @unchecked Sendable {
     private let lock = NSLock()
     private var delayCalledWithNanosecondsStorage: [UInt64] = []
     private var sleepDurationStorage: UInt64 = 0
+    private var sleepDurationOverridesStorage: [UInt64: UInt64] = [:]
 
     var delayCalledWithNanoseconds: [UInt64] {
         lock.withLock { delayCalledWithNanosecondsStorage }
@@ -340,10 +341,16 @@ final class MockDelayProvider: DelayProvider, @unchecked Sendable {
         set { lock.withLock { sleepDurationStorage = newValue } }
     }
 
+    func setSleepDuration(_ duration: UInt64, forRequestedNanoseconds requestedNanoseconds: UInt64) {
+        lock.withLock {
+            sleepDurationOverridesStorage[requestedNanoseconds] = duration
+        }
+    }
+
     func sleep(nanoseconds: UInt64) async throws {
         let duration = lock.withLock {
             delayCalledWithNanosecondsStorage.append(nanoseconds)
-            return sleepDurationStorage
+            return sleepDurationOverridesStorage[nanoseconds] ?? sleepDurationStorage
         }
         if duration > 0 {
             try await Task.sleep(nanoseconds: duration)
@@ -417,15 +424,27 @@ final class StreamingMockLLMClient: LLMClientProtocol {
                 return
             }
 
-            Task {
+            let producer = Task {
                 for token in tokens {
-                    try? await Task.sleep(nanoseconds: delay)
+                    do {
+                        try await Task.sleep(nanoseconds: delay)
+                    } catch {
+                        continuation.finish()
+                        return
+                    }
+                    guard !Task.isCancelled else {
+                        continuation.finish()
+                        return
+                    }
                     continuation.yield(token)
                 }
                 self.lock.withLock {
                     self.completedStreamCountStorage += 1
                 }
                 continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                producer.cancel()
             }
         }
     }
@@ -478,7 +497,7 @@ struct StreamingSoftFallbackTests {
         // Keep Stage A and Stage B streams distinct so the assertion verifies
         // late Stage A replacement, not scheduler-dependent section streaming.
         mockClient.streamTokenBatches = [
-            ["My ", "LeoRover ", "project ", "was ", "an ", "autonomous ", "object ", "retrieval ", "robot ", "using ", "ROS2, ", "YOLOv8, ", "navigation, ", "localisation, ", "and ", "manipulation ", "on ", "a ", "real ", "robot."],
+            ["My ", "LeoRover ", "project ", "was ", "an ", "autonomous ", "object ", "retrieval ", "robot ", "using ", "ROS2, ", "YOLOv8, ", "navigation, ", "localisation, ", "and ", "manipulation ", "on ", "a ", "real ", "robot. ", "The ", "result ", "was ", "a ", "complete ", "perception-to-action ", "pipeline, ", "and ", "I ", "learned ", "that ", "localisation ", "and ", "handoff ", "timing ", "determined ", "reliability."],
             []
         ]
         mockClient.streamDelayNS = 0
@@ -488,8 +507,8 @@ struct StreamingSoftFallbackTests {
         mockClient.chatResultContent = """
         {
             "strategy": "Detailed Strategy",
-            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
-            "key_points": ["ROS2, YOLOv8, navigation and localisation", "Manipulation on a real robot"],
+            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot. The result was a complete perception-to-action pipeline, and I learned that localisation and handoff timing determined reliability.",
+            "key_points": ["ROS2, YOLOv8, navigation and localisation", "Manipulation on a real robot", "Result and learning: handoff timing determined reliability"],
             "follow_up_ready": ["What is next?"],
             "confidence": 0.9,
             "caution": "None",
@@ -515,6 +534,7 @@ struct StreamingSoftFallbackTests {
             llmRouter: router,
             contextRetrievalService: SlowStreamingContextRetrievalService(delayNanoseconds: 30_000_000)
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         // Regression: a rebuilt app can stream through the router while the
         // published provider cache is not hydrated yet. Provider success must
         // still overwrite fallback ownership instead of preserving fallback
@@ -523,21 +543,17 @@ struct StreamingSoftFallbackTests {
         
         // Inject MockDelayProvider which fires the 1.5s timer immediately (5ms sleep)
         let mockDelay = MockDelayProvider()
-        mockDelay.sleepDuration = 5_000_000 // 5ms sleep
+        mockDelay.sleepDuration = 60_000_000_000
+        mockDelay.setSleepDuration(5_000_000, forRequestedNanoseconds: 1_500_000_000)
         appState.delayProvider = mockDelay
         appState.stageATimeoutSeconds = 60.0
         appState.lateDeepSeekReplacementWindowSeconds = 60.0
         // The production full-card watchdog is not part of this soft-fallback test.
         // Keep it from racing the deterministic mock Stage B completion under suite load.
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        
-        let session = InterviewSession(id: "sess-1", title: "Test", company: "C", role: "R", startedAt: Date(), endedAt: nil, mode: .microphone, createdAt: Date())
-        try await database.dbQueue.write { db in
-            try db.execute(
-                sql: "INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                arguments: [session.id, session.title, session.company, session.role, DateCoding.string(from: session.startedAt), nil, session.mode.rawValue, DateCoding.string(from: session.createdAt)]
-            )
-        }
+
+        let session = try makeContextBoundSession(appState, suffix: "stage-b-success")
+        defer { appState.cancelActiveGenerationForContextChange() }
         
         let question = DetectedQuestion(
             id: "q-1", sessionID: session.id, transcriptSegmentID: nil,
@@ -552,7 +568,7 @@ struct StreamingSoftFallbackTests {
         // Execute suggestion generation
         try await appState.generateSuggestion(for: question, session: session, transcript: question.questionText, autoGenerated: false)
         
-        try await waitUntil(timeout: 12.0) {
+        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
             appState.currentSuggestion?.stageBCompleted == true &&
             appState.currentSuggestion?.keyPoints.contains("ROS2, YOLOv8, navigation and localisation") == true
         }
@@ -574,7 +590,7 @@ struct StreamingSoftFallbackTests {
         #expect(finalCard.finalVisibleSource == "deepseek_stream")
         #expect(finalCard.isLocal == false)
 
-        try await waitUntil(timeout: 5.0) {
+        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
             (try? suggestionRepo.suggestions(sessionID: session.id).first?.finalVisibleSource) == "deepseek_stream"
         }
         let persisted = try #require(try suggestionRepo.suggestions(sessionID: session.id).first)
@@ -606,14 +622,18 @@ struct StreamingSoftFallbackTests {
             "perception, navigation, ",
             "localisation, and ",
             "manipulation on ",
-            "a real robot."
+            "a real robot. ",
+            "The result was a complete ",
+            "perception-to-action pipeline, ",
+            "and I learned that localisation ",
+            "and handoff timing determined reliability."
         ]
         mockClient.streamDelayNS = 0
         mockClient.chatResultContent = """
         {
             "strategy": "Project walkthrough",
-            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
-            "key_points": ["Autonomous object retrieval robot", "ROS2, YOLOv8, navigation, localisation, and manipulation"],
+            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot. The result was a complete perception-to-action pipeline, and I learned that localisation and handoff timing determined reliability.",
+            "key_points": ["Autonomous object retrieval robot", "ROS2, YOLOv8, navigation, localisation, and manipulation", "Result and learning: handoff timing determined reliability"],
             "follow_up_ready": ["I can describe how the modules handed off to each other."],
             "confidence": 0.9,
             "caution": "None",
@@ -634,6 +654,7 @@ struct StreamingSoftFallbackTests {
         }
         
         let appState = AppState(database: database, llmRouter: router)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         
         // Keep the fallback timer far outside full-suite scheduler delays so
         // this test verifies the fast DeepSeek stream, not fallback timing.
@@ -644,14 +665,9 @@ struct StreamingSoftFallbackTests {
         // The production watchdog is covered elsewhere. Keep this fixture focused
         // on proving that a fast stream prevents the soft fallback path.
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        
-        let session = InterviewSession(id: "sess-2", title: "Test", company: "C", role: "R", startedAt: Date(), endedAt: nil, mode: .microphone, createdAt: Date())
-        try await database.dbQueue.write { db in
-            try db.execute(
-                sql: "INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                arguments: [session.id, session.title, session.company, session.role, DateCoding.string(from: session.startedAt), nil, session.mode.rawValue, DateCoding.string(from: session.createdAt)]
-            )
-        }
+
+        let session = try makeContextBoundSession(appState, suffix: "fast-provider")
+        defer { appState.cancelActiveGenerationForContextChange() }
         
         let question = DetectedQuestion(
             id: "q-2", sessionID: session.id, transcriptSegmentID: nil,
@@ -665,7 +681,7 @@ struct StreamingSoftFallbackTests {
         
         try await appState.generateSuggestion(for: question, session: session, transcript: question.questionText, autoGenerated: false)
 
-        try await waitUntil(timeout: 60.0) {
+        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
             appState.currentSuggestion?.stageBCompleted == true
         }
         
@@ -701,18 +717,15 @@ struct StreamingSoftFallbackTests {
         }
         
         let appState = AppState(database: database, llmRouter: router)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         
         let mockDelay = MockDelayProvider()
-        mockDelay.sleepDuration = 5_000_000 // 5ms sleep (soft fallback fires first)
+        mockDelay.sleepDuration = 60_000_000_000
+        mockDelay.setSleepDuration(5_000_000, forRequestedNanoseconds: 1_500_000_000)
         appState.delayProvider = mockDelay
-        
-        let session = InterviewSession(id: "sess-3", title: "Test", company: "C", role: "R", startedAt: Date(), endedAt: nil, mode: .microphone, createdAt: Date())
-        try await database.dbQueue.write { db in
-            try db.execute(
-                sql: "INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                arguments: [session.id, session.title, session.company, session.role, DateCoding.string(from: session.startedAt), nil, session.mode.rawValue, DateCoding.string(from: session.createdAt)]
-            )
-        }
+
+        let session = try makeContextBoundSession(appState, suffix: "late-provider")
+        defer { appState.cancelActiveGenerationForContextChange() }
         
         let question = DetectedQuestion(
             id: "q-3", sessionID: session.id, transcriptSegmentID: nil,
@@ -726,10 +739,10 @@ struct StreamingSoftFallbackTests {
         
         // Run with generic answer
         try await appState.generateSuggestion(for: question, session: session, transcript: question.questionText, autoGenerated: false)
-        
-        let start = Date()
-        while appState.isExpandingSuggestionCard && Date().timeIntervalSince(start) < 3.0 {
-            try? await Task.sleep(nanoseconds: 10_000_000)
+
+        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
+            appState.currentSuggestion?.softFallbackUsed == true &&
+                mockClient.completedStreamCount >= 2
         }
         
         let cardGeneric = appState.currentSuggestion!
@@ -741,21 +754,34 @@ struct StreamingSoftFallbackTests {
         
         // Reset and test user interaction path
         mockClient.streamTokens = ["Highly ", "specific ", "robotics ", "engineering ", "neural ", "network ", "answer ", "about ", "autonomous ", "navigation."] // highly specific
-        
-        // Simulate user interacted in flight (after 10ms, while streaming is active)
-        Task {
-            try? await Task.sleep(nanoseconds: 10_000_000)
-            await MainActor.run {
-                appState.userInteractedWithCard = true
-            }
-        }
+        let interactedQuestion = DetectedQuestion(
+            id: "q-3-interacted", sessionID: session.id, transcriptSegmentID: nil,
+            questionText: question.questionText, intent: .technical,
+            answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
+            questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
+        )
+        try suggestionRepo.saveDetectedQuestion(interactedQuestion)
         
         // Execute again
-        try await appState.generateSuggestion(for: question, session: session, transcript: question.questionText, autoGenerated: false)
-        
-        let start2 = Date()
-        while appState.isExpandingSuggestionCard && Date().timeIntervalSince(start2) < 3.0 {
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        let completedStreamsBeforeSecondRun = mockClient.completedStreamCount
+        let secondGenerationTask = Task { @MainActor in
+            try await appState.generateSuggestion(
+                for: interactedQuestion,
+                session: session,
+                transcript: interactedQuestion.questionText,
+                autoGenerated: false
+            )
+        }
+        defer { secondGenerationTask.cancel() }
+
+        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
+            appState.softFallbackUsed == true &&
+                appState.currentSuggestion?.sayFirstSource == "rag_template_soft_fallback"
+        }
+        appState.userInteractedWithCard = true
+        try await secondGenerationTask.value
+        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
+            mockClient.completedStreamCount >= completedStreamsBeforeSecondRun + 2
         }
         
         let cardInteracted = appState.currentSuggestion!
@@ -766,7 +792,12 @@ struct StreamingSoftFallbackTests {
         #expect(cardInteracted.finalVisibleSource == "rag_template_soft_fallback")
     }
 
-    private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor @Sendable () -> Bool) async throws {
+    private func waitUntil(
+        timeout: TimeInterval,
+        appState: AppState,
+        mockClient: StreamingMockLLMClient,
+        predicate: @escaping @MainActor @Sendable () -> Bool
+    ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if await MainActor.run(body: predicate) {
@@ -774,11 +805,70 @@ struct StreamingSoftFallbackTests {
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
+        let card = await MainActor.run { appState.currentSuggestion }
+        let diagnostic = await MainActor.run {
+            [
+                "source=\(card?.sayFirstSource ?? "nil")",
+                "finalSource=\(card?.finalVisibleSource ?? "nil")",
+                "stageB=\(card?.stageBStatus ?? "nil")/\(card?.stageBCompleted == true)",
+                "softFallback=\(card?.softFallbackUsed == true)",
+                "keyPoints=\(card?.keyPoints.count ?? 0)",
+                "uiState=\(appState.generationUIState.displayName)",
+                "alignment=\(appState.lastAlignmentError)",
+                "tasks=\(appState.activeTaskSummary)",
+                "completedStreams=\(mockClient.completedStreamCount)"
+            ].joined(separator: " | ")
+        }
         throw NSError(
             domain: "StreamingSoftFallbackTests",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for streaming soft fallback state."]
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for streaming soft fallback state. \(diagnostic)"]
         )
+    }
+
+    @MainActor
+    private func makeContextBoundSession(_ appState: AppState, suffix: String) throws -> InterviewSession {
+        let profileID = "streaming-profile-\(suffix)"
+        let statements = [
+            "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
+            "I used ROS2, YOLOv8, navigation, localisation, and manipulation for autonomous object retrieval.",
+            "I developed a highly specific robotics engineering neural network approach for autonomous navigation.",
+            "I have software engineering experience supporting robotics integration.",
+            "The result was a complete perception-to-action pipeline on a real robot, and I learned that localisation and handoff timing were the main reliability challenges."
+        ]
+        let evidence = statements.enumerated().map { index, statement in
+            ProfileEvidence(
+                id: "streaming-\(suffix)-evidence-\(index)",
+                statement: statement,
+                sourceDocumentID: "streaming-fixture",
+                sourceChunkID: "streaming-\(suffix)-chunk-\(index)",
+                sourceSpan: statement,
+                confidence: 1,
+                evidenceType: index == 0 || index == 4 ? .project : .experience,
+                explicitness: .explicit
+            )
+        }
+        let profile = CandidateProfile(
+            id: profileID,
+            displayName: "Synthetic Streaming Candidate",
+            sourceDocumentIDs: ["streaming-fixture"],
+            education: [],
+            experience: Array(evidence[1...3]),
+            projects: [evidence[0], evidence[4]],
+            skills: [],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try appState.interviewContextRepository.saveCandidateProfile(profile)
+        appState.refreshAll()
+        appState.selectCandidateProfile(profileID)
+        appState.selectInterviewDomain(.roboticsResearch)
+        return try appState.createContextBoundSession(mode: .microphone, title: "Streaming Soft Fallback")
     }
 }
 

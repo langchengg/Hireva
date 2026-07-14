@@ -22,6 +22,9 @@ final class MockTranscriptionService: TranscriptionProvider {
     let providerName = "Mock Interview Mode"
     private var continuation: AsyncStream<TranscriptSegment>.Continuation?
     private var currentSessionID: String?
+    var startBarrier: (() async -> Void)?
+    private(set) var startCallCount = 0
+    private(set) var stopCallCount = 0
 
     // Allows user to manually select a speaker role for mock inputs
     var selectedMockSpeaker: SpeakerRole = .interviewer
@@ -31,6 +34,8 @@ final class MockTranscriptionService: TranscriptionProvider {
     }
 
     func start(sessionID: String) async throws {
+        startCallCount += 1
+        await startBarrier?()
         currentSessionID = sessionID
     }
 
@@ -60,6 +65,7 @@ final class MockTranscriptionService: TranscriptionProvider {
     }
 
     func stop() {
+        stopCallCount += 1
         currentSessionID = nil
     }
 }

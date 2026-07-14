@@ -128,8 +128,14 @@ public final class AudioDeviceManager: ObservableObject {
             let inputID = self.getDefaultInputDeviceID()
             let outputID = self.getDefaultOutputDeviceID()
 
-            let inputName = self.getDeviceName(deviceID: inputID) ?? "Unknown Input"
-            let outputName = self.getDeviceName(deviceID: outputID) ?? "Unknown Output"
+            let inputName = Self.resolvedDeviceName(
+                self.getDeviceName(deviceID: inputID),
+                fallback: "Unknown Input"
+            )
+            let outputName = Self.resolvedDeviceName(
+                self.getDeviceName(deviceID: outputID),
+                fallback: "Unknown Output"
+            )
 
             let inputTransport = self.getDeviceTransportType(deviceID: inputID)
             let outputTransport = self.getDeviceTransportType(deviceID: outputID)
@@ -138,7 +144,10 @@ public final class AudioDeviceManager: ObservableObject {
             let isOutputBluetoothOrHeadphone = self.isBluetoothOrHeadphone(transportType: outputTransport, deviceName: outputName)
 
             let isUsingHeadphonesOrBluetooth = isInputBluetoothOrHeadphone || isOutputBluetoothOrHeadphone
-            let routeDescription = "Input: \(inputName), Output: \(outputName)"
+            let routeDescription = Self.makeRouteDescription(
+                inputName: inputName,
+                outputName: outputName
+            )
 
             Task { @MainActor in
                 self.currentInputDeviceID = String(inputID)
@@ -149,6 +158,15 @@ public final class AudioDeviceManager: ObservableObject {
                 self.routeDescription = routeDescription
             }
         }
+    }
+
+    static func resolvedDeviceName(_ name: String?, fallback: String) -> String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    static func makeRouteDescription(inputName: String, outputName: String) -> String {
+        "Input: \(inputName), Output: \(outputName)"
     }
 
     public func listAvailableDevices() -> [AudioDeviceInfo] {

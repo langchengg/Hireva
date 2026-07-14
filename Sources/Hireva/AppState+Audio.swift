@@ -34,9 +34,20 @@ extension AppState {
         detectionDebounceTask?.cancel()
         transcriptionTask?.cancel()
 
-        Task { [weak self] in
+        let previousStartupTask = captureStartupTask
+        previousStartupTask?.cancel()
+        let previousTeardownTask = captureTeardownTask
+        let startupID = UUID()
+        captureStartupID = startupID
+        captureStartupTask = Task { [weak self] in
+            await previousStartupTask?.value
+            await previousTeardownTask?.value
             guard let self else { return }
-            await self.startListeningAsync(mode: mode)
+            guard self.captureStartupIsCurrent(startupID) else { return }
+            await self.startListeningAsync(mode: mode, startupID: startupID)
+            guard self.captureStartupID == startupID else { return }
+            self.captureStartupID = nil
+            self.captureStartupTask = nil
         }
     }
 
@@ -48,7 +59,8 @@ extension AppState {
     /// System Audio Only must not request microphone or speech-recognition
     /// permission. Microphone Only must not start system audio capture. Mic +
     /// System starts both streams through AppleSpeechTranscriptionService.
-    private func startListeningAsync(mode: InterviewMode) async {
+    private func startListeningAsync(mode: InterviewMode, startupID: UUID) async {
+        guard captureStartupIsCurrent(startupID) else { return }
         currentCaptureRuntimeState = .starting
         self.stopReason = nil
         self.lastCaptureStartedAt = Date()
@@ -83,6 +95,7 @@ extension AppState {
                     var microphone = micStatusBefore
                     if microphone == .notDetermined {
                         microphone = await permissionService.requestMicrophonePermission()
+                        guard captureStartupIsCurrent(startupID) else { return }
                         refreshPermissions()
                     } else if microphone == .authorized {
                         // Success immediately, do not prompt/error
@@ -106,6 +119,7 @@ extension AppState {
                     var speech = permissionService.speechStatus()
                     if speech == .notDetermined {
                         speech = await permissionService.requestSpeechRecognition()
+                        guard captureStartupIsCurrent(startupID) else { return }
                         refreshPermissions()
                     }
 
@@ -124,6 +138,7 @@ extension AppState {
 
                 if systemAudioRequired {
                     let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                    guard captureStartupIsCurrent(startupID) else { return }
                     let state = determineProbeState(result: probeResult)
 
                     self.systemAudioProbeResult = probeResult
@@ -135,8 +150,10 @@ extension AppState {
                         if !probeResult.preflightGranted {
                             permissionService.requestScreenRecording()
                             try? await Task.sleep(for: .milliseconds(1000))
+                            guard captureStartupIsCurrent(startupID) else { return }
 
                             let finalProbe = await ScreenSystemAudioPermissionProbe.shared.probe()
+                            guard captureStartupIsCurrent(startupID) else { return }
                             let finalState = determineProbeState(result: finalProbe)
                             self.systemAudioProbeResult = finalProbe
                             self.systemAudioPermissionState = finalState
@@ -208,6 +225,7 @@ extension AppState {
                 refreshPermissions()
             }
 
+            guard captureStartupIsCurrent(startupID) else { return }
             let reusableSession: InterviewSession? = {
                 guard let currentSession else { return nil }
                 let persistedSession = try? sessionRepository.session(id: currentSession.id)
@@ -231,6 +249,10 @@ extension AppState {
                 let provider = mockTranscriptionService
                 activeTranscriptionProvider = provider
                 try await provider.start(sessionID: session.id)
+                guard captureStartupIsCurrent(startupID) else {
+                    provider.stop()
+                    return
+                }
                 liveState = .listening
                 showFloatingAssistant()
                 consumeSegments(from: provider)
@@ -256,6 +278,10 @@ extension AppState {
                         sessionID: session.id,
                         captureMode: captureMode
                     ))
+                    guard captureStartupIsCurrent(startupID) else {
+                        await provider.stopTranscription()
+                        return
+                    }
                     self.appleSpeechService = nil
                     self.activeTranscriptionProvider = nil
                     self.activeASRProviderRuntime = provider
@@ -313,6 +339,10 @@ extension AppState {
                 // capture mode. It is responsible for not creating disabled
                 // streams for System Audio Only or Microphone Only.
                 try await speechService.start(sessionID: session.id, captureMode: captureMode)
+                guard captureStartupIsCurrent(startupID) else {
+                    speechService.stop()
+                    return
+                }
                 ownsSystemAudioCaptureRuntime = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
 
                 transcriptionTask = Task { [weak self] in
@@ -338,6 +368,7 @@ extension AppState {
                 startAudioSignalMonitoring()
             }
         } catch {
+            guard captureStartupIsCurrent(startupID) else { return }
             markActiveASRProvider(nil)
             ownsSystemAudioCaptureRuntime = false
             let message = userFacing(error)
@@ -346,6 +377,30 @@ extension AppState {
             addCaptureEvent(name: "startListeningFailed", stateBefore: "starting", stateAfter: "error", reason: message)
             failAction(ActionID.startInterview, title: "Could not start", message: message)
             showError(message)
+        }
+    }
+
+    private func captureStartupIsCurrent(_ startupID: UUID) -> Bool {
+        captureStartupID == startupID && !Task.isCancelled
+    }
+
+    @discardableResult
+    private func invalidateCaptureStartup() -> Task<Void, Never>? {
+        let startupTask = captureStartupTask
+        captureStartupID = nil
+        startupTask?.cancel()
+        return startupTask
+    }
+
+    private func queueCaptureTeardown(
+        after startupTask: Task<Void, Never>?,
+        provider: (any ASRProvider)?
+    ) {
+        let previousTeardownTask = captureTeardownTask
+        captureTeardownTask = Task {
+            await startupTask?.value
+            await previousTeardownTask?.value
+            await provider?.stopTranscription()
         }
     }
 
@@ -429,6 +484,14 @@ extension AppState {
 
     // MARK: - Stop And Cleanup
 
+    func handleApplicationWillTerminate() {
+        let sessionIsOpen = currentSession?.endedAt == nil
+        guard sessionIsOpen || captureStartupTask != nil || activeTranscriptionProvider != nil || activeASRProviderRuntime != nil else {
+            return
+        }
+        stopListening(reason: .applicationTerminated)
+    }
+
     /// Stops continuous capture and cancels in-flight detection/generation tasks
     /// that should not survive a user stop.
     ///
@@ -442,6 +505,10 @@ extension AppState {
         line: Int = #line,
         function: String = #function
     ) {
+        let startupTask = invalidateCaptureStartup()
+        if isActionLoading(ActionID.startInterview) {
+            clearActionFeedback(ActionID.startInterview)
+        }
         if reason == .userRequested {
             beginAction(ActionID.stopListening, title: "Stopping", message: "Stopping audio capture and preserving the current answer...")
         }
@@ -481,7 +548,7 @@ extension AppState {
         activeTranscriptionProvider = nil
         let asrProviderRuntime = activeASRProviderRuntime
         activeASRProviderRuntime = nil
-        Task { await asrProviderRuntime?.stopTranscription() }
+        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime)
         markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
@@ -564,6 +631,7 @@ extension AppState {
     /// Clears the current live workspace after capture has been stopped or when
     /// the user intentionally resets the interview view.
     func clearLiveSession() {
+        let startupTask = invalidateCaptureStartup()
         beginAction(ActionID.clearLiveSession, title: "Clearing session", message: "Removing current transcript, question, and answer from the live workspace...")
         let stateBefore = currentCaptureRuntimeState.displayName
         cancelStageBTask()
@@ -578,7 +646,7 @@ extension AppState {
         activeTranscriptionProvider = nil
         let asrProviderRuntime = activeASRProviderRuntime
         activeASRProviderRuntime = nil
-        Task { await asrProviderRuntime?.stopTranscription() }
+        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime)
         markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
@@ -708,6 +776,7 @@ extension AppState {
         line: Int = #line,
         function: String = #function
     ) {
+        let startupTask = invalidateCaptureStartup()
         let stateBefore = currentCaptureRuntimeState.displayName
         currentCaptureRuntimeState = .stopping
         self.stopReason = reason
@@ -736,7 +805,7 @@ extension AppState {
         activeTranscriptionProvider = nil
         let asrProviderRuntime = activeASRProviderRuntime
         activeASRProviderRuntime = nil
-        Task { await asrProviderRuntime?.stopTranscription() }
+        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime)
         markActiveASRProvider(nil)
 
         appleSpeechService?.stop()

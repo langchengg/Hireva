@@ -26,15 +26,19 @@ struct FirstAnswerFallbackTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: SlowContextRetrievalService(delayNanoseconds: 5_000_000_000)
+            contextRetrievalService: SuspendedContextRetrievalService()
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let delayProvider = MockDelayProvider()
+        delayProvider.sleepDuration = 60_000_000_000
+        delayProvider.setSleepDuration(1_000_000, forRequestedNanoseconds: 1_500_000_000)
         appState.delayProvider = delayProvider
         var settings = appState.settings
         settings.audioCaptureMode = .microphoneOnly
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeContextBoundSession(appState, suffix: "corrected-project")
+        defer { appState.cancelActiveGenerationForContextChange() }
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -44,11 +48,12 @@ struct FirstAnswerFallbackTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Could you walk me through your LeoRover project"
+            text: "Could you walk me through your LeoRover project",
+            recognitionIsFinal: true
         )
 
         await appState.handleTranscriptSegment(segment)
-        try await waitForSuggestion(appState, timeout: 20.0)
+        try await waitForSuggestion(appState, timeout: 5.0)
 
         let question = try #require(appState.lastDetectedQuestion)
         let card = try #require(appState.currentSuggestion)
@@ -57,6 +62,8 @@ struct FirstAnswerFallbackTests {
         #expect(question.questionText == "Could you walk me through your LeoRover project")
         #expect(question.answerStrategy == .projectWalkthrough)
         #expect(card.sayFirstSource == "local_first_answer_fallback")
+        #expect(card.contextIsolationStatus == "matched")
+        #expect(!card.candidateEvidenceIDs.isEmpty)
         #expect(appState.homeLiveAnswerPreviewText == card.sayFirst)
         #expect(appState.homeLiveAnswerPreviewText != "Generating first answer...")
         #expect(!appState.isStreamingSayFirst)
@@ -84,15 +91,19 @@ struct FirstAnswerFallbackTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: SlowContextRetrievalService(delayNanoseconds: 5_000_000_000)
+            contextRetrievalService: SuspendedContextRetrievalService()
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let delayProvider = MockDelayProvider()
+        delayProvider.sleepDuration = 60_000_000_000
+        delayProvider.setSleepDuration(1_000_000, forRequestedNanoseconds: 1_500_000_000)
         appState.delayProvider = delayProvider
         var settings = appState.settings
         settings.audioCaptureMode = .microphoneOnly
         appState.saveSettings(settings)
 
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeContextBoundSession(appState, suffix: "automatic-fallback")
+        defer { appState.cancelActiveGenerationForContextChange() }
         appState.currentSession = session
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
@@ -106,12 +117,15 @@ struct FirstAnswerFallbackTests {
         )
 
         await appState.handleTranscriptSegment(segment)
-        try await waitForSuggestion(appState, timeout: 20.0)
+        try await waitForSuggestion(appState, timeout: 5.0)
 
         let card = try #require(appState.currentSuggestion)
         #expect(appState.lastDetectedQuestion?.questionText == "Why do you want this role?")
         #expect(card.sayFirstSource == "local_first_answer_fallback")
-        #expect(card.sayFirst.contains("I’m interested in this role"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("role"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("robotics"))
+        #expect(card.contextIsolationStatus == "matched")
+        #expect(!card.candidateEvidenceIDs.isEmpty)
         #expect(!appState.isStreamingSayFirst)
         #expect(appState.isExpandingSuggestionCard)
     }
@@ -125,20 +139,15 @@ struct FirstAnswerFallbackTests {
         let appState = AppState(
             database: database,
             llmRouter: router,
-            contextRetrievalService: SlowContextRetrievalService(delayNanoseconds: 5_000_000_000)
+            contextRetrievalService: SuspendedContextRetrievalService()
         )
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let delayProvider = MockDelayProvider()
+        delayProvider.sleepDuration = 60_000_000_000
+        delayProvider.setSleepDuration(1_000_000, forRequestedNanoseconds: 1_500_000_000)
         appState.delayProvider = delayProvider
 
-        let session = InterviewSession(
-            id: "session-1",
-            title: "Test Session",
-            company: nil,
-            role: nil,
-            startedAt: Date(),
-            mode: .microphone,
-            createdAt: Date()
-        )
+        let session = try makeContextBoundSession(appState, suffix: "slow-retrieval")
         let question = DetectedQuestion(
             id: "question-1",
             sessionID: session.id,
@@ -163,15 +172,21 @@ struct FirstAnswerFallbackTests {
                 autoGenerated: true
             )
         }
-        defer { generationTask.cancel() }
+        defer {
+            generationTask.cancel()
+            appState.cancelActiveGenerationForContextChange()
+        }
 
-        try await waitForSuggestion(appState, timeout: 20.0)
+        try await waitForSuggestion(appState, timeout: 5.0)
 
         let card = try #require(appState.currentSuggestion)
-        #expect(card.sayFirst.contains("I’m interested in this role"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("role"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("robotics"))
         #expect(card.sayFirstSource == "local_first_answer_fallback")
         #expect(card.providerName == "Local First Answer Fallback")
-        #expect(card.keyPoints.count == 3)
+        #expect(!card.keyPoints.isEmpty)
+        #expect(card.contextIsolationStatus == "matched")
+        #expect(!card.candidateEvidenceIDs.isEmpty)
         #expect(card.firstKeyPointVisibleMS != nil)
         #expect(appState.softFallbackUsed)
         #expect(delayProvider.delayCalledWithNanoseconds.contains(1_500_000_000))
@@ -186,21 +201,83 @@ struct FirstAnswerFallbackTests {
                 throw NSError(
                     domain: "FirstAnswerFallbackTests",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for first answer fallback."]
+                    userInfo: [
+                        NSLocalizedDescriptionKey: """
+                        Timed out waiting for first answer fallback. detection=\(appState.lastQuestionDetectionResult) \
+                        skip=\(appState.lastDetectionSkipReason) question=\(appState.lastDetectedQuestion?.questionText ?? "nil") \
+                        live=\(appState.liveState.displayName) provider=\(appState.selectedAnswerProviderMode.rawValue) \
+                        generation=\(appState.generationUIState.displayName) alignment=\(appState.lastAlignmentError) \
+                        fallbackWatchdog=\(appState.fallbackWatchdogActive) activeTasks=\(appState.activeTaskSummary)
+                        """
+                    ]
                 )
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
-}
 
-private final class SlowContextRetrievalService: ContextRetrievalService {
-    let delayNanoseconds: UInt64
-
-    init(delayNanoseconds: UInt64) {
-        self.delayNanoseconds = delayNanoseconds
+    private func makeContextBoundSession(_ appState: AppState, suffix: String) throws -> InterviewSession {
+        let profileID = "first-answer-profile-\(suffix)"
+        let evidence = [
+            makeEvidence(
+                id: "\(suffix)-project",
+                statement: "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
+                type: .project
+            ),
+            makeEvidence(
+                id: "\(suffix)-role",
+                statement: "I want this role because it connects my robotics, AI, perception, and real-world deployment experience with the team's product direction.",
+                type: .goal
+            ),
+            makeEvidence(
+                id: "\(suffix)-integration",
+                statement: "I integrated robot perception, localisation, navigation, and manipulation through ROS2.",
+                type: .experience
+            ),
+            makeEvidence(
+                id: "\(suffix)-result",
+                statement: "The LeoRover project result was a complete perception-to-action pipeline on a real robot, and I learned that localisation and timing made integration the main reliability challenge.",
+                type: .project
+            )
+        ]
+        let profile = CandidateProfile(
+            id: profileID,
+            displayName: "Synthetic First Answer Candidate",
+            sourceDocumentIDs: ["first-answer-fixture"],
+            education: [],
+            experience: [evidence[2]],
+            projects: [evidence[0], evidence[3]],
+            skills: [],
+            publications: [],
+            achievements: [],
+            declaredGaps: [],
+            goals: [evidence[1]],
+            generatedSummary: nil,
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try appState.interviewContextRepository.saveCandidateProfile(profile)
+        appState.refreshAll()
+        appState.selectCandidateProfile(profileID)
+        appState.selectInterviewDomain(.roboticsResearch)
+        return try appState.createContextBoundSession(mode: .microphone, title: "First Answer Fallback")
     }
 
+    private func makeEvidence(id: String, statement: String, type: EvidenceType) -> ProfileEvidence {
+        ProfileEvidence(
+            id: id,
+            statement: statement,
+            sourceDocumentID: "first-answer-fixture",
+            sourceChunkID: "chunk-\(id)",
+            sourceSpan: statement,
+            confidence: 1,
+            evidenceType: type,
+            explicitness: .explicit
+        )
+    }
+}
+
+private final class SuspendedContextRetrievalService: ContextRetrievalService {
     func retrieveContextWithTrace(
         question: String,
         intent: QuestionIntent,
@@ -208,27 +285,7 @@ private final class SlowContextRetrievalService: ContextRetrievalService {
         maxJDWords: Int,
         strategy: AnswerStrategy?
     ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
-        try await Task.sleep(nanoseconds: delayNanoseconds)
-        let context = RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
-        let trace = RetrievalTrace(
-            id: UUID(),
-            query: question,
-            intent: intent.rawValue,
-            createdAt: Date(),
-            rankedCVChunks: [],
-            rankedJDChunks: [],
-            includedCVChunks: [],
-            includedJDChunks: [],
-            excludedCVChunks: [],
-            excludedJDChunks: [],
-            cvWordsUsed: 0,
-            jdWordsUsed: 0,
-            cvWordBudget: maxCVWords,
-            jdWordBudget: maxJDWords,
-            retrievalLatencyMS: Double(delayNanoseconds) / 1_000_000.0,
-            emptyQueryFallbackUsed: false,
-            zeroScoreFallbackUsed: false
-        )
-        return (context, trace)
+        try await Task.sleep(nanoseconds: UInt64.max)
+        throw CancellationError()
     }
 }

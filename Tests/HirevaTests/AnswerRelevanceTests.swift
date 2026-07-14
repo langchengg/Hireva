@@ -14,8 +14,8 @@ struct AnswerRelevanceTests {
                 question: question,
                 context: context,
                 transcriptContext: "Interviewer: previous unrelated question about background.",
-                cvSummary: "Candidate has MSc Robotics, LeoRover, VLA and ROS2 experience.",
-                jdSummary: "Robotics software team building deployed perception systems.",
+                cvSummary: "Candidate has platform delivery and model evaluation experience.",
+                jdSummary: "Engineering team building reliable production systems.",
                 stage: .firstAnswer
             )
 
@@ -32,21 +32,70 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func intentSpecificFallbacksDirectlyAnswerNineInterviewQuestions() {
+    func ungroundedLegacyFallbacksStayEmptyForSpecificInterviewIntents() {
         for fixture in Self.fixtures {
             let question = makeQuestion(fixture.question)
             let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-            let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+
+            #expect(fallback.sayFirst.isEmpty)
+            #expect(fallback.keyPoints.isEmpty)
+        }
+    }
+
+    @Test
+    func supportedFixtureAnswersRemainAlignedForSpecificInterviewIntents() {
+        for fixture in Self.fixtures {
+            let combined = fixture.answer
             let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
                 questionText: fixture.question,
-                answerText: combined
+                answerText: combined,
+                sayFirst: combined,
+                stageBCompleted: true
             )
 
-            #expect(alignment.verdict == .aligned || alignment.verdict == .weaklyAligned)
+            #expect(alignment.verdict == .aligned, "\(alignment.reason) for \(fixture.question)")
             for expected in fixture.mustContain {
                 #expect(combined.localizedCaseInsensitiveContains(expected))
             }
         }
+    }
+
+    @Test
+    func runtimeASRVariantsRouteToSpecificAnswerIntents() {
+        #expect(AnswerRelevancePolicy.intent(
+            for: "Why might a diffusion based policy be more stable than an auto regressive policy?"
+        ) == .modelComparison)
+        #expect(AnswerRelevancePolicy.intent(
+            for: "Could you explain your migration project from end-to-end?"
+        ) == .projectWalkthrough)
+        #expect(AnswerRelevancePolicy.intent(
+            for: "When production execution started, which part of the pipeline was most fragile?"
+        ) == .technicalChallenge)
+    }
+
+    @Test
+    func profileIndependentInterviewerQuestionFallbackDoesNotRequireCandidateFacts() {
+        let snapshotID = "profile-independent-snapshot"
+        let result = DynamicInterviewContextEngine().profileSafeFallback(
+            question: "What would you ask the engineering team to decide whether the role is a good fit?",
+            domainProfile: InterviewDomainProfile.profile(for: .general),
+            candidateProfile: nil,
+            opportunityContext: nil,
+            contextSnapshotID: snapshotID
+        )
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "What would you ask the engineering team to decide whether the role is a good fit?",
+            answerText: result.answer,
+            sayFirst: result.answer,
+            stageBCompleted: true
+        )
+
+        #expect(result.status == GroundedAnswerStatus.grounded)
+        #expect(result.contextSnapshotID == snapshotID)
+        #expect(result.candidateEvidenceIDs.isEmpty)
+        #expect(result.unsupportedClaims.isEmpty)
+        #expect(result.answer.filter { $0 == "?" }.count == 3)
+        #expect(alignment.verdict == AnswerAlignmentVerdict.aligned)
     }
 
     @Test
@@ -57,28 +106,28 @@ struct AnswerRelevanceTests {
             context,
             intent: .candidateQuestions
         )
-        #expect(candidateQuestionContext.cvChunks.isEmpty)
-        #expect(candidateQuestionContext.promptText.localizedCaseInsensitiveContains("MSc Robotics") == false)
+        #expect(candidateQuestionContext.cvChunks.count == 3)
+        #expect(candidateQuestionContext.jobDescriptionChunks.map(\.id) == ["jd-evaluation", "jd-team"])
 
         let skillContext = AnswerRelevancePolicy.filterContext(
             context,
             intent: .skillComfort
         )
-        #expect(skillContext.promptText.localizedCaseInsensitiveContains("Python"))
-        #expect(skillContext.promptText.localizedCaseInsensitiveContains("ROS2"))
-        #expect(skillContext.promptText.localizedCaseInsensitiveContains("C++"))
+        #expect(skillContext.promptText.localizedCaseInsensitiveContains("SQL"))
+        #expect(skillContext.promptText.localizedCaseInsensitiveContains("API"))
 
         let modelContext = AnswerRelevancePolicy.filterContext(
             context,
             intent: .modelComparison
         )
-        #expect(modelContext.promptText.localizedCaseInsensitiveContains("diffusion"))
-        #expect(modelContext.promptText.localizedCaseInsensitiveContains("autoregressive"))
-        #expect(modelContext.promptText.localizedCaseInsensitiveContains("flow-matching"))
+        #expect(modelContext.cvChunks.map(\.id) == ["model-comparison"])
+        #expect(modelContext.promptText.localizedCaseInsensitiveContains("transformer"))
+        #expect(modelContext.promptText.localizedCaseInsensitiveContains("regression"))
+        #expect(modelContext.promptText.localizedCaseInsensitiveContains("incident") == false)
     }
 
     @Test
-    func semanticGuardRejectsMismatchedProviderAnswerAndPreservesFallback() throws {
+    func semanticGuardRejectsMismatchedProviderAnswerAndPreservesAcceptedCard() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceGuard")
         let appState = AppState(database: database)
         let session = try appState.sessionRepository.createSession(mode: .mock)
@@ -86,14 +135,13 @@ struct AnswerRelevanceTests {
         try appState.suggestionRepository.saveDetectedQuestion(question)
         appState.setActiveQuestionForTesting(question)
 
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        var fallbackCard = SuggestionCard(
+        var acceptedCard = SuggestionCard(
             id: "candidate-question-fallback",
             sessionID: session.id,
             questionID: question.id,
-            strategy: "Local intent fallback",
-            sayFirst: fallback.sayFirst,
-            keyPoints: fallback.keyPoints,
+            strategy: "Context-grounded provider answer",
+            sayFirst: "What does success look like for this team in the first six months?",
+            keyPoints: [],
             followUpReady: [],
             confidence: 0.7,
             caution: nil,
@@ -104,65 +152,61 @@ struct AnswerRelevanceTests {
             rawJSON: nil,
             createdAt: Date()
         )
-        fallbackCard.questionText = question.questionText
-        #expect(appState.applySuggestionIfAlignedForTesting(fallbackCard, question: question, generationID: nil))
+        acceptedCard.questionText = question.questionText
+        #expect(appState.applySuggestionIfAlignedForTesting(acceptedCard, question: question, generationID: nil))
 
-        var wrongProviderCard = fallbackCard
+        var wrongProviderCard = acceptedCard
         wrongProviderCard.id = "wrong-provider-card"
-        wrongProviderCard.sayFirst = "I am currently studying MSc Robotics at the University of Manchester, with a computer science background and robotics experience."
-        wrongProviderCard.keyPoints = ["MSc Robotics", "Computer science background"]
+        wrongProviderCard.sayFirst = "I have a software engineering background and built the Atlas migration service."
+        wrongProviderCard.keyPoints = ["Software engineering", "Atlas migration"]
         wrongProviderCard.providerName = "DeepSeek"
         wrongProviderCard.sayFirstSource = "deepseek_stream"
 
         #expect(appState.applySuggestionIfAlignedForTesting(wrongProviderCard, question: question, generationID: nil) == false)
         #expect(appState.currentSuggestion?.id == "candidate-question-fallback")
-        #expect(appState.currentSuggestion?.sayFirst == fallback.sayFirst)
+        #expect(appState.currentSuggestion?.sayFirst == acceptedCard.sayFirst)
         #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
     }
 
     @Test
     func diffusionAutoregressivePolicyIntentIsModelComparison() {
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why did the transformer model perform better than the regression model?"
 
         #expect(AnswerRelevancePolicy.intent(for: question) == .modelComparison)
     }
 
     @Test
-    func robotSystemArchitectureQuestionUsesSystemIntegrationFallbackAndAlignment() {
-        let questionText = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
-        let question = makeQuestion(questionText)
+    func syntheticSystemArchitectureAnswerAlignsWithSystemIntegrationIntent() {
+        let questionText = "How did the system architecture connect ingestion to billing output?"
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
 
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let answer = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
-        #expect(answer.localizedCaseInsensitiveContains("YOLOv8"))
-        #expect(answer.localizedCaseInsensitiveContains("localisation") || answer.localizedCaseInsensitiveContains("localization"))
-        #expect(answer.localizedCaseInsensitiveContains("navigation"))
-        #expect(answer.localizedCaseInsensitiveContains("manipulation"))
-        #expect(answer.localizedCaseInsensitiveContains("recovery"))
+        let answer = "The system architecture connected ingestion to billing through a queue interface, and I instrumented traces and validation checks to make that output reliable."
+        #expect(answer.localizedCaseInsensitiveContains("ingestion"))
+        #expect(answer.localizedCaseInsensitiveContains("billing"))
+        #expect(answer.localizedCaseInsensitiveContains("interface"))
+        #expect(answer.localizedCaseInsensitiveContains("validation"))
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: questionText,
             answerText: answer,
-            sayFirst: fallback.sayFirst,
+            sayFirst: answer,
             stageBCompleted: true
         )
         #expect(alignment.verdict == .aligned || alignment.verdict == .weaklyAligned)
     }
 
     @Test
-    func realWorldDifficultyMitigationFallbackAnswersBothHalvesAndPersists() {
-        let questionText = "What made real-world execution harder than a clean simulation or demo environment and how did you mitigate those issues?"
+    func syntheticTechnicalChallengeCardAnswersBothHalvesAndPassesPersistenceGuard() {
+        let questionText = "What made production deployment harder than a clean test environment and how did you mitigate those failures?"
         let question = makeQuestion(questionText)
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .technicalChallenge)
 
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let answer = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
-        #expect(answer.localizedCaseInsensitiveContains("real-world") || answer.localizedCaseInsensitiveContains("real world"))
-        #expect(answer.localizedCaseInsensitiveContains("simulation"))
-        #expect(answer.localizedCaseInsensitiveContains("mitigated") || answer.localizedCaseInsensitiveContains("mitigation"))
+        let answer = "Production deployment was difficult because traffic variability exposed a latency failure, so I instrumented the service, isolated the bottleneck, and mitigated it with queue backpressure and recovery tests."
+        #expect(answer.localizedCaseInsensitiveContains("production"))
+        #expect(answer.localizedCaseInsensitiveContains("failure"))
+        #expect(answer.localizedCaseInsensitiveContains("mitigated"))
         #expect(answer.localizedCaseInsensitiveContains("recovery"))
 
         let card = SuggestionCard(
@@ -170,8 +214,8 @@ struct AnswerRelevanceTests {
             sessionID: question.sessionID,
             questionID: question.id,
             strategy: "RAG Template Fallback",
-            sayFirst: fallback.sayFirst,
-            keyPoints: fallback.keyPoints,
+            sayFirst: answer,
+            keyPoints: ["Traffic variability", "Queue backpressure", "Recovery tests"],
             followUpReady: [],
             confidence: 0.5,
             caution: "Fast fallback shown; DeepSeek failed.",
@@ -203,9 +247,9 @@ struct AnswerRelevanceTests {
 
     @Test
     func realWorldExecutionQuestionRejectsSimulationOnlyAnswerWithoutRealRobotGrounding() {
-        let questionText = "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+        let questionText = "What made production deployment harder than a clean test environment?"
         let providerAnswer = """
-        The hard part was that a clean simulation keeps perception, timing, calibration, and module integration much more controlled. In practice, detections were noisy, localisation could drift, and the navigation-to-manipulation handoff needed recovery behaviour when the target pose was uncertain.
+        The test harness was deterministic, so I changed its mock configuration and reran the isolated unit checks successfully.
         """
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
@@ -216,16 +260,16 @@ struct AnswerRelevanceTests {
         )
 
         #expect(alignment.verdict == .mismatched)
-        #expect(alignment.reason.localizedCaseInsensitiveContains("real-world/physical-robot grounding"))
+        #expect(alignment.missingThemes.contains("challenge"))
     }
 
     @Test
-    func semanticGuardReplacesMismatchedExistingProviderPreviewWithFallback() throws {
+    func semanticGuardPreservesAlignedProviderPreviewWhenFinalProviderCardMismatches() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "RealWorldPreviewFallback")
         let appState = AppState(database: database)
         let session = try appState.sessionRepository.createSession(mode: .mock)
         let question = makeQuestion(
-            "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?",
+            "What made production deployment harder than a clean test environment?",
             sessionID: session.id
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -236,8 +280,8 @@ struct AnswerRelevanceTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "DeepSeek preview",
-            sayFirst: "A clean simulation keeps perception, timing, calibration, and module integration more controlled, while detections can be noisy and recovery is needed.",
-            keyPoints: ["Noisy detections", "Calibration drift", "Recovery behaviour"],
+            sayFirst: "Production deployment was difficult because traffic variability exposed a latency failure, so I instrumented the service and added recovery tests.",
+            keyPoints: ["Traffic variability", "Latency failure", "Recovery tests"],
             followUpReady: [],
             confidence: 0.7,
             caution: nil,
@@ -256,22 +300,25 @@ struct AnswerRelevanceTests {
 
         var finalProviderCard = providerPreview
         finalProviderCard.id = "provider-final"
+        finalProviderCard.sayFirst = "The test harness was deterministic, so I changed its mock configuration and reran isolated unit checks."
+        finalProviderCard.keyPoints = ["Mock configuration", "Unit checks"]
 
         #expect(appState.applySuggestionIfAlignedForTesting(finalProviderCard, question: question, generationID: nil) == false)
-        let fallback = try #require(appState.currentSuggestion)
-        #expect(fallback.id != "provider-preview")
-        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("real-world") || fallback.sayFirst.localizedCaseInsensitiveContains("real world"))
-        #expect(fallback.alignmentVerdict == .aligned)
+        let preserved = try #require(appState.currentSuggestion)
+        #expect(preserved.id == "provider-preview")
+        #expect(preserved.finalVisibleSource == "deepseek_stream")
+        #expect(preserved.sayFirst.localizedCaseInsensitiveContains("production"))
+        #expect(appState.lastAlignmentError.isEmpty == false)
     }
 
     @Test
     func projectComparisonRejectsSayFirstWithoutConcreteVisibleContrast() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "ProjectComparisonSayFirst")
         let appState = AppState(database: database)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let session = try appState.sessionRepository.createSession(mode: .mock)
         let question = makeQuestion(
-            "Can you explain the difference between your VLA project and your LeoRover project?",
+            "Can you explain the difference between the Atlas project and the Beacon project?",
             sessionID: session.id
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -282,11 +329,10 @@ struct AnswerRelevanceTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "DeepSeek",
-            sayFirst: "The main difference is that VLA was focused on learned policy evaluation, while LeoRover was a robotics integration project.",
+            sayFirst: "Atlas and Beacon were useful engineering efforts.",
             keyPoints: [
-                "VLA used DROID trajectories in a MuJoCo Franka simulation to compare decoders.",
-                "LeoRover used ROS2, YOLOv8, localisation, navigation, manipulation, and recovery on a real robot.",
-                "The contrast was learning-policy research in simulation versus real-world perception-to-action deployment."
+                "Atlas involved historical records.",
+                "Beacon involved live events."
             ],
             followUpReady: [],
             confidence: 0.8,
@@ -304,21 +350,18 @@ struct AnswerRelevanceTests {
         providerCard.finalVisibleSource = "deepseek_stream"
 
         #expect(appState.applySuggestionIfAlignedForTesting(providerCard, question: question, generationID: nil) == false)
-        let fallback = try #require(appState.currentSuggestion)
-        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("MuJoCo"))
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("real-robot") || fallback.sayFirst.localizedCaseInsensitiveContains("real robot"))
-        #expect(fallback.alignmentVerdict == .aligned)
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("no displayable fallback"))
     }
 
     @Test
     func modelComparisonRejectsGenericVisibleSayFirstEvenWhenKeyPointsMatch() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceGenericSayFirst")
         let appState = AppState(database: database)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let session = try appState.sessionRepository.createSession(mode: .mock)
         let question = makeQuestion(
-            "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            "Why did the transformer model perform better than the regression model?",
             sessionID: session.id
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -329,11 +372,10 @@ struct AnswerRelevanceTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "Model comparison",
-            sayFirst: "I generally work with diffusion-based policies.",
+            sayFirst: "I generally work with predictive models.",
             keyPoints: [
-                "Autoregressive policies can suffer from error accumulation over time.",
-                "Diffusion models refine the full action sequence, producing smoother continuous actions.",
-                "That can make diffusion more robust for robotic manipulation."
+                "Transformer and regression were evaluated later.",
+                "The full results include latency and accuracy."
             ],
             followUpReady: [],
             confidence: 0.9,
@@ -350,100 +392,75 @@ struct AnswerRelevanceTests {
         genericSayFirstCard.stageBCompleted = false
 
         #expect(appState.applySuggestionIfAlignedForTesting(genericSayFirstCard, question: question, generationID: nil) == false)
-        #expect(appState.currentSuggestion?.sayFirst != "I generally work with diffusion-based policies.")
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("autoregressive") == true)
-        #expect(appState.currentSuggestion?.alignmentVerdict == .aligned)
-        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("no displayable fallback"))
     }
 
     @Test
-    func diffusionModelComparisonFallbackExplainsContinuousActionsAndAutoregressiveErrorAccumulation() {
-        let question = makeQuestion("Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticModelComparisonAnswerExplainsSequenceContextAndErrorAccumulation() {
+        let question = makeQuestion("Why did the transformer model perform better than the regression model?")
+        let answer = "The transformer performed better than regression because it represented long-range sequence dependencies, while regression was faster but accumulated prediction error over time."
 
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("diffusion"))
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("autoregressive"))
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("denois"))
-        #expect(combined.localizedCaseInsensitiveContains("continuous"))
-        #expect(combined.localizedCaseInsensitiveContains("trajectory") || combined.localizedCaseInsensitiveContains("sequence"))
-        #expect(combined.localizedCaseInsensitiveContains("step by step"))
-        #expect(combined.localizedCaseInsensitiveContains("compound"))
-        #expect(combined.localizedCaseInsensitiveContains("error"))
-        #expect(combined.localizedCaseInsensitiveContains("smoother"))
-        #expect(combined.localizedCaseInsensitiveContains("robust"))
-        #expect(combined.localizedCaseInsensitiveContains("manipulation"))
-        #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(fallback.sayFirst))
+        #expect(answer.localizedCaseInsensitiveContains("transformer"))
+        #expect(answer.localizedCaseInsensitiveContains("regression"))
+        #expect(answer.localizedCaseInsensitiveContains("sequence"))
+        #expect(answer.localizedCaseInsensitiveContains("error"))
+        #expect(QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: answer).verdict == .aligned)
     }
 
     @Test
-    func decoderComparisonFallbackMentionsMuJoCoVLAAndAllDecoderResults() {
-        let question = makeQuestion("What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticDecoderComparisonAnswerContrastsAllAlternatives() {
+        let question = makeQuestion("What did you learn from comparing classifier, regression, and transformer alternatives?")
+        let combined = "I compared classifier, regression, and transformer alternatives: the classifier was simplest, regression was fastest, while the transformer handled sequence context best."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .decoderComparison)
-        #expect(combined.localizedCaseInsensitiveContains("MuJoCo"))
-        #expect(combined.localizedCaseInsensitiveContains("VLA"))
-        #expect(combined.localizedCaseInsensitiveContains("autoregressive"))
-        #expect(combined.localizedCaseInsensitiveContains("diffusion"))
-        #expect(combined.localizedCaseInsensitiveContains("flow-matching"))
-        #expect(combined.localizedCaseInsensitiveContains("7/10"))
-        #expect(combined.localizedCaseInsensitiveContains("1/10"))
+        #expect(combined.localizedCaseInsensitiveContains("classifier"))
+        #expect(combined.localizedCaseInsensitiveContains("regression"))
+        #expect(combined.localizedCaseInsensitiveContains("transformer"))
+        #expect(combined.localizedCaseInsensitiveContains("simplest"))
+        #expect(combined.localizedCaseInsensitiveContains("fastest"))
         #expect(alignment.verdict == .aligned)
     }
 
     @Test
-    func perceptionDebuggingFallbackMentionsConcreteDebuggingSteps() {
-        let question = makeQuestion("If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticPerceptionDebuggingAnswerContainsConcreteSteps() {
+        let question = makeQuestion("If the inspection detector gives a confident but wrong prediction, how would you debug it?")
+        let combined = "I would reproduce the detector prediction, inspect traces and labels, isolate preprocessing errors, fix the input guard, and validate it with a regression test."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .perceptionDebugging)
-        #expect(combined.localizedCaseInsensitiveContains("YOLOv8"))
-        #expect(combined.localizedCaseInsensitiveContains("frames"))
-        #expect(combined.localizedCaseInsensitiveContains("logs"))
-        #expect(combined.localizedCaseInsensitiveContains("bounding"))
-        #expect(combined.localizedCaseInsensitiveContains("confidence"))
-        #expect(combined.localizedCaseInsensitiveContains("calibration"))
-        #expect(combined.localizedCaseInsensitiveContains("lighting"))
-        #expect(combined.localizedCaseInsensitiveContains("occlusion"))
-        #expect(combined.localizedCaseInsensitiveContains("retraining"))
+        #expect(combined.localizedCaseInsensitiveContains("detector"))
+        #expect(combined.localizedCaseInsensitiveContains("traces"))
+        #expect(combined.localizedCaseInsensitiveContains("labels"))
+        #expect(combined.localizedCaseInsensitiveContains("preprocessing"))
+        #expect(combined.localizedCaseInsensitiveContains("validate"))
         #expect(alignment.verdict == .aligned)
     }
 
     @Test
-    func technicalTradeoffFallbackIsConcreteRoboticsAnswer() {
-        let question = makeQuestion("What was the biggest technical trade-off you made in your robotics projects?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticTechnicalTradeoffAnswerMakesAConcreteChoice() {
+        let question = makeQuestion("What was the biggest technical trade-off you made between latency and accuracy?")
+        let combined = "I balanced latency versus accuracy and chose the smaller model because it met the quality threshold while reducing response time and operational complexity."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .technicalTradeoff)
-        #expect(combined.localizedCaseInsensitiveContains("trade-off"))
-        #expect(combined.localizedCaseInsensitiveContains("robustness"))
+        #expect(combined.localizedCaseInsensitiveContains("balanced"))
         #expect(combined.localizedCaseInsensitiveContains("latency"))
         #expect(combined.localizedCaseInsensitiveContains("complexity"))
-        #expect(combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("chose"))
         #expect(alignment.verdict == .aligned)
     }
 
     @Test
-    func systemIntegrationDebuggingFallbackIsStarStyleAndLeoRoverSpecific() {
+    func syntheticSystemIntegrationAnswerIsSpecificAndDiagnostic() {
         let question = makeQuestion("Tell me about a time you had to debug a system integration problem.")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let combined = "The system integration failed at the payments interface, so I inspected logs and timestamps, isolated a schema mismatch, and added contract validation and recovery tests; the lesson was to verify every boundary."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
-        #expect(combined.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(combined.localizedCaseInsensitiveContains("ROS2"))
-        #expect(combined.localizedCaseInsensitiveContains("perception"))
-        #expect(combined.localizedCaseInsensitiveContains("navigation"))
-        #expect(combined.localizedCaseInsensitiveContains("manipulation"))
+        #expect(combined.localizedCaseInsensitiveContains("payments"))
+        #expect(combined.localizedCaseInsensitiveContains("interface"))
         #expect(combined.localizedCaseInsensitiveContains("logs"))
         #expect(combined.localizedCaseInsensitiveContains("timestamps"))
         #expect(combined.localizedCaseInsensitiveContains("recovery"))
@@ -453,15 +470,14 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func realRobotDebuggingLessonFallbackIsSpecificNotGenericCoaching() {
-        let question = makeQuestion("What was the most important lesson you learned from debugging the real robot?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticDebuggingLessonIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("What was the most important lesson you learned from debugging the production system?")
+        let combined = "Debugging the production system taught me to instrument every integration boundary, correlate logs and timestamps, isolate failures, and validate recovery with fault-injection tests."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
-        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
+        #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .technicalChallenge)
         #expect(combined.localizedCaseInsensitiveContains("debugging") || combined.localizedCaseInsensitiveContains("debug"))
-        #expect(combined.localizedCaseInsensitiveContains("real robot") || combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("production system"))
         #expect(combined.localizedCaseInsensitiveContains("integration") || combined.localizedCaseInsensitiveContains("handoff"))
         #expect(combined.localizedCaseInsensitiveContains("logs"))
         #expect(combined.localizedCaseInsensitiveContains("timestamps"))
@@ -471,54 +487,76 @@ struct AnswerRelevanceTests {
         #expect(combined.localizedCaseInsensitiveContains("Concrete example from experience") == false)
         #expect(combined.localizedCaseInsensitiveContains("Outcome or lesson learned") == false)
         #expect(alignment.verdict == .aligned)
-        #expect(alignment.answerIntent == .systemIntegrationDebugging)
+        #expect(alignment.answerIntent == .technicalChallenge)
+    }
+
+    @Test
+    func incidentTriageReflectionDoesNotRequireAnUnrelatedSystemBoundary() {
+        let questionText = "What did real incident triage teach you about priority teasing endpoint and identity alerts?"
+        let answer = "Incident triage taught me to prioritise endpoint and identity alerts using documented severity and escalation criteria, while preserving audit history and checking that critical alerts remained visible."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: questionText,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true
+        )
+
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .generic)
+        #expect(alignment.verdict == .aligned, "\(alignment.reason)")
+        #expect(!alignment.missingThemes.contains("system boundary"))
     }
 
     @Test
     func systemIntegrationIntentFamiliesHandleUnseenParaphrasesWithoutGenericCoaching() {
-        let cases: [(String, [String])] = [
+        let cases: [(String, String, [String])] = [
             (
-                "How did perception become robot action in your LeoRover pipeline?",
-                ["target pose", "navigation", "manipulation", "recovery"]
+                "How did event input become a control action in your billing pipeline?",
+                "Event input became a billing control action through a validated pipeline interface, and I added monitoring and recovery checks.",
+                ["event input", "billing", "interface", "recovery"]
             ),
             (
-                "How did the detector output turn into movement and grasping?",
-                ["target pose", "navigation", "manipulation", "recovery"]
+                "How did detection output turn into a physical sorting action?",
+                "Detection output set the sorting target, then the control system validated state and used a retry guard before the physical action.",
+                ["detection", "sorting", "control", "retry"]
             ),
             (
-                "Can you walk me through the pipeline from object detection to manipulation?",
-                ["target pose", "navigation", "manipulation", "recovery"]
+                "Can you walk me through the pipeline from anomaly detection to incident action?",
+                "The pipeline passed anomaly detection into an incident-action interface, where I validated severity, monitored state, and added recovery tests.",
+                ["pipeline", "detection", "interface", "recovery"]
             ),
             (
-                "How did the perception module influence the robot's next physical action?",
-                ["target pose", "navigation", "manipulation", "recovery"]
+                "How did the perception module influence the sorting system's next physical action?",
+                "The perception module set the sorting target, and I validated the control handoff with confidence checks, monitoring, and a retry action.",
+                ["perception", "sorting", "control", "retry"]
             ),
             (
-                "Before the robot moved, what state did it need to estimate?",
-                ["object identity", "location", "reachability", "navigation", "grasp"]
+                "Before the billing system acted, what state did it need to check?",
+                "Before the billing system acted, it checked account state and invoice data, validated the input, and guarded execution with an idempotency key.",
+                ["billing", "account state", "invoice", "validated"]
             ),
             (
-                "How did you know the robot had enough information to attempt a grasp?",
-                ["object identity", "location", "reachability", "navigation", "grasp"]
+                "What information did the system require before it executed a payment action?",
+                "The system required an account identifier, invoice state, authorization, and a validated idempotency key before it executed the payment action.",
+                ["account", "invoice", "authorization", "validated"]
             ),
             (
-                "What did debugging the robot teach you about assumptions in simulation?",
-                ["debugging", "real robot", "integration", "logs", "timestamps", "recovery"]
+                "What did debugging a failed pipeline handoff teach you about integration assumptions?",
+                "Debugging the failed pipeline handoff taught me to instrument integration boundaries, correlate logs and timestamps, isolate failures, and verify recovery tests.",
+                ["pipeline", "integration", "logs", "recovery"]
             ),
             (
-                "What happened when the system made a wrong perception decision?",
-                ["wrong perception", "navigation", "manipulation", "validation", "recovery"]
+                "What happened when a wrong event crossed the pipeline into an action?",
+                "A wrong event crossed the pipeline interface into an action, so I traced the input, added validation thresholds, and introduced a recovery guard.",
+                ["wrong event", "pipeline", "validation", "recovery"]
             )
         ]
 
-        for (text, expectedTerms) in cases {
+        for (text, combined, expectedTerms) in cases {
             let question = makeQuestion(text)
-            let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-            let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
             let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
                 questionText: question.questionText,
                 answerText: combined,
-                sayFirst: fallback.sayFirst
+                sayFirst: combined
             )
 
             #expect(AnswerRelevancePolicy.intent(for: text) == .systemIntegrationDebugging, "intent for \(text)")
@@ -533,19 +571,17 @@ struct AnswerRelevanceTests {
     @Test
     func realWorldExecutionIntentFamilyHandlesParaphrases() {
         let cases = [
-            "Why was deployment on physical hardware less predictable than simulation?",
-            "What made real robot execution fragile compared with a clean demo?",
-            "How did calibration, timing, and noisy perception affect real-world execution?"
+            "Why was production deployment unreliable compared with simulation?",
+            "What made real-world operation difficult compared with a clean demo?",
+            "How did timing and traffic variability make real-world deployment unreliable?"
         ]
 
         for text in cases {
-            let question = makeQuestion(text)
-            let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-            let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+            let combined = "Compared with simulation or a clean demo, real-world production execution was difficult because noisy input and timing exposed a latency failure, so I instrumented the service, isolated it, and mitigated it with recovery tests."
             let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
                 questionText: text,
                 answerText: combined,
-                sayFirst: fallback.sayFirst
+                sayFirst: combined
             )
 
             #expect(AnswerRelevancePolicy.intent(for: text) == .technicalChallenge, "intent for \(text)")
@@ -557,17 +593,16 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func visualDetectionToPhysicalActionFallbackIsSpecificNotGenericCoaching() {
-        let question = makeQuestion("Can you explain how your robot transformed visual detections into physical actions in the real world")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticVisualDetectionToPhysicalActionAnswerIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("Can you explain how visual detection transformed into a physical sorting action")
+        let combined = "Visual detection produced a target state for the sorting system; I validated the control handoff, monitored confidence, and added a retry guard before each physical action."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
         #expect(combined.localizedCaseInsensitiveContains("visual") || combined.localizedCaseInsensitiveContains("detection"))
-        #expect(combined.localizedCaseInsensitiveContains("target pose") || combined.localizedCaseInsensitiveContains("object pose"))
-        #expect(combined.localizedCaseInsensitiveContains("navigation"))
-        #expect(combined.localizedCaseInsensitiveContains("manipulation") || combined.localizedCaseInsensitiveContains("grasp"))
+        #expect(combined.localizedCaseInsensitiveContains("target state"))
+        #expect(combined.localizedCaseInsensitiveContains("sorting"))
+        #expect(combined.localizedCaseInsensitiveContains("control"))
         #expect(combined.localizedCaseInsensitiveContains("recovery") || combined.localizedCaseInsensitiveContains("retry"))
         #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
         #expect(combined.localizedCaseInsensitiveContains("Direct answer first") == false)
@@ -576,12 +611,12 @@ struct AnswerRelevanceTests {
 
     @Test
     func visualDetectionActionRejectsDebuggingReflectionSayFirstEvenWithRelevantKeyPoints() {
-        let questionText = "Can you explain how your robot transformed visual detections into physical actions in the real world"
-        let wrongSayFirst = "The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module."
+        let questionText = "Can you explain how visual detection transformed into a physical sorting action"
+        let wrongSayFirst = "A strong answer should connect it to your background and use the STAR method."
         let relevantKeyPoints = [
-            "Object detections were converted into target poses for the robot pipeline.",
-            "Localisation and navigation used the target pose to move into a feasible position.",
-            "Manipulation and recovery depended on validation, robot state, and retry behaviour."
+            "Visual detections were converted into a sorting target.",
+            "The control system used the target to select a physical action.",
+            "Validation and recovery depended on current state and retry behaviour."
         ]
         let combined = ([wrongSayFirst] + relevantKeyPoints).joined(separator: " ")
 
@@ -592,24 +627,23 @@ struct AnswerRelevanceTests {
         )
 
         #expect(alignment.verdict == .mismatched)
-        #expect(alignment.wrongAnswerIndicators.contains("wrong system-integration subfamily"))
-        #expect(alignment.reason.localizedCaseInsensitiveContains("system-integration sayFirst"))
+        #expect(alignment.wrongAnswerIndicators.contains("a strong answer"))
+        #expect(alignment.reason.localizedCaseInsensitiveContains("generic coaching"))
     }
 
     @Test
-    func robotDecisionInformationFallbackIsSpecificNotGenericCoaching() {
-        let question = makeQuestion("What information did the robot need before it could decide where to move and what to grasp")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticSystemDecisionInformationAnswerIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("What information did the system need before it could execute the billing action")
+        let combined = "Before the billing action, the system checked account identity, invoice state, authorization, and execution feasibility, then validated the input and guarded the action with an idempotency key."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
-        #expect(combined.localizedCaseInsensitiveContains("object identity") || combined.localizedCaseInsensitiveContains("target object"))
-        #expect(combined.localizedCaseInsensitiveContains("pose") || combined.localizedCaseInsensitiveContains("location") || combined.localizedCaseInsensitiveContains("position"))
-        #expect(combined.localizedCaseInsensitiveContains("distance") || combined.localizedCaseInsensitiveContains("spatial"))
-        #expect(combined.localizedCaseInsensitiveContains("reachability") || combined.localizedCaseInsensitiveContains("feasible"))
-        #expect(combined.localizedCaseInsensitiveContains("navigation"))
-        #expect(combined.localizedCaseInsensitiveContains("grasp"))
+        #expect(combined.localizedCaseInsensitiveContains("account identity"))
+        #expect(combined.localizedCaseInsensitiveContains("invoice state"))
+        #expect(combined.localizedCaseInsensitiveContains("authorization"))
+        #expect(combined.localizedCaseInsensitiveContains("feasibility"))
+        #expect(combined.localizedCaseInsensitiveContains("validated"))
+        #expect(combined.localizedCaseInsensitiveContains("billing"))
         #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
         #expect(combined.localizedCaseInsensitiveContains("Concrete example from experience") == false)
         #expect(alignment.verdict == .aligned)
@@ -623,20 +657,19 @@ struct AnswerRelevanceTests {
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
         #expect(alignment.verdict == .mismatched)
-        #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+        #expect(alignment.wrongAnswerIndicators.contains("connect it to"))
     }
 
     @Test
-    func perceptionControlReliabilityFallbackIsSpecificNotGenericCoaching() {
-        let question = makeQuestion("How did you combine perception and control, and why was that connection difficult to make reliable")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticInputControlReliabilityAnswerIsSpecificNotGenericCoaching() {
+        let question = makeQuestion("How did you combine event input and control output, and why was that handoff difficult to make reliable")
+        let combined = "Event input set the control target, but stale state made the handoff unreliable, so I instrumented timestamps, measured latency, and validated output checks."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .systemIntegrationDebugging)
-        #expect(combined.localizedCaseInsensitiveContains("perception"))
+        #expect(combined.localizedCaseInsensitiveContains("event input"))
         #expect(combined.localizedCaseInsensitiveContains("control"))
-        #expect(combined.localizedCaseInsensitiveContains("target pose") || combined.localizedCaseInsensitiveContains("action goal"))
+        #expect(combined.localizedCaseInsensitiveContains("target"))
         #expect(combined.localizedCaseInsensitiveContains("latency") || combined.localizedCaseInsensitiveContains("calibration") || combined.localizedCaseInsensitiveContains("timing"))
         #expect(combined.localizedCaseInsensitiveContains("I’d answer this directly") == false)
         #expect(combined.localizedCaseInsensitiveContains("Outcome or lesson learned") == false)
@@ -651,18 +684,18 @@ struct AnswerRelevanceTests {
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
         #expect(alignment.verdict == .mismatched)
-        #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+        #expect(alignment.wrongAnswerIndicators.contains("connect it to"))
     }
 
     @Test
     func genericCoachingTemplateIsRejectedForRealRobotDebuggingLessonQuestion() {
-        let questionText = "What was the most important lesson you learned from debugging the real robot?"
+        let questionText = "What was the most important lesson you learned from debugging the production system?"
         let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
 
-        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .technicalChallenge)
         #expect(alignment.verdict == .mismatched)
-        #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+        #expect(alignment.wrongAnswerIndicators.contains("connect it to"))
     }
 
     @Test
@@ -684,14 +717,14 @@ struct AnswerRelevanceTests {
             )
 
             #expect(alignment.verdict == .mismatched, "generic template accepted for \(questionText)")
-            #expect(alignment.wrongAnswerIndicators.contains("generic interview coaching"))
+            #expect(alignment.wrongAnswerIndicators.contains("connect it to"))
         }
     }
 
     @Test
     func emptyThemeProfileUsesGenericQualitySafeguardsInsteadOfFailingZeroOfZero() {
-        let questionText = "Edited question text"
-        let concreteAnswer = "I am comfortable with Python and ROS2 from robotics projects, and I am actively improving C++ for performance-critical robotics systems."
+        let questionText = "What principles guide your engineering decisions?"
+        let concreteAnswer = "I prioritize measurable user impact, reversible decisions, and explicit validation before broad rollout."
         let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned."
 
         let concreteAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
@@ -706,9 +739,9 @@ struct AnswerRelevanceTests {
         )
 
         #expect(concreteAlignment.verdict == .aligned)
-        #expect(concreteAlignment.reason.localizedCaseInsensitiveContains("No expected theme profile"))
+        #expect(concreteAlignment.reason.localizedCaseInsensitiveContains("expected response structure"))
         #expect(genericAlignment.verdict == .mismatched)
-        #expect(genericAlignment.wrongAnswerIndicators.contains("generic interview coaching"))
+        #expect(genericAlignment.wrongAnswerIndicators.contains("connect it to"))
     }
 
     @Test
@@ -716,7 +749,7 @@ struct AnswerRelevanceTests {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "GenericFallbackRejected")
         let appState = AppState(database: database)
         let session = try appState.sessionRepository.createSession(mode: .mock)
-        let question = makeQuestion("Can you describe your approach to collaboration in projects?", sessionID: session.id)
+        let question = makeQuestion("How do you approach collaboration with colleagues?", sessionID: session.id)
         try appState.suggestionRepository.saveDetectedQuestion(question)
         appState.setActiveQuestionForTesting(question)
 
@@ -754,10 +787,9 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func interviewerQuestionsFallbackOutputsActualQuestions() {
+    func syntheticInterviewerQuestionsAnswerOutputsActualQuestions() {
         let question = makeQuestion("What questions would you ask us about the team or the role before accepting an offer?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+        let combined = "How is success measured in the first six months? Which deployment constraints shape the workflow? Who owns production incidents across the team?"
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined)
 
         #expect(AnswerRelevancePolicy.intent(for: question.questionText) == .interviewerQuestions)
@@ -765,15 +797,16 @@ struct AnswerRelevanceTests {
         #expect(combined.localizedCaseInsensitiveContains("success"))
         #expect(combined.localizedCaseInsensitiveContains("deployment"))
         #expect(combined.localizedCaseInsensitiveContains("team"))
-        #expect(combined.localizedCaseInsensitiveContains("ownership"))
-        #expect(fallback.sayFirst.filter { $0 == "?" }.count >= 2)
+        #expect(combined.localizedCaseInsensitiveContains("owns"))
+        #expect(combined.filter { $0 == "?" }.count >= 3)
         #expect(alignment.verdict == .aligned)
     }
 
     @Test
-    func interviewerQuestionsRejectsOneVagueQuestionAndUsesFallback() throws {
+    func interviewerQuestionsRejectsOneVagueQuestionWhenNoGroundedFallbackExists() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "InterviewerQuestionQuality")
         let appState = AppState(database: database)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let session = try appState.sessionRepository.createSession(mode: .mock)
         let question = makeQuestion(
             "What would you ask the engineering team to understand whether this role is a good fit?",
@@ -804,10 +837,8 @@ struct AnswerRelevanceTests {
         card.stageBCompleted = true
 
         #expect(appState.applySuggestionIfAlignedForTesting(card, question: question, generationID: nil) == false)
-        let fallback = try #require(appState.currentSuggestion)
-        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
-        #expect(fallback.sayFirst.filter { $0 == "?" }.count >= 2)
-        #expect(fallback.alignmentVerdict == .aligned)
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("no displayable fallback"))
     }
 
     @Test
@@ -816,7 +847,7 @@ struct AnswerRelevanceTests {
         let appState = AppState(database: database)
         let session = try appState.sessionRepository.createSession(mode: .mock)
         let question = makeQuestion(
-            "What would you ask the engineering team to understand whether this robotics role is a good fit?",
+            "What would you ask the engineering team to understand whether this platform role is a good fit?",
             sessionID: session.id
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -827,8 +858,8 @@ struct AnswerRelevanceTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "DeepSeek",
-            sayFirst: "I would ask what success looks like in the first three months, what deployment challenges the robotics team is facing, and how responsibilities are split across perception, autonomy, and product engineering.",
-            keyPoints: ["First three month success", "Deployment challenges", "Team structure and responsibilities", "Simulation and data infrastructure workflow"],
+            sayFirst: "How is success measured in the first three months? Which infrastructure constraints shape the delivery workflow? Who owns production incidents across the engineering team?",
+            keyPoints: ["First three month success", "Infrastructure constraints", "Team ownership", "Delivery workflow"],
             followUpReady: [],
             confidence: 0.8,
             caution: nil,
@@ -844,30 +875,26 @@ struct AnswerRelevanceTests {
         providerCard.stageBCompleted = true
         providerCard.finalVisibleSource = "deepseek_stream"
 
-        #expect(appState.applySuggestionIfAlignedForTesting(providerCard, question: question, generationID: nil) == false)
-        let fallback = try #require(appState.currentSuggestion)
-        #expect(fallback.finalVisibleSource == "semantic_intent_fallback")
-        #expect(fallback.sayFirst.localizedCaseInsensitiveContains("workflow") || fallback.sayFirst.localizedCaseInsensitiveContains("workflows"))
-        #expect(fallback.alignmentVerdict == .aligned)
+        #expect(appState.applySuggestionIfAlignedForTesting(providerCard, question: question, generationID: nil))
+        let accepted = try #require(appState.currentSuggestion)
+        #expect(accepted.finalVisibleSource == "deepseek_stream")
+        #expect(accepted.sayFirst.localizedCaseInsensitiveContains("workflow"))
+        #expect(accepted.alignmentVerdict == .aligned)
     }
 
     @Test
-    func leoRoverImprovementFallbackAvoidsVLAThesisRerankerGrounding() {
-        let question = makeQuestion("If you had one more month to improve your LeoRover system, what would you improve first?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
-        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined, sayFirst: fallback.sayFirst)
+    func syntheticAtlasImprovementAnswerAvoidsUnrelatedProjectGrounding() {
+        let question = makeQuestion("If you had one more month to improve the Atlas system, what would you improve first?")
+        let combined = "My first priority for the Atlas system would be to add failure-case tests, instrument latency, evaluate data consistency, and validate the improvement against a production baseline."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: question.questionText, answerText: combined, sayFirst: combined)
 
-        #expect(combined.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(combined.localizedCaseInsensitiveContains("real-robot") || combined.localizedCaseInsensitiveContains("real robot"))
-        #expect(combined.localizedCaseInsensitiveContains("lighting"))
-        #expect(combined.localizedCaseInsensitiveContains("occlusion"))
-        #expect(combined.localizedCaseInsensitiveContains("spatial consistency"))
-        #expect(combined.localizedCaseInsensitiveContains("closed-loop") || combined.localizedCaseInsensitiveContains("closed loop"))
-        #expect(combined.localizedCaseInsensitiveContains("evaluation"))
-        #expect(combined.localizedCaseInsensitiveContains("calibration"))
+        #expect(combined.localizedCaseInsensitiveContains("Atlas"))
+        #expect(combined.localizedCaseInsensitiveContains("failure-case"))
+        #expect(combined.localizedCaseInsensitiveContains("instrument"))
         #expect(combined.localizedCaseInsensitiveContains("latency"))
-        #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(fallback.sayFirst))
+        #expect(combined.localizedCaseInsensitiveContains("evaluation") || combined.localizedCaseInsensitiveContains("evaluate"))
+        #expect(combined.localizedCaseInsensitiveContains("validate"))
+        #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(combined))
         #expect(combined.localizedCaseInsensitiveContains("semantic-geometric") == false)
         #expect(combined.localizedCaseInsensitiveContains("re-ranker") == false)
         #expect(combined.localizedCaseInsensitiveContains("target-conditioned") == false)
@@ -878,8 +905,8 @@ struct AnswerRelevanceTests {
     @Test(arguments: [
         "add confidence and spatial c",
         "I would ask the engineering team how they",
-        "onto a real physical robot platform—a concrete",
-        "I would improve LeoRover robustness with better evaluation"
+        "onto a production platform—a concrete",
+        "I would improve Atlas robustness with better evaluation"
     ])
     func incompleteVisibleAnswersWithoutFinishedSentenceAreRejected(_ answer: String) {
         #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(answer) == false)
@@ -887,23 +914,21 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func projectComparisonFallbackContainsConcreteDetailsFromBothProjects() {
-        let question = makeQuestion("Can you explain the difference between your VLA project and your LeoRover project?")
-        let fallback = AnswerRelevancePolicy.fallbackAnswer(for: question)
-        let combined = ([fallback.sayFirst] + fallback.keyPoints).joined(separator: " ")
+    func syntheticProjectComparisonAnswerContainsConcreteDetailsFromBothProjects() {
+        let combined = "The Atlas project migrated historical records, while the Beacon project monitored live events; both required validation but had different latency constraints."
 
-        #expect(combined.localizedCaseInsensitiveContains("MuJoCo") || combined.localizedCaseInsensitiveContains("Franka"))
-        #expect(combined.localizedCaseInsensitiveContains("DROID") || combined.localizedCaseInsensitiveContains("decoder") || combined.localizedCaseInsensitiveContains("VLA policy"))
-        #expect(combined.localizedCaseInsensitiveContains("ROS2") || combined.localizedCaseInsensitiveContains("YOLOv8"))
-        #expect(combined.localizedCaseInsensitiveContains("navigation") || combined.localizedCaseInsensitiveContains("manipulation") || combined.localizedCaseInsensitiveContains("recovery"))
-        #expect(combined.localizedCaseInsensitiveContains("simulation"))
-        #expect(combined.localizedCaseInsensitiveContains("real robot") || combined.localizedCaseInsensitiveContains("real-robot"))
+        #expect(combined.localizedCaseInsensitiveContains("Atlas"))
+        #expect(combined.localizedCaseInsensitiveContains("historical records"))
+        #expect(combined.localizedCaseInsensitiveContains("Beacon"))
+        #expect(combined.localizedCaseInsensitiveContains("live events"))
+        #expect(combined.localizedCaseInsensitiveContains("while"))
+        #expect(combined.localizedCaseInsensitiveContains("different"))
     }
 
     @Test
     func projectComparisonRejectsVagueSimulationVersusRobotAnswer() {
-        let question = "Can you explain the difference between your VLA project and your LeoRover project?"
-        let answer = "The VLA project focused on simulation, while LeoRover was a real robot integration project."
+        let question = "Can you explain the difference between the Atlas project and the Beacon project?"
+        let answer = "The Atlas project and the Beacon project were useful engineering efforts."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
             answerText: answer,
@@ -911,17 +936,17 @@ struct AnswerRelevanceTests {
         )
 
         #expect(alignment.verdict == .mismatched)
-        #expect(alignment.reason.localizedCaseInsensitiveContains("concrete"))
+        #expect(alignment.missingThemes.contains("explicit contrast"))
     }
 
     @Test
     func completeVisibleModelComparisonAnswerRemainsAlignedWhenFullCardIsStillExpanding() {
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
-        let sayFirst = "From my experience, diffusion-based policies produce smoother and more robust continuous action sequences through iterative denoising, unlike autoregressive policies which can compound errors step-by-step."
+        let question = "Why did the transformer model perform better than the regression model?"
+        let sayFirst = "The transformer performed better than regression because it represented long-range sequence dependencies, while regression was faster but lost context."
         let combined = """
         \(sayFirst)
-        Diffusion models the full continuous action distribution or trajectory.
-        Autoregressive and flow-matching variants were less robust in the evaluation.
+        The transformer improved accuracy on long sequences.
+        Regression remained cheaper to operate at low latency.
         """
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
@@ -936,8 +961,8 @@ struct AnswerRelevanceTests {
 
     @Test
     func runtimeDiffusionAnswerWithASRNoisyAutoregressiveWordingStillAligns() {
-        let question = "Why might a diffusion based policy be more stable for robotic manipulation than an auto rig progressive policy"
-        let sayFirst = "I'd say diffusion-based policies produce smoother, more robust action sequences by denoising from a full trajectory distribution, which avoids the compounding error and jerky motions you often see with autoregressive policies, leading to higher success rates in continuous manipulation tasks."
+        let question = "Why did the transformer model perform better than the regression model"
+        let sayFirst = "The transformer performed better than regression because it retained long-range context, while regression was faster but accumulated sequence error."
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
@@ -951,8 +976,8 @@ struct AnswerRelevanceTests {
 
     @Test
     func runtimeNaturalDiffusionAnswerAlignsWithoutCannedSuccessMetric() {
-        let question = "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy"
-        let sayFirst = "I find diffusion-based policies more stable because they denoise the whole action trajectory at once, producing smooth motions instead of step-by-step predictions that tend to accumulate errors and cause jittery behavior in precise tasks."
+        let question = "Why did the transformer model perform better than the regression model"
+        let sayFirst = "The transformer performed better than regression because it retained sequence context, whereas regression was simpler and faster but lost long-range dependencies."
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
@@ -962,14 +987,14 @@ struct AnswerRelevanceTests {
         )
 
         #expect(alignment.verdict == .aligned)
-        #expect(alignment.matchedThemes.contains("continuous action distribution"))
-        #expect(alignment.matchedThemes.contains("autoregressive / flow-matching comparison"))
+        #expect(alignment.matchedThemes.contains("comparison"))
+        #expect(alignment.matchedThemes.contains("compared alternatives"))
     }
 
     @Test
     func runtimeLeoRoverProjectAnswerAlignsWithProjectWalkthroughQuestion() {
-        let question = "could you explain your LeoRover project from end to end"
-        let answer = "My LeoRover project was an autonomous object retrieval robot. I built the ROS2 perception pipeline around YOLOv8 object detection, used the output for navigation and localisation, and connected it to manipulation so the real robot could approach and pick up the target object."
+        let question = "could you walk me through your Atlas migration project end-to-end"
+        let answer = "In the Atlas migration project, I designed the mapping pipeline, implemented validation checks, and delivered a staged rollout that reduced failed records."
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
@@ -984,8 +1009,8 @@ struct AnswerRelevanceTests {
 
     @Test
     func runtimeFragilePipelineAnswerAlignsWithTechnicalChallengeQuestion() {
-        let question = "When you moved from a clean demo to real robot execution, which part of the pipeline was most fragile?"
-        let answer = "The hardest part was dealing with sensor noise and timing mismatches—in a clean demo everything runs perfectly, but on the real robot, small drifts in camera and IMU data would throw off the entire pipeline. I had to recalibrate the sensors, add robust filtering, and rework the coordination between perception, navigation, and manipulation modules, which finally stabilized the system and got our retrieval success rate up to 70%."
+        let question = "When you moved from clean testing to production execution, which technical constraint was most difficult?"
+        let answer = "The hardest production challenge was schema variability and timing mismatch; I instrumented failures, isolated incompatible records, and built a validated normalization step that stabilized the pipeline."
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
@@ -1001,7 +1026,7 @@ struct AnswerRelevanceTests {
     @Test
     func runtimeDexoryWhyRoleAnswerAlignsWithJoinTeamQuestion() {
         let question = "why do you want to join our team"
-        let answer = "I’m drawn to Dexory because my work in embodied AI and ROS2 robotics aligns perfectly with your mission to break out of academia and deploy intelligent robots into real logistics environments—I want to help build world-changing solutions that bridge foundation models with practical, scalable behaviour."
+        let answer = "I want to join the team because this platform role aligns with my experience building reliable services, and the organisation owns measurable production outcomes."
 
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
@@ -1013,33 +1038,33 @@ struct AnswerRelevanceTests {
         #expect(alignment.verdict == .aligned)
         #expect(alignment.questionIntent == .whyRole)
         #expect(alignment.answerIntent == .whyRole)
-        #expect(alignment.matchedThemes.contains("role / team interest"))
-        #expect(alignment.matchedThemes.contains("mission / company direction"))
-        #expect(alignment.matchedThemes.contains("real-world deployment"))
+        #expect(alignment.matchedThemes.contains("motivation"))
+        #expect(alignment.matchedThemes.contains("target relevance"))
     }
 
     @Test
     func semanticGuardRejectsIncompleteSayFirstEvenWhenKeyPointsMatch() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AnswerRelevanceIncomplete")
         let appState = AppState(database: database)
+        appState.answerProviderModeOverride = .deepSeekPrimary
         let session = try appState.sessionRepository.createSession(mode: .mock)
         let question = makeQuestion(
-            "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            "Why did the transformer model perform better than the regression model?",
             sessionID: session.id
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
         appState.setActiveQuestionForTesting(question)
 
         var truncatedCard = SuggestionCard(
-            id: "incomplete-diffusion-card",
+            id: "incomplete-model-card",
             sessionID: session.id,
             questionID: question.id,
             strategy: "Model comparison",
-            sayFirst: "Diffusion-based policies tend to be more",
+            sayFirst: "The transformer performed better than regression because",
             keyPoints: [
-                "Diffusion produces smoother continuous actions.",
-                "It is more robust than an autoregressive policy.",
-                "The MuJoCo evaluation reached seven out of ten successful grasps."
+                "The transformer retained long-range sequence context.",
+                "Regression was faster but lost context.",
+                "The evaluation compared accuracy and latency."
             ],
             followUpReady: [],
             confidence: 0.9,
@@ -1054,122 +1079,143 @@ struct AnswerRelevanceTests {
         truncatedCard.questionText = question.questionText
 
         #expect(appState.applySuggestionIfAlignedForTesting(truncatedCard, question: question, generationID: nil) == false)
-        #expect(appState.currentSuggestion?.sayFirst != "Diffusion-based policies tend to be more")
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true)
-        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
+        #expect(appState.currentSuggestion == nil)
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("no displayable fallback"))
     }
 
     private struct Fixture {
         var question: String
         var intent: AnswerRelevanceIntent
+        var answer: String
         var mustContain: [String]
     }
 
     private static let fixtures: [Fixture] = [
         Fixture(
-            question: "Could you tell me a little bit about yourself and what brought you into robotics?",
+            question: "Could you tell me a little bit about yourself and what brought you into platform engineering?",
             intent: .tellMeAboutYourself,
-            mustContain: ["MSc Robotics", "robotics"]
+            answer: "My background is in software engineering, where I built the Atlas migration service, learned to validate production changes, and now focus on reliable platforms.",
+            mustContain: ["background", "Atlas", "reliable"]
         ),
         Fixture(
-            question: "Could you walk me through your LeoRover project?",
+            question: "Could you walk me through your Atlas migration project?",
             intent: .projectWalkthrough,
-            mustContain: ["LeoRover", "ROS2", "YOLOv8", "navigation", "manipulation"]
+            answer: "In the Atlas migration project, I designed the mapping pipeline, implemented validation checks, and delivered a staged rollout that reduced failed records.",
+            mustContain: ["Atlas", "implemented", "delivered"]
         ),
         Fixture(
             question: "What was the hardest technical challenge you faced?",
             intent: .technicalChallenge,
-            mustContain: ["noisy", "localisation", "real robot"]
+            answer: "The hardest challenge was schema variability in production; I instrumented failures, isolated incompatible records, and built a validated normalization step.",
+            mustContain: ["challenge", "production", "isolated"]
         ),
         Fixture(
-            question: "How did you handle noisy detections or localisation errors?",
+            question: "How did you handle noisy monitoring alerts?",
             intent: .errorHandling,
-            mustContain: ["filtering", "repeated observations", "recovery"]
+            answer: "I measured duplicate alerts against a baseline, inspected traces, tuned the severity criteria, and validated that critical incidents remained visible.",
+            mustContain: ["duplicate", "traces", "validated"]
         ),
         Fixture(
-            question: "Why did the diffusion decoder perform better in your MuJoCo evaluation?",
+            question: "Why did the transformer model perform better than the regression model?",
             intent: .modelComparison,
-            mustContain: ["diffusion", "autoregressive", "flow-matching", "smoother", "seven out of ten"]
+            answer: "The transformer performed better than regression because it represented long-range dependencies, while regression was faster but missed sequence context.",
+            mustContain: ["transformer", "regression", "while"]
         ),
         Fixture(
-            question: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            question: "What did you learn from comparing classifier, regression, and transformer alternatives?",
             intent: .decoderComparison,
-            mustContain: ["MuJoCo", "VLA", "autoregressive", "diffusion", "flow-matching", "7/10"]
+            answer: "I compared classifier, regression, and transformer alternatives: the classifier was simplest, regression was fastest, while the transformer handled sequence context best.",
+            mustContain: ["classifier", "regression", "transformer"]
         ),
         Fixture(
-            question: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
+            question: "If the inspection detector gives a confident but wrong prediction, how would you debug it?",
             intent: .perceptionDebugging,
-            mustContain: ["YOLOv8", "frames", "bounding", "confidence", "calibration", "retraining"]
+            answer: "I would reproduce the detector prediction, inspect traces and labels, isolate preprocessing errors, fix the guard, and validate it with a regression test.",
+            mustContain: ["detector", "inspect", "validate"]
         ),
         Fixture(
-            question: "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
+            question: "How did you adapt the legacy event dataset into the new warehouse format?",
             intent: .datasetAdaptation,
-            mustContain: ["DROID", "MuJoCo", "Franka", "trajectory", "coordinate"]
+            answer: "I mapped and converted the legacy event dataset into normalized warehouse records, then validated row counts and tested representative samples.",
+            mustContain: ["mapped", "normalized", "validated"]
         ),
         Fixture(
-            question: "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
+            question: "How would you diagnose a sim-to-real gap if a policy works in simulation but fails in production?",
             intent: .simToRealDebugging,
-            mustContain: ["sim-to-real", "observations", "timing", "calibration", "dynamics"]
+            answer: "I would compare simulation with the production environment, isolate configuration and latency differences, calibrate the inputs, and verify each change under deployment traffic.",
+            mustContain: ["simulation", "production", "isolate"]
         ),
         Fixture(
-            question: "Can you explain the difference between your VLA project and your LeoRover project?",
+            question: "Can you explain the difference between the Atlas project and the Beacon project?",
             intent: .projectComparison,
-            mustContain: ["VLA", "LeoRover", "MuJoCo", "ROS2", "difference"]
+            answer: "The Atlas project migrated historical records, while the Beacon project monitored live events; both required validation but had different latency constraints.",
+            mustContain: ["Atlas", "Beacon", "while"]
         ),
         Fixture(
             question: "What would you change first if you had another month?",
             intent: .improvementPlan,
-            mustContain: ["evaluation", "failure cases", "perception"]
+            answer: "With another month, my first priority would be to add failure-case tests, instrument the highest-risk path, and validate the improvement against a measurable baseline.",
+            mustContain: ["first", "tests", "validate"]
         ),
         Fixture(
-            question: "What was the biggest technical trade-off you made in your robotics projects?",
+            question: "What was the biggest technical trade-off you made between latency and accuracy?",
             intent: .technicalTradeoff,
-            mustContain: ["trade-off", "robustness", "latency", "LeoRover"]
+            answer: "I balanced latency versus accuracy and chose the smaller model because it met the quality threshold while reducing response time.",
+            mustContain: ["latency", "accuracy", "chose"]
         ),
         Fixture(
             question: "Tell me about a time you had to debug a system integration problem.",
             intent: .systemIntegrationDebugging,
-            mustContain: ["system integration", "logs", "timestamps", "recovery"]
+            answer: "The system integration failed at the payments interface, so I inspected logs, isolated a schema mismatch, and added contract validation and recovery tests.",
+            mustContain: ["integration", "logs", "validation"]
         ),
         Fixture(
-            question: "Can you explain how your robot transformed visual detections into physical actions in the real world",
+            question: "Can you explain how visual detection transformed into a physical sorting action",
             intent: .systemIntegrationDebugging,
-            mustContain: ["target pose", "navigation", "manipulation", "recovery"]
+            answer: "Visual detection produced a target state for the sorting system; I validated the control handoff, monitored confidence, and added a retry guard before each physical action.",
+            mustContain: ["detection", "control", "retry"]
         ),
         Fixture(
-            question: "What information did the robot need before it could decide where to move and what to grasp",
+            question: "What information did the system need before it could execute the billing action",
             intent: .systemIntegrationDebugging,
-            mustContain: ["object identity", "location", "reachability", "navigation", "grasp"]
+            answer: "Before the billing action, the system checked account state and invoice data, then validated the input and guarded execution with an idempotency key.",
+            mustContain: ["account", "invoice", "validated"]
         ),
         Fixture(
-            question: "How did you combine perception and control, and why was that connection difficult to make reliable",
+            question: "How did you combine event input and control output, and why was that handoff difficult to make reliable",
             intent: .systemIntegrationDebugging,
-            mustContain: ["perception", "control", "target pose", "latency"]
+            answer: "Event input set the control target, but stale state made the handoff unreliable, so I instrumented timestamps, measured latency, and validated output checks.",
+            mustContain: ["input", "control", "latency"]
         ),
         Fixture(
-            question: "What was the most important lesson you learned from debugging the real robot?",
-            intent: .systemIntegrationDebugging,
-            mustContain: ["debugging", "real robot", "integration", "logs", "timestamps", "recovery"]
+            question: "What was the most important lesson you learned from debugging the production system?",
+            intent: .technicalChallenge,
+            answer: "Debugging the production system taught me to instrument every interface, correlate logs and timestamps, isolate failures, and verify recovery with fault-injection tests.",
+            mustContain: ["production", "logs", "recovery"]
         ),
         Fixture(
             question: "Why do you want to join our team?",
             intent: .whyRole,
-            mustContain: ["role", "robotics", "deployment"]
+            answer: "I want to join the team because the role aligns with my platform experience and the organisation owns measurable production outcomes.",
+            mustContain: ["role", "team", "production"]
         ),
         Fixture(
-            question: "How comfortable are you with Python, C++, and ROS2?",
+            question: "What is your experience with SQL and API tooling?",
             intent: .skillComfort,
-            mustContain: ["Python", "C++", "ROS2"]
+            answer: "I am comfortable with SQL and API tooling because I have used both in production, while my experience with advanced query tuning is still developing.",
+            mustContain: ["SQL", "API", "used"]
         ),
         Fixture(
             question: "Do you have any questions for us?",
             intent: .candidateQuestions,
-            mustContain: ["ask", "team", "deployment"]
+            answer: "What does success look like for this team in the first six months?",
+            mustContain: ["success", "team", "?"]
         ),
         Fixture(
             question: "What questions would you ask us about the team or the role before accepting an offer?",
             intent: .interviewerQuestions,
-            mustContain: ["success", "deployment", "team", "ownership"]
+            answer: "How is success measured in the first six months? Which constraints shape the delivery workflow? Which role has ownership of production incidents across the team?",
+            mustContain: ["success", "constraints", "ownership"]
         )
     ]
 
@@ -1194,17 +1240,16 @@ struct AnswerRelevanceTests {
     private func misleadingContext() -> RetrievedContext {
         RetrievedContext(
             cvChunks: [
-                chunk("self", "Education: MSc Robotics at the University of Manchester with a computer science background and robotics interest.", .cv),
-                chunk("leorover", "LeoRover autonomous object retrieval robot using ROS2, YOLOv8, target localisation, navigation, and manipulation.", .cv),
-                chunk("challenge", "Hardest challenge: noisy perception, localisation instability, timing mismatch, and unpredictable real robot execution.", .cv),
-                chunk("noise", "Noisy detections were handled with filtering, repeated observations, stability thresholds, retry, repositioning, and recovery behaviour.", .cv),
-                chunk("vla", "VLA MuJoCo evaluation compared diffusion, autoregressive, and flow-matching decoders; diffusion gave smoother continuous actions and seven out of ten successful grasps.", .cv),
-                chunk("detector", "YOLOv8 detector debugging used frame logs, bounding boxes, class confidence, calibration checks, lighting and occlusion review, and recovery before retraining.", .cv),
-                chunk("tradeoff", "Robotics trade-off: LeoRover prioritized robust filtering, recovery behaviour, ROS2 coordination, and reliable real robot execution over latency and model complexity.", .cv),
-                chunk("skills", "Skills: Python, ROS2, C++, robotics projects, control coordination, experiment scripting, and performance-critical robotics systems.", .cv)
+                chunk("project", "Implemented the Atlas migration project and delivered a validated rollout.", .cv),
+                chunk("incident", "Debugged an Atlas incident, isolated a queue failure, and improved recovery reliability.", .cv),
+                chunk("model-comparison", "Compared transformer and regression models using evaluation metrics and documented the trade-off.", .cv),
+                chunk("skills", "Used SQL and API tooling in production and documented current skill limits.", .cv),
+                chunk("motivation", "My platform experience, project work, skills, and goal align with reliable delivery.", .cv)
             ],
             jobDescriptionChunks: [
-                chunk("jd", "Robotics software team focused on perception, real-world deployment, evaluation, reliability, and success criteria.", .jobDescription)
+                chunk("jd-evaluation", "The role owns evaluation, performance constraints, and production reliability.", .jobDescription),
+                chunk("jd-skills", "Required skill: SQL; preferred experience with API platforms.", .jobDescription),
+                chunk("jd-team", "The team defines success, ownership, responsibilities, and operational constraints.", .jobDescription)
             ]
         )
     }

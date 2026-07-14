@@ -515,6 +515,70 @@ struct DynamicCandidateContextTests {
     }
 
     @Test
+    func improvementAndDatasetFallbacksStayAlignedWithoutInventingMissingImplementationFacts() {
+        let engine = DynamicInterviewContextEngine()
+        let profile = SyntheticContextFixtures.backendProfile()
+
+        let improvementQuestion = "If you had one more month to improve the service, what would you improve first?"
+        let improvement = engine.profileSafeFallback(
+            question: improvementQuestion,
+            domainProfile: .profile(for: .softwareEngineering),
+            candidateProfile: profile,
+            opportunityContext: nil,
+            contextSnapshotID: "improvement-snapshot"
+        )
+        let improvementAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: improvementQuestion,
+            answerText: improvement.answer,
+            sayFirst: improvement.answer
+        )
+
+        #expect(improvement.unsupportedClaims.isEmpty)
+        #expect(improvement.answer.localizedCaseInsensitiveContains("first priority"))
+        #expect(improvement.answer.localizedCaseInsensitiveContains("validate"))
+        #expect(improvementAlignment.verdict == .aligned)
+
+        let datasetQuestion = "How did you migrate the data format and validate the converted records?"
+        let dataset = engine.profileSafeFallback(
+            question: datasetQuestion,
+            domainProfile: .profile(for: .softwareEngineering),
+            candidateProfile: profile,
+            opportunityContext: nil,
+            contextSnapshotID: "dataset-snapshot"
+        )
+        let datasetAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: datasetQuestion,
+            answerText: dataset.answer,
+            sayFirst: dataset.answer
+        )
+
+        #expect(dataset.unsupportedClaims.isEmpty)
+        #expect(dataset.answer.localizedCaseInsensitiveContains("does not document"))
+        #expect(dataset.answer.localizedCaseInsensitiveContains("converted"))
+        #expect(dataset.answer.localizedCaseInsensitiveContains("validated"))
+        #expect(datasetAlignment.verdict == .aligned)
+
+        let walkthroughQuestion = "Can you explain your distributed microservice project from end to end?"
+        let walkthrough = engine.profileSafeFallback(
+            question: walkthroughQuestion,
+            domainProfile: .profile(for: .softwareEngineering),
+            candidateProfile: profile,
+            opportunityContext: nil,
+            contextSnapshotID: "walkthrough-snapshot"
+        )
+        let walkthroughAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: walkthroughQuestion,
+            answerText: walkthrough.answer,
+            sayFirst: walkthrough.answer
+        )
+
+        #expect(walkthrough.unsupportedClaims.isEmpty)
+        #expect(walkthrough.answer.localizedCaseInsensitiveContains("microservice"))
+        #expect(walkthrough.answer.localizedCaseInsensitiveContains("result or validation"))
+        #expect(walkthroughAlignment.verdict == .aligned)
+    }
+
+    @Test
     func structuredExtractionSeparatesCandidateFactsFromOpportunityRequirements() {
         let extractor = StructuredEvidenceExtractor()
         let resume = extractor.extract(
@@ -710,6 +774,37 @@ struct DynamicCandidateContextTests {
         #expect(firstSnapshotID != secondSnapshotID)
         #expect(try contexts.snapshots(sessionID: session.id).count == 3)
         #expect(appState.activeContextSnapshot?.candidateProfileID == backend.id)
+    }
+
+    @Test @MainActor
+    func contextChangesDoNotRewriteEndedSessionSnapshot() throws {
+        let database = try TestSupport.makeTemporaryDatabase(prefix: "DynamicContextEndedSession")
+        let contexts = InterviewContextRepository(database: database)
+        let robotics = SyntheticContextFixtures.roboticsProfile()
+        let backend = SyntheticContextFixtures.backendProfile()
+        try contexts.saveCandidateProfile(robotics)
+        try contexts.saveCandidateProfile(backend)
+
+        let appState = AppState(database: database, dialogueDefaults: nil)
+        appState.selectCandidateProfile(robotics.id)
+        appState.selectInterviewDomain(.roboticsResearch)
+        var session = try appState.createContextBoundSession(mode: .mock, title: "Completed session")
+        let originalSnapshotID = try #require(session.contextSnapshotID)
+        appState.currentSession = session
+
+        try appState.sessionRepository.endSession(id: session.id)
+        session.endedAt = Date()
+        appState.currentSession = session
+
+        appState.selectCandidateProfile(backend.id)
+        appState.selectInterviewDomain(.softwareEngineering)
+
+        let persisted = try #require(try appState.sessionRepository.session(id: session.id))
+        #expect(persisted.endedAt != nil)
+        #expect(persisted.contextSnapshotID == originalSnapshotID)
+        #expect(appState.currentSession?.contextSnapshotID == originalSnapshotID)
+        #expect(try contexts.snapshots(sessionID: session.id).count == 1)
+        #expect(appState.activeCandidateProfileID == backend.id)
     }
 
     @Test @MainActor

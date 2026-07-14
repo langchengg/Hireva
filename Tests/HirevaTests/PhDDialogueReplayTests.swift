@@ -12,7 +12,7 @@ struct PhDDialogueReplayTests {
             sessionID: "test",
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Please describe your prior work in computer vision and explain how it prepared you for this project. At the end, do you have any questions for us?"
+            text: "Please describe your prior work in computer vision and explain how it prepared you for this project."
         )
         let cumulativeDecision = InterviewDialogueTriggerPolicy.evaluate(
             segment: cumulative,
@@ -23,6 +23,24 @@ struct PhDDialogueReplayTests {
             allowCandidateQuestionDetection: false
         )
         #expect(cumulativeDecision.shouldEvaluateQuestion)
+
+        let panelInvitation = TranscriptSegment(
+            id: "panel-invitation",
+            sessionID: "test",
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "Do you have any questions for us?"
+        )
+        let invitationDecision = InterviewDialogueTriggerPolicy.evaluate(
+            segment: panelInvitation,
+            phase: .interviewerQuestions,
+            listeningMode: .panelQuestionsOnly,
+            candidatePresentationMode: .suppressAnswers,
+            candidateAsksPanelMode: .suppressAnswers,
+            allowCandidateQuestionDetection: false
+        )
+        #expect(!invitationDecision.shouldEvaluateQuestion)
+        #expect(invitationDecision.decision == .transitionToCandidateQuestions)
 
         let microphoneQuestion = TranscriptSegment(
             id: "candidate-microphone",
