@@ -20,6 +20,134 @@ names, credentials, and source filesystem paths are never written to metadata.
 USAGE
 }
 
+validate_hireva_release_contract() {
+    local app="$RELEASE_APP_PATH"
+    local helper="$app/Contents/Helpers/parakeet_asr_helper"
+    local sherpa="$app/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+    local onnx="$app/Contents/Frameworks/libonnxruntime.1.27.0.dylib"
+    local runtime_mode
+    local embedded_mode
+    local tree_state
+    local distribution_build
+    local actual_arches
+    local forbidden
+    local required
+    local required_macho
+    local unexpected
+
+    [[ "$RELEASE_PRODUCT_NAME" == "Hireva" ]] || release_die "CFBundleName must be Hireva"
+    [[ "$RELEASE_EXECUTABLE_NAME" == "Hireva" ]] || release_die "CFBundleExecutable must be Hireva"
+    [[ "$RELEASE_BUNDLE_IDENTIFIER" == "com.langcheng.Hireva" ]] || \
+        release_die "CFBundleIdentifier must be com.langcheng.Hireva"
+    if [[ ${#RELEASE_ARCHS[@]} -ne 1 || "${RELEASE_ARCHS[0]}" != "arm64" ]]; then
+        release_die "Hireva release packaging requires exactly HIREVA_BUILD_ARCHS=arm64"
+    fi
+
+    runtime_mode="$(release_plist_value "$RELEASE_INFO_PLIST" HirevaRuntimeMode || true)"
+    embedded_mode="$(release_plist_value "$RELEASE_INFO_PLIST" HirevaSigningMode || true)"
+    tree_state="$(release_plist_value "$RELEASE_INFO_PLIST" HirevaGitTreeState || true)"
+    distribution_build="$(release_plist_value "$RELEASE_INFO_PLIST" HirevaDistributionBuild || true)"
+    [[ "$runtime_mode" == "bundled_native" ]] || release_die "HirevaRuntimeMode must be bundled_native"
+    [[ "$embedded_mode" == "$RELEASE_SIGNING_MODE" ]] || \
+        release_die "embedded signing mode does not match HIREVA_SIGNING_MODE"
+    case "$tree_state" in
+        clean|dirty) ;;
+        *) release_die "HirevaGitTreeState must explicitly be clean or dirty" ;;
+    esac
+    if [[ "$RELEASE_SIGNING_MODE" == "developer-id" ]]; then
+        [[ "$tree_state" == "clean" ]] || release_die "developer-id packaging requires a clean source tree"
+        [[ "$distribution_build" == "true" ]] || release_die "developer-id app is not marked as a distribution build"
+    else
+        [[ "$distribution_build" == "false" ]] || release_die "non-distribution signing mode has distribution metadata"
+    fi
+
+    forbidden="$(/usr/bin/find "$app/Contents" \( \
+        -type l -o \
+        -type d \( -iname '__pycache__' -o -iname 'site-packages' -o \
+            -iname 'numpy' -o -iname 'LocalModels' -o -iname 'Models' -o \
+            -iname 'test_wavs' -o -name '.git' -o -name '.build' \) -o \
+        -type f \( -iname '*.py' -o -iname '*.pyc' -o -iname '*.pyo' -o \
+            -iname 'python' -o -iname 'python[0-9]*' -o -iname 'libpython*' -o \
+            -iname '*.onnx' -o -iname '*.ort' -o -iname '*.bin' -o \
+            -iname '*.gguf' -o -iname '*.ggml' -o -iname '*.safetensors' -o \
+            -iname '*.pt' -o -iname '*.pth' -o -iname '*.mlmodel' -o \
+            -iname 'tokens.txt' -o -iname '*.sqlite' -o -iname '*.sqlite3' -o \
+            -iname '*.sqlite-*' -o -iname '*.db' -o -iname '*.db-*' -o \
+            -iname '*-wal' -o -iname '*-shm' -o -iname '*.wav' -o \
+            -iname '*.jsonl' -o -iname '*.trace' -o -iname '*.trace.*' -o \
+            -iname '*.log' -o -iname '*.zip' -o -iname '*.dmg' -o \
+            -iname '*.tar' -o -iname '*.tar.*' -o -iname '*.bz2' -o \
+            -iname '.env' -o -iname '.env.*' -o -iname '*.pem' -o \
+            -iname '*.p12' -o -iname '*.key' -o -iname 'auth.json' -o \
+            -iname 'credentials.json' -o -iname 'secrets.*' -o \
+            -name '.DS_Store' -o -name '._*' \) \
+    \) -print -quit)"
+    [[ -z "$forbidden" ]] || release_die "forbidden private/runtime payload in app: ${forbidden#"$app/"}"
+
+    for required in \
+        "$helper" \
+        "$sherpa" \
+        "$onnx" \
+        "$app/Contents/Resources/Documentation/release-installation.md" \
+        "$app/Contents/Resources/Documentation/local-model-installation.md" \
+        "$app/Contents/Resources/Documentation/privacy-and-data-flow.md" \
+        "$app/Contents/Resources/Documentation/third-party-licenses.md" \
+        "$app/Contents/Resources/Documentation/release-notes-0.1.0.md" \
+        "$app/Contents/Resources/ThirdPartyNotices/sherpa-onnx-LICENSE.txt" \
+        "$app/Contents/Resources/ThirdPartyNotices/onnxruntime-LICENSE.txt" \
+        "$app/Contents/Resources/ThirdPartyNotices/onnxruntime-ThirdPartyNotices.txt" \
+        "$app/Contents/Resources/ThirdPartyNotices/GRDB-LICENSE.txt"; do
+        [[ -s "$required" ]] || release_die "required Hireva payload is missing or empty: ${required#"$app/"}"
+    done
+    [[ -x "$helper" ]] || release_die "bundled Parakeet helper is not executable"
+    [[ "$(/usr/bin/file -b "$helper")" == *Mach-O* ]] || release_die "bundled Parakeet helper is not Mach-O"
+    [[ "$(/usr/bin/file -b "$sherpa")" == *"dynamically linked shared library"* ]] || \
+        release_die "bundled sherpa runtime is not a dynamic library"
+    [[ "$(/usr/bin/file -b "$onnx")" == *"dynamically linked shared library"* ]] || \
+        release_die "bundled ONNX runtime is not a dynamic library"
+
+    for required_macho in "$RELEASE_MAIN_EXECUTABLE" "$helper" "$sherpa" "$onnx"; do
+        actual_arches="$(/usr/bin/lipo -archs "$required_macho" 2>/dev/null)" || \
+            release_die "unable to inspect required Hireva Mach-O: ${required_macho#"$app/"}"
+        [[ "$actual_arches" == "arm64" ]] || \
+            release_die "required Hireva Mach-O must be exactly arm64: ${required_macho#"$app/"} (found: $actual_arches)"
+    done
+
+    unexpected="$(/usr/bin/find "$app/Contents/Helpers" -mindepth 1 -maxdepth 1 \
+        ! -name 'parakeet_asr_helper' -print -quit)"
+    [[ -z "$unexpected" ]] || release_die "unexpected bundled helper: ${unexpected#"$app/"}"
+    unexpected="$(/usr/bin/find "$app/Contents/Frameworks" -mindepth 1 -maxdepth 1 \
+        ! -name 'libsherpa-onnx-c-api.dylib' \
+        ! -name 'libonnxruntime.1.27.0.dylib' -print -quit)"
+    [[ -z "$unexpected" ]] || release_die "unexpected bundled framework: ${unexpected#"$app/"}"
+}
+
+validate_hireva_runtime_health() {
+    local app="$RELEASE_APP_PATH"
+    local helper="$app/Contents/Helpers/parakeet_asr_helper"
+    local health_file
+
+    health_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/hireva-helper-health.XXXXXX")" || \
+        release_die "unable to create helper health probe file"
+    if ! /usr/bin/env -i HOME="${TMPDIR:-/tmp}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+        "$helper" --health >"$health_file" 2>/dev/null; then
+        /bin/rm -f "$health_file"
+        release_die "bundled Parakeet helper health probe failed"
+    fi
+    if [[ "$(/usr/bin/plutil -extract status raw -o - "$health_file" 2>/dev/null || true)" != "ok" ]] || \
+       [[ "$(/usr/bin/plutil -extract source raw -o - "$health_file" 2>/dev/null || true)" != "local_parakeet_asr" ]] || \
+       [[ "$(/usr/bin/plutil -extract runtimeMode raw -o - "$health_file" 2>/dev/null || true)" != "bundled_native" ]] || \
+       [[ "$(/usr/bin/plutil -extract runtimeVersion raw -o - "$health_file" 2>/dev/null || true)" != "1" ]] || \
+       [[ "$(/usr/bin/plutil -extract sherpaVersion raw -o - "$health_file" 2>/dev/null || true)" != "1.13.4" ]] || \
+       [[ "$(/usr/bin/plutil -extract onnxRuntimeVersion raw -o - "$health_file" 2>/dev/null || true)" != "1.27.0" ]] || \
+       [[ "$(/usr/bin/plutil -extract architecture raw -o - "$health_file" 2>/dev/null || true)" != "arm64" ]] || \
+       [[ "$(/usr/bin/plutil -extract modelStatus raw -o - "$health_file" 2>/dev/null || true)" != "not_probed" ]]; then
+        /bin/rm -f "$health_file"
+        release_die "bundled Parakeet helper returned an invalid health contract"
+    fi
+    /bin/rm -f "$health_file"
+}
+
 if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     usage
     exit 0
@@ -34,8 +162,10 @@ release_load_architectures
 release_load_app "$1"
 release_load_versions
 release_reject_unstable_metadata
+validate_hireva_release_contract
 release_validate_architectures
 release_assert_signature_mode "$RELEASE_APP_PATH"
+validate_hireva_runtime_health
 release_prepare_output_root
 
 ARTIFACT_STEM="$RELEASE_PRODUCT_NAME-$RELEASE_SHORT_VERSION-$RELEASE_BUNDLE_VERSION-$RELEASE_SIGNING_MODE"
@@ -71,8 +201,11 @@ fi
 /usr/bin/ditto --norsrc "$STAGED_APP/Contents/Resources/ThirdPartyNotices" \
     "$STAGED_DOCUMENTATION/ThirdPartyNotices"
 release_load_app "$STAGED_APP"
+release_reject_unstable_metadata
+validate_hireva_release_contract
 release_validate_architectures
-release_assert_signature_mode "$RELEASE_APP_PATH"
+release_assert_signature_mode "$STAGED_APP"
+validate_hireva_runtime_health
 
 printf '[package] creating notarization-compatible ZIP\n'
 /usr/bin/ditto -c -k --keepParent --norsrc "$STAGED_APP" "$STAGED_ZIP"
@@ -89,6 +222,7 @@ TEAM_IDENTIFIER="$(printf '%s\n' "$SIGNING_DETAILS" | /usr/bin/awk -F= '/^TeamId
 CDHASH="$(printf '%s\n' "$SIGNING_DETAILS" | /usr/bin/awk -F= '/^CDHash=/{print $2; exit}')"
 ACTUAL_ARCHS="$(/usr/bin/lipo -archs "$RELEASE_MAIN_EXECUTABLE")"
 SOURCE_COMMIT="$(release_plist_value "$RELEASE_INFO_PLIST" HirevaGitCommitHash || true)"
+SOURCE_TREE_STATE="$(release_plist_value "$RELEASE_INFO_PLIST" HirevaGitTreeState || true)"
 GENERATED_AT_UTC="$(/bin/date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
 /usr/bin/plutil -create xml1 "$STAGED_MANIFEST"
@@ -108,6 +242,7 @@ GENERATED_AT_UTC="$(/bin/date -u +'%Y-%m-%dT%H:%M:%SZ')"
 /usr/bin/plutil -insert code_directory_hash -string "${CDHASH:-unavailable}" "$STAGED_MANIFEST"
 /usr/bin/plutil -insert team_identifier -string "${TEAM_IDENTIFIER:-none}" "$STAGED_MANIFEST"
 /usr/bin/plutil -insert source_commit -string "${SOURCE_COMMIT:-unknown}" "$STAGED_MANIFEST"
+/usr/bin/plutil -insert source_tree_state -string "$SOURCE_TREE_STATE" "$STAGED_MANIFEST"
 /usr/bin/plutil -insert generated_at_utc -string "$GENERATED_AT_UTC" "$STAGED_MANIFEST"
 /usr/bin/plutil -insert requested_architectures -json '[]' "$STAGED_MANIFEST"
 index=0

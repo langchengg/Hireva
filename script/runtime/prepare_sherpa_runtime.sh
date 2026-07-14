@@ -11,6 +11,8 @@ ARCHIVE_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/v${VERSION}
 ARCHIVE_SHA256="c003242369046d3c2adc6b48c3c96e0ff129e76738b7f3aa5342828ec8ba410d"
 HEADER_URL="https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${VERSION}/sherpa-onnx/c-api/c-api.h"
 HEADER_SHA256="587e1039cc4ee242169494f3c0ba5baecc22482341168d88d57db965e1e77fa9"
+SHERPA_LIBRARY_SHA256="08caf3346b82648540c8c9b738ee10b06e728a5ea525184230b25321ec57f047"
+ONNX_RUNTIME_LIBRARY_SHA256="8e822d761fac13e47c6725baf1e65d9858ea00bf0af3e61a43b7c6a65a794439"
 SDK_ROOT="$CACHE_ROOT/$RUNTIME_NAME"
 ARCHIVE_PATH="$CACHE_ROOT/$ARCHIVE_NAME"
 HEADER_PATH="$SDK_ROOT/include/sherpa-onnx/c-api/c-api.h"
@@ -54,7 +56,9 @@ mkdir -p "$CACHE_ROOT"
 download_verified "$ARCHIVE_URL" "$ARCHIVE_PATH" "$ARCHIVE_SHA256"
 
 if [[ ! -f "$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib" || \
-      ! -f "$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib" ]]; then
+      ! -f "$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib" ]] || \
+      ! verify_sha256 "$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib" "$SHERPA_LIBRARY_SHA256" || \
+      ! verify_sha256 "$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib" "$ONNX_RUNTIME_LIBRARY_SHA256"; then
     staging="${SDK_ROOT}.staging.$$"
     rm -rf "$staging"
     mkdir -p "$staging"
@@ -76,6 +80,12 @@ if [[ ! -f "$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib" || \
         rm -rf "$staging"
         exit 1
     fi
+    if ! verify_sha256 "$extracted/lib/libsherpa-onnx-c-api.dylib" "$SHERPA_LIBRARY_SHA256" || \
+       ! verify_sha256 "$extracted/lib/libonnxruntime.1.27.0.dylib" "$ONNX_RUNTIME_LIBRARY_SHA256"; then
+        echo "[runtime] ERROR: verified archive contains an unexpected runtime payload." >&2
+        rm -rf "$staging"
+        exit 1
+    fi
     rm -rf "$SDK_ROOT"
     mv "$extracted" "$SDK_ROOT"
     rm -rf "$staging"
@@ -92,5 +102,9 @@ for library in \
         exit 1
     fi
 done
+
+verify_sha256 "$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib" "$SHERPA_LIBRARY_SHA256"
+verify_sha256 "$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib" "$ONNX_RUNTIME_LIBRARY_SHA256"
+verify_sha256 "$HEADER_PATH" "$HEADER_SHA256"
 
 printf '%s\n' "$SDK_ROOT"

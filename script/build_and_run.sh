@@ -54,6 +54,19 @@ PARAKEET_HELPER_BUNDLE="$APP_HELPERS/parakeet_asr_helper"
 BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if GIT_STATUS_PORCELAIN="$(git status --porcelain --untracked-files=normal 2>/dev/null)"; then
+        if [[ -n "$GIT_STATUS_PORCELAIN" ]]; then
+            GIT_TREE_STATE="dirty"
+        else
+            GIT_TREE_STATE="clean"
+        fi
+    else
+        GIT_TREE_STATE="unknown"
+    fi
+else
+    GIT_TREE_STATE="unknown"
+fi
 EXPECTED_BUNDLE_PATH="$APP_BUNDLE"
 BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD="no"
 
@@ -72,6 +85,10 @@ if [[ "$REQUESTED_BUILD_ARCHS" != "arm64" ]]; then
 fi
 
 if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then
+    if [[ "$GIT_TREE_STATE" != "clean" ]]; then
+        echo "[build] ERROR: developer-id builds require a clean Git worktree; found $GIT_TREE_STATE." >&2
+        exit 2
+    fi
     BUILD_CONFIGURATION="${HIREVA_BUILD_CONFIGURATION:-release}"
 else
     BUILD_CONFIGURATION="${HIREVA_BUILD_CONFIGURATION:-debug}"
@@ -324,6 +341,7 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert HirevaBuildTimestampUTC    -string "$BUILD_TIMESTAMP_UTC" "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaGitCommitHash        -string "$GIT_COMMIT_HASH"     "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaGitBranch            -string "$GIT_BRANCH"          "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaGitTreeState         -string "$GIT_TREE_STATE"      "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaSigningMode          -string "$REQUESTED_SIGNING_MODE" "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaRuntimeMode          -string "bundled_native"        "$INFO_PLIST"
 if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then

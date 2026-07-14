@@ -130,6 +130,9 @@ struct RuntimeVerificationScriptTests {
             "HIREVA_SIGNING_MODE",
             "HIREVA_BUILD_ARCHS",
             "HIREVA_FIXED_USER_HOME",
+            "HirevaGitTreeState",
+            "GIT_STATUS_PORCELAIN",
+            "developer-id builds require a clean Git worktree",
             "--env",
             "CFFIXED_USER_HOME=",
             "--relaunch",
@@ -155,6 +158,22 @@ struct RuntimeVerificationScriptTests {
         #expect(!contents.contains("rm -rf \"$APP_BUNDLE\""), "Replacing the whole app creates stale Google Drive Trash registrations")
         #expect(!contents.contains("codesign --force --deep"), "Nested code must be signed inside-out, not with deprecated --deep signing")
         #expect(!contents.contains("PARAKEET_SIDECAR_PYTHON_SOURCE"), "The app bundle must not package the Python runtime")
+
+        let runtimePreparation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("script/runtime/prepare_sherpa_runtime.sh"),
+            encoding: .utf8
+        )
+        #expect(runtimePreparation.contains("SHERPA_LIBRARY_SHA256=\"08caf3346b82648540c8c9b738ee10b06e728a5ea525184230b25321ec57f047\""))
+        #expect(runtimePreparation.contains("ONNX_RUNTIME_LIBRARY_SHA256=\"8e822d761fac13e47c6725baf1e65d9858ea00bf0af3e61a43b7c6a65a794439\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$HEADER_PATH\" \"$HEADER_SHA256\""))
+
+        let extractedSherpaHash = try #require(
+            runtimePreparation.range(of: "verify_sha256 \"$extracted/lib/libsherpa-onnx-c-api.dylib\"")
+        )
+        let cacheReplacement = try #require(runtimePreparation.range(of: "rm -rf \"$SDK_ROOT\""))
+        #expect(extractedSherpaHash.lowerBound < cacheReplacement.lowerBound)
 
         let modeValidation = try #require(contents.range(of: "# Reject unsupported modes before any process is stopped or bundle is rebuilt."))
         let relaunch = try #require(contents.range(of: "if [[ \"$MODE\" == \"--relaunch\""))
