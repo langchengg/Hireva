@@ -289,11 +289,10 @@ struct RuntimeSmokeHarnessTests {
         #expect(harness.appState.currentSuggestion?.questionIntent == .projectComparison)
         #expect(harness.appState.currentSuggestion?.questionText == thirdQuestion)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
+        #expect(rows.allSatisfy { $0.finalVisibleSource != "local_superseded_question_snapshot" })
         #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 3)
-        #expect(
-            trace.contains("\"event_type\":\"staleGenerationResultRejected\"") ||
-                trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"")
-        )
+        #expect(trace.contains("\"event_type\":\"questionQueued\""))
+        #expect(trace.contains("\"event_type\":\"questionDequeued\""))
     }
 
     @Test

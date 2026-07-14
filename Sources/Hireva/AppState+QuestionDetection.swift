@@ -817,14 +817,9 @@ extension AppState {
 
     private func shouldQueueAutoSuggestionGeneration(for question: DetectedQuestion) -> Bool {
         guard shouldQueueAutoSuggestionGenerationForCurrentState() else { return false }
-        if let segmentID = question.transcriptSegmentID,
-           let hadVisibleAnswerAtIngestion = transcriptSegmentHadVisibleAnswerAtIngestion[segmentID] {
-            return hadVisibleAnswerAtIngestion && activeQuestionID != question.id
-        }
-        if let firstVisibleAt = currentGenerationTelemetry.firstVisibleAt,
-           question.createdAt <= firstVisibleAt {
-            return false
-        }
+        // Preserve every accepted interviewer question through its real
+        // provider request. Replacing a generation before its first token
+        // leaves only a local snapshot and loses provider-source ownership.
         return activeQuestionID != question.id
     }
 
@@ -1014,9 +1009,7 @@ extension AppState {
         session: InterviewSession,
         transcript: String
     ) {
-        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion),
-           visibleAnswerExists,
-           currentSuggestion != nil {
+        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion) {
             queueAcceptedAutoQuestion(acceptedQuestion, session: session, transcript: transcript)
             return
         }

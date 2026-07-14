@@ -1606,13 +1606,15 @@ struct RuntimePathSingleSourceOfTruthTests {
     func secondAcceptedRuntimeQuestionSupersedesOrQueuesAndOwnsLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-question-queue-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.delayProvider = RealDelayProvider()
         client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
+        let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit"
         let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "queued-first-engineering-fit",
             sessionID: session.id,
-            text: "What would you ask the engineering team to understand whether this role is a good fit"
+            text: firstQuestion
         ))
 
         try await waitUntil(timeout: 8.0) {
@@ -1652,10 +1654,15 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(!appState.currentSpinnerVisible)
 
         try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1 &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
             appState.liveSuggestionHistory.contains { $0.questionText == secondQuestion }
         }
         let historyQuestions = appState.liveSuggestionHistory.compactMap(\.questionText)
+        let persistedRows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(persistedRows.count == 2)
+        #expect(Set(persistedRows.compactMap(\.questionText)) == Set([firstQuestion, secondQuestion]))
+        #expect(persistedRows.allSatisfy { $0.finalVisibleSource == AnswerSource.deepseekStream.rawValue })
+        #expect(persistedRows.allSatisfy { $0.finalVisibleSource != "local_superseded_question_snapshot" })
         #expect(historyQuestions.contains(secondQuestion))
         #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
 
