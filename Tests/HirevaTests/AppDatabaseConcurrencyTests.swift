@@ -57,4 +57,59 @@ struct AppDatabaseConcurrencyTests {
         }
         #expect(persistedCount == 1)
     }
+
+    @Test
+    func appWriteDoesNotDeadlockWhileAnotherWriterOwnsReservedLock() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HirevaDatabaseUpgradeTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let databaseURL = directory.appendingPathComponent("test.sqlite")
+        let database = try AppDatabase(path: databaseURL)
+        let externalWriter = try DatabaseQueue(path: databaseURL.path)
+        defer {
+            try? externalWriter.close()
+            try? database.close()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let writerReserved = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { writerFinished.signal() }
+            try? externalWriter.write { db in
+                try db.execute(
+                    sql: """
+                    INSERT INTO documents (id, type, title, content, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: ["external-write", "resume", "External", "Evidence", "2026-07-15", "2026-07-15"]
+                )
+                writerReserved.signal()
+                releaseWriter.wait()
+            }
+        }
+
+        #expect(writerReserved.wait(timeout: .now() + 2.0) == .success)
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.25) {
+            releaseWriter.signal()
+        }
+
+        try database.dbQueue.write { db in
+            _ = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM documents")
+            try db.execute(
+                sql: """
+                INSERT INTO documents (id, type, title, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                arguments: ["app-write", "resume", "App", "Evidence", "2026-07-15", "2026-07-15"]
+            )
+        }
+
+        #expect(writerFinished.wait(timeout: .now() + 2.0) == .success)
+        let persistedIDs = try database.dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM documents ORDER BY id")
+        }
+        #expect(persistedIDs == ["app-write", "external-write"])
+    }
 }

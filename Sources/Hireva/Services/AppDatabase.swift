@@ -43,6 +43,7 @@ final class AppDatabase {
 
     private static func makeConfiguration() -> Configuration {
         var configuration = Configuration()
+        configuration.defaultTransactionKind = .immediate
         configuration.busyMode = .timeout(5.0)
         configuration.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys = ON")
