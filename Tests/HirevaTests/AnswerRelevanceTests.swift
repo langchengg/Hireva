@@ -1008,6 +1008,26 @@ struct AnswerRelevanceTests {
     }
 
     @Test
+    func proceduralWalkthroughWithoutProjectLanguageUsesDirectAnswerShape() {
+        let question = "Walk me through a complete incident response handoff from triage to recovery."
+        let answer = "I would start with triage, preserve volatile evidence, coordinate containment with service owners, verify recovery controls, and document the handoff into follow-up remediation."
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true
+        )
+
+        #expect(IntentRouter.answerIntent(for: question) == .generic)
+        #expect(IntentRouter.transcriptClassification(for: question).intent == .unclear)
+        #expect(IntentRouter.transcriptClassification(for: question).strategy == .directAnswer)
+        #expect(alignment.verdict == .aligned, "\(alignment.reason)")
+        #expect(!alignment.missingThemes.contains("project action"))
+        #expect(!alignment.missingThemes.contains("result or learning"))
+    }
+
+    @Test
     func runtimeFragilePipelineAnswerAlignsWithTechnicalChallengeQuestion() {
         let question = "When you moved from clean testing to production execution, which technical constraint was most difficult?"
         let answer = "The hardest production challenge was schema variability and timing mismatch; I instrumented failures, isolated incompatible records, and built a validated normalization step that stabilized the pipeline."

@@ -337,6 +337,41 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
     }
 
+    @Test @MainActor
+    func ollamaProceduralWalkthroughIsNotRejectedAsPastProjectStory() async throws {
+        let question = "Walk me through a complete incident response handoff from triage to recovery."
+        let answer = "I would start with triage, preserve volatile evidence, coordinate containment with service owners, verify recovery controls, and document the handoff into follow-up remediation."
+        let runtime = try makeRuntime(
+            evidence: "Triaged identity alerts using documented severity criteria; supported evidence preservation, cross-team containment, recovery communication, and follow-up controls.",
+            question: question
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Identity alert triage, evidence preservation, containment, and recovery communication.",
+            jdSummary: "Cybersecurity Analyst.",
+            generationID: runtime.generationID,
+            cardID: "procedural-walkthrough-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: DiagnosticMockLocalLLMProvider(answer: answer),
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == answer)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
     @MainActor
     private func makeRuntime(
         evidence statement: String,

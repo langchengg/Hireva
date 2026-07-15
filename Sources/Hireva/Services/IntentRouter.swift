@@ -66,8 +66,8 @@ enum IntentRouter {
         if containsAny(text, ["comfortable with", "experience with", "proficiency", "skill level", "how well do you know"]) {
             return .skillComfort
         }
-        if containsAny(text, ["walk me through", "tell me about your project", "describe your project", "project did you work"]) ||
-            (text.contains("project") && containsAny(text, ["explain your", "explain the", "describe your"])) {
+        if containsAny(text, ["tell me about your project", "describe your project", "project did you work"]) ||
+            (text.contains("project") && containsAny(text, ["walk me through", "explain your", "explain the", "describe your"])) {
             return .projectWalkthrough
         }
         return .generic
