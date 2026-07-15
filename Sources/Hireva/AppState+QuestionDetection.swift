@@ -1049,7 +1049,6 @@ extension AppState {
                 self.lastFailedCVJDContext = nil
                 self.lastFailedProviderConfig = self.activeRealtimeProvider
                 self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(message)")
-                self.showError(message)
             }
         }
     }

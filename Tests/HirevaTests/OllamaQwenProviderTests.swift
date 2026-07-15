@@ -302,6 +302,41 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.ollamaLifecycleEvents.contains { $0.name == "answer.ui.rendered" })
     }
 
+    @Test @MainActor
+    func ollamaProspectiveSecurityResponseIsNotRejectedAsPastPersonalClaim() async throws {
+        let question = "How would you investigate suspicious privileged access while preserving evidence, and keeping critical business services available?"
+        let answer = "I would triage the alert using documented severity and escalation criteria to determine the appropriate containment actions. I would then lead a tabletop exercise to coordinate cross-team incident response while preserving evidence and ensuring critical business services remain available. Finally, I would document all decisions, evidence, and follow-up controls to validate controls and communicate risk effectively."
+        let runtime = try makeRuntime(
+            evidence: "Triaged identity alerts using documented severity and escalation criteria; facilitated a tabletop exercise covering access revocation and recovery communication; supported evidence preservation, cross-team incident coordination, and follow-up controls.",
+            question: question
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Identity alert triage, evidence preservation, and incident coordination.",
+            jdSummary: "Cybersecurity Analyst.",
+            generationID: runtime.generationID,
+            cardID: "prospective-security-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: DiagnosticMockLocalLLMProvider(answer: answer),
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == answer)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
     @MainActor
     private func makeRuntime(
         evidence statement: String,

@@ -372,6 +372,31 @@ struct DynamicCandidateContextTests {
     }
 
     @Test
+    func prospectiveIncidentPlanIsNotTreatedAsCompletedPersonalExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I would coordinate the incident response while preserving evidence and keeping critical services available. I would document decisions and follow-up controls.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
+    func prospectivePlanStillValidatesReferencedPastExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I would apply what I built during a clinical deployment.",
+            candidateEvidence: [SyntheticContextFixtures.evidence("Worked with SQL reporting", type: .experience)],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
     func noProfileProducesContextMissingInsteadOfFabricatedStory() {
         let result = DynamicInterviewContextEngine().profileSafeFallback(
             question: "Why are you a strong fit?",

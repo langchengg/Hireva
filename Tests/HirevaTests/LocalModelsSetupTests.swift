@@ -527,6 +527,34 @@ struct LocalModelsSetupTests {
         #expect(persisted.asrSource == .localParakeetASR)
     }
 
+    @Test @MainActor
+    func automaticLocalQwenFailureUsesNonblockingFeedbackWithoutModalAlert() async throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        appState.answerProviderModeOverride = .localQwenPrimary
+        appState.localLLMProviderOverride = MockLocalLLMProvider(tokens: [
+            "I cannot answer because the required context is missing."
+        ])
+
+        await appState.handleTranscriptSegment(TranscriptSegment(
+            id: "automatic-qwen-failure",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "How would you investigate suspicious privileged access while preserving evidence and keeping critical business services available?",
+            asrSource: .localParakeetASR,
+            asrFinalizationReason: "final_accepted",
+            recognitionIsFinal: true
+        ))
+
+        try await waitUntil(timeout: 3.0) {
+            appState.latestActionFeedback(for: ActionID.generateAnswer)?.kind == .error
+        }
+        #expect(appState.errorMessage == nil)
+        #expect(appState.latestActionFeedback(for: ActionID.generateAnswer)?.message.contains("Transcript preserved") == true)
+    }
+
     @Test
     func sourceMetadataKeepsDeepSeekAndLocalQwenSeparate() {
         let deepSeek = ProviderSourceMetadata.deepSeek(modelName: "deepseek-v4-flash")

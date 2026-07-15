@@ -47,15 +47,29 @@ struct AnswerClaimValidator {
 
     private func isPersonalClaim(_ sentence: String) -> Bool {
         let lower = " " + sentence.lowercased() + " "
-        let firstPerson = [" i ", " i've ", " i’ve ", " my ", " we ", " our "].contains { lower.contains($0) }
-        let claimVerb = [
+        let prospectivePlan = [
+            " i would ", " i'd ", " i’d ", " i will ", " i'll ", " i’ll ",
+            " we would ", " we'd ", " we’d ", " we will ", " we'll ", " we’ll ",
+            " my approach would ", " our approach would "
+        ].contains { lower.contains($0) }
+        let referencesPastExperience = [
+            " my experience ", " our experience ", " my background ", " our background ",
+            " i've ", " i’ve ", " i have ", " i had ", " we've ", " we’ve ", " we have ", " we had ",
+            " previously ", " in my previous ", " in our previous "
+        ].contains { lower.contains($0) }
+        let completedExperienceVerb = [
             " built ", " developed ", " implemented ", " led ", " owned ", " managed ",
             " worked ", " used ", " designed ", " delivered ", " improved ", " reduced ",
             " completed ", " published ", " studied ", " controlled ", " operated ", " trained ",
-            " evaluated ", " validated ", " tested ", " integrated ", " contributed ", " achieved ", " demonstrated ",
-            " observed ", " encountered ", " experienced ",
-            " background ", " experience ", " evidence "
+            " evaluated ", " validated ", " tested ", " integrated ", " contributed ", " achieved ",
+            " demonstrated ", " observed ", " encountered ", " experienced "
         ].contains { lower.contains($0) }
+        if prospectivePlan && !referencesPastExperience && !completedExperienceVerb {
+            return false
+        }
+        let firstPerson = [" i ", " i've ", " i’ve ", " my ", " we ", " our "].contains { lower.contains($0) }
+        let claimVerb = completedExperienceVerb || [" background ", " experience ", " evidence "]
+            .contains { lower.contains($0) }
         let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model "]
             .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
         return firstPerson && (claimVerb || personalAsset)
