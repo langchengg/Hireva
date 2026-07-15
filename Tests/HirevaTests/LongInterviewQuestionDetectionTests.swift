@@ -236,7 +236,7 @@ struct LongInterviewQuestionDetectionTests {
     }
 
     @Test
-    func consecutiveFollowUpQuestionsSupersedeSafely() async throws {
+    func consecutiveFollowUpQuestionsQueueSafely() async throws {
         let (appState, session, _) = try makeAppState()
         let questions = [
             "What was the hardest technical challenge in your LeoRover project?",
@@ -263,7 +263,7 @@ struct LongInterviewQuestionDetectionTests {
         try await waitUntil(timeout: 8.0) {
             appState.visibleAnswerExists && !appState.currentSpinnerVisible
         }
-        #expect(appState.cancelledGenerationCount == questions.count - 1)
+        #expect(appState.cancelledGenerationCount == 0)
         #expect(!appState.currentSpinnerVisible)
     }
 

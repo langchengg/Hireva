@@ -99,7 +99,9 @@ struct QuestionCandidatePipelineTests {
             "how would you solve it",
             "can you explain the difference",
             "what was the biggest technical trade-off",
-            "tell me about a time you had"
+            "tell me about a time you had",
+            "what measures would show that in",
+            "if the identity alert affected a critical"
         ]
 
         for fragment in fragments {
@@ -107,6 +109,25 @@ struct QuestionCandidatePipelineTests {
             #expect(SystemAudioQuestionExtractor.extract(from: fragment).isEmpty, "Expected no extraction for: \(fragment)")
             #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: fragment).accepted == false, "Expected runtime guard rejection for: \(fragment)")
         }
+    }
+
+    @Test
+    func completenessGatePreservesCompletedConditionalAndPrepositionQuestions() {
+        let questions = [
+            "What measures would show that incident handling is improving rather than merely becoming faster?",
+            "If the identity alert affected a critical service, how would you contain it without destroying forensic evidence?",
+            "What kind of environment do you work best in?"
+        ]
+
+        for question in questions {
+            #expect(!QuestionCompletenessGate.isIncompleteFragment(question), "Expected complete question: \(question)")
+            #expect(!SystemAudioQuestionExtractor.extract(from: question).isEmpty, "Expected extraction for: \(question)")
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted, "Expected runtime acceptance for: \(question)")
+        }
+
+        #expect(!QuestionCompletenessGate.isIncompleteFragment(
+            "If selected, describe your approach to the first ninety days."
+        ))
     }
 
     @Test

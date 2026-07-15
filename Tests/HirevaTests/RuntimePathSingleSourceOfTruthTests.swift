@@ -202,6 +202,26 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func stablePartialDanglingEvidenceQuestionDoesNotGenerateOrPersist() async throws {
+        let (appState, session, client) = try makeAppState()
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "stable-partial-dangling-evidence",
+            sessionID: session.id,
+            text: "What measures would show that in",
+            asrFinalizationReason: "stable_partial"
+        ))
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        #expect(appState.displayTranscriptText == "What measures would show that in")
+        #expect(appState.transcriptRuntimeDiagnostics.lastQuestionRejectedAt != nil)
+        #expect(appState.lastDetectionSkipReason == "incomplete question fragment")
+        #expect(appState.currentSuggestion == nil)
+        #expect(client.answerCallCount == 0)
+        #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
+    }
+
+    @Test
     func runtimeConditionalQuestionUsesFullLocalCandidateEvenIfProviderWouldReturnTailOnly() async throws {
         let traceURL = temporaryTraceURL("runtime-conditional-trace")
         let (appState, session, client) = try makeAppState(
@@ -1776,7 +1796,12 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
         #expect(trace.contains("\"event_type\":\"question.accepted\""))
         #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.contains("\"question_intent\":\"generic\"") == false)
+        let secondQuestionTrace = trace.split(separator: "\n").filter { line in
+            line.contains("\"question_id\":\"\(secondQuestionID)\"") ||
+                line.contains("\"generation_id\":\"\(secondGenerationID)\"")
+        }
+        #expect(!secondQuestionTrace.isEmpty)
+        #expect(secondQuestionTrace.allSatisfy { !$0.contains("\"question_intent\":\"generic\"") })
     }
 
     @Test

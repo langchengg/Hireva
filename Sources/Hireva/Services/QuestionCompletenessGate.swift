@@ -20,6 +20,14 @@ enum QuestionCompletenessGate {
             return !hasOneMoreMonthImprovementComplement(lower)
         }
 
+        if hasDanglingEvidenceQuestionEnding(lower) {
+            return true
+        }
+
+        if hasDanglingAttributiveEnding(lower) {
+            return true
+        }
+
         if QuestionRuntimeAcceptanceGuard.isVagueFollowUp(lower) ||
             QuestionRuntimeAcceptanceGuard.isKnownIncompleteOrGenericPattern(lower) {
             return true
@@ -187,6 +195,40 @@ enum QuestionCompletenessGate {
             lower.contains(", which ") ||
             lower.contains(" why ") ||
             lower.contains(", why ")
+    }
+
+    private static func hasDanglingEvidenceQuestionEnding(_ lower: String) -> Bool {
+        let comparable = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+        let subjects = [
+            "what measures", "which measures", "what metrics", "which metrics",
+            "what evidence", "which evidence", "what signals", "which signals",
+            "what indicators", "which indicators"
+        ]
+        let predicates = [
+            " show that", " indicate that", " demonstrate that", " suggest that", " signal that"
+        ]
+        guard subjects.contains(where: comparable.hasPrefix),
+              predicates.contains(where: comparable.contains) else {
+            return false
+        }
+        let danglingEndings = [
+            " that in", " that on", " that at", " that by", " that from",
+            " that with", " that for", " that to", " that the", " that a", " that an"
+        ]
+        return danglingEndings.contains { comparable.hasSuffix($0) }
+    }
+
+    private static func hasDanglingAttributiveEnding(_ lower: String) -> Bool {
+        let comparable = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+        let words = comparable.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count >= 2, words[words.count - 2] == "a" || words[words.count - 2] == "an" else {
+            return false
+        }
+        let attributiveAdjectives = [
+            "critical", "major", "severe", "significant", "complex",
+            "difficult", "important", "urgent", "high", "low"
+        ]
+        return attributiveAdjectives.contains(words.last ?? "")
     }
 
     static func isTailOnlyQuestion(_ text: String) -> Bool {
