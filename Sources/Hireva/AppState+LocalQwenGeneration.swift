@@ -609,6 +609,7 @@ extension AppState {
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
+        let intentGuidance = localQwenRecoveryIntentGuidance(for: question)
         let compactPrompt = """
         /no_think
         Current interview question:
@@ -631,6 +632,7 @@ extension AppState {
         State past personal experience only when it is explicit in the candidate/project summary or relevant local evidence.
         Do not turn role requirements or future plans into completed work or observed events.
         Omit implementation mechanisms, intermediate steps, tools, metrics, and causal links unless the evidence states them explicitly.
+        \(intentGuidance)
         Start with "I" and output only the final spoken answer.
         """
         return LocalLLMRequest(
@@ -665,15 +667,7 @@ extension AppState {
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
         let groundedEvidence = ContextBudgeter.limitWords(context.promptText, maxWords: 220)
-        let intentGuidance: String
-        if IntentRouter.answerIntent(for: question.questionText) == .improvementPlan {
-            intentGuidance = """
-            This is a future improvement-plan question. Explicitly name the current question topic, state the first priority, give only future actions supported by the selected profile evidence, and explain how success would be validated.
-            Do not describe future actions as completed experience. Do not add any number, metric, target, tool, mechanism, or outcome that is not literally present in the selected profile evidence.
-            """
-        } else {
-            intentGuidance = ""
-        }
+        let intentGuidance = localQwenRecoveryIntentGuidance(for: question)
         let prompt = """
         /no_think
         Question:
@@ -700,6 +694,22 @@ extension AppState {
             temperature: 0.0,
             numPredict: 220
         )
+    }
+
+    private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
+        switch IntentRouter.answerIntent(for: question.questionText) {
+        case .technicalTradeoff:
+            return """
+            This is a trade-off question. Name the competing constraints, then explicitly state what you would choose, prioritize, recommend, or propose and explain the consequence or rationale.
+            """
+        case .improvementPlan:
+            return """
+            This is a future improvement-plan question. Explicitly name the current question topic, state the first priority, give only future actions supported by the selected profile evidence, and explain how success would be validated.
+            Do not describe future actions as completed experience. Do not add any number, metric, target, tool, mechanism, or outcome that is not literally present in the selected profile evidence.
+            """
+        default:
+            return ""
+        }
     }
 
 }

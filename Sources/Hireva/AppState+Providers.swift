@@ -347,7 +347,7 @@ extension AppState {
                     guard !Task.isCancelled else { return }
                     let message = self.userFacing(error)
                     self.liveState = .error(message)
-                    self.showError(message)
+                    self.failGenerationNonBlocking(message: "Current question preserved. \(message)")
                 }
             }
         }

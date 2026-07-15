@@ -234,7 +234,12 @@ enum QuestionAnswerAlignmentEvaluator {
             else { matched.append("compared alternatives") }
         case .technicalTradeoff:
             require("trade-off", ["trade-off", "tradeoff", "versus", "balanced", "cost", "latency", "complexity", "reliability", "accuracy"])
-            require("decision", ["chose", "decided", "prioritized", "selected", "accepted", "rejected"])
+            require("decision", [
+                "choose", "chose", "decide", "decided", "decision",
+                "prioritize", "prioritized", "prioritise", "prioritised",
+                "recommend", "recommended", "propose", "proposed",
+                "select", "selected", "accept", "accepted", "reject", "rejected"
+            ])
         case .datasetAdaptation:
             require("transformation", ["mapped", "converted", "adapted", "migrated", "normalized", "transformed"])
             require("validation", ["validated", "checked", "tested", "verified"])

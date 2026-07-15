@@ -55,6 +55,11 @@ extension AppState {
         updateDiagnostics { $0.lastError = message }
     }
 
+    func failGenerationNonBlocking(title: String = "Generation failed", message: String) {
+        errorMessage = nil
+        failAction(ActionID.generateAnswer, title: title, message: message)
+    }
+
     func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4.0) {
         actionLoadingStates[id] = false
         setActionFeedback(

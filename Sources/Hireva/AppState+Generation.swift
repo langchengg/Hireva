@@ -168,8 +168,7 @@ func regenerateVisibleSuggestion() {
                 self.lastRegenerateRejectionReason = message
             }
             self.liveState = .error(message)
-            self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Current question preserved. \(message)")
-            self.showError(message)
+            self.failGenerationNonBlocking(message: "Current question preserved. \(message)")
         }
     }
 }
@@ -518,7 +517,7 @@ private func runManualAnswer(session: InterviewSession, transcript: String) asyn
         guard !Task.isCancelled else { return }
         let message = userFacing(error)
         liveState = .error(message)
-        failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(message)")
+        failGenerationNonBlocking(message: "Transcript preserved. \(message)")
         
         if self.lastFailedTaskType != .suggestionGeneration {
             self.lastFailedTaskType = .questionDetection
@@ -528,7 +527,6 @@ private func runManualAnswer(session: InterviewSession, transcript: String) asyn
             self.lastFailedProviderConfig = activeRealtimeProvider
         }
         
-        showError(message)
     }
 }
 

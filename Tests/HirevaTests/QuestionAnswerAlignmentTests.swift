@@ -397,6 +397,18 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func prospectiveTradeoffRecommendationCountsAsAnExplicitDecision() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "How would you communicate a reliability trade off when delivery pressure is high?",
+            answerText: "I would present the reliability risk and delivery impact clearly, then propose a phased release that balances speed with stability. I would document the decision and recommend prioritizing the safeguards that prevent service interruption."
+        )
+
+        #expect(alignment.questionIntent == .technicalTradeoff)
+        #expect(alignment.verdict == .aligned)
+        #expect(!alignment.missingThemes.contains("decision"))
+    }
+
+    @Test
     func newRuntimeQuestionAnswersAlignWithSpecificIntents() {
         let decoder = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
