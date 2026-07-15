@@ -145,6 +145,37 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func supposeScenarioPreservesAntecedentBeforeWhichQuestion() {
+        let question = "Suppose prediction errors rise after deployment, which diagnosis would you test first?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: question)
+
+        #expect(candidates.map(\.text) == [question])
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        #expect(!candidates.contains { $0.text == "Which diagnosis would you test first?" })
+    }
+
+    @Test
+    func supposeScenarioRemainsSeparateFromPreviousQuestion() {
+        let first = "How would you compare a complex model with a simple baseline?"
+        let second = "Suppose prediction errors rise after deployment, which diagnosis would you test first?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: "\(first) \(second)")
+
+        #expect(candidates.map(\.text) == [first, second])
+    }
+
+    @Test
+    func embeddedOrAnswerLikeSupposeDoesNotCreateQuestion() {
+        #expect(QuestionCandidatePipeline.extract(
+            from: "I suppose prediction errors rise after deployment."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "What do you suppose should happen if latency rises?"
+        ).map(\.text) == ["What do you suppose should happen if latency rises?"])
+    }
+
+    @Test
     func conditionalSplitRepairKeepsIfClauseAfterAlsoIfBoundary() {
         let transcript = "What did you learn from comparing classifier, regression, and transformer alternatives? Also, if your inspection detector gives a confident but wrong prediction, how would you debug it?"
 

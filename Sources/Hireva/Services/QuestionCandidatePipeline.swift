@@ -276,7 +276,7 @@ enum MultiQuestionSplitter {
             "\\band\\s+if\\b",
             "\\bwhat\\s+about\\s+if\\b",
             "\\bif\\s+(?:your|you|the|same)\\b",
-            "\\bsuppose\\s+you\\b"
+            "\\bsuppose\\b"
         ]
         let whQuestionStarts = [
             "\\bwhat\\s+happened\\b",
@@ -343,6 +343,9 @@ enum MultiQuestionSplitter {
             if isNarrativeImperative(precedingText: precedingText, currentClause: currentClause) {
                 continue
             }
+            if isEmbeddedSupposeStart(precedingText: precedingText, currentClause: currentClause) {
+                continue
+            }
             if isBeforeInterviewerPrefaceBeforeIndependentQuestion(currentClause) {
                 continue
             }
@@ -368,7 +371,7 @@ enum MultiQuestionSplitter {
                     continue
                 }
                 if start - previous < 260,
-                   (previousClause.contains("suppose you") ||
+                   (previousClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("suppose ") ||
                     previousClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("imagine")) {
                     continue
                 }
@@ -466,6 +469,22 @@ enum MultiQuestionSplitter {
         ]
         return whWords.contains(where: preceding.hasSuffix) &&
             auxiliaryPrefixes.contains(where: current.hasPrefix)
+    }
+
+    private static func isEmbeddedSupposeStart(precedingText: String, currentClause: String) -> Bool {
+        let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard current.hasPrefix("suppose ") else { return false }
+
+        let preceding = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !preceding.isEmpty else { return false }
+        if let last = preceding.last, ".?!".contains(last) {
+            return false
+        }
+        let conversationalPrefaces = ["okay", "okay,", "now", "now,", "next", "next,", "then", "then,"]
+        let hasConversationalPreface = conversationalPrefaces.contains {
+            preceding == $0 || preceding.hasSuffix(" \($0)")
+        }
+        return !hasConversationalPreface
     }
 
     private static func isConditionalAntecedent(_ clause: String) -> Bool {
