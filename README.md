@@ -1,6 +1,115 @@
-# Hireva Mac
+# Hireva
 
-A native macOS SwiftUI application that acts as an interview copilot with real-time audio transcription and automated suggestion generation.
+Hireva is a native macOS SwiftUI interview copilot. It captures user-selected
+microphone and/or system audio, transcribes complete interviewer questions,
+retrieves evidence from the active synthetic or user-provided interview
+context, and shows an answer bound to one session, question, generation, and
+frozen context snapshot.
+
+## Architecture
+
+```text
+Microphone / System Audio
+  -> Apple Speech or Local Parakeet
+  -> source and speaker attribution
+  -> transcript normalization and complete-question detection
+  -> frozen profile, opportunity, dialogue, and RAG context
+  -> Local Qwen or optional DeepSeek
+  -> answer alignment and generation-ownership checks
+  -> SwiftUI floating assistant
+  -> GRDB / SQLite persistence and privacy-controlled diagnostics
+```
+
+The pipeline is provider-neutral. No callback may publish or persist an answer
+unless its session, question, generation, and context snapshot still own the
+active request.
+
+## Provider Matrix
+
+| Capability | Provider | Default/availability | Data boundary | Streaming behavior |
+| --- | --- | --- | --- | --- |
+| ASR | Apple Speech | Default | Apple Speech framework; do not assume offline operation | Partial and final callbacks as supplied by the framework |
+| ASR | Local Parakeet | Optional, experimental, Apple Silicon only | Bundled native helper plus model files in Application Support | Final-only utterance transcripts |
+| Answers | Local Qwen through Ollama | Default only when Ollama and the selected model are ready | Loopback Ollama API | Incremental final-answer chunks; model thinking is not displayed |
+| Answers | DeepSeek | Optional remote provider | Prompt and selected context leave the Mac over HTTPS | Remote provider stream |
+
+Hireva does not silently relabel Apple Speech output as Parakeet and does not
+silently substitute a different answer provider.
+
+## Permission Matrix
+
+| ASR | Capture | Microphone | Speech Recognition | Screen & System Audio Recording |
+| --- | --- | --- | --- | --- |
+| Apple Speech | Microphone Only | Required | Required | Not required |
+| Apple Speech | System Audio Only | Not required | Required | Required |
+| Apple Speech | Mic + System | Required | Required | Required |
+| Local Parakeet | Microphone Only | Required | Not required | Not required |
+| Local Parakeet | System Audio Only | Not required | Not required | Required |
+| Local Parakeet | Mic + System | Required | Not required | Required |
+
+Denied permissions disable only the affected path. Permission checks never
+authorize a fallback with incorrect provider metadata.
+
+## Local And Cloud Data Boundaries
+
+- Sessions, detected questions, suggestions, context snapshots, and optional
+  transcripts are stored in GRDB/SQLite under Application Support.
+- `Save transcripts locally` controls transcript rows. Runtime diagnostic
+  traces are separately controlled by `DiagnosticTraceMode` and default to
+  `off`; `metadataOnly` excludes transcript/question/answer text; `fullText`
+  requires an explicit warning-backed opt-in.
+- Local Parakeet audio stays in the app and bundled native helper after model
+  installation. Local Qwen prompts go to the user-managed loopback Ollama
+  service.
+- DeepSeek and configured cloud embeddings transmit selected text to their
+  configured remote services.
+- Provider keys are stored in macOS Keychain and must never appear in logs,
+  SQLite, release packages, or Git.
+
+## Model Setup
+
+Local Qwen requires a running Ollama service and the configured model, for
+example:
+
+```bash
+ollama pull qwen3.5:4b
+ollama list
+```
+
+Local Parakeet is installed and probed from Hireva's Local Models setup. The
+release app uses `Contents/Helpers/parakeet_asr_helper`; Python is not a release
+runtime dependency. See `docs/parakeet-local-asr-runtime.md`.
+
+## Build, Test, And Run
+
+```bash
+swift package resolve
+swift build
+swift test
+./scripts/runtime_smoke.sh --suite all
+./scripts/verify_runtime_stability.sh
+./script/build_and_run.sh --verify
+```
+
+Real macOS permission checks must launch `dist/Hireva.app`, never the raw
+SwiftPM executable.
+
+## Current Limitations
+
+- Local Parakeet is experimental, arm64-only, and final-only.
+- Apple Speech availability and on-device behavior depend on macOS and locale.
+- System-audio verification requires a real Screen & System Audio Recording
+  grant and audible source; mocks do not prove that path.
+- Ollama is a separately installed and operated local service.
+- Bluetooth route switching can be claimed only after a real-device test.
+
+## Local Release Versus Public Distribution
+
+`scripts/package_local_release.sh` creates an allowlisted package for controlled
+local use. An ad-hoc signature can validate bundle integrity but is not a public
+distribution identity. Distribution outside the Mac App Store requires a
+Developer ID Application signature, hardened runtime, notarization, ticket
+stapling, Gatekeeper assessment, and clean-Mac validation.
 
 ## Audio Route Recovery & Device Switching Manual Test Checklist
 
@@ -48,7 +157,9 @@ macOS tracks permissions (TCC) by **bundle identifier + code signing identity + 
 
 - **Bundle Identifier**: `com.langcheng.Hireva` (set in `build_and_run.sh`, never change without resetting TCC)
 - **Bundle Path**: Always `dist/Hireva.app` (stable across rebuilds)
-- **Signing**: The build script automatically signs the .app bundle (Apple Development certificate if available, ad-hoc fallback otherwise)
+- **Signing**: The build script signs the app with an available configured
+  identity or uses an ad-hoc local fallback. Ad-hoc signing is never a public
+  distribution result.
 
 ### Build, Sign & Launch
 
@@ -76,9 +187,11 @@ Screen Recording / Screen & System Audio Recording permission in macOS requires 
 
 The app's Audio Diagnostics screen shows a banner with a **"Quit App Now"** button when this permission is missing.
 
-### Resetting Stuck Permissions
+### Resetting Stuck Permissions During Development
 
-If permissions become stuck during development (e.g. after changing bundle ID or signing identity), reset the TCC database:
+TCC reset is destructive and is not a normal troubleshooting or release step.
+Use it only when intentionally changing the development identity and after
+confirming existing grants may be removed:
 
 ```bash
 # Option 1: Use the build script
