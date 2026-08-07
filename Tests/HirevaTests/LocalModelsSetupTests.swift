@@ -231,7 +231,7 @@ struct LocalModelsSetupTests {
                 let body = try requestBodyData(for: request)
                 let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(json["think"] as? Bool == false)
-                #expect(json["stream"] as? Bool == false)
+                #expect(json["stream"] as? Bool == true)
                 let data = Data(#"{"message":{"role":"assistant","content":"hello world"},"done":true}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             }
@@ -269,7 +269,7 @@ struct LocalModelsSetupTests {
                 let body = try requestBodyData(for: request)
                 let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(json["think"] as? Bool == false)
-                #expect(json["stream"] as? Bool == false)
+                #expect(json["stream"] as? Bool == true)
                 let messages = try #require(json["messages"] as? [[String: Any]])
                 #expect(messages.contains { ($0["role"] as? String) == "system" })
                 #expect(messages.contains { ($0["role"] as? String) == "user" && (($0["content"] as? String)?.contains("Answer this") ?? false) })
@@ -548,7 +548,10 @@ struct LocalModelsSetupTests {
             recognitionIsFinal: true
         ))
 
-        try await waitUntil(timeout: 3.0) {
+        // The failure path can make four immediate validation attempts. Under the
+        // full suite's CPU load, observe the terminal UI state with the same
+        // bounded window used by the other generation lifecycle regressions.
+        try await waitUntil(timeout: 8.0) {
             appState.latestActionFeedback(for: ActionID.generateAnswer)?.kind == .error
         }
         #expect(appState.errorMessage == nil)

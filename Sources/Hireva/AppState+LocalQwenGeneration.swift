@@ -37,7 +37,7 @@ extension AppState {
         ollamaDiagnostics.endpoint = "http://localhost:11434/api/chat"
         ollamaDiagnostics.model = selectedQwenModelName
         ollamaDiagnostics.responseSchema = .chatMessageContent
-        ollamaDiagnostics.streamMode = false
+        ollamaDiagnostics.streamMode = true
         ollamaLifecycleEvents = []
         guard isActiveGeneration(generationID, questionID: question.id) else {
             failLocalQwenDiagnostics(.staleGeneration, cancellationReason: "generation_identity_mismatch")
@@ -150,6 +150,7 @@ extension AppState {
         var lastFailureCategory: OllamaFailureCategory = .providerReturnedNoContent
         var lastFailureDiagnostic = lastFailureCategory.rawValue
         var firstContentRecorded = false
+        var firstProviderTokenMS: Int?
         let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
         for requestIndex in requests.indices {
             let request = requests[requestIndex]
@@ -197,6 +198,7 @@ extension AppState {
                             )
                             if !firstContentRecorded {
                                 firstContentRecorded = true
+                                firstProviderTokenMS = elapsedMS(since: requestStart)
                                 appendOllamaLifecycleEvent(
                                     "ollama.first_content",
                                     question: question,
@@ -361,7 +363,7 @@ extension AppState {
             stageATimedOut: false,
             stageBCompleted: true,
             stageBStatus: "completed",
-            latencyFirstTokenMS: elapsed,
+            latencyFirstTokenMS: firstProviderTokenMS ?? elapsed,
             latencyFirstVisibleMS: elapsed,
             latencyFullCardMS: elapsed,
             softFallbackUsed: isFallback,
