@@ -622,6 +622,8 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     var pendingAcceptedQuestions: [PendingAcceptedQuestion] = []
     // internal for AppState extension access only
+    var queuedQuestionHandoffTask: Task<Void, Never>?
+    // internal for AppState extension access only
     var autoSuggestionLaunchPending: Bool = false
     // internal for AppState extension access only
     var autoSuggestionLaunchID: String?
@@ -1315,6 +1317,10 @@ final class AppState: ObservableObject {
     func refreshAll(loadKeychain: Bool? = nil) {
         do {
             settings = try settingsRepository.loadSettings()
+            RuntimeTranscriptTraceStore.shared.prepareForMode(
+                settings.effectiveDiagnosticTraceMode,
+                at: runtimeTranscriptTraceLogURL
+            )
             providerConfigurations = try settingsRepository.ensureDefaultProviderConfigurations()
             activeRealtimeProvider = try settingsRepository.activeRealtimeProvider()
             activeRecapProvider = try settingsRepository.activeRecapProvider()

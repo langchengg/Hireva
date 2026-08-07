@@ -38,7 +38,7 @@ Known contents include:
 - `hireva.sqlite`: sessions, transcript-derived questions, suggestions, and
   related application records;
 - `runtime_transcript_trace.jsonl`: runtime diagnostics that can contain or
-  identify interview activity;
+  identify interview activity only after diagnostic tracing is enabled;
 - `Attachments/` and `Exports/`: user-selected source files and generated
   exports;
 - `LocalModels/`: versioned locally downloaded model payloads, including the
@@ -69,6 +69,20 @@ Apple guidance:
 
 ## User And Operator Controls
 
+Runtime trace policy is independent from transcript-row persistence:
+
+| Trace mode | File behavior | Allowed payload |
+| --- | --- | --- |
+| `off` | Default; no trace file creation or append | None |
+| `metadataOnly` | Active and rotated JSONL may exist | Event type, timestamps, opaque IDs, counts, booleans, and non-content status only |
+| `fullText` | Explicit opt-in with a sensitive-data warning | Full diagnostic payload, including interview text |
+
+When `Save transcripts locally` is off, the effective trace policy cannot
+exceed `metadataOnly`. Metadata-only output must not contain raw, canonical,
+candidate, UI, visible-question, answer, split-candidate, source-span, or
+reversible duplicate-key text. Clear Local Data and the dedicated trace clear
+action remove the active file and all rotated siblings.
+
 - Select Local Parakeet only when its native runtime and verified local model
   both report ready.
 - Select local Qwen only when the user accepts the separately installed Ollama
@@ -79,13 +93,14 @@ Apple guidance:
   SQLite database.
 - Redact transcripts, candidate context, answers, file paths, and provider
   responses before sharing diagnostics.
+- Keep diagnostic tracing off unless investigating a specific issue. Treat
+  full-text traces as confidential exports and clear them after use.
 - Removing `Hireva.app` does not remove Application Support data, Keychain
   items, or Ollama-managed models. Data removal must address each store
   separately and should be confirmed before destructive action.
 
-## Current Gaps Before Release
+## Remaining Distribution Work
 
-- No clean-Mac permission and data-residue validation has been completed.
 - No public release privacy policy or retention commitment is established by
   this engineering document.
 - External-provider behavior and terms can change independently and must be

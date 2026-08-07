@@ -443,6 +443,7 @@ struct DiagnosticsView: View {
                 diagnosticRow("finalTranscriptText", appState.finalTranscriptText.isEmpty ? "None" : appState.finalTranscriptText)
                 diagnosticRow("displayTranscriptText", appState.displayTranscriptText.isEmpty ? "None" : appState.displayTranscriptText)
                 diagnosticRow("lastAcceptedQuestionText", appState.lastAcceptedQuestionText.isEmpty ? "None" : appState.lastAcceptedQuestionText)
+                diagnosticRow("traceMode", appState.settings.effectiveDiagnosticTraceMode.displayName)
                 diagnosticRow("traceLogPath", appState.runtimeTranscriptTraceLogURL.path)
                 ActionButton(
                     appState: appState,

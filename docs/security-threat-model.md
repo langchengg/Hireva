@@ -2,7 +2,12 @@
 
 ## Scope
 
-Hireva is a local native macOS SwiftUI app. In scope: CV/JD document storage, transcript/session storage, Keychain API key storage, DeepSeek API calls, microphone/Speech permissions, mock interview input, markdown export, and local diagnostics. Out of scope: remote backend services, stealth overlays, anti-detection behavior, and local model inference.
+Hireva is a local native macOS SwiftUI app. In scope: candidate/opportunity
+document storage, transcript/session storage, Keychain API-key storage, local
+Parakeet and Ollama processing, optional DeepSeek/cloud calls, microphone,
+Speech and Screen/System Audio permissions, exports, and local diagnostics. Out
+of scope: stealth overlays, anti-detection behavior, and services operated by
+the user outside the Hireva process.
 
 ## Assets
 
@@ -40,7 +45,22 @@ Hireva is a local native macOS SwiftUI app. In scope: CV/JD document storage, tr
 
 5. Local data persistence risk on shared machines.
    - Impact: CV/JD and transcript disclosure to local account users or backups.
-   - Mitigation: local delete controls, per-session/document deletion, transcript-saving toggle, Application Support storage, and Keychain for secrets.
+   - Mitigation: local delete controls, per-session/document deletion,
+     transcript-saving toggle, diagnostic trace default-off/metadata modes,
+     active-plus-rotated trace deletion, Application Support storage, and
+     Keychain for secrets.
+
+6. Stale generation or cross-profile answer disclosure.
+   - Impact: an answer can be shown or persisted for the wrong question or
+     context.
+   - Mitigation: immutable session/question/generation/context ownership,
+     cancellation guards before UI and persistence, and rapid-follow-up tests.
+
+7. Source confusion between microphone and system audio.
+   - Impact: candidate speech can trigger an answer or be attributed to the
+     interviewer.
+   - Mitigation: capture-mode validation, separate Parakeet source segmenters,
+     explicit speaker metadata, and candidate-speech gating.
 
 ## Remaining Production Work
 

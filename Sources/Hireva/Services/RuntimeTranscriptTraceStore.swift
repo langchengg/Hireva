@@ -9,8 +9,14 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
         label: "com.langcheng.Hireva.runtime-transcript-trace",
         qos: .utility
     )
+    private var preparedModes = [String: DiagnosticTraceMode]()
 
     func append(line: String, to url: URL) {
+        append(line: line, to: url, mode: .fullText)
+    }
+
+    func append(line: String?, to url: URL, mode: DiagnosticTraceMode) {
+        guard mode != .off, let line else { return }
         guard let data = (line + "\n").data(using: .utf8) else { return }
         queue.async {
             do {
@@ -19,6 +25,31 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
                 print("[RuntimeTranscriptTraceStore] Write failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    func prepareForMode(_ mode: DiagnosticTraceMode, at url: URL) {
+        queue.sync {
+            let previousMode = preparedModes[url.path]
+            if mode != .fullText, previousMode == nil || previousMode != mode {
+                do {
+                    try clearTraceFilesImmediately(at: url)
+                } catch {
+                    print("[RuntimeTranscriptTraceStore] Cleanup failed: \(error.localizedDescription)")
+                }
+            }
+            preparedModes[url.path] = mode
+        }
+    }
+
+    func clearTraceFiles(at url: URL) throws {
+        try queue.sync {
+            try clearTraceFilesImmediately(at: url)
+            preparedModes[url.path] = .off
+        }
+    }
+
+    func waitForPendingOperations() {
+        queue.sync {}
     }
 
     private func append(data: Data, to url: URL) throws {
@@ -83,5 +114,15 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
 
     private func rotatedURL(for url: URL, index: Int) -> URL {
         url.deletingPathExtension().appendingPathExtension("\(index).jsonl")
+    }
+
+    private func clearTraceFilesImmediately(at url: URL) throws {
+        let fileManager = FileManager.default
+        let candidates = [url] + (1...Self.maxTraceFiles).map {
+            rotatedURL(for: url, index: $0)
+        }
+        for candidate in candidates where fileManager.fileExists(atPath: candidate.path) {
+            try fileManager.removeItem(at: candidate)
+        }
     }
 }
