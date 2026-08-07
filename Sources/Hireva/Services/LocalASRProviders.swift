@@ -40,9 +40,16 @@ struct ASRConfig: Hashable {
 protocol ASRProvider {
     var id: ASRProviderID { get }
     var displayName: String { get }
+    var capabilities: ASRProviderCapabilities { get }
     func isAvailable() async -> Bool
     func startTranscription(config: ASRConfig) async throws -> AsyncThrowingStream<TranscriptSegment, Error>
     func stopTranscription() async
+}
+
+extension ASRProvider {
+    var capabilities: ASRProviderCapabilities {
+        .forProvider(id)
+    }
 }
 
 enum ASRProviderError: LocalizedError, Equatable {
@@ -55,7 +62,7 @@ enum ASRProviderError: LocalizedError, Equatable {
         case .modelNotReady(let id):
             return "\(id.displayName) model is not ready."
         case .localASRRuntimeNotImplemented(let id):
-            return "\(id.displayName) runtime is not available. Configure a Parakeet sidecar before enabling it."
+            return "\(id.displayName) native helper is unavailable. Repair the bundled runtime before enabling it."
         case .providerUnavailable(let message):
             return message
         }
@@ -305,8 +312,12 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
         guard !data.isEmpty else {
             handle.readabilityHandler = nil
             buffer.finish().forEach(emit)
-            process.waitUntilExit()
-            finish(process.terminationStatus == 0 ? nil : ParakeetSidecarError.exited(process.terminationStatus))
+            // Never wait for a child process from a FileHandle readability
+            // callback. Finishing the stream triggers the bounded stop path.
+            let error: Error? = process.isRunning || process.terminationStatus == 0
+                ? nil
+                : ParakeetSidecarError.exited(process.terminationStatus)
+            finish(error)
             return
         }
         buffer.append(data).forEach(emit)
@@ -707,6 +718,20 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         }
         if process.isRunning {
             process.terminate()
+            let terminationDeadline = Date().addingTimeInterval(0.5)
+            while process.isRunning && Date() < terminationDeadline {
+                Thread.sleep(forTimeInterval: 0.025)
+            }
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                let killDeadline = Date().addingTimeInterval(0.5)
+                while process.isRunning && Date() < killDeadline {
+                    Thread.sleep(forTimeInterval: 0.025)
+                }
+            }
+            if !process.isRunning {
+                process.waitUntilExit()
+            }
             return .unavailable(path: executableURL.path, error: "Health check timed out")
         }
         let output = stdout.fileHandleForReading.readDataToEndOfFile()
@@ -830,29 +855,9 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
             let task = Task {
                 do {
                     for try await event in eventStream {
-                        guard event.source == ASRSource.localParakeetASR.rawValue else {
-                            throw ASRProviderError.providerUnavailable(
-                                "Parakeet helper emitted an untrusted or missing ASR source."
-                            )
-                        }
-                        let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !text.isEmpty else { continue }
-                        let audioSource = try Self.audioSource(for: config.captureMode, event: event)
-                        let speaker = try Self.speaker(for: audioSource, event: event)
-                        continuation.yield(TranscriptSegment(
-                            id: event.segmentId,
-                            sessionID: config.sessionID,
-                            source: audioSource,
-                            speaker: speaker,
-                            text: text,
-                            startTime: event.startTime,
-                            endTime: event.endTime,
-                            createdAt: Date(),
-                            confidence: event.confidence,
-                            asrSource: .localParakeetASR,
-                            asrFinalizationReason: event.isFinal ? "final" : "partial",
-                            recognitionIsFinal: event.isFinal
-                        ))
+                        let segment = try ParakeetTranscriptMapper.map(event, config: config)
+                        guard !segment.text.isEmpty else { continue }
+                        continuation.yield(segment)
                     }
                     continuation.finish()
                 } catch {
@@ -933,39 +938,74 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         print("[LocalParakeetASRProvider] System audio capture failed: \(error.localizedDescription)")
     }
 
-    private static func audioSource(
-        for captureMode: AudioCaptureMode,
-        event: ParakeetTranscriptEvent
-    ) throws -> AudioSourceType {
-        if let rawSource = event.audioSource,
-           let source = AudioSourceType(rawValue: rawSource),
-           source == .microphone || source == .systemAudio {
-            return source
-        }
-        switch captureMode {
-        case .microphoneOnly:
-            return .microphone
-        case .systemAudioOnly:
-            return .systemAudio
-        case .microphoneAndSystem:
+}
+
+enum ParakeetTranscriptMapper {
+    static func map(_ event: ParakeetTranscriptEvent, config: ASRConfig) throws -> TranscriptSegment {
+        guard event.source == ASRSource.localParakeetASR.rawValue else {
             throw ASRProviderError.providerUnavailable(
-                "Parakeet mixed capture emitted a transcript without channel attribution."
+                "Parakeet helper emitted an untrusted or missing ASR source."
             )
         }
-    }
+        guard event.isFinal else {
+            throw ASRProviderError.providerUnavailable(
+                "Local Parakeet is final-only but emitted a partial transcript."
+            )
+        }
 
-    private static func speaker(
-        for audioSource: AudioSourceType,
-        event: ParakeetTranscriptEvent
-    ) throws -> SpeakerRole {
-        let expected: SpeakerRole = audioSource == .microphone ? .candidate : .interviewer
+        let audioSource: AudioSourceType
+        if let rawSource = event.audioSource {
+            guard let emittedSource = AudioSourceType(rawValue: rawSource),
+                  emittedSource == .microphone || emittedSource == .systemAudio else {
+                throw ASRProviderError.providerUnavailable(
+                    "Parakeet helper emitted invalid audio-source metadata."
+                )
+            }
+            let allowed = switch config.captureMode {
+            case .microphoneOnly: emittedSource == .microphone
+            case .systemAudioOnly: emittedSource == .systemAudio
+            case .microphoneAndSystem: true
+            }
+            guard allowed else {
+                throw ASRProviderError.providerUnavailable(
+                    "Parakeet helper emitted a transcript for a disabled audio source."
+                )
+            }
+            audioSource = emittedSource
+        } else {
+            switch config.captureMode {
+            case .microphoneOnly: audioSource = .microphone
+            case .systemAudioOnly: audioSource = .systemAudio
+            case .microphoneAndSystem:
+                throw ASRProviderError.providerUnavailable(
+                    "Parakeet mixed capture emitted a transcript without channel attribution."
+                )
+            }
+        }
+
+        let expectedSpeaker: SpeakerRole = audioSource == .microphone ? .candidate : .interviewer
         if let rawSpeaker = event.speaker {
-            guard let emitted = SpeakerRole(rawValue: rawSpeaker), emitted == expected else {
+            guard let emittedSpeaker = SpeakerRole(rawValue: rawSpeaker),
+                  emittedSpeaker == expectedSpeaker else {
                 throw ASRProviderError.providerUnavailable(
                     "Parakeet helper emitted speaker metadata that conflicts with its audio channel."
                 )
             }
         }
-        return expected
+
+        return TranscriptSegment(
+            id: event.segmentId,
+            sessionID: config.sessionID,
+            source: audioSource,
+            speaker: expectedSpeaker,
+            text: event.text.trimmingCharacters(in: .whitespacesAndNewlines),
+            startTime: event.startTime,
+            endTime: event.endTime,
+            createdAt: Date(),
+            confidence: event.confidence,
+            asrSource: .localParakeetASR,
+            asrFinalizationReason: "final",
+            recognitionIsFinal: true
+        )
     }
 }

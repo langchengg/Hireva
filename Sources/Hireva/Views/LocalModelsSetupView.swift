@@ -431,7 +431,7 @@ struct LocalModelsSetupView: View {
                             } else if !viewModel.transcriptionStatus.isReady {
                                 viewModel.lastError = "Parakeet model_not_ready. Install the model before enabling Local Parakeet."
                             } else {
-                                viewModel.lastError = "local_asr_runtime_not_implemented. Configure a Parakeet sidecar before enabling it."
+                                viewModel.lastError = "parakeet_native_runtime_unavailable. Repair the bundled native helper before enabling it."
                             }
                         } label: {
                             Label("Enable Local Parakeet", systemImage: "waveform.badge.plus")
@@ -441,7 +441,7 @@ struct LocalModelsSetupView: View {
                         .disabled(!viewModel.canEnableParakeet())
                     }
                 }
-                Text("Apple Speech is the safe default. Local Parakeet will not become active unless both the model files and sidecar runtime are ready.")
+                Text("Apple Speech is the default. Local Parakeet is experimental and final-only, and activates only after the model and bundled native helper pass readiness checks.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -596,7 +596,7 @@ struct LocalModelsSetupView: View {
     }
 
     private var speechRecognitionRequiredForSetup: Bool {
-        appState.speechRecognitionRequired && appState.selectedASRProviderID == .appleSpeech
+        appState.speechRecognitionRequired
     }
 
     private var providerMode: AnswerProviderMode {

@@ -79,9 +79,13 @@ extension AppState {
                 // this into a generic "live transcription requires mic" check:
                 // System Audio Only is the user escape hatch when mic access is
                 // denied or unnecessary.
-                let microphoneRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
-                let speechRecognitionRequired = microphoneRequired && requestedASRProvider == .appleSpeech
-                let systemAudioRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
+                let permissionRequirements = ASRPermissionRequirements(
+                    provider: requestedASRProvider,
+                    captureMode: captureMode
+                )
+                let microphoneRequired = permissionRequirements.microphone
+                let speechRecognitionRequired = permissionRequirements.speechRecognition
+                let systemAudioRequired = permissionRequirements.screenAndSystemAudio
 
                 print("[StartListening] captureMode = \(captureMode.rawValue)")
                 print("[StartListening] selectedASRProvider = \(requestedASRProvider.rawValue)")
@@ -117,6 +121,11 @@ extension AppState {
                         return
                     }
 
+                } else {
+                    print("[Permission] microphone request result = notRequired")
+                }
+
+                if speechRecognitionRequired {
                     var speech = permissionService.speechStatus()
                     if speech == .notDetermined {
                         speech = await permissionService.requestSpeechRecognition()
@@ -133,8 +142,6 @@ extension AppState {
                         showError(message)
                         return
                     }
-                } else {
-                    print("[Permission] microphone request result = notRequired")
                 }
 
                 if systemAudioRequired {
@@ -298,10 +305,13 @@ extension AppState {
                                 guard !Task.isCancelled else { return }
                                 await self?.handleTranscriptSegment(segment)
                             }
+                            guard !Task.isCancelled else { return }
+                            await MainActor.run {
+                                self?.handleParakeetStreamTermination(error: nil)
+                            }
                         } catch {
                             await MainActor.run {
-                                self?.lastSystemAudioASRError = error.localizedDescription
-                                self?.showError(error.localizedDescription)
+                                self?.handleParakeetStreamTermination(error: error)
                             }
                         }
                     }
@@ -379,6 +389,17 @@ extension AppState {
             failAction(ActionID.startInterview, title: "Could not start", message: message)
             showError(message)
         }
+    }
+
+    func handleParakeetStreamTermination(error: Error?) {
+        guard activeASRProviderID == .localParakeet,
+              activeASRProviderRuntime != nil else { return }
+        let message = error?.localizedDescription ?? "Local Parakeet transcript stream ended unexpectedly."
+        stopListening(reason: .asrTaskFailed)
+        lastSystemAudioASRError = message
+        liveState = .error(message)
+        currentCaptureRuntimeState = .error(reason: message)
+        showError(message)
     }
 
     private func captureStartupIsCurrent(_ startupID: UUID) -> Bool {

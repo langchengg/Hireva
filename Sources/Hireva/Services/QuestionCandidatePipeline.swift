@@ -27,17 +27,14 @@ enum QuestionCandidatePipeline {
     }
 
     static func extract(from segment: RawTranscriptSegment) -> [AcceptedQuestionCandidate] {
-        let collapsed = normalizeCoordinatedQuestionPunctuation(
-            QuestionTextUtilities.collapse(segment.text)
-        )
-        guard collapsed.split(whereSeparator: \.isWhitespace).count >= 4 else {
+        guard segment.text.split(whereSeparator: \.isWhitespace).count >= 4 else {
             return []
         }
 
         // Split against the recognizer's formatted source text so provenance
         // offsets remain stable. Canonicalization can change string length and
         // therefore happens independently inside each source slice.
-        let bounded = String(collapsed.prefix(maxInputCharacters))
+        let bounded = String(segment.text.prefix(maxInputCharacters))
         let rawQuestions = MultiQuestionSplitter.splitWithRanges(bounded)
         var questions: [AcceptedQuestionCandidate] = []
         var sourceSliceWasTerminated: [Bool] = []
@@ -54,7 +51,9 @@ enum QuestionCandidatePipeline {
             } else {
                 sourceSlice = raw.text
             }
-            let canonicalSlice = ASRCanonicalizer.canonicalizeTerms(sourceSlice)
+            let canonicalSlice = ASRCanonicalizer.canonicalizeTerms(
+                normalizeCoordinatedQuestionPunctuation(sourceSlice)
+            )
             let questionText = RawQuestionCleaner.clean(canonicalSlice)
             guard QuestionCompletenessGate.isCompleteQuestion(questionText, isFinal: segment.isFinal),
                   !RawQuestionCleaner.isSmallTalkOnly(questionText) else {
@@ -197,6 +196,9 @@ enum QuestionCandidatePipeline {
         let tail = String(text[tailStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
         let lowerTail = tail.lowercased()
         let prefix = String(text[..<questionMark]).lowercased()
+        if ["and how ", "and what ", "and why ", "and which "].contains(where: lowerTail.hasPrefix) {
+            return true
+        }
         if lowerTail.hasPrefix("what made ") {
             return prefix.contains("system") ||
                 prefix.contains("project") ||
@@ -220,15 +222,15 @@ enum MultiQuestionSplitter {
     }
 
     static func splitWithRanges(_ text: String) -> [QuestionSlice] {
-        let bounded = QuestionTextUtilities.collapse(text)
-        let lower = bounded.lowercased()
-        let starts = questionStarts(in: lower)
+        let bounded = text
+        let starts = questionStarts(in: bounded)
         guard !starts.isEmpty else { return [] }
 
         var questions: [QuestionSlice] = []
+        let boundedUTF16Length = (bounded as NSString).length
         for index in starts.indices {
             let start = starts[index]
-            let end = index + 1 < starts.count ? starts[index + 1] : bounded.count
+            let end = index + 1 < starts.count ? starts[index + 1] : boundedUTF16Length
             guard start < end else { continue }
             let startIndex = String.Index(utf16Offset: start, in: bounded)
             let endIndex = String.Index(utf16Offset: end, in: bounded)
@@ -244,7 +246,7 @@ enum MultiQuestionSplitter {
         return questions
     }
 
-    static func questionStarts(in lower: String) -> [Int] {
+    static func questionStarts(in source: String) -> [Int] {
         let auxiliaryQuestionStarts = [
             "\\bcould\\s+you\\b",
             "\\bcan\\s+you\\b",
@@ -322,21 +324,29 @@ enum MultiQuestionSplitter {
             contextualQuestionStarts
 
         var starts = Set<Int>()
-        let range = NSRange(location: 0, length: (lower as NSString).length)
+        let range = NSRange(location: 0, length: (source as NSString).length)
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 continue
             }
-            for match in regex.matches(in: lower, options: [], range: range) {
+            for match in regex.matches(in: source, options: [], range: range) {
                 starts.insert(match.range.location)
             }
         }
 
         var filtered: [Int] = []
         for start in starts.sorted() {
-            let currentIndex = String.Index(utf16Offset: start, in: lower)
-            let currentClause = String(lower[currentIndex...])
-            let precedingText = String(lower[..<currentIndex])
+            if start >= 4,
+               starts.contains(start - 4),
+               (source as NSString).substring(with: NSRange(location: start - 4, length: 4)).lowercased() == "and " {
+                // "and how/what/why/which" matches both the coordinated-start
+                // pattern and the nested interrogative pattern. Keep only the
+                // outer start so the coordination decision is authoritative.
+                continue
+            }
+            let currentIndex = String.Index(utf16Offset: start, in: source)
+            let currentClause = String(source[currentIndex...]).lowercased()
+            let precedingText = String(source[..<currentIndex]).lowercased()
             if isAuxiliaryNestedInsideWHQuestion(precedingText: precedingText, currentClause: currentClause) {
                 continue
             }
@@ -353,8 +363,8 @@ enum MultiQuestionSplitter {
                 if start - previous < 18 {
                     continue
                 }
-                let previousIndex = String.Index(utf16Offset: previous, in: lower)
-                let previousClause = String(lower[previousIndex..<currentIndex])
+                let previousIndex = String.Index(utf16Offset: previous, in: source)
+                let previousClause = String(source[previousIndex..<currentIndex]).lowercased()
                 if !previousClause.contains("?"),
                    isEmbeddedAuxiliaryTail(previousClause: previousClause, currentClause: currentClause) {
                     continue
@@ -362,8 +372,7 @@ enum MultiQuestionSplitter {
                 if isBackgroundCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
                     continue
                 }
-                if !previousClause.contains("?"),
-                   isCoordinatedCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
+                if isCoordinatedCompoundContinuation(previousClause: previousClause, currentClause: currentClause) {
                     continue
                 }
                 if previousClause.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("prior to your msc"),

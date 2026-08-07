@@ -266,7 +266,10 @@ extension AppState {
     }
 
     var speechRecognitionRequired: Bool {
-        selectedASRProviderID == .appleSpeech && (microphoneRequired || systemAudioRequired)
+        ASRPermissionRequirements(
+            provider: selectedASRProviderID,
+            captureMode: settings.audioCaptureMode
+        ).speechRecognition
     }
 
     var requiredPermissionsReady: Bool {
