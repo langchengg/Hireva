@@ -854,13 +854,24 @@ func visibleQuestionText(for card: SuggestionCard?) -> String? {
 
     previousGenerationID = controller.generationID
     let hasCancellableWork = generationHasCancellableWork(controller)
+    let hasCompletedVisibleCard = generationUIState.isTerminal && currentSuggestion.map { visible in
+        visibleCardMatchesGeneration(
+            card: visible,
+            generationID: controller.generationID,
+            detectedQuestionID: controller.questionID,
+            promptPrimaryQuestion: controller.questionTextSnapshot
+        )
+    } == true
+    var revokedPersistenceOwnership = false
     if hasCancellableWork {
         cancelledGenerationCount += 1
-        cancelledPersistenceGenerationIDs.insert(controller.generationID)
+    }
+    if hasCancellableWork && !hasCompletedVisibleCard {
+        revokedPersistenceOwnership = cancelledPersistenceGenerationIDs.insert(controller.generationID).inserted
         releaseUnpersistedSuggestionPersistenceClaims(forGenerationID: controller.generationID)
     }
     persistSupersededAcceptedQuestionSnapshotIfNeeded(controller: controller)
-    if hasCancellableWork {
+    if revokedPersistenceOwnership {
         rejectCancelledGenerationPersistence(controller: controller, reason: "generation_replaced")
     }
     controller.cancelAll()
@@ -919,7 +930,14 @@ func cancelActiveGenerationForContextChange() {
 }
 
 private func generationHasCancellableWork(_ controller: ActiveGenerationController) -> Bool {
-    !terminalGenerationIDs.contains(controller.generationID) && !generationUIState.isTerminal
+    if controller.stageATask != nil ||
+        controller.stageATimeoutTask != nil ||
+        controller.stageBTask != nil ||
+        controller.fallbackWatchdogTask != nil ||
+        controller.fullCardWatchdogTask != nil {
+        return true
+    }
+    return !terminalGenerationIDs.contains(controller.generationID) && !generationUIState.isTerminal
 }
 
 private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
@@ -934,6 +952,19 @@ private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
         sessionID: session.id,
         questionID: controller.identity.acceptedQuestionID
     ) else {
+        return
+    }
+    if generationUIState.isTerminal,
+       let visible = currentSuggestion,
+       visibleCardMatchesGeneration(
+            card: visible,
+            generationID: controller.generationID,
+            detectedQuestionID: controller.questionID,
+            promptPrimaryQuestion: controller.questionTextSnapshot
+       ) {
+        // The validated visible card already owns an asynchronous persistence
+        // claim. Let that write finish instead of inserting a lower-fidelity
+        // superseded snapshot for the same accepted question.
         return
     }
     let classified = IntentRouter.transcriptClassification(for: controller.identity.questionText)
@@ -970,6 +1001,42 @@ private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
         stageBCompleted: false,
         softFallbackUsed: false
     )
+}
+
+// internal for AppState extension access only
+func supersedeActiveGenerationForQueuedQuestion() {
+    guard let controller = activeGenerationController else { return }
+    let generationID = controller.generationID
+    let questionID = controller.questionID
+    let triggerPath = controller.triggerPath
+
+    activeAITask?.cancel()
+    activeAITask = nil
+    cancelActiveGenerationForReplacement()
+    setGenerationUIState(
+        .cancelled(
+            questionID: questionID,
+            generationID: generationID,
+            triggerPath: triggerPath,
+            reason: "Superseded by a newer accepted interviewer question before an answer became visible."
+        ),
+        generationID: generationID
+    )
+    activeGenerationID = nil
+    activeQuestionID = nil
+    activeTriggerPath = nil
+    activeGenerationStartedAt = nil
+    currentGenerationID = nil
+    autoSuggestionLaunchPending = false
+    autoSuggestionLaunchID = nil
+    suggestionGenerationStarted = false
+    isStreamingSayFirst = false
+    isExpandingSuggestionCard = false
+    fallbackWatchdogActive = false
+    stageBTaskActive = false
+    providerStreamActive = false
+    actionLoadingStates[ActionID.generateAnswer] = false
+    updateActiveTaskSummary()
 }
 
 private func acceptedQuestionHistoryAlreadyExists(sessionID: String, questionID: String) -> Bool {

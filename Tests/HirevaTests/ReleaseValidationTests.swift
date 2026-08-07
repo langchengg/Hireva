@@ -355,6 +355,8 @@ struct ReleaseValidationTests {
         settings.audioCaptureMode = .systemAudioOnly
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         settings.automaticQuestionDetectionEnabled = true
+        settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
         appState.saveSettings(settings)
 
         let session = try makeHermeticContextBoundSession(

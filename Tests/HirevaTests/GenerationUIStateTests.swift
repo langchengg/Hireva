@@ -1567,6 +1567,10 @@ struct GenerationUIStateTests {
         appState.answerProviderModeOverride = .deepSeekPrimary
         let delayProvider = MockDelayProvider()
         appState.delayProvider = delayProvider
+        var settings = appState.settings
+        settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
+        appState.saveSettings(settings)
 
         let session: InterviewSession
         if bindCandidateContext {

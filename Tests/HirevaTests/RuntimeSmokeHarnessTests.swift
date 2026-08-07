@@ -2,6 +2,29 @@ import Foundation
 import Testing
 @testable import Hireva
 
+private struct ReleaseQuestionManifest: Decodable {
+    let cases: [ReleaseQuestionManifestItem]
+}
+
+private struct ReleaseQuestionManifestItem: Decodable {
+    let id: String
+    let category: String
+    let spokenText: String
+    let expectedPrimaryQuestion: String?
+    let expectedSpeaker: String
+    let shouldTrigger: Bool
+    let expectedIntent: String
+    let allowedCandidateEvidenceIDs: [String]
+    let forbiddenEvidenceIDs: [String]
+    let mustNotContain: [String]
+    let source: String?
+    let recognitionIsFinal: Bool?
+    let sequenceGroup: String?
+    let segmentID: String?
+    let recognitionTaskID: String?
+    let recognitionEventSequence: Int?
+}
+
 @MainActor
 func makeHermeticContextBoundSession(
     appState: AppState,
@@ -124,7 +147,7 @@ func hermeticRuntimeAnswer(for prompt: String) -> String {
     if lower.contains("diffusion") || lower.contains("autoregressive") || lower.contains("flow-matching") {
         return "Compared with autoregressive decoding, the diffusion policy was more reliable in MuJoCo because it represented continuous action distributions smoothly and tolerated trajectory uncertainty better."
     }
-    if lower.contains("difference") && lower.contains("vla") && lower.contains("leorover") {
+    if lower.contains("vla") && lower.contains("leorover") {
         return "The VLA project evaluated DROID trajectories and diffusion decoders in a MuJoCo Franka simulation, whereas the LeoRover project connected YOLOv8 perception, ROS2 navigation, manipulation, and recovery on a real robot."
     }
     if lower.contains("sim real") || lower.contains("sim-to-real") || (lower.contains("hardware") && lower.contains("muji")) {
@@ -148,7 +171,37 @@ func hermeticRuntimeAnswer(for prompt: String) -> String {
     if lower.contains("yourself") || lower.contains("background") {
         return "I built a LeoRover ROS2 system connecting YOLOv8 perception, localization, navigation, manipulation, and recovery behavior, and that robotics work is the core of my technical background."
     }
-    return "I would answer the interviewer directly with a specific, evidence-grounded robotics example."
+    if lower.contains("trade off") || lower.contains("trade-off") || lower.contains("balance") {
+        return "I would define the accuracy and latency constraints, measure both on representative robot workloads, choose the smallest reliable model that meets the control deadline, and validate the trade-off on hardware."
+    }
+    if lower.contains("team") || lower.contains("teammate") || lower.contains("disagreement") || lower.contains("collaborat") {
+        return "I would make the technical evidence visible through logs and reproducible tests, compare the alternatives against shared success criteria, document the decision, and verify the agreed approach with the team."
+    }
+    if lower.contains("ownership") || lower.contains("lead the investigation") {
+        return "I would take ownership by defining the failure, assigning observable checks at each system boundary, communicating progress, and validating the final fix on the robot."
+    }
+    if lower.contains("ambiguous") || lower.contains("unclear") || lower.contains("clarify") {
+        return "I would clarify the user outcome, constraints, failure tolerance, and measurable success criteria before implementing the smallest testable robotics change."
+    }
+    if lower.contains("latency") || lower.contains("bottleneck") {
+        return "I would instrument end-to-end and per-stage latency, correlate timestamps across perception and control, isolate the slow boundary, change one variable, and validate the result under representative load."
+    }
+    if lower.contains("deploy") || lower.contains("rollback") || lower.contains("release") {
+        return "I would use a versioned artifact, offline regression tests, a staged hardware rollout, health checks, and a tested rollback path before broad robot deployment."
+    }
+    if lower.contains("privacy") || lower.contains("microphone audio") || lower.contains("transcript") {
+        return "I would keep raw audio and transcript text local by default, require explicit opt-in for diagnostic text, minimize retained metadata, and provide a reliable local-data deletion path."
+    }
+    if lower.contains("safety") || lower.contains("risking hardware") || lower.contains("allowing the robot to move") {
+        return "I would validate in simulation and a constrained test area, enforce confidence and state guards, keep an emergency stop, and expand motion only after recovery tests pass."
+    }
+    if lower.contains("kubernetes") {
+        return "I have no supported Kubernetes deployment evidence in this profile, so I would state that limitation and relate only the reliability practices I have actually used."
+    }
+    if lower.contains("team of twenty") {
+        return "I have no supported evidence of managing a large engineering team, so I would describe only the technical ownership and collaboration demonstrated in my robotics work."
+    }
+    return "I would define the goal, use logs and evidence from the robotics system to choose a concrete action, validate the result against a measurable criterion, and communicate the remaining limitation."
 }
 
 func hermeticRuntimeSectionTokens(for prompt: String) -> [String] {
@@ -173,6 +226,108 @@ func hermeticJSONString(_ value: String) -> String {
 @Suite(.serialized)
 @MainActor
 struct RuntimeSmokeHarnessTests {
+    @Test
+    func release64QuestionGate() async throws {
+        guard Self.shouldRun("release-64") else { return }
+        let manifestURL = try #require(Bundle.module.url(
+            forResource: "release_64_questions",
+            withExtension: "json"
+        ))
+        let manifest = try JSONDecoder().decode(
+            ReleaseQuestionManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        #expect(manifest.cases.count == 64)
+        let categories = Dictionary(grouping: manifest.cases, by: \ .category)
+        #expect(categories.count == 32)
+        #expect(categories.values.allSatisfy { $0.count == 2 })
+        #expect(Set(manifest.cases.map(\ .id)).count == manifest.cases.count)
+
+        var groupedHarnesses: [String: RuntimeSmokeHarness] = [:]
+        var latenciesMS: [Double] = []
+        var triggered = 0
+        var rejected = 0
+
+        for (index, item) in manifest.cases.enumerated() {
+            let harnessKey = item.sequenceGroup ?? item.id
+            let harness: RuntimeSmokeHarness
+            if let existing = groupedHarnesses[harnessKey] {
+                harness = existing
+            } else {
+                harness = try makeHarness(suite: "release-64")
+                groupedHarnesses[harnessKey] = harness
+            }
+            let rowsBefore = try harness.rows()
+            let source = AudioSourceType(rawValue: item.source ?? AudioSourceType.systemAudio.rawValue) ?? .systemAudio
+            let speaker = SpeakerRole(rawValue: item.expectedSpeaker) ?? .unknown
+            let startedAt = Date()
+
+            await harness.feed(
+                text: item.spokenText,
+                id: item.segmentID ?? "release-64-\(item.id)",
+                secondsFromStart: TimeInterval(index * 65),
+                recognitionTaskID: item.recognitionTaskID,
+                eventSequence: item.recognitionEventSequence,
+                source: source,
+                speaker: speaker,
+                recognitionIsFinal: item.recognitionIsFinal ?? true
+            )
+            #expect(harness.appState.transcriptSegments.last?.speaker.rawValue == item.expectedSpeaker)
+            #expect(harness.appState.transcriptSegments.last?.source.rawValue == source.rawValue)
+
+            if item.shouldTrigger {
+                triggered += 1
+                let expectedQuestion = try #require(item.expectedPrimaryQuestion)
+                let persisted = await harness.waitForRowsForReleaseGate(rowsBefore.count + 1)
+                #expect(persisted, "\(item.id) did not persist its expected answer")
+                guard persisted else { continue }
+                let rowsAfter = try harness.rows()
+                let row = try #require(rowsAfter.last, "\(item.id) has no final row")
+                let answerText = ([row.sayFirst] + row.keyPoints + row.followUpReady)
+                    .joined(separator: " ")
+
+                #expect(rowsAfter.count == rowsBefore.count + 1)
+                #expect(Set(rowsAfter.map(\ .id)).count == rowsAfter.count)
+                #expect(row.questionText == expectedQuestion)
+                #expect(row.promptPrimaryQuestion == expectedQuestion)
+                #expect(row.speaker == item.expectedSpeaker)
+                #expect(row.source == source.rawValue)
+                #expect(row.questionIntent?.rawValue == item.expectedIntent)
+                #expect(AnswerRelevancePolicy.intent(for: expectedQuestion).rawValue == item.expectedIntent)
+                #expect(row.alignmentVerdict == .aligned)
+                #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(row.sayFirst))
+                #expect(!answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                let logicalCandidateIDs = Set(row.ragChunkIDs.compactMap(Self.logicalCandidateEvidenceID))
+                #expect(logicalCandidateIDs.isSubset(of: Set(item.allowedCandidateEvidenceIDs)))
+                let usedEvidence = Set(row.ragChunkIDs + row.evidenceUsed)
+                #expect(usedEvidence.isDisjoint(with: Set(item.forbiddenEvidenceIDs)))
+                for forbiddenText in item.mustNotContain {
+                    #expect(!answerText.localizedCaseInsensitiveContains(forbiddenText))
+                }
+
+                try await harness.waitBriefly()
+                #expect(try harness.rows().count == rowsBefore.count + 1)
+                latenciesMS.append(Date().timeIntervalSince(startedAt) * 1_000)
+            } else {
+                rejected += 1
+                try await harness.waitBriefly()
+                #expect(try harness.rows().count == rowsBefore.count)
+                #expect(harness.appState.currentSpinnerVisible == false)
+            }
+        }
+
+        let sorted = latenciesMS.sorted()
+        let percentile: (Double) -> Double = { percentile in
+            guard !sorted.isEmpty else { return 0 }
+            let index = min(sorted.count - 1, max(0, Int(ceil(Double(sorted.count) * percentile)) - 1))
+            return sorted[index]
+        }
+        print(String(format: "release_64_summary total=%d triggered=%d rejected=%d p50_ms=%.1f p95_ms=%.1f max_ms=%.1f", manifest.cases.count, triggered, rejected, percentile(0.50), percentile(0.95), sorted.last ?? 0))
+        #expect(triggered > 0)
+        #expect(rejected > 0)
+    }
+
     @Test
     func badFragmentsSuiteRejectsWithoutGenerationOrPersistence() async throws {
         guard Self.shouldRun("bad-fragments") else { return }
@@ -215,6 +370,7 @@ struct RuntimeSmokeHarnessTests {
         #expect(harness.appState.currentSuggestion == nil)
 
         await harness.feed(text: secondQuestion, id: "rapid-two-q2", secondsFromStart: 1)
+        try await harness.waitForQueuedQuestion(secondQuestion)
         try await harness.waitForCurrentQuestion(secondQuestion)
         harness.client.releaseBlockedStreams(containing: "engineering team")
         try await harness.waitForBlockedStreams(containing: "engineering team", finishedAtLeast: 2)
@@ -238,6 +394,60 @@ struct RuntimeSmokeHarnessTests {
             trace.contains("\"event_type\":\"staleGenerationResultRejected\"") ||
                 trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"")
         )
+    }
+
+    @Test
+    func replacementCancelsLiveCallbackAfterGenerationBecomesTerminal() async throws {
+        guard Self.shouldRun("callback-ownership") else { return }
+        let harness = try makeHarness(suite: "callback-ownership")
+        let first = harness.detectedQuestion(
+            id: "callback-owner-q1",
+            text: "Could you explain your LeoRover project from end to end?"
+        )
+        let second = harness.detectedQuestion(
+            id: "callback-owner-q2",
+            text: "How did you convert DROID demonstrations for your MuJoCo simulation?"
+        )
+        let firstGenerationID = "callback-owner-generation-1"
+        let secondGenerationID = "callback-owner-generation-2"
+        let callback = Task<String, Error> {
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            return "late callback"
+        }
+        defer { callback.cancel() }
+
+        harness.appState.activateGeneration(
+            question: first,
+            generationID: firstGenerationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        harness.appState.registerStageATask(callback, generationID: firstGenerationID)
+        harness.appState.setGenerationUIState(
+            .answerReady(
+                questionID: first.id,
+                generationID: firstGenerationID,
+                triggerPath: .autoDetect
+            ),
+            generationID: firstGenerationID
+        )
+
+        harness.appState.activateGeneration(
+            question: second,
+            generationID: secondGenerationID,
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+
+        #expect(callback.isCancelled)
+        #expect(harness.appState.cancelledPersistenceGenerationIDs.contains(firstGenerationID))
+        try await harness.waitForTraceEvent("cancelledGenerationPersistenceRejected")
+        #expect(harness.appState.currentGenerationID == secondGenerationID)
+        #expect(harness.appState.activeQuestionID == second.id)
     }
 
     @Test
@@ -547,8 +757,18 @@ struct RuntimeSmokeHarnessTests {
     }
 
     private static func shouldRun(_ suite: String) -> Bool {
-        let selected = ProcessInfo.processInfo.environment["RUNTIME_SMOKE_SUITE"] ?? "all"
+        // Runtime smoke is a separate release gate. Running every long-lived
+        // harness concurrently with the ordinary unit suite creates resource
+        // contention that does not represent product behavior.
+        let selected = ProcessInfo.processInfo.environment["RUNTIME_SMOKE_SUITE"] ?? "none"
         return selected == "all" || selected == suite
+    }
+
+    private static func logicalCandidateEvidenceID(_ rawID: String) -> String? {
+        guard let range = rawID.range(of: "candidate-", options: .backwards) else { return nil }
+        let suffix = rawID[range.upperBound...]
+        guard let index = Int(suffix) else { return nil }
+        return "candidate-\(index)"
     }
 
     private func makeHarness(suite: String) throws -> RuntimeSmokeHarness {
@@ -580,6 +800,7 @@ struct RuntimeSmokeHarnessTests {
         settings.automaticQuestionDetectionEnabled = true
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
         appState.saveSettings(settings)
 
         let session = try makeHermeticContextBoundSession(appState: appState, prefix: "runtime-smoke-\(suite)")
@@ -612,22 +833,25 @@ private struct RuntimeSmokeHarness {
         id: String,
         secondsFromStart: TimeInterval = 0,
         recognitionTaskID: String? = nil,
-        eventSequence: Int? = nil
+        eventSequence: Int? = nil,
+        source: AudioSourceType = .systemAudio,
+        speaker: SpeakerRole = .interviewer,
+        recognitionIsFinal: Bool = true
     ) async {
         let segment = TranscriptSegment(
             id: id,
             sessionID: session.id,
-            source: .systemAudio,
-            speaker: .interviewer,
+            source: source,
+            speaker: speaker,
             text: text,
             createdAt: startedAt.addingTimeInterval(secondsFromStart),
             confidence: 1.0,
-            asrFinalizationReason: "final_accepted",
+            asrFinalizationReason: recognitionIsFinal ? "final_accepted" : "partial",
             recognitionTaskID: recognitionTaskID,
             recognitionEventSequence: eventSequence,
             sourceTextStartUTF16: 0,
             sourceTextEndUTF16: (text as NSString).length,
-            recognitionIsFinal: true
+            recognitionIsFinal: recognitionIsFinal
         )
         await appState.handleTranscriptSegment(segment)
     }
@@ -665,6 +889,17 @@ private struct RuntimeSmokeHarness {
         }
     }
 
+    func waitForRowsForReleaseGate(_ expected: Int, timeout: TimeInterval = 1.0) async -> Bool {
+        let start = Date()
+        while Date().timeIntervalSince(start) <= timeout {
+            if (try? rows().count) == expected {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        }
+        return false
+    }
+
     func waitForRowsAtLeast(_ expected: Int, timeout: TimeInterval = 12.0) async throws {
         let start = Date()
         while true {
@@ -697,6 +932,48 @@ private struct RuntimeSmokeHarness {
             }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
+    }
+
+    func waitForQueuedQuestion(_ expected: String, timeout: TimeInterval = 12.0) async throws {
+        let start = Date()
+        while true {
+            if appState.pendingAcceptedQuestions.contains(where: { $0.question.questionText == expected }) {
+                return
+            }
+            if Date().timeIntervalSince(start) > timeout {
+                throw NSError(
+                    domain: "RuntimeSmokeHarnessTests",
+                    code: 8,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for the expected queued question."]
+                )
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
+    func detectedQuestion(id: String, text: String) -> DetectedQuestion {
+        let classification = IntentRouter.transcriptClassification(for: text)
+        return DetectedQuestion(
+            id: id,
+            sessionID: session.id,
+            transcriptSegmentID: nil,
+            questionText: text,
+            intent: classification.intent,
+            answerStrategy: classification.strategy,
+            confidence: max(classification.confidence, 0.9),
+            reason: "Deterministic callback ownership fixture.",
+            shouldTrigger: true,
+            questionComplete: true,
+            modelName: "runtime-smoke",
+            promptVersion: "runtime-smoke-v1",
+            providerKind: .deepSeek,
+            providerName: "Runtime Smoke",
+            providerBaseURL: "",
+            latencyMS: 0,
+            isLocal: false,
+            rawJSON: nil,
+            createdAt: Date()
+        )
     }
 
     func waitForTraceEvent(_ eventType: String, timeout: TimeInterval = 12.0) async throws {

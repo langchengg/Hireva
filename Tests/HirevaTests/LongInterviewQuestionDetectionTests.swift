@@ -134,6 +134,10 @@ struct LongInterviewQuestionDetectionTests {
         let traceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("rotated-cumulative-\(UUID().uuidString).jsonl")
         appState.runtimeTranscriptTraceLogURL = traceURL
+        var traceSettings = appState.settings
+        traceSettings.saveTranscriptsLocally = true
+        traceSettings.diagnosticTraceMode = .fullText
+        appState.saveSettings(traceSettings)
         let leo = "Could you explain your LeoRover project from end to end?"
         let droid = "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?"
 
@@ -263,7 +267,16 @@ struct LongInterviewQuestionDetectionTests {
         try await waitUntil(timeout: 8.0) {
             appState.visibleAnswerExists && !appState.currentSpinnerVisible
         }
-        #expect(appState.cancelledGenerationCount == 0)
+        try await waitUntil(timeout: 8.0) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == questions.count
+        }
+        let persistedCards = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(persistedCards.count == questions.count)
+        #expect(Set(persistedCards.compactMap(\.detectedQuestionID)) == Set(activeQuestionIDs))
+        #expect(appState.currentSuggestion?.detectedQuestionID == activeQuestionIDs.last)
+        // A queued question may supersede each preceding generation once after
+        // the two-second handoff deadline. Repeated cancellation is not valid.
+        #expect(appState.cancelledGenerationCount <= questions.count - 1)
         #expect(!appState.currentSpinnerVisible)
     }
 

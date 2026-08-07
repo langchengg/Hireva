@@ -2132,6 +2132,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         settings.automaticQuestionDetectionEnabled = true
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
         appState.saveSettings(settings)
 
         let session = try appState.createContextBoundSession(mode: .microphone)

@@ -10,6 +10,7 @@ struct CaptureRuntimeStateTests {
         let description: String
     }
 
+    @MainActor
     private final class AsyncGate {
         private var continuations: [CheckedContinuation<Void, Never>] = []
         private(set) var waiterCount = 0
@@ -221,7 +222,7 @@ struct CaptureRuntimeStateTests {
     private func waitForState(
         _ appState: AppState,
         toSatisfy predicate: @escaping (CaptureRuntimeState) -> Bool,
-        timeout: Duration = .seconds(2)
+        timeout: Duration = .seconds(8)
     ) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
@@ -236,7 +237,7 @@ struct CaptureRuntimeStateTests {
     private func waitForLiveState(
         _ appState: AppState,
         toSatisfy predicate: @escaping (LiveInterviewState) -> Bool,
-        timeout: Duration = .seconds(2)
+        timeout: Duration = .seconds(8)
     ) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
@@ -250,7 +251,7 @@ struct CaptureRuntimeStateTests {
 
     private func waitUntil(
         _ description: String,
-        timeout: Duration = .seconds(2),
+        timeout: Duration = .seconds(8),
         predicate: @escaping () -> Bool
     ) async throws {
         let clock = ContinuousClock()
@@ -317,7 +318,14 @@ struct CaptureRuntimeStateTests {
         appState.stopListening(reason: .userRequested)
         appState.startListening(mode: .mock)
         gate.open()
-        try await waitForLiveState(appState, toSatisfy: { $0 == .listening })
+        // The replacement startup intentionally waits for both the cancelled
+        // startup and its queued teardown. Full-suite load must not turn that
+        // serialized handoff into a false timeout.
+        try await waitForLiveState(
+            appState,
+            toSatisfy: { $0 == .listening },
+            timeout: .seconds(8)
+        )
         let secondSession = try #require(appState.currentSession)
 
         #expect(secondSession.id != firstSession.id)

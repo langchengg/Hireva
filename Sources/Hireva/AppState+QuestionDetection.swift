@@ -795,6 +795,8 @@ extension AppState {
             ))
             return
         }
+        queuedQuestionHandoffTask?.cancel()
+        queuedQuestionHandoffTask = nil
         let pending = pendingAcceptedQuestions.removeFirst()
         recordTranscriptRuntimeEvent(.queueDepthChanged(
             sessionID: pending.session.id,
@@ -830,6 +832,14 @@ extension AppState {
     private func queueDrainBlockReasonForCurrentState() -> String? {
         if autoSuggestionLaunchPending {
             return "blocked_pending_generation_launch"
+        }
+        // A terminal UI state revokes the current generation's right to block
+        // an already accepted question. Lingering task flags are cancelled by
+        // activateGeneration when the queued question becomes the new owner.
+        if let controller = activeGenerationController,
+           generationUIState.generationID == controller.generationID,
+           generationUIState.isTerminal {
+            return nil
         }
         if suggestionGenerationStarted || isStreamingSayFirst || providerStreamActive || fallbackWatchdogActive {
             return "blocked_active_generation"
@@ -911,6 +921,40 @@ extension AppState {
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
         if drainImmediately {
             finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
+            scheduleQueuedQuestionHandoffIfNeeded(
+                questionID: question.id,
+                sessionID: session.id
+            )
+        }
+    }
+
+    private func scheduleQueuedQuestionHandoffIfNeeded(
+        questionID: String,
+        sessionID: String
+    ) {
+        guard pendingAcceptedQuestions.contains(where: { $0.question.id == questionID }),
+              let blockedGenerationID = activeGenerationController?.generationID,
+              !visibleAnswerExists else {
+            return
+        }
+        queuedQuestionHandoffTask?.cancel()
+        queuedQuestionHandoffTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.currentSession?.id == sessionID,
+                  self.activeGenerationController?.generationID == blockedGenerationID,
+                  !self.visibleAnswerExists,
+                  self.pendingAcceptedQuestions.contains(where: { $0.question.id == questionID }) else {
+                return
+            }
+            self.queuedQuestionHandoffTask = nil
+            self.supersedeActiveGenerationForQueuedQuestion()
+            self.processNextQueuedAutoQuestionIfIdle()
         }
     }
 
