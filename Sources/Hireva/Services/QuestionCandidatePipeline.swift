@@ -282,6 +282,7 @@ enum MultiQuestionSplitter {
         ]
         let whQuestionStarts = [
             "\\bwhat\\s+happened\\b",
+            "^what\\s+(?:causes|caused|creates|created|prevents|prevented|affects|affected)\\b",
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
             "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
             "^what\\s+(?:is|are)\\b",
@@ -299,6 +300,7 @@ enum MultiQuestionSplitter {
             "\\bhow\\s+should\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+are\\s+you\\b",
+            "\\bwhy\\s+(?:is|are|was|were)\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
             "\\bwhy\\s+might\\b",
