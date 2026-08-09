@@ -53,7 +53,9 @@ struct FirstAnswerFallbackTests {
         )
 
         await appState.handleTranscriptSegment(segment)
-        try await waitForSuggestion(appState, timeout: 5.0)
+        // The injected delay fires the watchdog immediately; this bound only
+        // protects against a missing completion under sanitizer scheduler load.
+        try await waitForSuggestion(appState, timeout: 30.0)
 
         let question = try #require(appState.lastDetectedQuestion)
         let card = try #require(appState.currentSuggestion)

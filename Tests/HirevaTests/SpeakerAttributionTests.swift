@@ -388,10 +388,13 @@ struct SpeakerAttributionTests {
             confidence: 1
         )
         await appState.handleTranscriptSegment(question)
-        try await waitUntil("grounded system-audio suggestion") {
-            appState.currentSuggestion != nil
-        }
+        let generationTask = try #require(appState.activeAITask)
+        await generationTask.value
 
+        let suggestionDeadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while appState.currentSuggestion == nil, ContinuousClock.now < suggestionDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let suggestion = try #require(appState.currentSuggestion)
         #expect(appState.lastSystemAudioTranscript == question.text)
         #expect(appState.last10SegmentsDiagnostics.contains {

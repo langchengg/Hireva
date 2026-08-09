@@ -73,15 +73,15 @@ struct ASRReleaseHardeningRegressionTests {
 
     @Test
     func stdoutEOFDoesNotWaitForStillRunningHelperProcess() async throws {
+        let pidURL = temporaryDirectory().appendingPathComponent("stdout-eof-helper.pid")
         let helper = try makeExecutable("""
         #!/bin/sh
+        printf '%s' "$$" > '\(pidURL.path)'
         printf '%s\n' '{"segmentId":"eof-1","text":"How did you validate it?","isFinal":true,"source":"local_parakeet_asr","audioSource":"systemAudio","speaker":"interviewer"}'
         exec 1>&-
-        sleep 2
+        sleep 30
         """)
         let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
-        let clock = ContinuousClock()
-        let start = clock.now
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
             config: ASRConfig(sessionID: "stdout-eof", captureMode: .systemAudioOnly)
@@ -91,11 +91,21 @@ struct ASRReleaseHardeningRegressionTests {
         for try await event in stream {
             events.append(event)
         }
-        let elapsed = start.duration(to: clock.now)
 
         #expect(events.map(\.segmentId) == ["eof-1"])
-        #expect(elapsed < .seconds(1))
+        let pidText = try String(contentsOf: pidURL, encoding: .utf8)
+        let pid = try #require(Int32(pidText))
+        // EOF must complete the stream while the helper is still alive. This
+        // proves lifecycle behavior without a wall-clock performance threshold.
+        #expect(Darwin.kill(pid, 0) == 0)
         await runtime.stop()
+
+        let terminationDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while Darwin.kill(pid, 0) == 0, ContinuousClock.now < terminationDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(Darwin.kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
     }
 
     @Test

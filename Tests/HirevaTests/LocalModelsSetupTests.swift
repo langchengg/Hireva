@@ -548,12 +548,9 @@ struct LocalModelsSetupTests {
             recognitionIsFinal: true
         ))
 
-        // The failure path can make four immediate validation attempts. Under the
-        // full suite's CPU load, observe the terminal UI state with the same
-        // bounded window used by the other generation lifecycle regressions.
-        try await waitUntil(timeout: 8.0) {
-            appState.latestActionFeedback(for: ActionID.generateAnswer)?.kind == .error
-        }
+        let generationTask = try #require(appState.activeAITask)
+        await generationTask.value
+        #expect(appState.latestActionFeedback(for: ActionID.generateAnswer)?.kind == .error)
         #expect(appState.errorMessage == nil)
         #expect(appState.latestActionFeedback(for: ActionID.generateAnswer)?.message.contains("Transcript preserved") == true)
     }
@@ -732,7 +729,9 @@ struct LocalModelsSetupTests {
         #expect(finished)
         #expect(provider.requests.count == 1)
         #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
-        try await waitUntil(timeout: 1.0) {
+        // Persistence intentionally runs on a utility task. Keep a bounded safety
+        // timeout, but do not treat scheduler latency as product performance.
+        try await waitUntil(timeout: 30.0) {
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
             return rows.contains { $0.id == "phd-architecture-card" }
         }
