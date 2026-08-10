@@ -124,6 +124,21 @@ launch_existing_bundle() {
         echo "[Launch]   Fixed user home: $REQUESTED_FIXED_USER_HOME"
     fi
 
+    if [[ "${HIREVA_VERIFICATION_MODE:-}" == "1" ]]; then
+        for variable_name in \
+            HIREVA_VERIFICATION_MODE \
+            HIREVA_VERIFICATION_SCENARIO_PATH \
+            HIREVA_VERIFICATION_OUTPUT_ROOT \
+            HIREVA_VERIFICATION_APP_SUPPORT_DIR \
+            HIREVA_VERIFICATION_MODEL_ROOT; do
+            variable_value="${!variable_name:-}"
+            if [[ -n "$variable_value" ]]; then
+                open_args+=(--env "$variable_name=$variable_value")
+            fi
+        done
+        echo "[Launch]   Verification mode: enabled with explicit scenario"
+    fi
+
     /usr/bin/open "${open_args[@]}" "$APP_BUNDLE"
 }
 

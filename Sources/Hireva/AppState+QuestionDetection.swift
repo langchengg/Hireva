@@ -1054,11 +1054,34 @@ extension AppState {
         transcript: String
     ) {
         if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion) {
-            queueAcceptedAutoQuestion(acceptedQuestion, session: session, transcript: transcript)
+            let shouldSupersede = shouldImmediatelySupersedeActiveGeneration(for: acceptedQuestion)
+            queueAcceptedAutoQuestion(
+                acceptedQuestion,
+                session: session,
+                transcript: transcript,
+                drainImmediately: !shouldSupersede
+            )
+            if shouldSupersede {
+                supersedeActiveGenerationForQueuedQuestion()
+                processNextQueuedAutoQuestionIfIdle()
+            }
             return
         }
         pendingAcceptedQuestions.removeAll()
         launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
+    }
+
+    // A distinct real utterance is a follow-up, not another clause from the
+    // same merged ASR segment. It must own the UI before the old provider can
+    // publish an answer; the old accepted question is retained as a
+    // superseded history snapshot by the generation lifecycle.
+    func shouldImmediatelySupersedeActiveGeneration(for question: DetectedQuestion) -> Bool {
+        guard !visibleAnswerExists,
+              let activeIngress = activeGenerationController?.identity.ingressIdentity,
+              let incomingIngress = question.ingressIdentity else {
+            return false
+        }
+        return activeIngress.sourceSegmentID != incomingIngress.sourceSegmentID
     }
 
     private func launchAutoSuggestionGeneration(

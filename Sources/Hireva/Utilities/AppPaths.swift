@@ -4,10 +4,18 @@ enum AppPaths {
     static let appName = HirevaProductIdentity.applicationSupportDirectoryName
 
     static var applicationSupportDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        if let verification = HirevaVerificationConfiguration.current {
+            return verification.applicationSupportDirectory
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent(appName, isDirectory: true)
+    }
+
+    static var localModelsDirectory: URL {
+        HirevaVerificationConfiguration.current?.localModelsDirectory ??
+            applicationSupportDirectory.appendingPathComponent("LocalModels", isDirectory: true)
     }
 
     static var databaseURL: URL {

@@ -281,8 +281,8 @@ enum MultiQuestionSplitter {
             "\\bsuppose\\b"
         ]
         let whQuestionStarts = [
-            "\\bwhat\\s+happened\\b",
-            "^what\\s+(?:causes|caused|creates|created|prevents|prevented|affects|affected)\\b",
+            "\\bwhat\\s+(?:happened|happens)\\b",
+            "^what\\s+(?:causes|caused|creates|created|prevents|prevented|affects|affected|attracts|attracted|motivates|motivated)\\b",
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
             "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
             "^what\\s+(?:is|are)\\b",
@@ -300,7 +300,7 @@ enum MultiQuestionSplitter {
             "\\bhow\\s+should\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+are\\s+you\\b",
-            "\\bwhy\\s+(?:is|are|was|were)\\b",
+            "\\bwhy\\s+(?:is|are|was|were|should)\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
             "\\bwhy\\s+might\\b",
@@ -353,6 +353,9 @@ enum MultiQuestionSplitter {
                 continue
             }
             if isNarrativeImperative(precedingText: precedingText, currentClause: currentClause) {
+                continue
+            }
+            if isEmbeddedWHComplementStart(precedingText: precedingText, currentClause: currentClause) {
                 continue
             }
             if isEmbeddedSupposeStart(precedingText: precedingText, currentClause: currentClause) {
@@ -496,6 +499,30 @@ enum MultiQuestionSplitter {
             preceding == $0 || preceding.hasSuffix(" \($0)")
         }
         return !hasConversationalPreface
+    }
+
+    private static func isEmbeddedWHComplementStart(precedingText: String, currentClause: String) -> Bool {
+        let current = currentClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        let whPrefixes = ["what ", "why ", "how ", "which ", "where ", "when ", "who "]
+        guard whPrefixes.contains(where: current.hasPrefix) else { return false }
+
+        let preceding = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !preceding.isEmpty,
+              preceding.last.map({ !".?!,".contains($0) }) == true else {
+            return false
+        }
+        if clauseAlreadyStartedQuestion(preceding) {
+            return false
+        }
+        let reportingVerbs = [
+            " explained", " explains",
+            " described", " describes",
+            " discussed", " discusses",
+            " stated", " states",
+            " showed", " shows",
+            " knew", " knows",
+        ]
+        return reportingVerbs.contains { preceding.contains($0) }
     }
 
     private static func isConditionalAntecedent(_ clause: String) -> Bool {

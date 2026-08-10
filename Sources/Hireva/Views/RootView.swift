@@ -52,6 +52,7 @@ struct RootView: View {
         }
         .onAppear {
             appState.runLaunchLiveSystemAudioDiagnosticIfRequested()
+            appState.runVerificationBootstrapIfRequested()
         }
     }
 

@@ -112,7 +112,10 @@ enum QuestionCompletenessGate {
             return true
         }
 
-        let shortStarters = ["what would you", "how would you", "can you tell", "could you explain", "would you ask"]
+        if lower.hasPrefix("what would you") {
+            return words.count < 5
+        }
+        let shortStarters = ["how would you", "can you tell", "could you explain", "would you ask"]
         for starter in shortStarters where lower.hasPrefix(starter) {
             return words.count < 6
         }

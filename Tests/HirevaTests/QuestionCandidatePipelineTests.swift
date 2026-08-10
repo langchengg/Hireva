@@ -5,6 +5,36 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func modalImprovementAndEvidenceQuestionsAreAcceptedWithoutEmbeddedStatements() {
+        let positiveQuestions = [
+            "What would you improve next?",
+            "What would you change in a second version?",
+            "Why should we trust your test evidence?",
+            "Why should a release owner require that evidence?",
+            "What attracted you to this role?",
+            "What motivates you to own release quality?",
+            "What happens if another question arrives?",
+        ]
+        for question in positiveQuestions {
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        }
+
+        #expect(QuestionCandidatePipeline.extract(
+            from: "I explained what I would improve next in a second version."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "The report explains why we should trust the test evidence."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "I explained what attracted me to the role during the review."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "The report explains what happens if another question arrives."
+        ).isEmpty)
+    }
+
+    @Test
     func pipelineAcceptsWhatIsDevelopmentAreaQuestion() throws {
         let question = "What is one area you still need to develop for this research project?"
         let candidate = try #require(QuestionCandidatePipeline.extract(from: question).first)

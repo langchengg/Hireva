@@ -1681,8 +1681,11 @@ struct RuntimePathSingleSourceOfTruthTests {
         let persistedRows = try appState.suggestionRepository.suggestions(sessionID: session.id)
         #expect(persistedRows.count == 2)
         #expect(Set(persistedRows.compactMap(\.questionText)) == Set([firstQuestion, secondQuestion]))
-        #expect(persistedRows.allSatisfy { $0.finalVisibleSource == AnswerSource.deepseekStream.rawValue })
-        #expect(persistedRows.allSatisfy { $0.finalVisibleSource != "local_superseded_question_snapshot" })
+        let supersededFirst = try #require(persistedRows.first { $0.questionText == firstQuestion })
+        let providerSecond = try #require(persistedRows.first { $0.questionText == secondQuestion })
+        #expect(supersededFirst.finalVisibleSource == "local_superseded_question_snapshot")
+        #expect(supersededFirst.stageBStatus == "superseded")
+        #expect(providerSecond.finalVisibleSource == AnswerSource.deepseekStream.rawValue)
         #expect(historyQuestions.contains(secondQuestion))
         #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
 

@@ -94,7 +94,7 @@ final class FileLocalModelManager: LocalModelManager {
     private var inMemoryStatuses: [String: LocalModelStatus] = [:]
 
     init(
-        rootDirectory: URL = AppPaths.applicationSupportDirectory.appendingPathComponent("LocalModels", isDirectory: true),
+        rootDirectory: URL = AppPaths.localModelsDirectory,
         fileManager: FileManager = .default,
         modelSmokeValidator: @escaping (LocalModelDescriptor, URL) async throws -> Void = FileLocalModelManager.defaultModelSmokeValidator
     ) {
