@@ -390,12 +390,15 @@ struct SpeakerAttributionTests {
         await appState.handleTranscriptSegment(question)
         let generationTask = try #require(appState.activeAITask)
         await generationTask.value
+        if let stageBTask = appState.stageBTask {
+            await stageBTask.value
+        }
 
-        let suggestionDeadline = ContinuousClock.now.advanced(by: .seconds(30))
-        while appState.currentSuggestion == nil, ContinuousClock.now < suggestionDeadline {
-            try await Task.sleep(for: .milliseconds(20))
+        try await waitUntil("the grounded system-audio suggestion") {
+            appState.currentSuggestion != nil
         }
         let suggestion = try #require(appState.currentSuggestion)
+        #expect(!appState.stageBTaskActive)
         #expect(appState.lastSystemAudioTranscript == question.text)
         #expect(appState.last10SegmentsDiagnostics.contains {
             $0.source == .systemAudio && $0.speaker == .interviewer
