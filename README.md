@@ -1,250 +1,343 @@
+<div align="center">
+
 # Hireva
 
-Hireva is a native macOS SwiftUI interview copilot. It captures user-selected
-microphone and/or system audio, transcribes complete interviewer questions,
-retrieves evidence from the active synthetic or user-provided interview
-context, and shows an answer bound to one session, question, generation, and
-frozen context snapshot.
+### Local-First AI Interview Copilot for macOS
 
-## Architecture
+Real-time interview transcription, complete-question detection, evidence-grounded answer generation, and context-aware assistance in a native floating interface.
+
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)
+![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-555555?logo=apple&logoColor=white)
+![Local AI](https://img.shields.io/badge/AI-Local--First-2E8B57)
+![Parakeet](https://img.shields.io/badge/ASR-Parakeet-5B5FC7)
+![Qwen](https://img.shields.io/badge/LLM-Qwen3.5-7A5AF8)
+![Developer Preview](https://img.shields.io/badge/status-developer%20preview-orange)
+
+</div>
+
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Why Hireva?](#why-hireva)
+- [Features](#features)
+- [Installation](#installation)
+- [Key Features in Action](#key-features-in-action)
+- [How Hireva Works](#how-hireva-works)
+- [System Architecture](#system-architecture)
+- [Technology Stack](#technology-stack)
+- [Evidence-Grounded Assistance](#evidence-grounded-assistance)
+- [Privacy & Data Flow](#privacy--data-flow)
+- [For Developers](#for-developers)
+- [Current Limitations](#current-limitations)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Introduction
+
+Hireva is a native macOS AI interview copilot. During a live interview, it captures the microphone, system audio, or both; transcribes the selected audio; identifies complete interviewer questions; and retrieves relevant facts from the candidate's profile, CV, project evidence, opportunity context, job description, and current dialogue. It then produces concise, directly usable answer guidance in a floating assistant.
+
+The runtime is more than a `question → LLM` bridge. Each accepted question is tied to a session, question ID, generation ID, and frozen context snapshot. Retrieved candidate and opportunity evidence is kept distinct, generated claims are checked for alignment, and stale callbacks are rejected before a card can replace the current answer or be persisted.
 
 ```text
 Microphone / System Audio
-  -> Apple Speech or Local Parakeet
-  -> source and speaker attribution
-  -> transcript normalization and complete-question detection
-  -> frozen profile, opportunity, dialogue, and RAG context
-  -> Local Qwen or optional DeepSeek
-  -> answer alignment and generation-ownership checks
-  -> SwiftUI floating assistant
-  -> GRDB / SQLite persistence and privacy-controlled diagnostics
+        ↓
+Apple Speech or Local Parakeet
+        ↓
+Transcript normalization and source/speaker attribution
+        ↓
+Question extraction and dialogue understanding
+        ↓
+Candidate Profile + Opportunity Context + RAG
+        ↓
+Question / Generation / Context Snapshot
+        ↓
+Local Qwen or optional DeepSeek
+        ↓
+Evidence and answer-alignment validation
+        ↓
+Floating Interview Assistant + local SQLite history
 ```
 
-The pipeline is provider-neutral. No callback may publish or persist an answer
-unless its session, question, generation, and context snapshot still own the
-active request.
+Hireva is built with Swift, SwiftUI, Swift Package Manager, ScreenCaptureKit, AVFoundation, Apple Speech, Swift Concurrency, GRDB, and SQLite. Its local ASR path runs NVIDIA Parakeet TDT through a bundled native `sherpa-onnx` and ONNX Runtime helper, while local answer generation uses Qwen3.5 through Ollama's streaming API. DeepSeek remains an optional cloud-backed provider for users who explicitly configure it.
 
-## Provider Matrix
+Hireva is **local-first**, not local-only. The recommended Parakeet + Qwen configuration can keep interview transcription and answer generation on the Mac. Apple Speech behavior depends on macOS, while optional DeepSeek or cloud embedding providers send selected content to their configured remote services.
 
-| Capability | Provider | Default/availability | Data boundary | Streaming behavior |
-| --- | --- | --- | --- | --- |
-| ASR | Apple Speech | Default | Apple Speech framework; do not assume offline operation | Partial and final callbacks as supplied by the framework |
-| ASR | Local Parakeet | Optional, experimental, Apple Silicon only | Bundled native helper plus model files in Application Support | Final-only utterance transcripts |
-| Answers | Local Qwen through Ollama | Default only when Ollama and the selected model are ready | Loopback Ollama API | Incremental final-answer chunks; model thinking is not displayed |
-| Answers | DeepSeek | Optional remote provider | Prompt and selected context leave the Mac over HTTPS | Remote provider stream |
+## Why Hireva?
 
-Hireva does not silently relabel Apple Speech output as Parakeet and does not
-silently substitute a different answer provider.
+### Real-time assistance
 
-## Permission Matrix
+Most interview tools stop at preparation. Hireva is designed for the live conversation: capture complete questions, recognize boundaries and follow-ups, retrieve relevant personal evidence, draft a concise answer, and prepare likely follow-up points.
 
-| ASR | Capture | Microphone | Speech Recognition | Screen & System Audio Recording |
-| --- | --- | --- | --- | --- |
-| Apple Speech | Microphone Only | Required | Required | Not required |
-| Apple Speech | System Audio Only | Not required | Required | Required |
-| Apple Speech | Mic + System | Required | Required | Required |
-| Local Parakeet | Microphone Only | Required | Not required | Not required |
-| Local Parakeet | System Audio Only | Not required | Not required | Required |
-| Local Parakeet | Mic + System | Required | Not required | Required |
+### Context-aware answers
 
-Denied permissions disable only the affected path. Permission checks never
-authorize a fallback with incorrect provider metadata.
+Hireva combines the current question with candidate evidence, opportunity context, retrieved document chunks, and the active dialogue. The result is grounded in the interview at hand instead of being generated from the question alone.
 
-## Local And Cloud Data Boundaries
+### Local-first privacy
 
-- Sessions, detected questions, suggestions, context snapshots, and optional
-  transcripts are stored in GRDB/SQLite under Application Support.
-- `Save transcripts locally` controls transcript rows. Runtime diagnostic
-  traces are separately controlled by `DiagnosticTraceMode` and default to
-  `off`; `metadataOnly` excludes transcript/question/answer text; `fullText`
-  requires an explicit warning-backed opt-in.
-- Local Parakeet audio stays in the app and bundled native helper after model
-  installation. Local Qwen prompts go to the user-managed loopback Ollama
-  service.
-- DeepSeek and configured cloud embeddings transmit selected text to their
-  configured remote services.
-- Provider keys are stored in macOS Keychain and must never appear in logs,
-  SQLite, release packages, or Git.
+Local Parakeet performs speech recognition through the bundled native runtime, and local Qwen runs through the user's Ollama service. Remote generation is opt-in and remains visibly separate from the local path.
 
-## Model Setup
+### Answer ownership
 
-Local Qwen requires a running Ollama service and the configured model, for
-example:
+Session, question, generation, and context-snapshot identities prevent an older answer from overwriting a rapid follow-up. Superseded work may retain an audit snapshot, but it cannot become the visible answer for the newer question.
+
+### Evidence grounding
+
+Candidate evidence and opportunity evidence are modeled separately. Validation guards against unsupported personal claims, turning job requirements or future plans into past experience, cross-profile context bleed, and unaligned answers.
+
+## Features
+
+- **🎙️ System and microphone capture** — ScreenCaptureKit and AVFoundation support **Microphone Only**, **System Audio Only**, and **Microphone + System Audio** modes.
+- **📝 Two ASR paths** — use Apple Speech or the experimental local Parakeet TDT 0.6B v3 INT8 pipeline. The current Parakeet integration finalizes text at utterance boundaries; it does not claim word-by-word partial streaming.
+- **🧠 Local Qwen answers** — Qwen3.5 4B runs through Ollama's `/api/chat` endpoint with cancellable NDJSON streaming and hidden model-thinking output.
+- **☁️ Optional DeepSeek** — configure a remote provider only when a cloud-backed answer path is wanted. Provider credentials are stored in macOS Keychain.
+- **📚 Candidate-aware retrieval** — Candidate Profile, CV/project evidence, Opportunity Context, job-description chunks, and additional notes are retrieved into a frozen request snapshot.
+- **🔒 Evidence and alignment checks** — unsupported personal claims, opportunity-to-experience conversion, future-to-past claims, answer mismatch, and context bleed are checked before publication.
+- **⚡ Rapid follow-up protection** — question and generation ownership rejects stale callbacks, old-answer replacement, and duplicate suggestion publication.
+- **💬 Dialogue understanding** — handles multi-part questions, follow-ups, intentional repeats, ASR partial/final reconciliation, cumulative replay suppression, small-talk suppression, and candidate/interviewer attribution.
+- **🪟 Floating assistant** — presents **Say First**, **Key Points**, and **Follow-up Ready** guidance in compact, normal, or diagnostic display modes.
+- **💾 Local history and diagnostics** — GRDB/SQLite stores sessions, transcript segments when enabled, detected questions, suggestion cards, context snapshots, and retrieved-evidence links. Diagnostic text capture is independently controlled.
+
+## Installation
+
+### 🍎 macOS
+
+Hireva currently ships as a source-built developer preview for Apple Silicon Macs running macOS 14 or later. There is no public GitHub Release asset yet.
+
+#### Option 1 — Install from a local DMG
+
+Build the app and create the DMG:
+
+```bash
+git clone https://github.com/langchengg/Hireva.git
+cd Hireva
+./scripts/package_dmg.sh
+```
+
+The package is written to:
+
+```text
+release/Hireva-0.1.0-arm64.dmg
+```
+
+1. Open `Hireva-0.1.0-arm64.dmg`.
+2. Drag **Hireva** into the **Applications** folder.
+3. Launch Hireva from Applications.
+4. Complete the requested microphone and/or Screen & System Audio Recording permissions.
+5. Open **Setup & Local Models** to complete local-model setup.
+
+> **Developer Preview:** Current local DMG builds are ad-hoc signed and are not Apple-notarized public releases. Gatekeeper can therefore block a copied or downloaded build. Public distribution requires Developer ID Application signing, hardened runtime, Apple notarization, ticket stapling, and clean-Mac validation.
+
+### Local AI Setup
+
+The recommended local configuration is:
+
+| Role | Recommended model | Installation |
+| --- | --- | --- |
+| Speech recognition | Parakeet TDT 0.6B v3 INT8 | Use **Setup & Local Models** inside Hireva |
+| Answer generation | Qwen3.5 4B via Ollama | Install Ollama, then pull the model below |
 
 ```bash
 ollama pull qwen3.5:4b
 ollama list
 ```
 
-Local Parakeet is installed and probed from Hireva's Local Models setup. The
-release app uses `Contents/Helpers/parakeet_asr_helper`; Python is not a release
-runtime dependency. See `docs/parakeet-local-asr-runtime.md`.
+Hireva's Local Model Manager downloads and verifies the Parakeet model under:
 
-## Build, Test, And Run
+```text
+~/Library/Application Support/Hireva/LocalModels/
+```
+
+The `.app` bundles the native Parakeet helper, `sherpa-onnx`, and ONNX Runtime libraries; users do not need to install Python or the Python `sherpa-onnx` package. Ollama and Qwen are separate installations managed by the user. See [Local Model Installation](docs/local-model-installation.md) for the pinned model identity and verification details.
+
+### Build from Source
 
 ```bash
+git clone https://github.com/langchengg/Hireva.git
+cd Hireva
+swift package resolve
+swift test
+./script/build_and_run.sh --verify
+```
+
+For macOS permission testing, always use `dist/Hireva.app`. Do not launch the raw SwiftPM executable as a production-like app.
+
+## Key Features in Action
+
+Hireva's primary workflow is exposed through native SwiftUI screens:
+
+| Surface | What it does |
+| --- | --- |
+| **Home / Setup & Local Models** | Checks permissions, Parakeet runtime/model state, Ollama, and answer-provider readiness |
+| **Live Interview** | Selects capture mode, starts the session, and shows transcript/question state |
+| **Floating Assistant** | Keeps the current question, Say First answer, key points, and follow-up preparation visible |
+| **Documents and Context** | Imports candidate evidence and opportunity context used by retrieval |
+| **History and Diagnostics** | Reviews sessions, cards, provider state, retrieval provenance, and privacy-controlled runtime metadata |
+
+## How Hireva Works
+
+```text
+┌───────────────────────────────────────────────┐
+│              Interview Audio                  │
+│         Microphone / System Audio             │
+└───────────────────────┬───────────────────────┘
+                        ↓
+              Audio Capture
+      ScreenCaptureKit + AVFoundation
+                        ↓
+             Speech Recognition
+        Apple Speech / Local Parakeet
+                        ↓
+    Transcript normalization and reconciliation
+                        ↓
+       Speaker and audio-source attribution
+                        ↓
+       Question and dialogue understanding
+                        ↓
+      Candidate + Opportunity retrieval (RAG)
+                        ↓
+         Frozen request context snapshot
+                        ↓
+           Qwen / optional DeepSeek
+                        ↓
+       Evidence and answer-alignment checks
+                        ↓
+      Floating answer card + SQLite history
+```
+
+## System Architecture
+
+| Layer | Primary implementation | Responsibility |
+| --- | --- | --- |
+| Application state | `AppState` and focused extensions | Coordinates sessions, capture, ASR, dialogue, retrieval, generation, permissions, and UI state |
+| Audio capture | ScreenCaptureKit + AVFoundation | Captures system and microphone audio and preserves source identity |
+| ASR providers | Apple Speech / Local Parakeet | Produces provider-attributed transcript events |
+| Local ASR runtime | Native helper + sherpa-onnx + ONNX Runtime | Runs the downloaded Parakeet model without a Python release dependency |
+| Transcript pipeline | Canonicalizer, reconciler, attribution policies | Normalizes ASR output and reconciles partial/final or cumulative replay events |
+| Question and dialogue | Candidate pipeline, completeness gate, dialogue policy | Extracts complete interviewer questions and manages repeats, follow-ups, and suppression |
+| Context retrieval | Candidate/opportunity context engine + hybrid RAG | Selects relevant evidence and freezes identity-bound context |
+| Prompt and generation | Prompt context builder, coordinator, Qwen/DeepSeek clients | Streams answer content while preserving request ownership |
+| Alignment | Claim validator and answer-alignment policies | Rejects unsupported, mismatched, stale, or cross-context answers |
+| Persistence | GRDB + SQLite repositories | Stores sessions, questions, cards, context snapshots, evidence links, and allowed transcript data |
+| Diagnostics | Runtime trace store and diagnostics views | Exposes provider, latency, retrieval, and lifecycle metadata under explicit privacy controls |
+
+## Technology Stack
+
+### Native macOS
+
+- Swift and SwiftUI
+- Swift Package Manager
+- AppKit where window and platform integration require it
+- Swift Concurrency
+
+### Audio and Speech
+
+- ScreenCaptureKit
+- AVFoundation
+- Apple Speech framework
+
+### Local AI
+
+- NVIDIA Parakeet TDT 0.6B v3 INT8
+- sherpa-onnx 1.13.4
+- ONNX Runtime 1.27.0
+- Ollama
+- Qwen3.5 4B
+
+### Optional AI
+
+- DeepSeek-compatible remote generation
+- Configurable OpenAI-compatible cloud embeddings
+
+### Data and Retrieval
+
+- GRDB and SQLite
+- Candidate Profile, project/CV evidence, and Opportunity Context
+- Hybrid retrieval and frozen context snapshots
+
+### Testing and Validation
+
+- Swift Testing
+- RuntimeSmoke and synthetic dialogue scenarios
+- ThreadSanitizer and AddressSanitizer gates
+- Real `.app`, ScreenCaptureKit, Parakeet, Apple Speech, Qwen, persistence, and lifecycle verification
+- Release-package privacy scanning and signature verification
+
+## Evidence-Grounded Assistance
+
+Hireva does not simply place every document into a prompt. For each accepted question, it records and carries:
+
+- session, transcript, question, and generation identities;
+- a frozen candidate/opportunity context snapshot;
+- selected candidate and opportunity evidence IDs;
+- prompt-question and provider provenance;
+- alignment, grounding, unsupported-claim, and context-isolation results.
+
+This provenance supports stale-generation rejection, candidate/opportunity separation, unsupported personal-claim checks, context isolation, and persisted answer ownership. It is the core difference between Hireva and a generic `speech → chatbot` pipeline.
+
+## Privacy & Data Flow
+
+### Recommended local-first path
+
+```text
+Audio → bundled Parakeet runtime → local Ollama/Qwen → local GRDB/SQLite
+```
+
+Interview audio is processed locally after the Parakeet model is installed. Qwen prompts are sent to the user-managed Ollama service on loopback. Models, attachments, transcripts, and application data remain separate from the `.app` bundle.
+
+### Other processing paths
+
+| Choice | Data boundary |
+| --- | --- |
+| Apple Speech | Audio is processed through Apple's Speech framework; do not assume offline behavior for every macOS/locale configuration |
+| DeepSeek | The prompt and selected interview context are sent over HTTPS to the configured remote provider |
+| Cloud embeddings | Selected text is sent to the user-configured embedding endpoint |
+| Parakeet model installation | Downloads the pinned model from trusted GitHub release hosts; interview content is not sent with the model request |
+
+Local application data is stored under `~/Library/Application Support/Hireva/`. Provider keys are stored in macOS Keychain, not in SQLite. `Save transcripts locally` controls transcript-row persistence. Diagnostic tracing is separate and offers **Off**, **Metadata only**, and explicit **Full text (sensitive)** modes; full-text tracing requires opt-in, and disabling transcript storage limits effective trace detail.
+
+See [Privacy and Data Flow](docs/privacy-and-data-flow.md) for the code-derived data map and removal boundaries.
+
+## For Developers
+
+```bash
+git clone https://github.com/langchengg/Hireva.git
+cd Hireva
 swift package resolve
 swift build
 swift test
 ./scripts/runtime_smoke.sh --suite all
 ./scripts/verify_runtime_stability.sh
 ./script/build_and_run.sh --verify
+./scripts/package_dmg.sh
 ```
 
-Real macOS permission checks must launch `dist/Hireva.app`, never the raw
-SwiftPM executable.
+`script/build_and_run.sh` is the canonical build/sign/launch entrypoint for the SwiftPM GUI application. It creates `dist/Hireva.app`, bundles the native Parakeet runtime and required notices, signs nested code according to the explicit signing mode, launches the bundle, and verifies the running process.
+
+Useful engineering references:
+
+- [Code Map](docs/code-map.md)
+- [Release Runbook](docs/release-runbook.md)
+- [Runtime Regression Checklist](docs/runtime-regression-checklist.md)
+- [macOS Local Signing](docs/macos-local-signing.md)
+- [Notarization Preparation](docs/notarization-prep.md)
 
 ## Current Limitations
 
-- Local Parakeet is experimental, arm64-only, and final-only.
+- Hireva supports macOS 14 or later; Apple Silicon `arm64` is the only packaged and validated architecture.
+- Local Parakeet is experimental and produces final utterance transcripts rather than true word-by-word partial ASR.
+- Ollama is a separately installed and operated local service; Qwen is not bundled in the DMG.
 - Apple Speech availability and on-device behavior depend on macOS and locale.
-- System-audio verification requires a real Screen & System Audio Recording
-  grant and audible source; mocks do not prove that path.
-- Ollama is a separately installed and operated local service.
-- Bluetooth route switching can be claimed only after a real-device test.
+- Current DMGs are ad-hoc signed, not Developer ID signed, not notarized, and rejected by Gatekeeper as public distribution artifacts.
+- Bluetooth audio-route switching and failure recovery have not yet been validated on physical Bluetooth hardware.
+- DeepSeek and cloud embeddings require user-supplied configuration and transmit selected content off-device when enabled.
 
-## Local Release Versus Public Distribution
+The latest local dialogue validation marks the tested Parakeet + Qwen and Apple Speech + Qwen paths as suitable for controlled local use, while public distribution remains blocked. See the [Dialogue End-to-End Release Validation](docs/verification/hireva-dialogue-e2e-validation-20260809.md).
 
-`scripts/package_local_release.sh` creates an allowlisted package for controlled
-local use. An ad-hoc signature can validate bundle integrity but is not a public
-distribution identity. Distribution outside the Mac App Store requires a
-Developer ID Application signature, hardened runtime, notarization, ticket
-stapling, Gatekeeper assessment, and clean-Mac validation.
+## Contributing
 
-## Audio Route Recovery & Device Switching Manual Test Checklist
+Issues and focused pull requests are welcome. Keep changes small, preserve question/generation/context ownership, add regression coverage for behavior changes, and run the targeted tests before the full validation commands above. Do not commit models, interview data, local databases, traces, credentials, `.app` bundles, or DMG files.
 
-Use the following checklist to verify that audio capture, route recovery, and device switching are working correctly:
+## License
 
-### Test Scenario: Dynamic Input Device Transition
-
-1. **Start Capture**:
-   - Open the **Audio Diagnostics** tab or the **Live Interview** tab.
-   - Click **Start Listening** (or **Start Mic Test**) using the built-in Mac microphone.
-2. **Verify Level Meter**:
-   - Speak into the built-in microphone and confirm the mic level meter/waveform moves, showing active input.
-3. **Switch to Bluetooth**:
-   - Change your macOS system audio input device to a Bluetooth headset (e.g. AirPods or any Bluetooth microphone) via the macOS Sound menu or System Settings.
-4. **Confirm Reconnection UI**:
-   - Confirm that the application UI immediately detects the change and shows the recovery message: **“Audio device changed / reconnecting...”** or **“Reconnecting audio”**.
-5. **Verify Bluetooth Input**:
-   - Speak into your Bluetooth headset.
-   - Confirm that the mic level meter starts moving again, showing active input from the Bluetooth headset.
-   - If in a live session, confirm that the transcription resumes capturing from the Bluetooth microphone.
-6. **Switch Back to Built-in Mic**:
-   - Switch the system input device back to the built-in Mac microphone.
-7. **Verify Final Recovery**:
-   - Confirm that the audio system recovers automatically a second time and shows: **“Audio input restored.”** or **“Restored”**.
-   - Speak into the built-in mic and confirm the level meter continues to move.
-8. **Verify Stability**:
-   - Confirm that the application does not crash or hang during these transitions.
-   - Verify in the logs/diagnostics that no duplicate input taps are installed (which would cause a crash).
-
----
-
-## Manual "Restart Audio Input" Recovery Path
-
-If the system capture does not automatically recover after a route change, you can manually trigger a dynamic capture reset:
-- Click the **"Restart Audio Input"** button in **Audio Diagnostics** or the **Live Interview** toolbar.
-- The app will teardown the audio engine tap, re-query the current format dynamically, reinstall the tap, and resume capture and transcription without requiring a session or application restart.
-
----
-
-## Permissions & Development Signing
-
-### Stable App Identity
-
-macOS tracks permissions (TCC) by **bundle identifier + code signing identity + bundle path**. To avoid being re-prompted for microphone, speech, and screen recording permissions after every rebuild:
-
-- **Bundle Identifier**: `com.langcheng.Hireva` (set in `build_and_run.sh`, never change without resetting TCC)
-- **Bundle Path**: Always `dist/Hireva.app` (stable across rebuilds)
-- **Signing**: The build script signs the app with an available configured
-  identity or uses an ad-hoc local fallback. Ad-hoc signing is never a public
-  distribution result.
-
-### Build, Sign & Launch
-
-```bash
-# Build, sign, and launch the app
-./script/build_and_run.sh
-
-# Build, sign, launch, and verify it's running
-./script/build_and_run.sh --verify
-
-# Launch with streaming log output
-./script/build_and_run.sh --logs
-```
-
-**Important**: Always launch from the .app bundle via the script. Do not run the raw Swift executable directly — macOS will not persist permissions for unsigned executables.
-
-### Screen & System Audio Recording
-
-Screen Recording / Screen & System Audio Recording permission in macOS requires the app to **quit and reopen** after being granted in System Settings. This is a macOS system requirement, not an app bug.
-
-1. Open **System Settings → Privacy & Security → Screen & System Audio Recording**
-2. Enable **Hireva**
-3. **Quit** the app completely
-4. Reopen from the same .app bundle path
-
-The app's Audio Diagnostics screen shows a banner with a **"Quit App Now"** button when this permission is missing.
-
-### Resetting Stuck Permissions During Development
-
-TCC reset is destructive and is not a normal troubleshooting or release step.
-Use it only when intentionally changing the development identity and after
-confirming existing grants may be removed:
-
-```bash
-# Option 1: Use the build script
-./script/build_and_run.sh --reset-tcc
-
-# Option 2: Manual reset
-tccutil reset Microphone com.langcheng.Hireva
-tccutil reset SpeechRecognition com.langcheng.Hireva
-tccutil reset ScreenCapture com.langcheng.Hireva
-```
-
-Then rebuild, launch the same .app bundle path, and grant permissions again.
-
-### Verifying Permission Persistence
-
-1. Launch app from `dist/Hireva.app`
-2. Grant microphone permission
-3. Quit app
-4. Reopen same app bundle → microphone permission should remain granted
-5. Grant Screen & System Audio Recording in System Settings
-6. Quit and reopen → `CGPreflightScreenCaptureAccess()` should return true
-7. Rebuild (`./script/build_and_run.sh`) → permissions should persist
-
-### Developer Terminal Diagnostics
-
-Run these commands in terminal to inspect application packaging, signing authority, and running processes:
-
-1. **Verify Info.plist Bundle Identifier**:
-   Ensure the bundle ID is exactly `com.langcheng.Hireva`:
-   ```bash
-   defaults read "$(pwd)/dist/Hireva.app/Contents/Info.plist" CFBundleIdentifier
-   ```
-
-2. **Verify Code Signature & Entitlements**:
-   Check if the app bundle is signed properly:
-   ```bash
-   codesign -dvvvv dist/Hireva.app
-   ```
-
-3. **Verify Designated Requirement**:
-   ```bash
-   codesign -d -r- dist/Hireva.app
-   ```
-
-4. **Check Running Instances and Process Paths**:
-   Ensure only the signed bundle is running, and no raw binaries are active:
-   ```bash
-   ps aux | grep -E "Hireva|Contents/MacOS" | grep -v grep
-   ```
-
-5. **Reset TCC Permissions**:
-   ```bash
-   tccutil reset Microphone com.langcheng.Hireva && \
-   tccutil reset ScreenCapture com.langcheng.Hireva && \
-   tccutil reset SpeechRecognition com.langcheng.Hireva
-   ```
+This repository does not currently contain a project-level license file. Public source visibility alone does not grant permission to copy, modify, or redistribute the project. Open an issue with the repository owner for licensing questions; third-party component notices are documented separately in [Third-Party Licenses](docs/third-party-licenses.md).
