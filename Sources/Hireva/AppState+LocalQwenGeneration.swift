@@ -700,6 +700,13 @@ extension AppState {
 
     private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
         let lower = question.questionText.lowercased()
+        if lower.contains("weakness") || lower.contains("development area") {
+            return """
+            This asks for a weakness or development area. Name that topic explicitly in the first sentence.
+            If the selected candidate evidence does not state a weakness, describe a prospective development priority using conditional or future language instead of inventing a current deficiency or past event.
+            Tie the development action and validation method to the selected candidate evidence, without adding unsupported tools, metrics, outcomes, or personal history.
+            """
+        }
         if lower.contains("support"),
            lower.contains("improve") || lower.contains("develop") || lower.contains("grow") || lower.contains("help") {
             return """
