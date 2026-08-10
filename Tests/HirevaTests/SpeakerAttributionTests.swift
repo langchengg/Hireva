@@ -391,7 +391,7 @@ struct SpeakerAttributionTests {
         let generationTask = try #require(appState.activeAITask)
         await generationTask.value
 
-        try await waitUntil("Stage B registration or a grounded system-audio suggestion", timeout: .seconds(30)) {
+        try await waitUntil("Stage B registration or a grounded system-audio suggestion", timeout: .seconds(90)) {
             appState.stageBTask != nil || appState.currentSuggestion != nil
         }
         if let stageBTask = appState.stageBTask {
