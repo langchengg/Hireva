@@ -326,6 +326,9 @@ struct DynamicInterviewContextEngine {
         if intent == .improvementPlan {
             return "My first priority would be to improve the highest-risk part of this documented work: \(primaryEvidence). I would add failure-case tests, instrument the critical path, and validate the change against a measurable baseline."
         }
+        if intent == .systemIntegrationDebugging || intent == .perceptionDebugging || intent == .simToRealDebugging || intent == .errorHandling {
+            return "The documented integration evidence is: \(primaryEvidence). I would isolate the failing boundary with logs and timestamps, apply a guarded mitigation with a recovery path, and validate the fix with failure-case tests to reduce risk."
+        }
         if intent == .datasetAdaptation {
             return "The selected profile documents this relevant evidence: \(primaryEvidence). It does not document exactly how the data was converted or validated, so I would verify those implementation details before claiming them."
         }
