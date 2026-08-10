@@ -699,6 +699,15 @@ extension AppState {
     }
 
     private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
+        let lower = question.questionText.lowercased()
+        if lower.contains("support"),
+           lower.contains("improve") || lower.contains("develop") || lower.contains("grow") || lower.contains("help") {
+            return """
+            This asks for a future support preference, not a past achievement or support already received.
+            Name the desired support directly, use conditional or future language, and explain how you would use it to identify a gap or validate progress.
+            Do not claim that you already received mentoring, feedback, access, training, or an outcome unless the selected candidate evidence explicitly states it.
+            """
+        }
         switch IntentRouter.answerIntent(for: question.questionText) {
         case .technicalTradeoff:
             return """

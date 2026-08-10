@@ -380,6 +380,46 @@ struct OllamaQwenProviderTests {
     }
 
     @Test @MainActor
+    func ollamaSupportRecoveryPromptRequiresAProspectivePreference() async throws {
+        let question = "What support would help you improve faster?"
+        let rejected = "I received weekly executive mentoring that accelerated my promotion."
+        let accepted = "The support that would help me improve faster is specific feedback against clear role expectations. I would use that feedback to identify the next gap and validate progress."
+        let runtime = try makeRuntime(
+            evidence: "Built a reliability test harness before production releases and documented failure cases for review.",
+            question: question
+        )
+        let provider = SequencedDiagnosticMockLocalLLMProvider(
+            answers: [rejected, rejected, accepted]
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Reliability testing and documented failure cases.",
+            jdSummary: "Senior Software Engineer.",
+            generationID: runtime.generationID,
+            cardID: "prospective-support-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 3)
+        #expect(provider.requests.last?.prompt.contains("future support preference") == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == accepted)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
     func ollamaProceduralWalkthroughIsNotRejectedAsPastProjectStory() async throws {
         let question = "Walk me through a complete incident response handoff from triage to recovery."
         let answer = "I would start with triage, preserve volatile evidence, coordinate containment with service owners, verify recovery controls, and document the handoff into follow-up remediation."
