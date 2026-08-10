@@ -515,6 +515,7 @@ enum InterviewDialogueTriggerPolicy {
             "we will let you know",
             "we will be in touch",
             "thanks for your time",
+            "that is all for today",
             "thank you for your time today",
             "contact you once the panel has reviewed"
         ]

@@ -140,12 +140,14 @@ extension AppState {
 
         let shouldPersist = shouldPersistRuntimeTranscriptEvent(event)
         let record = shouldPersist ? enrichedRuntimeTranscriptRecord(event.record) : event.record
-        recentTranscriptRuntimeEvents.append(record)
+        let traceMode = settings.effectiveDiagnosticTraceMode
+        let inMemoryRecord = traceMode == .fullText ? record : record.redactedForMetadata()
+        recentTranscriptRuntimeEvents.append(inMemoryRecord)
         if recentTranscriptRuntimeEvents.count > 40 {
             recentTranscriptRuntimeEvents.removeFirst(recentTranscriptRuntimeEvents.count - 40)
         }
-        if shouldPersist {
-            appendRuntimeTranscriptTraceLog(record)
+        if shouldPersist, traceMode != .off {
+            appendRuntimeTranscriptTraceLog(record, mode: traceMode)
         }
     }
 
@@ -263,7 +265,8 @@ extension AppState {
     }
 
     func runtimeTranscriptTraceExportText() -> String {
-        recentTranscriptRuntimeEvents.map { $0.jsonLine() }.joined(separator: "\n")
+        let mode = settings.effectiveDiagnosticTraceMode
+        return recentTranscriptRuntimeEvents.compactMap { $0.jsonLine(for: mode) }.joined(separator: "\n")
     }
 
     private func enrichedRuntimeTranscriptRecord(_ input: TranscriptRuntimeEventRecord) -> TranscriptRuntimeEventRecord {
@@ -319,10 +322,20 @@ extension AppState {
         return record
     }
 
-    private func appendRuntimeTranscriptTraceLog(_ record: TranscriptRuntimeEventRecord) {
+    private func appendRuntimeTranscriptTraceLog(
+        _ record: TranscriptRuntimeEventRecord,
+        mode: DiagnosticTraceMode
+    ) {
         RuntimeTranscriptTraceStore.shared.append(
-            line: record.jsonLine(),
-            to: runtimeTranscriptTraceLogURL
+            line: record.jsonLine(for: mode),
+            to: runtimeTranscriptTraceLogURL,
+            mode: mode
         )
+    }
+
+    func clearRuntimeTranscriptTrace() throws {
+        try RuntimeTranscriptTraceStore.shared.clearTraceFiles(at: runtimeTranscriptTraceLogURL)
+        recentTranscriptRuntimeEvents = []
+        persistedHighFrequencyRuntimeEventAt = [:]
     }
 }

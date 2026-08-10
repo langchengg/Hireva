@@ -64,18 +64,31 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
             AudioEngineManager.shared.register(self)
         }
         
+        installRecordingTimer()
+    }
+
+    @MainActor
+    private func installRecordingTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                self.recordingDuration += 0.1
-                if self.recordingDuration >= Double(self.maxSeconds) {
-                    print("[ManualQuestionCapture] Hard timeout of \(self.maxSeconds)s reached!")
-                    self.timer?.invalidate()
-                    self.timer = nil
-                    self.onTimeoutTriggered?()
-                }
+        timer = Timer.scheduledTimer(
+            timeInterval: 0.1,
+            target: self,
+            selector: #selector(recordingTimerDidFire(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+    }
+
+    @MainActor
+    @objc private func recordingTimerDidFire(_ timer: Timer) {
+        recordingDuration += timer.timeInterval
+        if recordingDuration >= Double(maxSeconds) {
+            print("[ManualQuestionCapture] Hard timeout of \(maxSeconds)s reached!")
+            timer.invalidate()
+            if self.timer === timer {
+                self.timer = nil
             }
+            onTimeoutTriggered?()
         }
     }
     

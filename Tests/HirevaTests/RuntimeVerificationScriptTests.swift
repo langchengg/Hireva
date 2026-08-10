@@ -127,16 +127,25 @@ struct RuntimeVerificationScriptTests {
             "xattr -cr \"$APP_BUNDLE\"",
             "security find-identity -v -p codesigning",
             "HIREVA_SIGNING_IDENTITY",
+            "HIREVA_SIGNING_MODE",
+            "HIREVA_BUILD_ARCHS",
             "HIREVA_FIXED_USER_HOME",
+            "HirevaGitTreeState",
+            "GIT_STATUS_PORCELAIN",
+            "developer-id builds require a clean Git worktree",
             "--env",
             "CFFIXED_USER_HOME=",
             "--relaunch",
             "Relaunching the existing signed bundle without rebuilding",
             "rm -rf \"$APP_CONTENTS\"",
             "\"$LSREGISTER\" -f \"$APP_BUNDLE\"",
-            "Using ad-hoc signing. AMFI may reject this on some systems.",
-            "ADHOC_DESIGNATED_REQUIREMENT",
-            "--requirements \"$ADHOC_DESIGNATED_REQUIREMENT\"",
+            "script/runtime/build_parakeet_helper.sh",
+            "script/runtime/prepare_third_party_notices.sh",
+            "APP_HELPERS=\"$APP_CONTENTS/Helpers\"",
+            "APP_THIRD_PARTY_NOTICES=\"$APP_RESOURCES/ThirdPartyNotices\"",
+            "PARAKEET_HELPER_BUNDLE=\"$APP_HELPERS/parakeet_asr_helper\"",
+            "script/release/sign_app.sh",
+            "script/release/verify_app.sh",
             "codesign --verify --deep --strict --verbose=4",
             "spctl --assess --type execute --verbose=4",
             "xattr -lr",
@@ -147,17 +156,37 @@ struct RuntimeVerificationScriptTests {
             #expect(contents.contains(snippet), "Missing required signing snippet: \(snippet)")
         }
         #expect(!contents.contains("rm -rf \"$APP_BUNDLE\""), "Replacing the whole app creates stale Google Drive Trash registrations")
+        #expect(!contents.contains("codesign --force --deep"), "Nested code must be signed inside-out, not with deprecated --deep signing")
+        #expect(!contents.contains("PARAKEET_SIDECAR_PYTHON_SOURCE"), "The app bundle must not package the Python runtime")
+
+        let runtimePreparation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("script/runtime/prepare_sherpa_runtime.sh"),
+            encoding: .utf8
+        )
+        #expect(runtimePreparation.contains("SHERPA_LIBRARY_SHA256=\"08caf3346b82648540c8c9b738ee10b06e728a5ea525184230b25321ec57f047\""))
+        #expect(runtimePreparation.contains("ONNX_RUNTIME_LIBRARY_SHA256=\"8e822d761fac13e47c6725baf1e65d9858ea00bf0af3e61a43b7c6a65a794439\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$HEADER_PATH\" \"$HEADER_SHA256\""))
+
+        let extractedSherpaHash = try #require(
+            runtimePreparation.range(of: "verify_sha256 \"$extracted/lib/libsherpa-onnx-c-api.dylib\"")
+        )
+        let cacheReplacement = try #require(runtimePreparation.range(of: "rm -rf \"$SDK_ROOT\""))
+        #expect(extractedSherpaHash.lowerBound < cacheReplacement.lowerBound)
 
         let modeValidation = try #require(contents.range(of: "# Reject unsupported modes before any process is stopped or bundle is rebuilt."))
         let relaunch = try #require(contents.range(of: "if [[ \"$MODE\" == \"--relaunch\""))
         let build = try #require(contents.range(of: "# --- Build ---"))
         let bundleRemoval = try #require(contents.range(of: "rm -rf \"$APP_CONTENTS\""))
-        let forceSigning = try #require(contents.range(of: "codesign --force --deep"))
+        let nativeRuntime = try #require(contents.range(of: "script/runtime/build_parakeet_helper.sh"))
+        let releaseSigning = try #require(contents.range(of: "script/release/sign_app.sh"))
 
         #expect(modeValidation.lowerBound < relaunch.lowerBound)
         #expect(relaunch.lowerBound < build.lowerBound)
         #expect(relaunch.lowerBound < bundleRemoval.lowerBound)
-        #expect(relaunch.lowerBound < forceSigning.lowerBound)
+        #expect(bundleRemoval.lowerBound < nativeRuntime.lowerBound)
+        #expect(nativeRuntime.lowerBound < releaseSigning.lowerBound)
     }
 
     @Test

@@ -47,6 +47,43 @@ struct RepositoryTests {
     }
 
     @Test
+    func olderPartialCannotOverwriteNewerFinalTranscript() throws {
+        let database = try makeTemporaryDatabase()
+        let sessions = SessionRepository(database: database)
+        let transcripts = TranscriptRepository(database: database)
+        let session = try sessions.createSession(mode: .mock, title: "Monotonic transcript upsert")
+        let segmentID = "apple-final-wins"
+        let partialCreatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let final = TranscriptSegment(
+            id: segmentID,
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "What technical trade-off did you make?",
+            createdAt: partialCreatedAt.addingTimeInterval(1),
+            asrFinalizationReason: "stable_partial",
+            recognitionIsFinal: true
+        )
+        let stalePartial = TranscriptSegment(
+            id: segmentID,
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "What technical",
+            createdAt: partialCreatedAt,
+            asrFinalizationReason: "partial",
+            recognitionIsFinal: false
+        )
+
+        try transcripts.saveSegment(final)
+        try transcripts.saveSegment(stalePartial)
+
+        let persisted = try #require(try transcripts.segmentByID(segmentID))
+        #expect(persisted.text == final.text)
+        #expect(persisted.asrFinalizationReason == "stable_partial")
+    }
+
+    @Test
     func documentRepositoryPersistsDocumentsChunksAndOnboardingGate() throws {
         let database = try makeTemporaryDatabase()
         let repository = DocumentRepository(database: database)

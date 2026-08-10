@@ -18,6 +18,7 @@ final class SuggestionRepository {
                     provider_kind, provider_name, provider_base_url, latency_ms, is_local, raw_json, created_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO NOTHING
                 """,
                 arguments: [
                     question.id,
@@ -74,6 +75,23 @@ final class SuggestionRepository {
                 card.transcriptSegmentID = card.transcriptSegmentID ?? (bindingRow?["transcript_segment_id"] as String?)
                 card.source = card.source ?? (bindingRow?["source"] as String?)
                 card.speaker = card.speaker ?? (bindingRow?["speaker"] as String?)
+            }
+
+            let incomingCreatedAt = DateCoding.string(from: card.createdAt)
+            if let existing = try Row.fetchOne(
+                db,
+                sql: "SELECT created_at, stage_b_completed FROM suggestion_cards WHERE id = ?",
+                arguments: [card.id]
+            ) {
+                let existingCreatedAt: String = existing["created_at"]
+                let existingStageBCompleted = (existing["stage_b_completed"] as Int?) == 1
+                let incomingStageBCompleted = card.stageBCompleted == true
+                // A delayed callback may carry an older or less-complete copy
+                // of the same card. Persistence is monotonic for one card ID.
+                if incomingCreatedAt < existingCreatedAt ||
+                    (existingStageBCompleted && !incomingStageBCompleted) {
+                    return
+                }
             }
 
             try db.execute(
@@ -195,7 +213,7 @@ final class SuggestionRepository {
                     card.latencyMS,
                     card.isLocal,
                     card.rawJSON,
-                    DateCoding.string(from: card.createdAt),
+                    incomingCreatedAt,
                     card.sayFirstSource,
                     card.stageATimedOut == true ? 1 : 0,
                     card.stageBCompleted == true ? 1 : 0,

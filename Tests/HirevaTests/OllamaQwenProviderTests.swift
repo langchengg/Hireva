@@ -5,6 +5,16 @@ import Testing
 @Suite(.serialized)
 struct OllamaQwenProviderTests {
     @Test
+    func localQwenGenerationErrorIncludesSafeDiagnostic() {
+        let error = LocalQwenGenerationError(
+            category: .alignmentRejectedNonemptyContent,
+            diagnostic: "unsupported_personal_claim"
+        )
+
+        #expect(error.errorDescription == "Local Qwen request failed: alignment_rejected_nonempty_content (unsupported_personal_claim).")
+    }
+
+    @Test
     func ollamaChatStreamReadsMessageContent() throws {
         var accumulator = OllamaResponseAccumulator(schema: .chatMessageContent)
 
@@ -199,6 +209,8 @@ struct OllamaQwenProviderTests {
             Issue.record("Expected a non-empty alignment rejection")
         } catch let error as LocalQwenGenerationError {
             #expect(error.category == .alignmentRejectedNonemptyContent)
+            #expect(error.diagnostic == "unsupported_personal_claim")
+            #expect(error.errorDescription?.contains("unsupported_personal_claim") == true)
         }
 
         #expect(runtime.appState.ollamaDiagnostics.rawContentCharacters > 0)
@@ -288,6 +300,198 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.ollamaDiagnostics.finalErrorCategory == nil)
         #expect(runtime.appState.ollamaLifecycleEvents.contains { $0.name == "ollama.first_content" })
         #expect(runtime.appState.ollamaLifecycleEvents.contains { $0.name == "answer.ui.rendered" })
+    }
+
+    @Test @MainActor
+    func ollamaProspectiveSecurityResponseIsNotRejectedAsPastPersonalClaim() async throws {
+        let question = "How would you investigate suspicious privileged access while preserving evidence, and keeping critical business services available?"
+        let answer = "I would triage the alert using documented severity and escalation criteria to determine the appropriate containment actions. I would then lead a tabletop exercise to coordinate cross-team incident response while preserving evidence and ensuring critical business services remain available. Finally, I would document all decisions, evidence, and follow-up controls to validate controls and communicate risk effectively."
+        let runtime = try makeRuntime(
+            evidence: "Triaged identity alerts using documented severity and escalation criteria; facilitated a tabletop exercise covering access revocation and recovery communication; supported evidence preservation, cross-team incident coordination, and follow-up controls.",
+            question: question
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Identity alert triage, evidence preservation, and incident coordination.",
+            jdSummary: "Cybersecurity Analyst.",
+            generationID: runtime.generationID,
+            cardID: "prospective-security-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: DiagnosticMockLocalLLMProvider(answer: answer),
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == answer)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
+    func ollamaTradeoffRecoveryPromptCorrectsAMissingProspectiveDecision() async throws {
+        let question = "How would you communicate a reliability trade off when delivery pressure is high?"
+        let rejected = "I would explain the reliability implications clearly and keep the delivery discussion transparent."
+        let accepted = "I would make the reliability risk and delivery impact explicit, then recommend a phased release that preserves essential safeguards. I would document the decision and revisit it if the evidence changed."
+        let runtime = try makeRuntime(
+            evidence: "Built a reliability test harness before production releases and partnered with client and platform teams on a versioned API migration.",
+            question: question
+        )
+        let provider = SequencedDiagnosticMockLocalLLMProvider(
+            answers: [rejected, rejected, accepted]
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Reliability testing and cross-team API migration.",
+            jdSummary: "Senior Backend Engineer.",
+            generationID: runtime.generationID,
+            cardID: "prospective-tradeoff-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 3)
+        #expect(provider.requests.last?.prompt.contains("choose, prioritize, recommend, or propose") == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == accepted)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.currentSuggestion?.isLocal == true)
+        #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
+    func ollamaSupportRecoveryPromptRequiresAProspectivePreference() async throws {
+        let question = "What support would help you improve faster?"
+        let rejected = "I received weekly executive mentoring that accelerated my promotion."
+        let accepted = "The support that would help me improve faster is specific feedback against clear role expectations. I would use that feedback to identify the next gap and validate progress."
+        let runtime = try makeRuntime(
+            evidence: "Built a reliability test harness before production releases and documented failure cases for review.",
+            question: question
+        )
+        let provider = SequencedDiagnosticMockLocalLLMProvider(
+            answers: [rejected, rejected, accepted]
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Reliability testing and documented failure cases.",
+            jdSummary: "Senior Software Engineer.",
+            generationID: runtime.generationID,
+            cardID: "prospective-support-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 3)
+        #expect(provider.requests.last?.prompt.contains("future support preference") == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == accepted)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
+    func ollamaWeaknessRecoveryPromptNamesAGroundedDevelopmentArea() async throws {
+        let question = "What is your current weakness?"
+        let rejected = "I am always working to improve and learn from feedback."
+        let accepted = "A weakness I would prioritize is scaling reliability testing across more complex systems. I would address it by extending the documented failure-case tests and validating each change against clear review criteria."
+        let runtime = try makeRuntime(
+            evidence: "Built a reliability test harness before production releases and documented failure cases for review.",
+            question: question
+        )
+        let provider = SequencedDiagnosticMockLocalLLMProvider(
+            answers: [rejected, rejected, accepted]
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Reliability testing and documented failure cases.",
+            jdSummary: "Senior Software Engineer.",
+            generationID: runtime.generationID,
+            cardID: "prospective-weakness-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 3)
+        #expect(provider.requests.last?.prompt.contains("weakness or development area") == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == accepted)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
+    func ollamaProceduralWalkthroughIsNotRejectedAsPastProjectStory() async throws {
+        let question = "Walk me through a complete incident response handoff from triage to recovery."
+        let answer = "I would start with triage, preserve volatile evidence, coordinate containment with service owners, verify recovery controls, and document the handoff into follow-up remediation."
+        let runtime = try makeRuntime(
+            evidence: "Triaged identity alerts using documented severity criteria; supported evidence preservation, cross-team containment, recovery communication, and follow-up controls.",
+            question: question
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Identity alert triage, evidence preservation, containment, and recovery communication.",
+            jdSummary: "Cybersecurity Analyst.",
+            generationID: runtime.generationID,
+            cardID: "procedural-walkthrough-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: DiagnosticMockLocalLLMProvider(answer: answer),
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == answer)
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
     }
 
     @MainActor
@@ -388,6 +592,40 @@ private final class DiagnosticMockLocalLLMProvider: LocalLLMProvider {
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
         AsyncThrowingStream { continuation in
+            continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
+            continuation.finish()
+        }
+    }
+}
+
+private final class SequencedDiagnosticMockLocalLLMProvider: LocalLLMProvider {
+    let id = "sequenced-diagnostic-mock"
+    let displayName = "Sequenced Diagnostic Mock"
+    private var answers: [String]
+    private(set) var requests: [LocalLLMRequest] = []
+
+    init(answers: [String]) {
+        self.answers = answers
+    }
+
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        LocalLLMHealth(
+            ollamaRunning: true,
+            selectedModel: modelName,
+            modelInstalled: true,
+            providerSource: .ollamaQwen,
+            lastError: nil
+        )
+    }
+
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        requests.append(request)
+        let answer = answers.isEmpty ? "" : answers.removeFirst()
+        return AsyncThrowingStream { continuation in
             continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
             continuation.finish()
         }

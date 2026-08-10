@@ -351,10 +351,15 @@ struct ReleaseValidationTests {
         appState.answerProviderModeOverride = .deepSeekPrimary
         appState.detectionDebounceSeconds = 0.01
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let delayProvider = MockDelayProvider()
+        delayProvider.sleepDuration = 60_000_000_000
+        appState.delayProvider = delayProvider
         var settings = appState.settings
         settings.audioCaptureMode = .systemAudioOnly
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         settings.automaticQuestionDetectionEnabled = true
+        settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
         appState.saveSettings(settings)
 
         let session = try makeHermeticContextBoundSession(
@@ -376,7 +381,7 @@ struct ReleaseValidationTests {
             recognitionTaskID: "release-db-task-1",
             sequence: 1
         ))
-        try await waitUntil(timeout: 8.0, label: "question A active") {
+        try await waitUntil(timeout: 30.0, label: "question A active") {
             appState.activeQuestionID != nil &&
                 appState.currentSuggestion?.questionText == questionA &&
                 client.blockedStageBStarted

@@ -36,6 +36,7 @@ final class TranscriptRepository {
                     asr_best_selected_ms = excluded.asr_best_selected_ms,
                     asr_finalization_reason = excluded.asr_finalization_reason,
                     asr_source = excluded.asr_source
+                WHERE excluded.created_at >= transcript_segments.created_at
                 """,
                 arguments: [
                     segment.id,

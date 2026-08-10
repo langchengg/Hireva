@@ -1,8 +1,9 @@
 # Parakeet Local ASR Runtime
 
-This project has a local Parakeet ASR adapter, but the app must not label
-Apple Speech transcripts as Parakeet. Local Parakeet is usable only when both
-the model files and a sidecar executable are present.
+Hireva's optional Local Parakeet ASR is an experimental, arm64-only, final-only
+provider. The release app runs the bundled native helper at
+`Contents/Helpers/parakeet_asr_helper`; it must never label Apple Speech output
+as Parakeet or silently fall back to Apple Speech.
 
 ## Model descriptor
 
@@ -24,10 +25,9 @@ Readiness currently verifies required file presence and minimum sizes. It does
 not perform cryptographic checksum verification because the upstream release
 does not publish a single checksum manifest for this app to verify.
 
-## Runtime contract
+## Native runtime contract
 
-The app launches a sidecar process from `PARAKEET_ASR_SIDECAR_PATH` or the
-`Hireva.parakeetSidecarPath` user default. The executable must accept:
+The release app launches its bundled helper with:
 
 ```text
 --model-dir <absolute model directory>
@@ -37,7 +37,8 @@ The app launches a sidecar process from `PARAKEET_ASR_SIDECAR_PATH` or the
 ```
 
 The app sends newline-delimited JSON audio events to the sidecar on stdin.
-Audio events contain mono Float32 little-endian PCM samples encoded as base64:
+Audio events contain mono Float32 little-endian PCM samples encoded as base64
+and an explicit source channel:
 
 ```json
 {
@@ -46,6 +47,7 @@ Audio events contain mono Float32 little-endian PCM samples encoded as base64:
   "sampleRate": 48000.0,
   "channels": 1,
   "encoding": "float32le",
+  "audioSource": "systemAudio",
   "audio": "base64..."
 }
 ```
@@ -68,34 +70,26 @@ transcript events to stdout:
   "startTime": 0.0,
   "endTime": 1.2,
   "confidence": 0.91,
-  "source": "local_parakeet_asr"
+  "source": "local_parakeet_asr",
+  "audioSource": "systemAudio",
+  "speaker": "interviewer"
 }
 ```
 
-`startTime`, `endTime`, and `confidence` are optional. The app maps each event
+`startTime`, `endTime`, and `confidence` are optional. `source`, `audioSource`,
+and `speaker` are validated against the active capture mode. The helper keeps a
+separate utterance segmenter for microphone and system audio so samples cannot
+be concatenated across sources. The app maps each accepted event
 to `TranscriptSegment(asrSource: .localParakeetASR)` and sends it through the
 same transcript, question detection, and answer generation pipeline used by
 Apple Speech.
-
-The project-owned reference sidecar is:
-
-```text
-scripts/parakeet_asr_sidecar.py
-```
-
-It uses the `sherpa-onnx` Python package and the downloaded Parakeet
-encoder/decoder/joiner/tokens files. Install the runtime without sudo:
-
-```bash
-python3 -m pip install --user sherpa-onnx
-```
 
 Direct WAV validation:
 
 ```bash
 say -o /tmp/parakeet_test.aiff "How did the robot decide which object to approach?"
 afconvert -f WAVE -d LEI16@16000 /tmp/parakeet_test.aiff /tmp/parakeet_test.wav
-scripts/parakeet_asr_sidecar.py \
+dist/Hireva.app/Contents/Helpers/parakeet_asr_helper \
   --model-dir "$HOME/Library/Application Support/Hireva/LocalModels/asr/parakeet-tdt-0.6b-v3-int8" \
   --session-id direct-test \
   --capture-mode systemAudioOnly \
@@ -103,21 +97,12 @@ scripts/parakeet_asr_sidecar.py \
   --wav /tmp/parakeet_test.wav
 ```
 
-Configure the app for launch:
-
-```bash
-export PARAKEET_ASR_SIDECAR_PATH="$PWD/scripts/parakeet_asr_sidecar.py"
-```
-
-or persist the path for the app bundle domain:
-
-```bash
-defaults write com.langcheng.Hireva Hireva.parakeetSidecarPath "$PWD/scripts/parakeet_asr_sidecar.py"
-```
+Release discovery rejects external Python or user-default helper overrides.
+The legacy Python implementation is development-only and is not packaged.
 
 ## Limitations
 
-The current sidecar uses sherpa-onnx offline transducer inference with local
+The native helper uses sherpa-onnx offline transducer inference with local
 silence-based utterance segmentation. It emits final transcript events after an
 utterance boundary, not low-latency partials. It does not use Apple Speech and
 must not be treated as active unless the app receives transcript events whose
@@ -128,10 +113,10 @@ source is `local_parakeet_asr`.
 On a clean local machine, Parakeet remains inactive until:
 
 1. The required ONNX/vocabulary files exist in the Application Support path.
-2. A real sidecar executable is installed and executable.
+2. The bundled native helper health check and model probe succeed.
 3. The selected ASR provider is Local Parakeet and both readiness checks pass.
 
-If either the model or runtime is missing, the app reports `model_not_ready` or
-`local_asr_runtime_not_implemented`. Apple Speech is available only when the
+If either the model or runtime is missing, the app reports a concrete model or
+native-runtime readiness failure. Apple Speech is available only when the
 user explicitly selects it; the app must not silently run Apple Speech while
 labeling transcripts as Parakeet.

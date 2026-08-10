@@ -134,6 +134,10 @@ struct LongInterviewQuestionDetectionTests {
         let traceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("rotated-cumulative-\(UUID().uuidString).jsonl")
         appState.runtimeTranscriptTraceLogURL = traceURL
+        var traceSettings = appState.settings
+        traceSettings.saveTranscriptsLocally = true
+        traceSettings.diagnosticTraceMode = .fullText
+        appState.saveSettings(traceSettings)
         let leo = "Could you explain your LeoRover project from end to end?"
         let droid = "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?"
 
@@ -236,15 +240,15 @@ struct LongInterviewQuestionDetectionTests {
     }
 
     @Test
-    func consecutiveFollowUpQuestionsSupersedeSafely() async throws {
+    func consecutiveFollowUpQuestionsQueueSafely() async throws {
         let (appState, session, _) = try makeAppState()
         let questions = [
             "What was the hardest technical challenge in your LeoRover project?",
             "How did you solve the noisy perception and navigation timing issue in your LeoRover project?",
             "If the same issue happened again in the LeoRover timing and localisation pipeline, what would you do differently?"
         ]
-
         var activeQuestionIDs: [String] = []
+        var acceptedQuestions: [DetectedQuestion] = []
         for (index, text) in questions.enumerated() {
             let id = "follow-up-\(index)"
             await appState.handleTranscriptSegment(segment(id: id, sessionID: session.id, source: .systemAudio, speaker: .interviewer, text: text))
@@ -253,6 +257,7 @@ struct LongInterviewQuestionDetectionTests {
                 appState.detectedQuestionsInSessionCount == index + 1 &&
                 appState.activeQuestionID == appState.lastDetectedQuestion?.id
             }
+            acceptedQuestions.append(try #require(appState.lastDetectedQuestion))
             activeQuestionIDs.append(try #require(appState.activeQuestionID))
         }
 
@@ -260,10 +265,37 @@ struct LongInterviewQuestionDetectionTests {
         #expect(Set(activeQuestionIDs).count == 3)
         #expect(appState.lastDetectedQuestion?.questionText == "If the same issue happened again in the LeoRover timing and localisation pipeline, what would you do differently?")
         #expect(appState.currentGenerationTelemetry.questionID == activeQuestionIDs.last)
+        let middleQuestion = acceptedQuestions[1]
+        let middleSnapshot = appState.makeInitialFirstAnswerFallbackCard(
+            cardID: "middle-question-alignment-regression",
+            question: middleQuestion,
+            session: session,
+            requestStart: Date()
+        )
+        #expect(AnswerRelevancePolicy.intent(for: middleQuestion.questionText) == .errorHandling)
+        let middleAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: middleQuestion.questionText,
+            answerText: ([middleSnapshot.sayFirst] + middleSnapshot.keyPoints + middleSnapshot.followUpReady).joined(separator: " "),
+            sayFirst: middleSnapshot.sayFirst,
+            stageBCompleted: true
+        )
+        #expect(middleAlignment.verdict == .aligned, "Middle snapshot alignment: \(middleAlignment.reason)")
         try await waitUntil(timeout: 8.0) {
             appState.visibleAnswerExists && !appState.currentSpinnerVisible
         }
-        #expect(appState.cancelledGenerationCount == questions.count - 1)
+        try await waitUntil(timeout: 8.0) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == questions.count
+        }
+        let persistedCards = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(persistedCards.count == questions.count)
+        #expect(Set(persistedCards.compactMap(\.detectedQuestionID)) == Set(activeQuestionIDs))
+        let middleCard = try #require(persistedCards.first { $0.detectedQuestionID == activeQuestionIDs[1] })
+        #expect(middleCard.alignmentVerdict == .aligned)
+        #expect(middleCard.stageBStatus == "superseded" || middleCard.stageBStatus == "queued_next_question")
+        #expect(appState.currentSuggestion?.detectedQuestionID == activeQuestionIDs.last)
+        // A queued question may supersede each preceding generation once after
+        // the two-second handoff deadline. Repeated cancellation is not valid.
+        #expect(appState.cancelledGenerationCount <= questions.count - 1)
         #expect(!appState.currentSpinnerVisible)
     }
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import base64
 import json
@@ -7,16 +9,29 @@ import time
 import uuid
 import wave
 
-import numpy as np
-import sherpa_onnx
-
-
 TARGET_SAMPLE_RATE = 16000
 SOURCE = "local_parakeet_asr"
+np = None
+sherpa_onnx = None
 
 
 def eprint(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
+
+
+def load_runtime() -> None:
+    global np, sherpa_onnx
+    if np is not None and sherpa_onnx is not None:
+        return
+    try:
+        import numpy as numpy_module
+        import sherpa_onnx as sherpa_onnx_module
+    except ImportError as exc:
+        raise RuntimeError(
+            "Python Parakeet runtime unavailable; install numpy, sherpa-onnx, and sherpa-onnx-bin"
+        ) from exc
+    np = numpy_module
+    sherpa_onnx = sherpa_onnx_module
 
 
 def read_wav(path: str) -> tuple[int, np.ndarray]:
@@ -208,8 +223,19 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        load_runtime()
         if args.health:
-            print(json.dumps({"status": "ok", "runtime": "sherpa_onnx", "source": SOURCE}), flush=True)
+            print(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "runtime": "sherpa_onnx",
+                        "runtimeVersion": getattr(sherpa_onnx, "__version__", "unknown"),
+                        "source": SOURCE,
+                    }
+                ),
+                flush=True,
+            )
             return 0
         if not args.model_dir:
             raise ValueError("--model-dir is required unless --health is used")

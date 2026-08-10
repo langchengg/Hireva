@@ -190,19 +190,20 @@ struct DualAudioTranscriptionTests {
         let service = try await makeSimulatedService(captureMode: .systemAudioOnly)
         defer { stopSimulatedSessions(service) }
         let systemSession = try #require(service.systemAudioSession)
-        var segments: [TranscriptSegment] = []
-        let collector = Task { @MainActor in
+        let collector = Task { @MainActor () -> [TranscriptSegment] in
+            var segments: [TranscriptSegment] = []
             for await segment in service.segments {
                 segments.append(segment)
+                if segments.count == 1 { return segments }
             }
+            return segments
         }
-        defer { collector.cancel() }
 
         systemSession.simulateEmit(
             text: "Could you explain your LeoRover project from end to end?",
             isFinal: true
         )
-        try await waitUntil("one provenance segment") { segments.count == 1 }
+        let segments = await collector.value
         let segment = try #require(segments.first)
         let data = try JSONEncoder().encode(segment)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -473,20 +474,19 @@ struct DualAudioTranscriptionTests {
         defer { stopSimulatedSessions(service) }
         let micSession = try #require(service.microphoneSession)
         let systemSession = try #require(service.systemAudioSession)
-        var segments: [TranscriptSegment] = []
-        var persistenceError: Error?
-        let collector = Task { @MainActor in
+        let collector = Task { @MainActor () -> ([TranscriptSegment], (any Error)?) in
+            var segments: [TranscriptSegment] = []
             for await segment in service.segments {
                 segments.append(segment)
                 do {
                     try transcriptRepository.saveSegment(segment)
                 } catch {
-                    persistenceError = error
-                    break
+                    return (segments, error)
                 }
+                if segments.count == 8 { return (segments, nil) }
             }
+            return (segments, nil)
         }
-        defer { collector.cancel() }
 
         micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
         micSession.simulateEmit(text: "Take", isFinal: true)
@@ -496,10 +496,9 @@ struct DualAudioTranscriptionTests {
         micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
         systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
         systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
-        try await waitUntil("eight persisted simulated ASR events") {
-            segments.count == 8 || persistenceError != nil
-        }
+        let (segments, persistenceError) = await collector.value
         if let persistenceError { throw persistenceError }
+        #expect(segments.count == 8)
 
         #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
         #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")

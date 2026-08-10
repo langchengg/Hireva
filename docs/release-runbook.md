@@ -52,9 +52,16 @@ The individual commands are useful when isolating a failure:
 ./scripts/signing_status.sh
 ```
 
-`db_diagnostics.sh` and `release_status.sh` are read-only. DB diagnostics can
-contain interview questions and answers; release status intentionally emits
-only row/event metadata. Treat all captured operational logs as sensitive.
+`db_diagnostics.sh` and `release_status.sh` are read-only and metadata-only by
+default. Any explicit full-text diagnostic option must display a warning and
+must never be used for release evidence containing real interviews. Treat all
+captured operational logs as sensitive.
+
+Release validation also requires three consecutive full Swift test passes, the
+explicit 64-question runtime suite, privacy canary scanning, stop/restart race
+coverage, direct native Parakeet WAV decoding, and real Ollama streaming where
+those local dependencies are available. A mock runtime pass does not prove
+ScreenCaptureKit, TCC, real ASR, or local-model readiness.
 
 ## Create a Local Release Package
 
@@ -76,7 +83,8 @@ with a sibling ZIP and `RELEASE_INFO.txt`. Inspect signing state with
 `scripts/signing_status.sh`. The package intentionally excludes repository,
 build cache, DB, trace, Keychain, and transcript data.
 
-This is a local handoff/archive package, not a portable installed-app release.
+This is a controlled local-use handoff/archive package, not a portable public
+release.
 The current build identity embeds the source workspace's absolute `dist` path,
 so launching the copied app elsewhere can display the existing stale-build
 warning. Run and verify the canonical `dist/Hireva.app` when an
@@ -181,3 +189,12 @@ Additional operator references:
 - `docs/local-workspace-migration.md`
 - `docs/notarization-prep.md`
 - `docs/rollback-known-good.md`
+
+## Public Distribution Gate
+
+Do not describe an ad-hoc or Apple Development build as publicly distributable.
+Outside-Mac-App-Store distribution remains NO-GO until the exact package has a
+Developer ID Application signature with hardened runtime, has been notarized,
+has the notarization ticket stapled, passes Gatekeeper assessment, and has been
+validated on a clean Mac. Notarization submission is not part of the default
+local release workflow.

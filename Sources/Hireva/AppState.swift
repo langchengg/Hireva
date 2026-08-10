@@ -622,6 +622,8 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     var pendingAcceptedQuestions: [PendingAcceptedQuestion] = []
     // internal for AppState extension access only
+    var queuedQuestionHandoffTask: Task<Void, Never>?
+    // internal for AppState extension access only
     var autoSuggestionLaunchPending: Bool = false
     // internal for AppState extension access only
     var autoSuggestionLaunchID: String?
@@ -764,9 +766,12 @@ final class AppState: ObservableObject {
     let possibleQuestionConfidenceRange = 0.55..<0.75
 
     static func bootstrap() -> AppState {
+        let dialogueDefaults = HirevaVerificationConfiguration.current.flatMap {
+            UserDefaults(suiteName: $0.userDefaultsSuiteName)
+        } ?? .standard
         do {
             let database = try AppDatabase()
-            let state = AppState(database: database, dialogueDefaults: .standard)
+            let state = AppState(database: database, dialogueDefaults: dialogueDefaults)
             state.startMainThreadHeartbeat()
             return state
         } catch {
@@ -776,7 +781,7 @@ final class AppState: ObservableObject {
             guard let fallback else {
                 preconditionFailure("Unable to initialize SQLite or in-memory database.")
             }
-            let state = AppState(database: fallback, dialogueDefaults: .standard)
+            let state = AppState(database: fallback, dialogueDefaults: dialogueDefaults)
             state.startMainThreadHeartbeat()
             state.showError("Could not open the application database at the normal path. Using a temporary database for this run. \(error.localizedDescription)")
             return state
@@ -1315,6 +1320,10 @@ final class AppState: ObservableObject {
     func refreshAll(loadKeychain: Bool? = nil) {
         do {
             settings = try settingsRepository.loadSettings()
+            RuntimeTranscriptTraceStore.shared.prepareForMode(
+                settings.effectiveDiagnosticTraceMode,
+                at: runtimeTranscriptTraceLogURL
+            )
             providerConfigurations = try settingsRepository.ensureDefaultProviderConfigurations()
             activeRealtimeProvider = try settingsRepository.activeRealtimeProvider()
             activeRecapProvider = try settingsRepository.activeRecapProvider()

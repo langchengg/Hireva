@@ -652,6 +652,63 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
     }
 
     func jsonLine() -> String {
+        jsonLine(for: .fullText) ?? "{}"
+    }
+
+    func jsonLine(for mode: DiagnosticTraceMode) -> String? {
+        switch mode {
+        case .off:
+            return nil
+        case .metadataOnly:
+            let payload = RuntimeTranscriptMetadataTracePayload(
+                timestamp: ISO8601DateFormatter().string(from: timestamp),
+                sessionID: sessionID,
+                eventType: name,
+                questionID: questionID ?? "",
+                generationID: generationID ?? "",
+                frameCount: frameCount,
+                generationStarted: generationStarted,
+                persistenceStarted: persistenceStarted,
+                recognitionEventSequence: recognitionEventSequence,
+                sourceTextStartUTF16: sourceTextStartUTF16,
+                sourceTextEndUTF16: sourceTextEndUTF16,
+                recognitionIsFinal: recognitionIsFinal,
+                cancelled: cancelled,
+                skipped: skipped
+            )
+            return Self.encodeJSONLine(payload)
+        case .fullText:
+            return fullTextJSONLine()
+        }
+    }
+
+    func redactedForMetadata() -> TranscriptRuntimeEventRecord {
+        var copy = self
+        copy.text = ""
+        copy.reason = ""
+        copy.rawText = ""
+        copy.canonicalText = ""
+        copy.candidateText = ""
+        copy.questionIntent = ""
+        copy.duplicateKey = ""
+        copy.acceptanceStatus = ""
+        copy.rejectionReason = ""
+        copy.generationRejectedReason = ""
+        copy.uiTranscriptText = ""
+        copy.visibleQuestionText = ""
+        copy.splitCandidates = []
+        copy.completenessResult = ""
+        copy.intentResult = ""
+        copy.oldQuestionText = ""
+        copy.currentQuestionText = ""
+        copy.sourceCallback = ""
+        copy.oldSourceSpan = ""
+        copy.newSourceSpan = ""
+        copy.currentState = ""
+        return copy
+    }
+
+    private func fullTextJSONLine() -> String {
         let payload = RuntimeTranscriptTracePayload(
             timestamp: ISO8601DateFormatter().string(from: timestamp),
             sessionID: sessionID,
@@ -694,17 +751,35 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             cancelled: cancelled,
             skipped: skipped
         )
-        guard let data = try? JSONEncoder().encode(payload),
-              let line = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return line
+        return Self.encodeJSONLine(payload) ?? "{}"
+    }
+
+    private static func encodeJSONLine<Payload: Encodable>(_ payload: Payload) -> String? {
+        guard let data = try? JSONEncoder().encode(payload) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private func traceLimited(_ value: String) -> String {
         guard value.count > 300 else { return value }
         return String(value.prefix(300))
     }
+}
+
+private struct RuntimeTranscriptMetadataTracePayload: Encodable {
+    var timestamp: String
+    var sessionID: String
+    var eventType: String
+    var questionID: String
+    var generationID: String
+    var frameCount: Int?
+    var generationStarted: Bool
+    var persistenceStarted: Bool
+    var recognitionEventSequence: Int
+    var sourceTextStartUTF16: Int
+    var sourceTextEndUTF16: Int
+    var recognitionIsFinal: Bool
+    var cancelled: Bool
+    var skipped: Bool
 }
 
 private struct RuntimeTranscriptTracePayload: Encodable {

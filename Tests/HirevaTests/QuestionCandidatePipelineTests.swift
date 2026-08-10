@@ -5,12 +5,56 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func modalImprovementAndEvidenceQuestionsAreAcceptedWithoutEmbeddedStatements() {
+        let positiveQuestions = [
+            "What would you improve next?",
+            "What would you change in a second version?",
+            "Why should we trust your test evidence?",
+            "Why should a release owner require that evidence?",
+            "What attracted you to this role?",
+            "What motivates you to own release quality?",
+            "What happens if another question arrives?",
+        ]
+        for question in positiveQuestions {
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        }
+
+        #expect(QuestionCandidatePipeline.extract(
+            from: "I explained what I would improve next in a second version."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "The report explains why we should trust the test evidence."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "I explained what attracted me to the role during the review."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "The report explains what happens if another question arrives."
+        ).isEmpty)
+    }
+
+    @Test
     func pipelineAcceptsWhatIsDevelopmentAreaQuestion() throws {
         let question = "What is one area you still need to develop for this research project?"
         let candidate = try #require(QuestionCandidatePipeline.extract(from: question).first)
 
         #expect(candidate.text == question)
         #expect(QuestionCompletenessGate.isCompleteQuestion(question, isFinal: true))
+    }
+
+    @Test
+    func pipelineAcceptsTellMeHowInterviewRequestWithoutNarrativeFalsePositive() throws {
+        let question = "Tell me how you would make an experiment result reproducible for another analyst."
+        let canonicalQuestion = "Tell me how you would make an experiment result reproducible for another analyst"
+        let candidate = try #require(QuestionCandidatePipeline.extract(from: question).first)
+
+        #expect(candidate.text == canonicalQuestion)
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        #expect(QuestionCandidatePipeline.extract(from: "Please \(question)").map(\.text) == [canonicalQuestion])
+        #expect(QuestionCandidatePipeline.extract(
+            from: "The report can tell me how the experiment result was reproduced for another analyst."
+        ).isEmpty)
     }
 
     @Test
@@ -85,7 +129,9 @@ struct QuestionCandidatePipelineTests {
             "how would you solve it",
             "can you explain the difference",
             "what was the biggest technical trade-off",
-            "tell me about a time you had"
+            "tell me about a time you had",
+            "what measures would show that in",
+            "if the identity alert affected a critical"
         ]
 
         for fragment in fragments {
@@ -93,6 +139,25 @@ struct QuestionCandidatePipelineTests {
             #expect(SystemAudioQuestionExtractor.extract(from: fragment).isEmpty, "Expected no extraction for: \(fragment)")
             #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: fragment).accepted == false, "Expected runtime guard rejection for: \(fragment)")
         }
+    }
+
+    @Test
+    func completenessGatePreservesCompletedConditionalAndPrepositionQuestions() {
+        let questions = [
+            "What measures would show that incident handling is improving rather than merely becoming faster?",
+            "If the identity alert affected a critical service, how would you contain it without destroying forensic evidence?",
+            "What kind of environment do you work best in?"
+        ]
+
+        for question in questions {
+            #expect(!QuestionCompletenessGate.isIncompleteFragment(question), "Expected complete question: \(question)")
+            #expect(!SystemAudioQuestionExtractor.extract(from: question).isEmpty, "Expected extraction for: \(question)")
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted, "Expected runtime acceptance for: \(question)")
+        }
+
+        #expect(!QuestionCompletenessGate.isIncompleteFragment(
+            "If selected, describe your approach to the first ninety days."
+        ))
     }
 
     @Test
@@ -107,6 +172,37 @@ struct QuestionCandidatePipelineTests {
         #expect(candidates.first?.answerRelevanceIntent == .perceptionDebugging)
         #expect(!candidates.contains { $0.text.localizedCaseInsensitiveContains("would you debug it") && !$0.text.localizedCaseInsensitiveContains("inspection detector") })
         #expect(QuestionCandidatePipeline.extract(from: "would you debug it").isEmpty)
+    }
+
+    @Test
+    func supposeScenarioPreservesAntecedentBeforeWhichQuestion() {
+        let question = "Suppose prediction errors rise after deployment, which diagnosis would you test first?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: question)
+
+        #expect(candidates.map(\.text) == [question])
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        #expect(!candidates.contains { $0.text == "Which diagnosis would you test first?" })
+    }
+
+    @Test
+    func supposeScenarioRemainsSeparateFromPreviousQuestion() {
+        let first = "How would you compare a complex model with a simple baseline?"
+        let second = "Suppose prediction errors rise after deployment, which diagnosis would you test first?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: "\(first) \(second)")
+
+        #expect(candidates.map(\.text) == [first, second])
+    }
+
+    @Test
+    func embeddedOrAnswerLikeSupposeDoesNotCreateQuestion() {
+        #expect(QuestionCandidatePipeline.extract(
+            from: "I suppose prediction errors rise after deployment."
+        ).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(
+            from: "What do you suppose should happen if latency rises?"
+        ).map(\.text) == ["What do you suppose should happen if latency rises?"])
     }
 
     @Test
@@ -175,6 +271,14 @@ struct QuestionCandidatePipelineTests {
         )
 
         #expect(questions.map(\.text) == ["What product management experience best represents how you work?"])
+    }
+
+    @Test
+    func hyphenatedWhatNounPhraseWithAuxiliaryVerbIsAccepted() {
+        let question = "What follow-up evidence would confirm that your initial security hypothesis was correct?"
+
+        #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
     }
 
     @Test

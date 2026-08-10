@@ -110,9 +110,14 @@ public final class AudioEngineManager {
                 return
             }
             guard !Task.isCancelled else { return }
-            self.queue.async {
-                self.rebuildInputTap(reason: reason)
-            }
+            Self.enqueueSharedRebuild(reason: reason)
+        }
+    }
+
+    private static func enqueueSharedRebuild(reason: String) {
+        // This type has a private initializer, so the queue-owned engine is always the shared instance.
+        shared.queue.async {
+            shared.rebuildInputTap(reason: reason)
         }
     }
 

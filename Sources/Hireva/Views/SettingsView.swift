@@ -232,6 +232,30 @@ struct SettingsView: View {
             Toggle("Enable automatic question detection", isOn: $settings.automaticQuestionDetectionEnabled)
             Toggle("Save transcripts locally", isOn: $settings.saveTranscriptsLocally)
 
+            Picker("Diagnostic trace", selection: $settings.diagnosticTraceMode) {
+                ForEach(DiagnosticTraceMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            if settings.diagnosticTraceMode == .fullText && settings.saveTranscriptsLocally {
+                Text("Full-text diagnostics can store interview transcripts, questions, and answers. Enable only for a specific investigation and clear the trace afterward.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !settings.saveTranscriptsLocally && settings.diagnosticTraceMode == .fullText {
+                Text("Transcript saving is off, so diagnostic traces are capped at metadata only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Clear Diagnostic Trace", role: .destructive) {
+                do {
+                    try appState.clearRuntimeTranscriptTrace()
+                } catch {
+                    appState.showError("Could not clear diagnostic trace: \(error.localizedDescription)")
+                }
+            }
+
             InlineStatusBanner(appState.latestActionFeedback(for: ActionID.saveSettings))
 
             ActionButton(

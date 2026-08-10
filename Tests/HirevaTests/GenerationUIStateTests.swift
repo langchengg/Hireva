@@ -7,6 +7,20 @@ import Testing
 @MainActor
 struct GenerationUIStateTests {
     @Test
+    func generationFailureFeedbackDoesNotOpenABlockingAlert() throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        appState.errorMessage = "stale blocking error"
+
+        appState.failGenerationNonBlocking(
+            message: "Transcript preserved. Local Qwen did not produce an aligned answer."
+        )
+
+        #expect(appState.errorMessage == nil)
+        #expect(appState.latestActionFeedback(for: ActionID.generateAnswer)?.kind == .error)
+        #expect(appState.diagnostics.lastError == "Transcript preserved. Local Qwen did not produce an aligned answer.")
+    }
+
+    @Test
     func firstVisibleFallbackClearsBlockingLoading() async throws {
         let (appState, session, question, delayProvider) = try makeAppState(
             client: StreamingMockLLMClient(),
@@ -1553,6 +1567,10 @@ struct GenerationUIStateTests {
         appState.answerProviderModeOverride = .deepSeekPrimary
         let delayProvider = MockDelayProvider()
         appState.delayProvider = delayProvider
+        var settings = appState.settings
+        settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
+        appState.saveSettings(settings)
 
         let session: InterviewSession
         if bindCandidateContext {

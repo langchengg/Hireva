@@ -795,6 +795,8 @@ extension AppState {
             ))
             return
         }
+        queuedQuestionHandoffTask?.cancel()
+        queuedQuestionHandoffTask = nil
         let pending = pendingAcceptedQuestions.removeFirst()
         recordTranscriptRuntimeEvent(.queueDepthChanged(
             sessionID: pending.session.id,
@@ -817,14 +819,9 @@ extension AppState {
 
     private func shouldQueueAutoSuggestionGeneration(for question: DetectedQuestion) -> Bool {
         guard shouldQueueAutoSuggestionGenerationForCurrentState() else { return false }
-        if let segmentID = question.transcriptSegmentID,
-           let hadVisibleAnswerAtIngestion = transcriptSegmentHadVisibleAnswerAtIngestion[segmentID] {
-            return hadVisibleAnswerAtIngestion && activeQuestionID != question.id
-        }
-        if let firstVisibleAt = currentGenerationTelemetry.firstVisibleAt,
-           question.createdAt <= firstVisibleAt {
-            return false
-        }
+        // Preserve every accepted interviewer question through its real
+        // provider request. Replacing a generation before its first token
+        // leaves only a local snapshot and loses provider-source ownership.
         return activeQuestionID != question.id
     }
 
@@ -835,6 +832,14 @@ extension AppState {
     private func queueDrainBlockReasonForCurrentState() -> String? {
         if autoSuggestionLaunchPending {
             return "blocked_pending_generation_launch"
+        }
+        // A terminal UI state revokes the current generation's right to block
+        // an already accepted question. Lingering task flags are cancelled by
+        // activateGeneration when the queued question becomes the new owner.
+        if let controller = activeGenerationController,
+           generationUIState.generationID == controller.generationID,
+           generationUIState.isTerminal {
+            return nil
         }
         if suggestionGenerationStarted || isStreamingSayFirst || providerStreamActive || fallbackWatchdogActive {
             return "blocked_active_generation"
@@ -916,6 +921,40 @@ extension AppState {
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
         if drainImmediately {
             finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
+            scheduleQueuedQuestionHandoffIfNeeded(
+                questionID: question.id,
+                sessionID: session.id
+            )
+        }
+    }
+
+    private func scheduleQueuedQuestionHandoffIfNeeded(
+        questionID: String,
+        sessionID: String
+    ) {
+        guard pendingAcceptedQuestions.contains(where: { $0.question.id == questionID }),
+              let blockedGenerationID = activeGenerationController?.generationID,
+              !visibleAnswerExists else {
+            return
+        }
+        queuedQuestionHandoffTask?.cancel()
+        queuedQuestionHandoffTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.currentSession?.id == sessionID,
+                  self.activeGenerationController?.generationID == blockedGenerationID,
+                  !self.visibleAnswerExists,
+                  self.pendingAcceptedQuestions.contains(where: { $0.question.id == questionID }) else {
+                return
+            }
+            self.queuedQuestionHandoffTask = nil
+            self.supersedeActiveGenerationForQueuedQuestion()
+            self.processNextQueuedAutoQuestionIfIdle()
         }
     }
 
@@ -1014,14 +1053,35 @@ extension AppState {
         session: InterviewSession,
         transcript: String
     ) {
-        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion),
-           visibleAnswerExists,
-           currentSuggestion != nil {
-            queueAcceptedAutoQuestion(acceptedQuestion, session: session, transcript: transcript)
+        if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion) {
+            let shouldSupersede = shouldImmediatelySupersedeActiveGeneration(for: acceptedQuestion)
+            queueAcceptedAutoQuestion(
+                acceptedQuestion,
+                session: session,
+                transcript: transcript,
+                drainImmediately: !shouldSupersede
+            )
+            if shouldSupersede {
+                supersedeActiveGenerationForQueuedQuestion()
+                processNextQueuedAutoQuestionIfIdle()
+            }
             return
         }
         pendingAcceptedQuestions.removeAll()
         launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
+    }
+
+    // A distinct real utterance is a follow-up, not another clause from the
+    // same merged ASR segment. It must own the UI before the old provider can
+    // publish an answer; the old accepted question is retained as a
+    // superseded history snapshot by the generation lifecycle.
+    func shouldImmediatelySupersedeActiveGeneration(for question: DetectedQuestion) -> Bool {
+        guard !visibleAnswerExists,
+              let activeIngress = activeGenerationController?.identity.ingressIdentity,
+              let incomingIngress = question.ingressIdentity else {
+            return false
+        }
+        return activeIngress.sourceSegmentID != incomingIngress.sourceSegmentID
     }
 
     private func launchAutoSuggestionGeneration(
@@ -1055,8 +1115,7 @@ extension AppState {
                 self.lastFailedTranscriptContext = transcript
                 self.lastFailedCVJDContext = nil
                 self.lastFailedProviderConfig = self.activeRealtimeProvider
-                self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(message)")
-                self.showError(message)
+                self.failGenerationNonBlocking(message: "Transcript preserved. \(message)")
             }
         }
     }

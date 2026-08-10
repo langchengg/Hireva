@@ -101,6 +101,10 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
     private let decoder = JSONDecoder()
     private let diagnosticsLock = NSLock()
     private var storedGenerationDiagnostics = OllamaProviderDiagnostics.empty()
+    private var latestDiagnosticsGeneration = 0
+    private var cachedModelNames = Set<String>()
+    private var modelCacheExpiresAt: Date?
+    private let modelCacheTTL: TimeInterval = 3
 
     var lastGenerationDiagnostics: OllamaProviderDiagnostics {
         diagnosticsLock.lock()
@@ -125,7 +129,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
 
     func healthCheck(modelName: String) async -> LocalLLMHealth {
         do {
-            let models = try await listModels()
+            let models = try await modelNamesUsingCache()
             return LocalLLMHealth(
                 ollamaRunning: true,
                 selectedModel: modelName,
@@ -145,7 +149,8 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
     }
 
     func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
-        AsyncThrowingStream { continuation in
+        invalidateModelCache()
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var request = URLRequest(url: baseURL.appendingPathComponent("api/pull"))
@@ -174,8 +179,10 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
                         try emitPullLine(bufferedLine, modelName: modelName, continuation: continuation)
                     }
                     continuation.yield(.completed(modelID: modelName, totalBytes: nil))
+                    self.invalidateModelCache()
                     continuation.finish()
                 } catch {
+                    self.invalidateModelCache()
                     continuation.finish(throwing: error)
                 }
             }
@@ -187,26 +194,25 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
     }
 
     func generateAnswer(request localRequest: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        let health = await healthCheck(modelName: localRequest.modelName)
-        guard health.ollamaRunning else {
-            throw OllamaQwenProviderError.ollamaNotRunning
-        }
-        guard health.modelInstalled else {
+        try Task.checkCancellation()
+        let models = try await modelNamesUsingCache()
+        try Task.checkCancellation()
+        guard models.contains(localRequest.modelName) else {
             throw OllamaQwenProviderError.modelNotReady(localRequest.modelName)
         }
+        let diagnosticsGeneration = beginDiagnosticsGeneration(modelName: localRequest.modelName)
 
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    if let fallbackText = try await generateChatAnswer(request: localRequest) {
-                        continuation.yield(LLMToken(
-                            text: fallbackText,
-                            source: .ollamaQwen,
-                            modelName: localRequest.modelName
-                        ))
-                    }
+                    try await streamChatAnswer(
+                        request: localRequest,
+                        diagnosticsGeneration: diagnosticsGeneration,
+                        continuation: continuation
+                    )
                     continuation.finish()
                 } catch {
+                    self.invalidateModelCache()
                     continuation.finish(throwing: error)
                 }
             }
@@ -226,7 +232,11 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         return request
     }
 
-    private func generateChatAnswer(request localRequest: LocalLLMRequest) async throws -> String? {
+    private func streamChatAnswer(
+        request localRequest: LocalLLMRequest,
+        diagnosticsGeneration: Int,
+        continuation: AsyncThrowingStream<LLMToken, Error>.Continuation
+    ) async throws {
         var messages: [OllamaChatMessage] = []
         if let systemPrompt = localRequest.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !systemPrompt.isEmpty {
@@ -237,7 +247,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         let payload = OllamaChatRequest(
             model: localRequest.modelName,
             messages: messages,
-            stream: false,
+            stream: true,
             think: false,
             format: localRequest.responseFormat,
             options: OllamaGenerateOptions(
@@ -248,43 +258,60 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         let request = try makeChatRequest(payload)
         var accumulator = OllamaResponseAccumulator(schema: .chatMessageContent)
         do {
-            let (data, response) = try await session.data(for: request)
+            let (bytes, response) = try await session.bytes(for: request)
             try Self.validate(response)
-            guard let line = String(data: data, encoding: .utf8) else {
-                throw OllamaQwenProviderError.categorized(
-                    .responseSchemaMismatch,
-                    "Ollama returned a non-UTF-8 response."
-                )
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+                if let content = try accumulator.ingest(line), !content.isEmpty {
+                    continuation.yield(LLMToken(
+                        text: content,
+                        source: .ollamaQwen,
+                        modelName: localRequest.modelName
+                    ))
+                }
             }
-            _ = try accumulator.ingest(line)
-            let parsed = try accumulator.finish(requireDone: false)
+            let parsed = try accumulator.finish(requireDone: true)
             var diagnostics = parsed.diagnostics
             diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
             diagnostics.model = localRequest.modelName
-            diagnostics.streamMode = false
+            diagnostics.streamMode = true
             diagnostics.requestMessageCount = messages.count
             diagnostics.systemPromptCharacters = localRequest.systemPrompt?.count ?? 0
             diagnostics.userPromptCharacters = localRequest.prompt.count
-            storeDiagnostics(diagnostics)
-            return parsed.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            storeDiagnostics(diagnostics, generation: diagnosticsGeneration)
         } catch {
             var diagnostics = accumulator.currentDiagnostics
             diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
             diagnostics.model = localRequest.modelName
-            diagnostics.streamMode = false
+            diagnostics.streamMode = true
             diagnostics.responseSchema = .chatMessageContent
             diagnostics.requestMessageCount = messages.count
             diagnostics.systemPromptCharacters = localRequest.systemPrompt?.count ?? 0
             diagnostics.userPromptCharacters = localRequest.prompt.count
             diagnostics.finalErrorCategory = OllamaFailureCategory.classify(error)
-            storeDiagnostics(diagnostics)
+            storeDiagnostics(diagnostics, generation: diagnosticsGeneration)
             throw error
         }
     }
 
-    private func storeDiagnostics(_ diagnostics: OllamaProviderDiagnostics) {
+    private func beginDiagnosticsGeneration(modelName: String) -> Int {
         diagnosticsLock.lock()
+        latestDiagnosticsGeneration += 1
+        let generation = latestDiagnosticsGeneration
+        var diagnostics = OllamaProviderDiagnostics.empty()
+        diagnostics.model = modelName
+        diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
+        diagnostics.streamMode = true
         storedGenerationDiagnostics = diagnostics
+        diagnosticsLock.unlock()
+        return generation
+    }
+
+    private func storeDiagnostics(_ diagnostics: OllamaProviderDiagnostics, generation: Int) {
+        diagnosticsLock.lock()
+        if generation == latestDiagnosticsGeneration {
+            storedGenerationDiagnostics = diagnostics
+        }
         diagnosticsLock.unlock()
     }
 
@@ -294,6 +321,31 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         try Self.validate(response)
         let tags = try decoder.decode(OllamaTagsResponse.self, from: data)
         return tags.models.map(\.name)
+    }
+
+    private func modelNamesUsingCache() async throws -> Set<String> {
+        if let cached = diagnosticsLock.withLock({ () -> Set<String>? in
+            guard let expiresAt = modelCacheExpiresAt, expiresAt > Date() else {
+                return nil
+            }
+            return cachedModelNames
+        }) {
+            return cached
+        }
+
+        let names = Set(try await listModels())
+        diagnosticsLock.withLock {
+            cachedModelNames = names
+            modelCacheExpiresAt = Date().addingTimeInterval(modelCacheTTL)
+        }
+        return names
+    }
+
+    private func invalidateModelCache() {
+        diagnosticsLock.lock()
+        cachedModelNames = []
+        modelCacheExpiresAt = nil
+        diagnosticsLock.unlock()
     }
 
     private func emitPullLine(

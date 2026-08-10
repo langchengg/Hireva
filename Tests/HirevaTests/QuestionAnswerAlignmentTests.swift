@@ -29,6 +29,64 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func securityMonitoringImprovementPlanPassesAlignmentAndGrounding() {
+        let question = "What would your first 30 days of security monitoring improvement look like?"
+        let answer = "I would start by triaging synthetic endpoint and identity alerts using documented severity and escalation criteria to identify credible indicators across endpoint, identity, and cloud sources. My first priority is to validate security controls and identify repeatable improvements after these incidents, leveraging my experience in incident triage and access review. Success would be validated by successfully investigating credible indicators and implementing improvements that reduce residual incident risk."
+        let candidateEvidence = [
+            ProfileEvidence(
+                id: "monitoring-skill",
+                statement: "Security monitoring, incident triage, vulnerability assessment, Python, SQL, access review, and audit documentation.",
+                sourceDocumentID: "synthetic-resume",
+                sourceChunkID: "monitoring-skill-chunk",
+                sourceSpan: nil,
+                confidence: 1,
+                evidenceType: .skill,
+                explicitness: .explicit
+            ),
+            ProfileEvidence(
+                id: "alert-triage-experience",
+                statement: "Triaged synthetic endpoint and identity alerts using documented severity and escalation criteria.",
+                sourceDocumentID: "synthetic-resume",
+                sourceChunkID: "alert-triage-chunk",
+                sourceSpan: nil,
+                confidence: 1,
+                evidenceType: .experience,
+                explicitness: .explicit
+            )
+        ]
+
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+        let grounding = AnswerClaimValidator().validate(
+            answer: answer,
+            candidateEvidence: candidateEvidence,
+            opportunityEvidence: [],
+            domainKnowledge: InterviewDomainProfile.profile(for: .cybersecurity).domainKnowledge
+        )
+
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+        #expect(grounding.unsupportedClaims.isEmpty, "Unsupported claims: \(grounding.unsupportedClaims)")
+    }
+
+    @Test
+    func improvementPlanAcceptsEstablishDefineAndInvestigateActions() {
+        let question = "What would your first 30 days of security monitoring improvement look like?"
+        let answer = "I would focus my first 30 days on establishing a baseline of security events across endpoints, identity, and cloud sources to identify credible indicators, leveraging my Python and SQL skills for defensible data analysis. My priority is to define clear monitoring criteria and validation methods for these events, ensuring I can effectively investigate credible threats without inventing specific metrics or tools. Success will be validated by my ability to consistently identify and investigate credible indicators within these defined parameters."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(alignment.questionIntent == .improvementPlan)
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+        #expect(alignment.matchedThemes.contains("concrete action"))
+    }
+
+    @Test
     func reliabilityQuestionAcceptsMonitoringCalibrationAndFeedbackActions() {
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "How would you improve the reliability of tactile manipulation on a real robot?",
@@ -339,6 +397,18 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
+    func prospectiveTradeoffRecommendationCountsAsAnExplicitDecision() {
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: "How would you communicate a reliability trade off when delivery pressure is high?",
+            answerText: "I would present the reliability risk and delivery impact clearly, then propose a phased release that balances speed with stability. I would document the decision and recommend prioritizing the safeguards that prevent service interruption."
+        )
+
+        #expect(alignment.questionIntent == .technicalTradeoff)
+        #expect(alignment.verdict == .aligned)
+        #expect(!alignment.missingThemes.contains("decision"))
+    }
+
+    @Test
     func newRuntimeQuestionAnswersAlignWithSpecificIntents() {
         let decoder = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
@@ -518,6 +588,21 @@ struct QuestionAnswerAlignmentTests {
         #expect(alignment.questionIntent == .improvementPlan)
         #expect(alignment.verdict == .mismatched)
         #expect(alignment.reason.localizedCaseInsensitiveContains("missing"))
+    }
+
+    @Test
+    func firstThirtyDaysImprovementQuestionUsesPlanIntentAndAcceptsFutureActions() {
+        let question = "What would your first 30 days of security monitoring improvement look like?"
+        let answer = "I would make security monitoring improvement my first priority by reviewing alert quality and validating control gaps. I would measure success through timely investigation, preserved evidence, reduced repeat risk, and proportionate escalation."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer,
+            sayFirst: answer
+        )
+
+        #expect(IntentRouter.answerIntent(for: question) == .improvementPlan)
+        #expect(alignment.questionIntent == .improvementPlan)
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
     }
 
     @Test

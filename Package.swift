@@ -45,6 +45,8 @@ let package = Package(
                 .process("Fixtures/cybersecurity_candidate_profile.json"),
                 .process("Fixtures/data_scientist_candidate_profile.json"),
                 .process("Fixtures/product_manager_candidate_profile.json"),
+                .process("Fixtures/release_64_questions.json"),
+                .process("Fixtures/DialogueScenarios/dialogue_scenarios_128.json"),
                 .process("Fixtures/robotics_phd_candidate_profile.json"),
                 .process("Fixtures/robotics_phd_opportunity_context.json"),
                 .copy("Fixtures/WebSourcedSyntheticContexts")

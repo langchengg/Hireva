@@ -15,7 +15,12 @@ enum IntentRouter {
         if containsAny(text, ["about yourself", "introduce yourself", "walk me through your background"]) {
             return .tellMeAboutYourself
         }
-        if containsAny(text, ["why do you want", "why this role", "join our team", "interested in this role"]) {
+        if containsAny(text, [
+            "why do you want", "why this role", "join our team", "join our company",
+            "interested in this role", "interested in joining", "attracts you to",
+            "prepare you for this role", "prepares you for this role",
+            "prepare you for this position", "prepares you for this position", "background prepare"
+        ]) {
             return .whyRole
         }
         if isProjectComparisonQuestion(text) { return .projectComparison }
@@ -35,34 +40,60 @@ enum IntentRouter {
         if containsAny(text, ["control architecture", "system architecture", "technical architecture"]) {
             return .systemIntegrationDebugging
         }
+        if containsAny(text, ["response latency", "real time bottleneck", "real-time bottleneck"]) &&
+            containsAny(text, ["investigate", "diagnose", "find", "measure"]) {
+            return .systemIntegrationDebugging
+        }
         if text.contains("system integration") && containsAny(text, ["debug", "failure", "problem", "issue"]) {
             return .systemIntegrationDebugging
         }
-        if containsAny(text, ["hardest technical challenge", "hardest challenge", "technically difficult", "most difficult", "most fragile"]) || isRealWorldExecutionQuestion(text) {
+        if containsAny(text, ["localization", "localisation"]) &&
+            containsAny(text, ["debug", "drift", "verify the fix", "root cause"]) {
+            return .systemIntegrationDebugging
+        }
+        if containsAny(text, ["hardest technical challenge", "hardest challenge", "technically difficult", "most difficult", "most fragile"]) ||
+            (text.contains("what made") && containsAny(text, ["harder", "difficult", "challenging", "fragile"])) ||
+            isRealWorldExecutionQuestion(text) {
             return .technicalChallenge
         }
         if isSystemIntegrationFamilyQuestion(text) { return .systemIntegrationDebugging }
         if containsAny(text, ["dataset adaptation", "adapt the dataset", "migrate the data", "mapped the data", "data format"]) ||
-            (containsAny(text, ["adapt", "mapped", "converted", "migrated"]) && containsAny(text, ["data", "dataset", "trajector", "records", "format"])) {
+            (containsAny(text, ["adapt", "mapped", "convert", "converted", "transform", "transformed", "migrated"]) &&
+                containsAny(text, ["data", "dataset", "demonstration", "trajector", "actions", "records", "format"])) {
             return .datasetAdaptation
         }
         if containsAny(text, ["model comparison", "compare the models", "compared the approaches", "algorithm comparison"]) {
             return .modelComparison
         }
-        if containsAny(text, ["technical trade-off", "technical tradeoff", "trade off", "trade-off"]) {
+        if containsAny(text, ["technical trade-off", "technical tradeoff", "trade off", "trade-off"]) ||
+            (text.contains("balance") && text.contains(" against ")) {
             return .technicalTradeoff
         }
-        if containsAny(text, ["noisy", "error handling", "handled errors", "failure recovery", "recover from"]) {
+        if containsAny(text, ["noisy", "error handling", "handled errors", "failure recovery", "recover from"]) ||
+            (text.contains("failure") && containsAny(text, ["diagnos", "recover", "resolv", "validat"])) {
             return .errorHandling
         }
-        if containsAny(text, ["another month", "one more month", "change first", "improve first", "do differently"]) {
+        if containsAny(text, [
+            "another month", "one more month", "change first", "improve first", "do differently",
+            "what would your first 30 days", "what would your first thirty days",
+            "what would your first 90 days", "what would your first three months",
+            "what would your first month", "improvement plan", "next three steps"
+        ]) {
             return .improvementPlan
         }
-        if containsAny(text, ["comfortable with", "experience with", "proficiency", "skill level", "how well do you know"]) {
+        if containsAny(text, [
+            "comfortable with", "how comfortable are you", "experience with",
+            "proficiency", "skill level", "how well do you know"
+        ]) {
             return .skillComfort
         }
-        if containsAny(text, ["walk me through", "tell me about your project", "describe your project", "project did you work"]) ||
-            (text.contains("project") && containsAny(text, ["explain your", "explain the", "describe your"])) {
+        if containsAny(text, ["tell me about your project", "describe your project", "project did you work"]) ||
+            (text.contains("project") && containsAny(text, [
+                "walk me through", "explain your", "explain the", "describe your",
+                "personal contribution", "architecture", "what did you build", "teach you",
+                "demonstrates your"
+            ])) ||
+            (text.contains("personal contribution") && containsAny(text, ["project", "leorover", "vla", "robot"])) {
             return .projectWalkthrough
         }
         return .generic
@@ -140,7 +171,7 @@ enum IntentRouter {
     static func isRealWorldExecutionQuestion(_ text: String) -> Bool {
         let normalized = normalize(text)
         return containsAny(normalized, ["real-world", "real world", "production", "deployment", "hardware", "field testing"]) &&
-            containsAny(normalized, ["hard", "difficult", "challenge", "failure", "reliable", "uncertain", "debug"])
+            containsAny(normalized, [" hard ", "difficult", "challenge", "failure", "reliable", "uncertain", "debug"])
     }
 
     static func isDebuggingReflectionQuestion(_ text: String) -> Bool {
@@ -187,7 +218,8 @@ enum IntentRouter {
 
     private static func isProjectComparisonQuestion(_ text: String) -> Bool {
         containsAny(text, ["compare the projects", "difference between the projects", "how were the projects different", "contrast the projects"]) ||
-            (text.contains("difference between") && text.components(separatedBy: "project").count >= 3)
+            (text.contains("difference between") && text.components(separatedBy: "project").count >= 3) ||
+            (text.contains("vla") && text.contains("leorover") && containsAny(text, ["difference", "compare", "contrast", "complement"]))
     }
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {

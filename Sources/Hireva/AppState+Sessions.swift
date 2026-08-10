@@ -52,9 +52,10 @@ extension AppState {
                 }
             }
             try localDataService.deleteAllLocalData(includeAPIKey: includeAPIKey)
+            try clearRuntimeTranscriptTrace()
             clearLiveSession()
             refreshAll()
-            completeAction(ActionID.clearLocalData, title: "Local data cleared", message: includeAPIKey ? "Documents, sessions, transcripts, and saved keys were cleared." : "Documents, sessions, and transcripts were cleared.")
+            completeAction(ActionID.clearLocalData, title: "Local data cleared", message: includeAPIKey ? "Documents, sessions, transcripts, diagnostic traces, and saved keys were cleared." : "Documents, sessions, transcripts, and diagnostic traces were cleared.")
         } catch {
             let message = "Could not delete local data: \(error.localizedDescription)"
             failAction(ActionID.clearLocalData, title: "Clear failed", message: message)

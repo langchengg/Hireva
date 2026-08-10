@@ -231,7 +231,7 @@ struct LocalModelsSetupTests {
                 let body = try requestBodyData(for: request)
                 let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(json["think"] as? Bool == false)
-                #expect(json["stream"] as? Bool == false)
+                #expect(json["stream"] as? Bool == true)
                 let data = Data(#"{"message":{"role":"assistant","content":"hello world"},"done":true}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             }
@@ -269,7 +269,7 @@ struct LocalModelsSetupTests {
                 let body = try requestBodyData(for: request)
                 let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(json["think"] as? Bool == false)
-                #expect(json["stream"] as? Bool == false)
+                #expect(json["stream"] as? Bool == true)
                 let messages = try #require(json["messages"] as? [[String: Any]])
                 #expect(messages.contains { ($0["role"] as? String) == "system" })
                 #expect(messages.contains { ($0["role"] as? String) == "user" && (($0["content"] as? String)?.contains("Answer this") ?? false) })
@@ -443,9 +443,16 @@ struct LocalModelsSetupTests {
         #expect(await missing.isRuntimeAvailable() == false)
 
         let executable = temporaryDirectory().appendingPathComponent("fake-sidecar.sh")
+#if arch(arm64)
+        let architecture = "arm64"
+#elseif arch(x86_64)
+        let architecture = "x86_64"
+#else
+        let architecture = "unknown"
+#endif
         try """
         #!/bin/sh
-        exit 0
+        printf '%s\\n' '{"status":"ok","runtimeMode":"bundled_native","runtimeVersion":"1","sherpaVersion":"1.13.4","onnxRuntimeVersion":"1.27.0","architecture":"\(architecture)","source":"local_parakeet_asr","modelStatus":"not_probed"}'
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
@@ -518,6 +525,34 @@ struct LocalModelsSetupTests {
         try appState.transcriptRepository.saveSegment(emitted[0])
         let persisted = try #require(try appState.transcriptRepository.segmentByID("p1"))
         #expect(persisted.asrSource == .localParakeetASR)
+    }
+
+    @Test @MainActor
+    func automaticLocalQwenFailureUsesNonblockingFeedbackWithoutModalAlert() async throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        appState.currentSession = session
+        appState.answerProviderModeOverride = .localQwenPrimary
+        appState.localLLMProviderOverride = MockLocalLLMProvider(tokens: [
+            "I cannot answer because the required context is missing."
+        ])
+
+        await appState.handleTranscriptSegment(TranscriptSegment(
+            id: "automatic-qwen-failure",
+            sessionID: session.id,
+            source: .systemAudio,
+            speaker: .interviewer,
+            text: "How would you investigate suspicious privileged access while preserving evidence and keeping critical business services available?",
+            asrSource: .localParakeetASR,
+            asrFinalizationReason: "final_accepted",
+            recognitionIsFinal: true
+        ))
+
+        let generationTask = try #require(appState.activeAITask)
+        await generationTask.value
+        #expect(appState.latestActionFeedback(for: ActionID.generateAnswer)?.kind == .error)
+        #expect(appState.errorMessage == nil)
+        #expect(appState.latestActionFeedback(for: ActionID.generateAnswer)?.message.contains("Transcript preserved") == true)
     }
 
     @Test
@@ -694,7 +729,9 @@ struct LocalModelsSetupTests {
         #expect(finished)
         #expect(provider.requests.count == 1)
         #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
-        try await waitUntil(timeout: 1.0) {
+        // Persistence intentionally runs on a utility task. Keep a bounded safety
+        // timeout, but do not treat scheduler latency as product performance.
+        try await waitUntil(timeout: 30.0) {
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
             return rows.contains { $0.id == "phd-architecture-card" }
         }
@@ -900,6 +937,42 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
+    func localQwenImprovementPlanGroundedRecoveryUsesFuturePlanConstraints() async throws {
+        let questionText = "What would your first 30 days of security monitoring improvement look like?"
+        let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState(
+            questionText: questionText
+        )
+        let answer = "I would focus my first 30 days on establishing a baseline of security events across endpoints, identity, and cloud sources to identify credible indicators. My priority is to define clear monitoring criteria and validation methods, then investigate credible threats against those criteria."
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [[], [], [], [answer]])
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Security monitoring and incident triage.",
+            jdSummary: "Improve security monitoring controls.",
+            generationID: generationID,
+            cardID: "qwen-improvement-recovery-card",
+            requestStart: requestStart,
+            triggerPath: .manualGenerate,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 4)
+        let groundedPrompt = try #require(provider.requests.last?.prompt)
+        #expect(groundedPrompt.contains("future improvement-plan question"))
+        #expect(groundedPrompt.contains("Do not add any number, metric, target"))
+        #expect(appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
+        #expect(appState.currentSuggestion?.softFallbackUsed == false)
+    }
+
+    @Test @MainActor
     func localQwenPrimaryRetriesAfterNonAlignedNonEmptyAnswer() async throws {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [
@@ -1053,7 +1126,9 @@ struct LocalModelsSetupTests {
     }
 
     @MainActor
-    private func makeLocalQwenRuntimeState() throws -> (AppState, InterviewSession, DetectedQuestion, String, Date) {
+    private func makeLocalQwenRuntimeState(
+        questionText: String = "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+    ) throws -> (AppState, InterviewSession, DetectedQuestion, String, Date) {
         let appState = try AppState(database: AppDatabase(inMemory: true))
         let session = try appState.sessionRepository.createSession(mode: .microphone)
         appState.currentSession = session
@@ -1061,7 +1136,7 @@ struct LocalModelsSetupTests {
             id: "qwen-question-\(UUID().uuidString)",
             sessionID: session.id,
             transcriptSegmentID: nil,
-            questionText: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
+            questionText: questionText,
             intent: .technical,
             answerStrategy: .technicalExplanation,
             confidence: 0.95,
@@ -1244,6 +1319,7 @@ private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
     let displayName = "Mock Ollama Qwen Sequence"
     private let tokenBatches: [[String]]
     private(set) var generateCallCount = 0
+    private(set) var requests: [LocalLLMRequest] = []
 
     init(tokenBatches: [[String]]) {
         self.tokenBatches = tokenBatches
@@ -1268,6 +1344,7 @@ private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
         generateCallCount += 1
+        requests.append(request)
         let index = min(generateCallCount - 1, max(tokenBatches.count - 1, 0))
         let tokens = tokenBatches.isEmpty ? [] : tokenBatches[index]
         return AsyncThrowingStream { continuation in

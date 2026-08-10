@@ -202,6 +202,26 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func stablePartialDanglingEvidenceQuestionDoesNotGenerateOrPersist() async throws {
+        let (appState, session, client) = try makeAppState()
+
+        await appState.handleTranscriptSegment(systemAudioSegment(
+            id: "stable-partial-dangling-evidence",
+            sessionID: session.id,
+            text: "What measures would show that in",
+            asrFinalizationReason: "stable_partial"
+        ))
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        #expect(appState.displayTranscriptText == "What measures would show that in")
+        #expect(appState.transcriptRuntimeDiagnostics.lastQuestionRejectedAt != nil)
+        #expect(appState.lastDetectionSkipReason == "incomplete question fragment")
+        #expect(appState.currentSuggestion == nil)
+        #expect(client.answerCallCount == 0)
+        #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
+    }
+
+    @Test
     func runtimeConditionalQuestionUsesFullLocalCandidateEvenIfProviderWouldReturnTailOnly() async throws {
         let traceURL = temporaryTraceURL("runtime-conditional-trace")
         let (appState, session, client) = try makeAppState(
@@ -1606,13 +1626,15 @@ struct RuntimePathSingleSourceOfTruthTests {
     func secondAcceptedRuntimeQuestionSupersedesOrQueuesAndOwnsLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-question-queue-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        appState.delayProvider = RealDelayProvider()
         client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
+        let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit"
         let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "queued-first-engineering-fit",
             sessionID: session.id,
-            text: "What would you ask the engineering team to understand whether this role is a good fit"
+            text: firstQuestion
         ))
 
         try await waitUntil(timeout: 8.0) {
@@ -1652,10 +1674,18 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(!appState.currentSpinnerVisible)
 
         try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1 &&
+            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
             appState.liveSuggestionHistory.contains { $0.questionText == secondQuestion }
         }
         let historyQuestions = appState.liveSuggestionHistory.compactMap(\.questionText)
+        let persistedRows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(persistedRows.count == 2)
+        #expect(Set(persistedRows.compactMap(\.questionText)) == Set([firstQuestion, secondQuestion]))
+        let supersededFirst = try #require(persistedRows.first { $0.questionText == firstQuestion })
+        let providerSecond = try #require(persistedRows.first { $0.questionText == secondQuestion })
+        #expect(supersededFirst.finalVisibleSource == "local_superseded_question_snapshot")
+        #expect(supersededFirst.stageBStatus == "superseded")
+        #expect(providerSecond.finalVisibleSource == AnswerSource.deepseekStream.rawValue)
         #expect(historyQuestions.contains(secondQuestion))
         #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
 
@@ -1769,7 +1799,12 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
         #expect(trace.contains("\"event_type\":\"question.accepted\""))
         #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.contains("\"question_intent\":\"generic\"") == false)
+        let secondQuestionTrace = trace.split(separator: "\n").filter { line in
+            line.contains("\"question_id\":\"\(secondQuestionID)\"") ||
+                line.contains("\"generation_id\":\"\(secondGenerationID)\"")
+        }
+        #expect(!secondQuestionTrace.isEmpty)
+        #expect(secondQuestionTrace.allSatisfy { !$0.contains("\"question_intent\":\"generic\"") })
     }
 
     @Test
@@ -2100,6 +2135,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         settings.automaticQuestionDetectionEnabled = true
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         settings.saveTranscriptsLocally = true
+        settings.diagnosticTraceMode = .fullText
         appState.saveSettings(settings)
 
         let session = try appState.createContextBoundSession(mode: .microphone)

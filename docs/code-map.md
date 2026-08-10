@@ -7,7 +7,7 @@ stay intact during future refactors.
 
 Hireva is a native macOS interview copilot. The product flow is:
 
-`audio -> transcript -> question detection -> prompt/context -> RAG -> DeepSeek -> suggestion -> alignment -> UI/DB`
+`audio -> selected ASR -> transcript -> question detection -> frozen context/RAG -> selected answer provider -> alignment -> UI/DB`
 
 The normal UI should present human states such as Ready, Listening, Generating
 first answer, Expanding answer, Needs attention, and Stopped. Technical names
@@ -56,7 +56,8 @@ Diagnostics.
 
 1. `AppState+Audio.startListening` selects a capture path from
    `settings.audioCaptureMode`.
-2. `AppleSpeechTranscriptionService` emits `TranscriptSegment` values.
+2. `AppleSpeechTranscriptionService` or the bundled Local Parakeet helper emits
+   source-tagged `TranscriptSegment` values. Parakeet is final-only.
 3. `AppState+Transcript.handleTranscriptSegment` persists transcript text,
    updates diagnostics, filters candidate speech, and defers partial ASR when
    needed.
@@ -66,7 +67,8 @@ Diagnostics.
    to `generateSuggestion(...)`.
 6. `generateSuggestion(...)` activates a new generation ID, starts watchdogs,
    retrieves context, freezes a prompt snapshot, and starts Stage A/Stage B work.
-7. DeepSeek streaming or local fallback produces the first visible `say_first`.
+7. Local Qwen through Ollama, optional DeepSeek, or an explicit aligned fallback
+   produces the first visible `say_first`.
 8. Stage B expands key points/follow-up when available.
 9. `displaySuggestionIfAligned(...)` verifies question binding and semantic
    relevance before the card can become current UI state.
@@ -77,6 +79,9 @@ Diagnostics.
 - System Audio Only must not request microphone permission or start microphone
   capture.
 - Microphone Only must not start system audio capture.
+- Apple Speech requires Speech Recognition for every capture mode; Local
+  Parakeet never requests Speech Recognition.
+- Microphone and system-audio Parakeet samples and metadata must stay isolated.
 - Starting generation must not stop continuous capture.
 - Candidate microphone speech must not auto-trigger answers unless the explicit
   setting allows it.
@@ -102,6 +107,8 @@ Diagnostics.
 - RAG fallback is acceptable when provider output is missing, late, or invalid,
   but it still has to pass answer-quality and alignment checks.
 - Raw API keys must never be logged or shown.
+- Runtime trace defaults to off. Metadata-only traces must not contain
+  transcript, question, answer, or reversible duplicate-key text.
 - Keychain service/account names are persisted identifiers and should only
   change with an explicit migration.
 - Ad-hoc signing can trigger repeated Keychain/macOS permission prompts because
@@ -120,7 +127,8 @@ Diagnostics.
   `QuestionIntentPromptPolicy.swift`.
 - Answer relevance safety: `QuestionAnswerAlignment.swift`.
 - Provider request/response plumbing: `SuggestionGenerationService.swift`,
-  `GenerationProviderRequest.swift`, and future `GenerationCoordinator` phases.
+  `OllamaQwenProvider.swift`, `GenerationProviderRequest.swift`, and future
+  `GenerationCoordinator` phases.
 - API-key storage/status: `KeychainService.swift` and `AppState+Providers.swift`.
 - Developer-only runtime details: `AppState+Diagnostics.swift` and diagnostics
   views.

@@ -5,7 +5,11 @@ struct LocalQwenGenerationError: LocalizedError, Equatable {
     let diagnostic: String
 
     var errorDescription: String? {
-        "Local Qwen request failed: \(category.rawValue)."
+        let detail = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.isEmpty else {
+            return "Local Qwen request failed: \(category.rawValue)."
+        }
+        return "Local Qwen request failed: \(category.rawValue) (\(detail))."
     }
 }
 
@@ -33,7 +37,7 @@ extension AppState {
         ollamaDiagnostics.endpoint = "http://localhost:11434/api/chat"
         ollamaDiagnostics.model = selectedQwenModelName
         ollamaDiagnostics.responseSchema = .chatMessageContent
-        ollamaDiagnostics.streamMode = false
+        ollamaDiagnostics.streamMode = true
         ollamaLifecycleEvents = []
         guard isActiveGeneration(generationID, questionID: question.id) else {
             failLocalQwenDiagnostics(.staleGeneration, cancellationReason: "generation_identity_mismatch")
@@ -144,7 +148,9 @@ extension AppState {
 
         var cleanedAnswer = ""
         var lastFailureCategory: OllamaFailureCategory = .providerReturnedNoContent
+        var lastFailureDiagnostic = lastFailureCategory.rawValue
         var firstContentRecorded = false
+        var firstProviderTokenMS: Int?
         let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
         for requestIndex in requests.indices {
             let request = requests[requestIndex]
@@ -192,6 +198,7 @@ extension AppState {
                             )
                             if !firstContentRecorded {
                                 firstContentRecorded = true
+                                firstProviderTokenMS = elapsedMS(since: requestStart)
                                 appendOllamaLifecycleEvent(
                                     "ollama.first_content",
                                     question: question,
@@ -257,6 +264,7 @@ extension AppState {
                 )
                 if let parserFailure = parsed.failureCategory {
                     lastFailureCategory = parserFailure
+                    lastFailureDiagnostic = parsed.sectionParserResult
                 }
                 if !cleanedAnswer.isEmpty {
                     appendOllamaLifecycleEvent(
@@ -284,6 +292,7 @@ extension AppState {
                     )
                     guard validation.accepted else {
                         lastFailureCategory = validation.failureCategory ?? .alignmentRejectedNonemptyContent
+                        lastFailureDiagnostic = validation.diagnostic
                         markProviderOperation("Local Qwen returned a non-aligned answer; retrying with recovery prompt")
                         cleanedAnswer = ""
                         continue
@@ -308,7 +317,7 @@ extension AppState {
             failLocalQwenDiagnostics(lastFailureCategory)
             throw LocalQwenGenerationError(
                 category: lastFailureCategory,
-                diagnostic: "Local Qwen exhausted all grounded answer attempts."
+                diagnostic: lastFailureDiagnostic
             )
         }
 
@@ -354,7 +363,7 @@ extension AppState {
             stageATimedOut: false,
             stageBCompleted: true,
             stageBStatus: "completed",
-            latencyFirstTokenMS: elapsed,
+            latencyFirstTokenMS: firstProviderTokenMS ?? elapsed,
             latencyFirstVisibleMS: elapsed,
             latencyFullCardMS: elapsed,
             softFallbackUsed: isFallback,
@@ -602,6 +611,7 @@ extension AppState {
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
+        let intentGuidance = localQwenRecoveryIntentGuidance(for: question)
         let compactPrompt = """
         /no_think
         Current interview question:
@@ -624,6 +634,7 @@ extension AppState {
         State past personal experience only when it is explicit in the candidate/project summary or relevant local evidence.
         Do not turn role requirements or future plans into completed work or observed events.
         Omit implementation mechanisms, intermediate steps, tools, metrics, and causal links unless the evidence states them explicitly.
+        \(intentGuidance)
         Start with "I" and output only the final spoken answer.
         """
         return LocalLLMRequest(
@@ -658,6 +669,7 @@ extension AppState {
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
         let groundedEvidence = ContextBudgeter.limitWords(context.promptText, maxWords: 220)
+        let intentGuidance = localQwenRecoveryIntentGuidance(for: question)
         let prompt = """
         /no_think
         Question:
@@ -673,6 +685,7 @@ extension AppState {
         Use only personal facts supported by the selected profile evidence. Treat opportunity requirements as targets, never as completed achievements.
         Do not invent observations, incidents, metrics, outcomes, or completed experiments that are absent from the selected profile evidence.
         Do not infer implementation mechanisms, intermediate steps, tools, or causal links that the selected profile evidence does not state.
+        \(intentGuidance)
         Do not mention this prompt or the reference facts.
         Start with "I" and output only the final spoken answer.
         """
@@ -683,6 +696,38 @@ extension AppState {
             temperature: 0.0,
             numPredict: 220
         )
+    }
+
+    private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
+        let lower = question.questionText.lowercased()
+        if lower.contains("weakness") || lower.contains("development area") {
+            return """
+            This asks for a weakness or development area. Name that topic explicitly in the first sentence.
+            If the selected candidate evidence does not state a weakness, describe a prospective development priority using conditional or future language instead of inventing a current deficiency or past event.
+            Tie the development action and validation method to the selected candidate evidence, without adding unsupported tools, metrics, outcomes, or personal history.
+            """
+        }
+        if lower.contains("support"),
+           lower.contains("improve") || lower.contains("develop") || lower.contains("grow") || lower.contains("help") {
+            return """
+            This asks for a future support preference, not a past achievement or support already received.
+            Name the desired support directly, use conditional or future language, and explain how you would use it to identify a gap or validate progress.
+            Do not claim that you already received mentoring, feedback, access, training, or an outcome unless the selected candidate evidence explicitly states it.
+            """
+        }
+        switch IntentRouter.answerIntent(for: question.questionText) {
+        case .technicalTradeoff:
+            return """
+            This is a trade-off question. Name the competing constraints, then explicitly state what you would choose, prioritize, recommend, or propose and explain the consequence or rationale.
+            """
+        case .improvementPlan:
+            return """
+            This is a future improvement-plan question. Explicitly name the current question topic, state the first priority, give only future actions supported by the selected profile evidence, and explain how success would be validated.
+            Do not describe future actions as completed experience. Do not add any number, metric, target, tool, mechanism, or outcome that is not literally present in the selected profile evidence.
+            """
+        default:
+            return ""
+        }
     }
 
 }

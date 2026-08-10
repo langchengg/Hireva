@@ -127,12 +127,29 @@ public enum EmbeddingProviderKind: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+public enum DiagnosticTraceMode: String, CaseIterable, Codable, Hashable, Identifiable {
+    case off
+    case metadataOnly
+    case fullText
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .metadataOnly: return "Metadata only"
+        case .fullText: return "Full text (sensitive)"
+        }
+    }
+}
+
 public struct AppSettings: Hashable, Codable {
     public var realtimeModel: DeepSeekModel
     public var recapModel: DeepSeekModel
     public var automaticQuestionDetectionEnabled: Bool
     public var manualOnlyMode: Bool
     public var saveTranscriptsLocally: Bool
+    public var diagnosticTraceMode: DiagnosticTraceMode
     public var allowQuestionDetectionFromMicrophoneOnly: Bool
     public var audioCaptureMode: AudioCaptureMode
     public var floatingWindowOpacity: Double
@@ -172,6 +189,7 @@ public struct AppSettings: Hashable, Codable {
         automaticQuestionDetectionEnabled: true,
         manualOnlyMode: false,
         saveTranscriptsLocally: true,
+        diagnosticTraceMode: .off,
         allowQuestionDetectionFromMicrophoneOnly: false,
         audioCaptureMode: .microphoneAndSystem,
         floatingWindowOpacity: 0.82,
@@ -204,6 +222,7 @@ public struct AppSettings: Hashable, Codable {
         case automaticQuestionDetectionEnabled
         case manualOnlyMode
         case saveTranscriptsLocally
+        case diagnosticTraceMode
         case allowQuestionDetectionFromMicrophoneOnly
         case audioCaptureMode
         case floatingWindowOpacity
@@ -239,6 +258,7 @@ public struct AppSettings: Hashable, Codable {
         automaticQuestionDetectionEnabled: Bool,
         manualOnlyMode: Bool,
         saveTranscriptsLocally: Bool,
+        diagnosticTraceMode: DiagnosticTraceMode = .off,
         allowQuestionDetectionFromMicrophoneOnly: Bool,
         audioCaptureMode: AudioCaptureMode,
         floatingWindowOpacity: Double,
@@ -269,6 +289,7 @@ public struct AppSettings: Hashable, Codable {
         self.automaticQuestionDetectionEnabled = automaticQuestionDetectionEnabled
         self.manualOnlyMode = manualOnlyMode
         self.saveTranscriptsLocally = saveTranscriptsLocally
+        self.diagnosticTraceMode = diagnosticTraceMode
         self.allowQuestionDetectionFromMicrophoneOnly = allowQuestionDetectionFromMicrophoneOnly
         self.audioCaptureMode = audioCaptureMode
         self.floatingWindowOpacity = floatingWindowOpacity
@@ -304,6 +325,8 @@ public struct AppSettings: Hashable, Codable {
         self.automaticQuestionDetectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .automaticQuestionDetectionEnabled) ?? true
         self.manualOnlyMode = try container.decodeIfPresent(Bool.self, forKey: .manualOnlyMode) ?? false
         self.saveTranscriptsLocally = try container.decodeIfPresent(Bool.self, forKey: .saveTranscriptsLocally) ?? true
+        let traceModeRawValue = try container.decodeIfPresent(String.self, forKey: .diagnosticTraceMode)
+        self.diagnosticTraceMode = traceModeRawValue.flatMap(DiagnosticTraceMode.init(rawValue:)) ?? .off
         self.allowQuestionDetectionFromMicrophoneOnly = try container.decodeIfPresent(Bool.self, forKey: .allowQuestionDetectionFromMicrophoneOnly) ?? false
         self.audioCaptureMode = try container.decodeIfPresent(AudioCaptureMode.self, forKey: .audioCaptureMode) ?? .microphoneAndSystem
         self.floatingWindowOpacity = try container.decodeIfPresent(Double.self, forKey: .floatingWindowOpacity) ?? 0.82
@@ -348,6 +371,7 @@ public struct AppSettings: Hashable, Codable {
         try container.encode(automaticQuestionDetectionEnabled, forKey: .automaticQuestionDetectionEnabled)
         try container.encode(manualOnlyMode, forKey: .manualOnlyMode)
         try container.encode(saveTranscriptsLocally, forKey: .saveTranscriptsLocally)
+        try container.encode(diagnosticTraceMode.rawValue, forKey: .diagnosticTraceMode)
         try container.encode(allowQuestionDetectionFromMicrophoneOnly, forKey: .allowQuestionDetectionFromMicrophoneOnly)
         try container.encode(audioCaptureMode, forKey: .audioCaptureMode)
         try container.encode(floatingWindowOpacity, forKey: .floatingWindowOpacity)
@@ -372,5 +396,12 @@ public struct AppSettings: Hashable, Codable {
         try container.encode(hybridKeywordWeight, forKey: .hybridKeywordWeight)
         try container.encode(autoGenerateEmbeddingsOnDocumentSave, forKey: .autoGenerateEmbeddingsOnDocumentSave)
         try container.encode(embeddingTimeoutSeconds, forKey: .embeddingTimeoutSeconds)
+    }
+
+    public var effectiveDiagnosticTraceMode: DiagnosticTraceMode {
+        guard !saveTranscriptsLocally, diagnosticTraceMode == .fullText else {
+            return diagnosticTraceMode
+        }
+        return .metadataOnly
     }
 }
