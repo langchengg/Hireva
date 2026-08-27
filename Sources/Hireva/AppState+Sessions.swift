@@ -43,7 +43,11 @@ extension AppState {
 
     func deleteAllLocalData(includeAPIKey: Bool) {
         guard !isActionLoading(ActionID.clearLocalData) else { return }
-        beginAction(ActionID.clearLocalData, title: "Clearing local data", message: "Stopping capture and deleting local app data...")
+        beginAction(
+            ActionID.clearLocalData,
+            title: "Clearing stored interview data",
+            message: "Stopping capture and deleting imported documents, interview history, and diagnostic traces..."
+        )
         stopListening()
         do {
             if includeAPIKey {
@@ -55,7 +59,15 @@ extension AppState {
             try clearRuntimeTranscriptTrace()
             clearLiveSession()
             refreshAll()
-            completeAction(ActionID.clearLocalData, title: "Local data cleared", message: includeAPIKey ? "Documents, sessions, transcripts, diagnostic traces, and saved keys were cleared." : "Documents, sessions, transcripts, and diagnostic traces were cleared.")
+            let retainedItems = "Exported files, downloaded local models, and app preferences were kept."
+            let clearedItems = includeAPIKey
+                ? "Imported documents, interview history, diagnostic traces, and currently configured provider keys were cleared."
+                : "Imported documents, interview history, and diagnostic traces were cleared. Configured provider keys were kept."
+            completeAction(
+                ActionID.clearLocalData,
+                title: "Stored interview data cleared",
+                message: "\(clearedItems) \(retainedItems)"
+            )
         } catch {
             let message = "Could not delete local data: \(error.localizedDescription)"
             failAction(ActionID.clearLocalData, title: "Clear failed", message: message)

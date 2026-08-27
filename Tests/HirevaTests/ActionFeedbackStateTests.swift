@@ -115,6 +115,9 @@ struct ActionFeedbackStateTests {
     func clearLocalDataFeedbackDoesNotExposeRawKey() throws {
         let appState = try makeAppState()
         let rawKey = "sk-clear-local-secret-4321"
+        var retainedSettings = appState.settings
+        retainedSettings.floatingWindowOpacity = 0.73
+        appState.saveSettings(retainedSettings)
         appState.saveAPIKey(rawKey)
 
         appState.deleteAllLocalData(includeAPIKey: false)
@@ -123,7 +126,11 @@ struct ActionFeedbackStateTests {
         #expect(feedback.kind == .success)
         #expect(!feedback.title.contains(rawKey))
         #expect(!feedback.message.contains(rawKey))
+        #expect(feedback.title == "Stored interview data cleared")
+        #expect(feedback.message.contains("Configured provider keys were kept."))
+        #expect(feedback.message.contains("Exported files, downloaded local models, and app preferences were kept."))
         #expect(appState.keychainDeepSeekKeyExists)
+        #expect(try appState.settingsRepository.loadSettings().floatingWindowOpacity == 0.73)
     }
 
     private func makeAppState() throws -> AppState {

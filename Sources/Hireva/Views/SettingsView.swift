@@ -338,37 +338,50 @@ struct SettingsView: View {
 
     private var privacyCard: some View {
         settingsCard("Privacy & Security", icon: "lock.shield") {
-            Text("Provider keys are securely saved and never shown in raw form. Documents, transcripts, and sessions are stored locally unless you clear them.")
+            Text("Provider keys are securely saved and never shown in raw form. Imported document contents and interview history are stored locally. Clearing them keeps exported files, downloaded local models, and app preferences.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Toggle("Also delete securely saved provider keys", isOn: $includeAPIKeyInDelete)
+            Toggle("Also delete currently configured provider keys", isOn: $includeAPIKeyInDelete)
 
             InlineStatusBanner(appState.latestActionFeedback(for: ActionID.clearLocalData))
 
             ActionButton(
                 appState: appState,
                 actionID: ActionID.clearLocalData,
-                title: "Clear Local Data",
+                title: "Clear Stored Interview Data",
                 loadingTitle: "Clearing...",
                 successTitle: "Cleared",
                 systemImage: "trash",
                 role: .destructive
             ) {
-                appState.infoAction(ActionID.clearLocalData, title: "Confirm clear local data", message: "Confirm before deleting local documents, sessions, and transcripts.", autoDismissAfter: nil)
+                appState.infoAction(
+                    ActionID.clearLocalData,
+                    title: "Confirm clear stored interview data",
+                    message: "Confirm before deleting imported document contents, interview history, and diagnostic traces.",
+                    autoDismissAfter: nil
+                )
                 confirmClearLocalData = true
             }
         }
-        .confirmationDialog("Clear local app data?", isPresented: $confirmClearLocalData) {
-            Button("Clear Local Data", role: .destructive) {
+        .confirmationDialog("Clear stored interview data?", isPresented: $confirmClearLocalData) {
+            Button("Clear Stored Interview Data", role: .destructive) {
                 appState.deleteAllLocalData(includeAPIKey: includeAPIKeyInDelete)
             }
             Button("Cancel", role: .cancel) {
-                appState.infoAction(ActionID.clearLocalData, title: "Clear cancelled", message: "Local documents, sessions, transcripts, and keys were left unchanged.")
+                appState.infoAction(
+                    ActionID.clearLocalData,
+                    title: "Clear cancelled",
+                    message: "Imported documents, interview history, diagnostic traces, exports, local models, preferences, and provider keys were left unchanged."
+                )
             }
         } message: {
-            Text(includeAPIKeyInDelete ? "This clears local documents, sessions, transcripts, and securely saved provider keys." : "This clears local documents, sessions, and transcripts. Securely saved provider keys are kept.")
+            Text(
+                includeAPIKeyInDelete
+                    ? "This deletes imported document contents, interview history, diagnostic traces, and currently configured provider keys. Exported files, downloaded local models, and app preferences are kept."
+                    : "This deletes imported document contents, interview history, and diagnostic traces. Exported files, downloaded local models, app preferences, and provider keys are kept."
+            )
         }
     }
 

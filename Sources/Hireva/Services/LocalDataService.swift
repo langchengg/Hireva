@@ -6,7 +6,6 @@ final class LocalDataService {
     let transcripts: TranscriptRepository
     let suggestions: SuggestionRepository
     let recaps: RecapRepository
-    let settings: SettingsRepository
     private let keychainService: KeychainService?
 
     init(
@@ -15,7 +14,6 @@ final class LocalDataService {
         transcripts: TranscriptRepository,
         suggestions: SuggestionRepository,
         recaps: RecapRepository,
-        settings: SettingsRepository,
         keychainService: KeychainService? = nil
     ) {
         self.documents = documents
@@ -23,14 +21,12 @@ final class LocalDataService {
         self.transcripts = transcripts
         self.suggestions = suggestions
         self.recaps = recaps
-        self.settings = settings
         self.keychainService = keychainService
     }
 
     func deleteAllLocalData(includeAPIKey: Bool) throws {
         try sessions.deleteAllSessions()
         try documents.deleteAllDocuments()
-        try settings.deleteAllSettings()
         if includeAPIKey {
             try keychainService?.deleteAPIKey()
         }
