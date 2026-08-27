@@ -1629,7 +1629,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         let traceURL = temporaryTraceURL("runtime-question-queue-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
         appState.delayProvider = RealDelayProvider()
-        client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        client.stageAStreamNeverYieldsByNeedle.insert("engineering team")
         let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit"
         let secondQuestion = "If you had one more month to improve your SyntheticEventService system, what would you improve first?"
 
