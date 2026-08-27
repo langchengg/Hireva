@@ -577,7 +577,7 @@ fi
     -string "Hireva uses the microphone to transcribe interview audio in real time." \
     "$INFO_PLIST"
 /usr/bin/plutil -insert NSSpeechRecognitionUsageDescription \
-    -string "Hireva uses Apple Speech Recognition to create live interview transcripts." \
+    -string "Hireva uses Apple Speech to transcribe selected interview audio. Depending on macOS and locale, processing may occur on Apple servers." \
     "$INFO_PLIST"
 /usr/bin/plutil -insert NSScreenCaptureUsageDescription \
     -string "Hireva captures system audio to detect interviewer questions automatically." \

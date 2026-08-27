@@ -219,11 +219,11 @@ struct LocalModelsSetupView: View {
             setupCard(
                 icon: "checklist",
                 title: "Local-first setup, optional by default",
-                status: "Local Qwen is primary; Apple Speech is the default ASR.",
+                status: "Local Qwen is primary; Apple Speech may use Apple servers.",
                 tint: .blue
             ) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Local Qwen is the default answer provider. Apple Speech is the default transcription provider; Local Parakeet remains experimental until both model files and runtime are ready.")
+                    Text("Local Qwen is the default answer provider. Apple Speech is the availability default for transcription and may process audio on Apple servers depending on macOS and locale. Local Parakeet stays on this Mac but remains experimental until its model files and runtime are ready.")
                         .foregroundStyle(.secondary)
                     HStack {
                         Button {
@@ -254,7 +254,7 @@ struct LocalModelsSetupView: View {
             )
             permissionCard(
                 title: "Speech Recognition",
-                detail: speechRecognitionRequiredForSetup ? "Required by Apple Speech transcription." : "Not required for the selected ASR provider.",
+                detail: speechRecognitionRequiredForSetup ? "Required by Apple Speech; audio processing may occur on Apple servers depending on macOS and locale." : "Not required for the selected ASR provider.",
                 granted: !speechRecognitionRequiredForSetup || appState.permissionSnapshot.speechRecognition == .granted,
                 actionTitle: appState.permissionSnapshot.speechRecognition == .notDetermined ? "Grant Permission" : "Open Settings",
                 action: { appState.requestSpeechPermission() }
@@ -303,7 +303,7 @@ struct LocalModelsSetupView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     diagnosticRow("Recommended ASR", viewModel.transcriptionModel.displayName)
                     diagnosticRow("Recommended LLM", LocalModelDescriptor.defaultQwenLocalLLM.id)
-                    diagnosticRow("Runtime defaults", "Local Qwen primary, Apple Speech ASR")
+                    diagnosticRow("Runtime defaults", "Local Qwen primary; Apple Speech may use Apple servers")
                     Button {
                         viewModel.installRecommended(qwenModel: selectedQwenModel)
                     } label: {
@@ -441,7 +441,7 @@ struct LocalModelsSetupView: View {
                         .disabled(!viewModel.canEnableParakeet())
                     }
                 }
-                Text("Apple Speech is the default. Local Parakeet is experimental and final-only, and activates only after the model and bundled native helper pass readiness checks.")
+                Text("Apple Speech may process captured audio on Apple servers depending on macOS and locale. Local Parakeet keeps transcription on this Mac, is experimental and final-only, and activates only after the model and bundled native helper pass readiness checks. Existing valid provider choices are preserved during migration.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -465,6 +465,12 @@ struct LocalModelsSetupView: View {
             VStack(alignment: .leading, spacing: 8) {
                 diagnosticRow("Answer mode", providerMode.displayName)
                 diagnosticRow("Selected ASR mode", appState.selectedASRProviderID.displayName)
+                diagnosticRow(
+                    "ASR data path",
+                    appState.selectedASRProviderID == .appleSpeech
+                        ? "Apple Speech; processing may use Apple servers"
+                        : "Local Parakeet; processing stays on this Mac"
+                )
                 diagnosticRow("Active ASR mode", appState.activeASRProviderDisplayName)
                 diagnosticRow("Latest transcript ASR source", appState.latestTranscriptASRSource)
                 diagnosticRow("Transcription model", viewModel.transcriptionStatus.displayName)

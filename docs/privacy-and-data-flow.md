@@ -16,7 +16,7 @@ content as confidential unless the user has explicitly classified it otherwise.
 | User choice or action | Data sent | Destination | Network behavior |
 | --- | --- | --- | --- |
 | Local Parakeet ASR | Captured PCM audio and local model path | Bundled `parakeet_asr_helper` child process | Local process only after model installation |
-| Apple Speech ASR | Captured audio | Apple's Speech framework | Do not assume offline operation; behavior depends on the OS and recognizer |
+| Apple Speech ASR | Captured audio | Apple's Speech framework and potentially Apple servers, depending on macOS and locale | Do not classify this path as local-only; disclose it before Speech authorization |
 | Local Qwen answers | Prompt, transcript/question context, and generation settings | User-installed Ollama at `http://localhost:11434/api/chat` | Loopback request; Ollama is external and may use the network to pull models |
 | DeepSeek answers | Prompt and selected interview context | `https://api.deepseek.com/chat/completions` | Remote HTTPS request when the user selects/configures DeepSeek |
 | Configured cloud embeddings | Text selected for embedding | User-configured OpenAI-compatible embedding endpoint | Remote HTTPS request when that optional provider is enabled |

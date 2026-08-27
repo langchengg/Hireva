@@ -74,9 +74,13 @@ extension AppState {
         defer {
             preferenceDefaults.set(true, forKey: Self.appleSpeechASRDefaultMigrationKey)
         }
-        let rawValue = preferenceDefaults.string(forKey: Self.selectedASRProviderKey)
-        guard rawValue == ASRProviderID.localParakeet.rawValue else { return }
-        setSelectedASRProvider(.appleSpeech)
+        guard let rawValue = preferenceDefaults.string(forKey: Self.selectedASRProviderKey),
+              ASRProviderID(rawValue: rawValue) == nil else { return }
+
+        // Invalid legacy values fall back to the availability default. A valid
+        // explicit local choice is user data and must never be overwritten by
+        // a default migration.
+        preferenceDefaults.removeObject(forKey: Self.selectedASRProviderKey)
     }
 
     func runLaunchASRProviderDefaultMigrationIfNeeded() {

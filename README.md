@@ -61,7 +61,7 @@ Floating Interview Assistant + local SQLite history
 
 Hireva is built with Swift, SwiftUI, Swift Package Manager, ScreenCaptureKit, AVFoundation, Apple Speech, Swift Concurrency, GRDB, and SQLite. Its local ASR path runs NVIDIA Parakeet TDT through a bundled native `sherpa-onnx` and ONNX Runtime helper, while local answer generation uses Qwen3.5 through Ollama's streaming API. DeepSeek remains an optional cloud-backed provider for users who explicitly configure it.
 
-Hireva is **local-first**, not local-only. The recommended Parakeet + Qwen configuration can keep interview transcription and answer generation on the Mac. Apple Speech behavior depends on macOS, while optional DeepSeek or cloud embedding providers send selected content to their configured remote services.
+Hireva is **local-first**, not local-only. The recommended Parakeet + Qwen configuration can keep interview transcription and answer generation on the Mac. Apple Speech may process captured audio on Apple servers depending on macOS and locale, while optional DeepSeek or cloud embedding providers send selected content to their configured remote services.
 
 ## Why Hireva?
 
@@ -294,7 +294,7 @@ Interview audio is processed locally after the Parakeet model is installed. Qwen
 
 | Choice | Data boundary |
 | --- | --- |
-| Apple Speech | Audio is processed through Apple's Speech framework; do not assume offline behavior for every macOS/locale configuration |
+| Apple Speech | Captured audio may be processed on Apple servers depending on macOS and locale; do not treat this path as local-only |
 | DeepSeek | The prompt and selected interview context are sent over HTTPS to the configured remote provider |
 | Cloud embeddings | Selected text is sent to the user-configured embedding endpoint |
 | Parakeet model installation | Downloads the pinned model from trusted GitHub release hosts; interview content is not sent with the model request |
@@ -348,7 +348,7 @@ Useful engineering references:
 - Hireva supports macOS 14 or later; Apple Silicon `arm64` is the only packaged and validated architecture.
 - Local Parakeet is experimental and produces final utterance transcripts rather than true word-by-word partial ASR.
 - Ollama is a separately installed and operated local service; Qwen is not bundled in the DMG.
-- Apple Speech availability and on-device behavior depend on macOS and locale.
+- Apple Speech availability and on-device behavior depend on macOS and locale; captured audio may be processed on Apple servers.
 - Current DMGs are ad-hoc signed, not Developer ID signed, not notarized, and rejected by Gatekeeper as public distribution artifacts.
 - Bluetooth audio-route switching and failure recovery have not yet been validated on physical Bluetooth hardware.
 - DeepSeek and cloud embeddings require user-supplied configuration and transmit selected content off-device when enabled.

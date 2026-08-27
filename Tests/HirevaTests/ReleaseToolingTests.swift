@@ -1577,7 +1577,7 @@ struct ReleaseToolingTests {
             "NSHumanReadableCopyright": "Copyright 2026",
             "LSMinimumSystemVersion": "14.0",
             "NSMicrophoneUsageDescription": "Hireva uses the microphone to transcribe interview audio in real time.",
-            "NSSpeechRecognitionUsageDescription": "Hireva uses Apple Speech Recognition to create live interview transcripts.",
+            "NSSpeechRecognitionUsageDescription": "Hireva uses Apple Speech to transcribe selected interview audio. Depending on macOS and locale, processing may occur on Apple servers.",
             "NSScreenCaptureUsageDescription": "Hireva captures system audio to detect interviewer questions automatically.",
             "NSAudioCaptureUsageDescription": "Hireva captures system audio for real-time interviewer question detection.",
             "HirevaBuildTimestampUTC": "2026-08-27T12:00:00Z",

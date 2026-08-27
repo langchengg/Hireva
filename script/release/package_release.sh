@@ -99,7 +99,7 @@ validate_hireva_release_contract() {
         "Hireva uses the microphone to transcribe interview audio in real time." ]] || \
         release_die "NSMicrophoneUsageDescription differs from the reviewed release text"
     [[ "$(release_plist_value "$RELEASE_INFO_PLIST" NSSpeechRecognitionUsageDescription || true)" == \
-        "Hireva uses Apple Speech Recognition to create live interview transcripts." ]] || \
+        "Hireva uses Apple Speech to transcribe selected interview audio. Depending on macOS and locale, processing may occur on Apple servers." ]] || \
         release_die "NSSpeechRecognitionUsageDescription differs from the reviewed release text"
     [[ "$(release_plist_value "$RELEASE_INFO_PLIST" NSScreenCaptureUsageDescription || true)" == \
         "Hireva captures system audio to detect interviewer questions automatically." ]] || \
@@ -202,7 +202,7 @@ validate_hireva_release_contract() {
         "d2abda1b22fd0560034e9dbe5c57feac512c4ea5b24661a0e776ed940f3898b7" ]] || \
         release_die "local-model-installation.md differs from the reviewed release document"
     [[ "$(release_sha256 "$app/Contents/Resources/Documentation/privacy-and-data-flow.md")" == \
-        "c6f7ba59a4b99f20bc55a23f2fb8dfca59bfd1818898f414c2fce9be1942a975" ]] || \
+        "b541bad551c5cd600450d9abb6ddc005a135d58a2fae5f0c651725e7be2274e3" ]] || \
         release_die "privacy-and-data-flow.md differs from the reviewed release document"
     [[ "$(release_sha256 "$app/Contents/Resources/Documentation/third-party-licenses.md")" == \
         "fe0d2c755612e38125a4be7eef9fc651b6c1e78b0ac142087d40bdfb7e729097" ]] || \
@@ -319,7 +319,7 @@ validate_hireva_info_plist_contract() {
     /usr/bin/plutil -insert NSScreenCaptureUsageDescription -string \
         "Hireva captures system audio to detect interviewer questions automatically." "$expected"
     /usr/bin/plutil -insert NSSpeechRecognitionUsageDescription -string \
-        "Hireva uses Apple Speech Recognition to create live interview transcripts." "$expected"
+        "Hireva uses Apple Speech to transcribe selected interview audio. Depending on macOS and locale, processing may occur on Apple servers." "$expected"
 
     actual_hash="$(canonical_plist_sha256 "$RELEASE_INFO_PLIST")"
     expected_hash="$(canonical_plist_sha256 "$expected")"

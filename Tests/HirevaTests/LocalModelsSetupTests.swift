@@ -67,7 +67,7 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
-    func legacyLocalParakeetASRSelectionMigratesToAppleSpeechDefaultOnce() throws {
+    func explicitLocalParakeetSelectionSurvivesAppleSpeechDefaultMigration() throws {
         let selectedKey = "Hireva.selectedASRProvider"
         let migrationKey = "Hireva.asrDefaultMigration.appleSpeech.20260706"
         let (defaults, suiteName) = makeIsolatedUserDefaults()
@@ -77,7 +77,24 @@ struct LocalModelsSetupTests {
 
         appState.migrateStoredASRProviderToAppleSpeechDefaultIfNeeded()
 
+        #expect(appState.selectedASRProviderID == .localParakeet)
+        #expect(defaults.string(forKey: selectedKey) == ASRProviderID.localParakeet.rawValue)
+        #expect(defaults.bool(forKey: migrationKey) == true)
+    }
+
+    @Test @MainActor
+    func invalidLegacyASRSelectionFallsBackWithoutPersistingAProvider() throws {
+        let selectedKey = "Hireva.selectedASRProvider"
+        let migrationKey = "Hireva.asrDefaultMigration.appleSpeech.20260706"
+        let (defaults, suiteName) = makeIsolatedUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("retired-synthetic-provider", forKey: selectedKey)
+        let appState = try AppState(database: AppDatabase(inMemory: true), dialogueDefaults: defaults)
+
+        appState.migrateStoredASRProviderToAppleSpeechDefaultIfNeeded()
+
         #expect(appState.selectedASRProviderID == .appleSpeech)
+        #expect(defaults.object(forKey: selectedKey) == nil)
         #expect(defaults.bool(forKey: migrationKey) == true)
     }
 
