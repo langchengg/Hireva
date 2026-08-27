@@ -1027,6 +1027,12 @@ struct GenerationUIStateTests {
         card.deepseekFirstTokenMS = 2_600
         card.deepseekFirstVisibleMS = 2_700
         appState.currentSuggestion = card
+        let pendingStageBTask = Task<Void, Never> {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        }
+        defer { pendingStageBTask.cancel() }
+        appState.registerStageBTask(pendingStageBTask, generationID: generationID)
+        #expect(appState.stageBTaskActive)
 
         let finished = appState.finishGenerationWithVisibleCard(
             card,
@@ -1040,6 +1046,10 @@ struct GenerationUIStateTests {
         )
 
         #expect(finished)
+        #expect(pendingStageBTask.isCancelled)
+        #expect(!appState.stageBTaskActive)
+        #expect(appState.stageBTask == nil)
+        #expect(appState.activeGenerationController?.stageBTask == nil)
         let visible = try #require(appState.currentSuggestion)
         #expect(visible.sayFirst.hasSuffix("."))
         #expect(visible.finalVisibleSource == "deepseek_stream")
@@ -1499,6 +1509,115 @@ struct GenerationUIStateTests {
         #expect(appState.generationUIState.displayName == "Answer ready")
         #expect(appState.terminalGenerationIDs.contains(generationID))
         #expect(appState.currentGenerationTelemetry.questionID == question.id)
+    }
+
+    @Test
+    func terminalTimeoutFallbackRejectsLateStageBMutationAndPersistence() async throws {
+        let (appState, session, question, _) = try makeAppState(
+            client: ConsecutiveQuestionLLMClient(),
+            bindCandidateContext: true
+        )
+        let traceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("terminal-timeout-late-stage-b-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: traceURL) }
+        appState.runtimeTranscriptTraceLogURL = traceURL
+        let generationID = "terminal-timeout-late-stage-b"
+        let requestStart = Date()
+        appState.activateGeneration(
+            question: question,
+            generationID: generationID,
+            triggerPath: .autoDetect,
+            requestStart: requestStart,
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        appState.lastDetectedQuestion = question
+
+        #expect(appState.showImmediateFallbackForActiveGenerationIfNeeded(reason: "test-timeout"))
+        var timeoutFallback = try #require(appState.currentSuggestion)
+        timeoutFallback.stageBCompleted = false
+        timeoutFallback.stageBStatus = "timed_out"
+        timeoutFallback.sayFirstSource = "local_timeout_fallback"
+        timeoutFallback.finalVisibleSource = "local_timeout_fallback"
+        timeoutFallback.isLocal = true
+        timeoutFallback.softFallbackUsed = true
+        appState.currentSuggestion = timeoutFallback
+        appState.persistSuggestionInBackground(
+            timeoutFallback,
+            chunks: [],
+            generationID: generationID,
+            requestStart: requestStart
+        )
+        try await waitUntil(timeout: 3.0) {
+            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+        }
+        appState.setGenerationUIState(
+            .answerReady(questionID: question.id, generationID: generationID, triggerPath: .autoDetect),
+            generationID: generationID
+        )
+
+        let latePlan = StageBApplicationPlan(
+            generationID: generationID,
+            detectedQuestionID: question.id,
+            action: .applyFullCard,
+            fallbackReason: nil,
+            shouldPersist: true,
+            shouldUpdateVisibleCard: true,
+            safeDiagnostics: [:],
+            identity: GenerationIdentity(
+                question: question,
+                generationID: generationID,
+                contextSnapshotID: session.contextSnapshotID
+            )
+        )
+        let lateSections = StreamingSuggestionSections(
+            strategy: "Late provider result",
+            sayFirst: "The late provider response must not replace a terminal local timeout fallback.",
+            keyPoints: ["Late provider key point"],
+            followUpReady: [],
+            caution: ""
+        )
+
+        try await appState.applyStageBApplicationPlan(
+            latePlan,
+            sections: lateSections,
+            cardID: timeoutFallback.id,
+            generationID: generationID,
+            question: question,
+            session: session,
+            requestStart: requestStart,
+            stageBStreamStartedMS: nil,
+            retrievedChunks: [],
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            preserveFallbackSayFirst: false
+        )
+
+        let visible = try #require(appState.currentSuggestion)
+        #expect(visible.sayFirst == timeoutFallback.sayFirst)
+        #expect(visible.stageBStatus == "timed_out")
+        #expect(visible.stageBCompleted == false)
+        #expect(visible.sayFirstSource == "local_timeout_fallback")
+        #expect(visible.finalVisibleSource == "local_timeout_fallback")
+        #expect(visible.isLocal == true)
+        #expect(visible.softFallbackUsed == true)
+
+        let persistedRows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+        #expect(persistedRows.count == 1)
+        let persisted = try #require(persistedRows.first)
+        #expect(persisted.sayFirst == timeoutFallback.sayFirst)
+        #expect(persisted.stageBStatus == "timed_out")
+        #expect(persisted.stageBCompleted == false)
+        #expect(persisted.sayFirstSource == "local_timeout_fallback")
+        #expect(persisted.finalVisibleSource == "local_timeout_fallback")
+        #expect(persisted.isLocal == true)
+        #expect(persisted.softFallbackUsed == true)
+
+        let trace = try String(contentsOf: traceURL, encoding: .utf8)
+        #expect(trace.contains("\"event_type\":\"staleGenerationResultRejected\""))
+        #expect(trace.contains("stage_b_result_after_terminal_state"))
+        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceStarted\"").count - 1 == 1)
     }
 
     @Test

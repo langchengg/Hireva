@@ -2863,7 +2863,11 @@ func finishGenerationWithVisibleCard(
     fallbackWatchdogActive = false
     clearStageATimeoutTask(generationID: generationID)
     clearFullCardWatchdogTask(generationID: generationID)
-    clearStageBTask(generationID: generationID)
+    if timedOut {
+        cancelActiveStageBTask(generationID: generationID)
+    } else {
+        clearStageBTask(generationID: generationID)
+    }
 
     persistSuggestionInBackground(
         finalCard,
@@ -3157,6 +3161,20 @@ func applyStageBApplicationPlan(
             oldQuestionText: question.questionText,
             reason: "stage_b_identity_mismatch",
             oldAcceptedQuestionID: plan.detectedQuestionID ?? question.id,
+            sourceCallback: "stage_b_application"
+        )
+        return
+    }
+
+    let stageBGenerationIsTerminal = terminalGenerationIDs.contains(generationID) ||
+        (generationUIState.generationID == generationID && generationUIState.isTerminal)
+    guard !stageBGenerationIsTerminal else {
+        recordStaleGenerationResultRejected(
+            sessionID: session.id,
+            oldGenerationID: generationID,
+            oldQuestionText: question.questionText,
+            reason: "stage_b_result_after_terminal_state",
+            oldAcceptedQuestionID: question.id,
             sourceCallback: "stage_b_application"
         )
         return
