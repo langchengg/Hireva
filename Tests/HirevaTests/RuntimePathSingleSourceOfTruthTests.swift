@@ -3,6 +3,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 @MainActor
 struct RuntimePathSingleSourceOfTruthTests {
@@ -95,11 +97,11 @@ struct RuntimePathSingleSourceOfTruthTests {
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "complete-decoder-question",
             sessionID: session.id,
-            text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?"
+            text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your SyntheticTestSandbox batch-policy project?"
         ))
 
         try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?" &&
+            appState.currentSuggestion?.questionText == "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your SyntheticTestSandbox batch-policy project?" &&
             appState.currentSuggestion?.alignmentVerdict == .aligned &&
             appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true &&
             appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("autoregressive") == true &&
@@ -176,8 +178,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         }
 
         let card = try #require(appState.currentSuggestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("ROS2"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("SyntheticEventService"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("message bus"))
         #expect(appState.finalTranscriptText == "Tell me about a time you had to debug a system integration problem.")
         #expect(appState.lastAcceptedQuestionText.localizedCaseInsensitiveContains("debug a system integration problem"))
     }
@@ -231,7 +233,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "conditional-yolo-debug",
+            id: "conditional-classifier-debug",
             sessionID: session.id,
             text: "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?"
         ))
@@ -247,7 +249,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         let card = try #require(appState.currentSuggestion)
         #expect(client.detectionCallCount == 0)
         #expect(card.questionText == card.promptPrimaryQuestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("SyntheticEventClassifier"))
         #expect(card.sayFirst.localizedCaseInsensitiveContains("bounding"))
         #expect(card.sayFirst.localizedCaseInsensitiveContains("confidence"))
         #expect(appState.lastDetectedQuestionText == card.questionText)
@@ -329,7 +331,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         settings.audioCaptureMode = .systemAudioOnly
         settings.allowQuestionDetectionFromMicrophoneOnly = false
         appState.saveSettings(settings)
-        let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
+        let transcript = "How did your layover system connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "single-clean-system-audio-question",
             sessionID: session.id,
@@ -413,7 +415,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "screenshot-final-system-audio-question",
             sessionID: session.id,
-            text: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
+            text: "How did your event-processing service connect yellow of aid classification with routing dispatch delivery and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
         ))
 
         try await waitUntil(timeout: 60.0) {
@@ -462,14 +464,14 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         await appState.runLiveSystemAudioFinalCallbackDiagnostic(
-            question: "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+            question: "How did your event-processing service connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors?"
         )
 
         try await waitUntil(timeout: 60.0) {
             appState.currentSession != nil &&
                 appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("YOLOv8 detection") &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("SyntheticEventClassifier classification") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("SyntheticEventClassifier") &&
                 appState.visibleAssistantRenderState.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") } &&
                 appState.activeGenerationID != nil &&
                 appState.generationUIState.isTerminal &&
@@ -521,7 +523,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        let firstQuestion = "How did your event-processing service connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors?"
         let mitigationQuestion = "What made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"
         let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
 
@@ -530,7 +532,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             appState.visibleAssistantRenderState.questionText == firstQuestion &&
                 appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("SyntheticEventClassifier") &&
                 appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
                 client.streamCallCount > 0
         }
@@ -598,7 +600,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        let firstQuestion = "How did your event-processing service connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors?"
         let mitigationQuestion = "What made real-world execution harder than a clean simulation or demo environment and how did you mitigate those issues?"
         let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
         let taskID = "runtime-cumulative-partial-final-task"
@@ -683,10 +685,10 @@ struct RuntimePathSingleSourceOfTruthTests {
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
         appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        client.stageAStreamDelayByNeedle["What information did the robot need"] = 250_000_000
+        client.stageAStreamDelayByNeedle["What information did the service need"] = 250_000_000
 
-        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world"
-        let secondQuestion = "What information did the robot need before it could decide where to move and what to grasp"
+        let firstQuestion = "Can you explain how your service transformed visual classifications into physical actions in the real world"
+        let secondQuestion = "What information did the service need before it could decide where to move and what to delivery"
         let taskID = "runtime-visual-action-information-task"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -703,7 +705,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             appState.currentSuggestion?.questionText == firstQuestion &&
                 appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("target pose") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("routing decision") &&
                 appState.generationUIState.isTerminal
         }
 
@@ -712,9 +714,9 @@ struct RuntimePathSingleSourceOfTruthTests {
         let firstGenerationID = try #require(firstCard.generationID)
         let firstAnswer = firstCard.sayFirst
         #expect(firstAnswer.localizedCaseInsensitiveContains("I’d answer this directly") == false)
-        #expect(firstAnswer.localizedCaseInsensitiveContains("visual") || firstAnswer.localizedCaseInsensitiveContains("detections"))
-        #expect(firstAnswer.localizedCaseInsensitiveContains("navigation"))
-        #expect(firstAnswer.localizedCaseInsensitiveContains("manipulation") || firstAnswer.localizedCaseInsensitiveContains("grasp"))
+        #expect(firstAnswer.localizedCaseInsensitiveContains("visual") || firstAnswer.localizedCaseInsensitiveContains("classifications"))
+        #expect(firstAnswer.localizedCaseInsensitiveContains("dispatch"))
+        #expect(firstAnswer.localizedCaseInsensitiveContains("delivery") || firstAnswer.localizedCaseInsensitiveContains("delivery"))
 
         let cumulative = "\(firstQuestion) \(secondQuestion)"
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -734,13 +736,13 @@ struct RuntimePathSingleSourceOfTruthTests {
         }
         #expect(appState.visibleAssistantRenderState.questionText == secondQuestion)
         #expect(appState.visibleAssistantRenderState.answerText != firstAnswer)
-        #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("transformed visual detections") == false)
+        #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("transformed visual classifications") == false)
 
         try await waitUntil(timeout: 60.0) {
             appState.currentSuggestion?.questionText == secondQuestion &&
                 appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
                 appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("object identity") &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("grasp") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("delivery") &&
                 appState.generationUIState.isTerminal &&
                 client.streamCallCount >= 2
         }
@@ -753,8 +755,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("I’d answer this directly") == false)
         #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("object identity") || secondCard.sayFirst.localizedCaseInsensitiveContains("target object"))
         #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("pose") || secondCard.sayFirst.localizedCaseInsensitiveContains("location") || secondCard.sayFirst.localizedCaseInsensitiveContains("position"))
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("navigation"))
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("grasp"))
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("dispatch"))
+        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("delivery"))
 
         try await waitUntil(timeout: 60.0) {
             let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
@@ -790,15 +792,15 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.delayProvider = RealDelayProvider()
         appState.stageATimeoutSeconds = 0.4
         appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
-        client.stageAStreamHangAfterTokenByNeedle["connect YOLOv8 detection"] = 14
-        client.fullCardStreamHangByNeedle.insert("connect YOLOv8 detection")
-        let expectedQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        client.stageAStreamHangAfterTokenByNeedle["connect SyntheticEventClassifier classification"] = 14
+        client.fullCardStreamHangByNeedle.insert("connect SyntheticEventClassifier classification")
+        let expectedQuestion = "How did your event-processing service connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors?"
 
         await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
 
         try await waitUntil(timeout: 10.0) {
             appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("SyntheticEventClassifier") &&
                 appState.streamFirstTokenAt != nil &&
                 client.streamCallCount > 0
         }
@@ -816,7 +818,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(card.detectedQuestionID == appState.activeQuestionID)
         #expect(card.questionText == expectedQuestion)
         #expect(card.promptPrimaryQuestion == expectedQuestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("SyntheticEventClassifier"))
         #expect(card.keyPoints.isEmpty == false)
         #expect(card.stageATimedOut == false)
         #expect(card.softFallbackUsed == true)
@@ -852,9 +854,9 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.delayProvider = RealDelayProvider()
         appState.stageATimeoutSeconds = 0.4
         appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
-        client.stageAStreamHangAfterTokenByNeedle["connect YOLOv8 detection"] = 22
-        client.fullCardStreamHangByNeedle.insert("connect YOLOv8 detection")
-        let expectedQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        client.stageAStreamHangAfterTokenByNeedle["connect SyntheticEventClassifier classification"] = 22
+        client.fullCardStreamHangByNeedle.insert("connect SyntheticEventClassifier classification")
+        let expectedQuestion = "How did your event-processing service connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors?"
 
         await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
 
@@ -907,16 +909,16 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.delayProvider = RealDelayProvider()
         appState.stageATimeoutSeconds = 0.4
         appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
-        client.stageAStreamNeverYieldsByNeedle.insert("connect YOLOv8 detection")
-        client.fullCardStreamHangByNeedle.insert("connect YOLOv8 detection")
-        let expectedQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+        client.stageAStreamNeverYieldsByNeedle.insert("connect SyntheticEventClassifier classification")
+        client.fullCardStreamHangByNeedle.insert("connect SyntheticEventClassifier classification")
+        let expectedQuestion = "How did your event-processing service connect SyntheticEventClassifier classification with routing, dispatch, delivery, and recovery behaviors?"
 
         await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: expectedQuestion)
 
         try await waitUntil(timeout: 5.0) {
             appState.visibleAssistantRenderState.questionText == expectedQuestion &&
                 appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("SyntheticEventClassifier") &&
                 appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("No answer yet") == false &&
                 appState.visibleAssistantRenderState.keyPoints.isEmpty == false
         }
@@ -942,7 +944,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(card.detectedQuestionID == appState.activeQuestionID)
         #expect(card.questionText == expectedQuestion)
         #expect(card.promptPrimaryQuestion == expectedQuestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("SyntheticEventClassifier"))
         #expect(card.keyPoints.isEmpty == false)
         #expect(card.stageBStatus == "timed_out")
         #expect(["local_timeout_fallback", "rag_template_soft_fallback"].contains(card.finalVisibleSource ?? ""))
@@ -980,8 +982,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.diagnostics.storedCVChunkCount = 1
         appState.automaticContextReadiness = .ready
 
-        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
-        let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
+        let firstQuestion = "Can you explain how your service transformed visual classifications into physical actions in the real world?"
+        let currentQuestion = "What information did the service need before it could decide where to move and what to delivery?"
         appState.transcriptSegments = [
             systemAudioSegment(id: "regen-q1", sessionID: session.id, text: firstQuestion),
             systemAudioSegment(id: "regen-q2", sessionID: session.id, text: currentQuestion)
@@ -1075,8 +1077,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.diagnostics.storedCVChunkCount = 1
         appState.automaticContextReadiness = .ready
 
-        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
-        let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
+        let firstQuestion = "Can you explain how your service transformed visual classifications into physical actions in the real world?"
+        let currentQuestion = "What information did the service need before it could decide where to move and what to delivery?"
         appState.transcriptSegments = [
             systemAudioSegment(id: "manual-generate-q1", sessionID: session.id, text: firstQuestion),
             systemAudioSegment(id: "manual-generate-q2", sessionID: session.id, text: currentQuestion)
@@ -1162,7 +1164,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders?",
             "Tell me about a time you had to debug a system integration problem.",
             "What questions would you ask us about the team or the role before accepting an offer?",
-            "How would you diagnose a sim-to-real gap if your policy works in simulation but fails on a real robot?"
+            "How would you diagnose a sim-to-real gap if your policy works in simulation but fails on a production service?"
         ].joined(separator: " ")
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -1367,7 +1369,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         for sequence in 1...20 {
             appState.recordTranscriptRuntimeEvent(.asrPartial(
                 sessionID: session.id,
-                text: "How did the robot decide which object to approach partial \(sequence)",
+                text: "How did the service decide which object to approach partial \(sequence)",
                 recognitionTaskID: "partial-task",
                 eventSequence: sequence,
                 sourceStartUTF16: 0,
@@ -1380,7 +1382,7 @@ struct RuntimePathSingleSourceOfTruthTests {
                 sessionID: session.id,
                 questionID: "question-1",
                 generationID: "generation-1",
-                text: "How did the robot decide which object to approach?"
+                text: "How did the service decide which object to approach?"
             )
         }
 
@@ -1402,7 +1404,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         var card = suggestionCard(
             sessionID: session.id,
             questionID: "bad-decoder-answer",
-            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your SyntheticTestSandbox batch-policy project?",
             sayFirst: "Diffusion was smoother than the other approaches, so I learned that model choice matters."
         )
         card.questionIntent = .decoderComparison
@@ -1429,7 +1431,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "sequence-decoder",
             sessionID: session.id,
-            text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?",
+            text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your SyntheticTestSandbox batch-policy project?",
             asrFinalizationReason: "final is longer or similar"
         ))
 
@@ -1515,7 +1517,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         var badTradeoffCard = suggestionCard(
             sessionID: "runtime-path-session",
             questionID: "tradeoff",
-            questionText: "What was the biggest technical trade-off you made in your robotics projects?",
+            questionText: "What was the biggest technical trade-off you made in your distributed-systems projects?",
             sayFirst: "The biggest trade-off was in a data pipeline where I added automated validation checks for 10,000 records."
         )
         badTradeoffCard.questionIntent = .technicalTradeoff
@@ -1548,8 +1550,8 @@ struct RuntimePathSingleSourceOfTruthTests {
 
         var incompleteImprovementCard = suggestionCard(
             sessionID: "runtime-path-session",
-            questionID: "leorover-improvement",
-            questionText: "If you had one more month to improve your LeoRover system, what would you improve first?",
+            questionID: "syntheticeventservice-improvement",
+            questionText: "If you had one more month to improve your SyntheticEventService system, what would you improve first?",
             sayFirst: "If I had one more month to improve"
         )
         incompleteImprovementCard.questionIntent = .improvementPlan
@@ -1565,10 +1567,10 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func observedEngineeringFitThenLeoRoverImprovementRuntimeGeneratesLatestAnswerAndTraceEvents() async throws {
+    func observedEngineeringFitThenSyntheticEventServiceImprovementRuntimeGeneratesLatestAnswerAndTraceEvents() async throws {
         let traceURL = temporaryTraceURL("runtime-engineering-fit-improvement-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        let transcript = "What would you ask the engineering team to understand whether this role is a good fit? If you had one more month to improve your LeoRover system, what would you improve first?"
+        let transcript = "What would you ask the engineering team to understand whether this role is a good fit? If you had one more month to improve your SyntheticEventService system, what would you improve first?"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "engineering-fit-then-improvement",
@@ -1580,7 +1582,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
             let latestAnswer = rows.last?.sayFirst.lowercased() ?? ""
-            let hasExpectedImprovementDetail = ["evaluation", "perception", "real-robot", "calibration", "recovery"]
+            let hasExpectedImprovementDetail = ["evaluation", "classification", "production-service", "schema validation", "recovery"]
                 .contains { latestAnswer.contains($0) }
             return detected.count == 2 &&
                 !rows.isEmpty &&
@@ -1600,17 +1602,17 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(rows.last.map {
             let answer = $0.sayFirst.lowercased()
             return $0.questionIntent == .improvementPlan &&
-            ($0.questionText ?? "").localizedCaseInsensitiveContains("LeoRover") &&
-            answer.contains("leorover") &&
+            ($0.questionText ?? "").localizedCaseInsensitiveContains("SyntheticEventService") &&
+            answer.contains("syntheticeventservice") &&
             (answer.contains("evaluation") ||
-             answer.contains("perception") ||
-             answer.contains("real-robot") ||
-             answer.contains("calibration") ||
+             answer.contains("classification") ||
+             answer.contains("production-service") ||
+             answer.contains("schema validation") ||
              answer.contains("recovery")) &&
             !answer.contains("semantic-geometric") &&
             !answer.contains("re-ranker") &&
             !answer.contains("reranker") &&
-            !answer.contains("vlm grasp")
+            !answer.contains("vlm delivery")
         } == true)
 
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
@@ -1629,7 +1631,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.delayProvider = RealDelayProvider()
         client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
         let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit"
-        let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
+        let secondQuestion = "If you had one more month to improve your SyntheticEventService system, what would you improve first?"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "queued-first-engineering-fit",
@@ -1665,12 +1667,12 @@ struct RuntimePathSingleSourceOfTruthTests {
             appState.currentSuggestion?.questionIntent == .improvementPlan &&
             appState.currentSuggestion?.alignmentVerdict == .aligned &&
             appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true &&
-            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("schema drift") == true
         }
 
         #expect(appState.currentSuggestion?.questionText == secondQuestion)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("schema drift") == true)
         #expect(!appState.currentSpinnerVisible)
 
         try await waitUntil(timeout: 60.0) {
@@ -1720,8 +1722,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         client.stageAStreamNeverYieldsByNeedle.insert("most important lesson")
         client.fullCardStreamHangByNeedle.insert("most important lesson")
 
-        let firstQuestion = "Walk me through the full decision-making process of your robot from perception to navigation to manipulation to recovery"
-        let secondQuestion = "What was the most important lesson you learned from debugging the real robot"
+        let firstQuestion = "Walk me through the full decision-making process of your service from classification to dispatch to delivery to recovery"
+        let secondQuestion = "What was the most important lesson you learned from debugging a system integration problem in a production service"
         let taskID = "runtime-debugging-lesson-interrupt-task"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -1779,7 +1781,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(combined.localizedCaseInsensitiveContains("Concrete example from experience") == false)
         #expect(combined.localizedCaseInsensitiveContains("Outcome or lesson learned") == false)
         #expect(combined.localizedCaseInsensitiveContains("debugging") || combined.localizedCaseInsensitiveContains("debug"))
-        #expect(combined.localizedCaseInsensitiveContains("real robot") || combined.localizedCaseInsensitiveContains("LeoRover"))
+        #expect(combined.localizedCaseInsensitiveContains("production service") || combined.localizedCaseInsensitiveContains("SyntheticEventService"))
         #expect(combined.localizedCaseInsensitiveContains("integration") || combined.localizedCaseInsensitiveContains("handoff"))
         #expect(combined.localizedCaseInsensitiveContains("logs"))
         #expect(combined.localizedCaseInsensitiveContains("timestamp"))
@@ -1811,11 +1813,11 @@ struct RuntimePathSingleSourceOfTruthTests {
     func rapidThreeQuestionSequenceGeneratesOnlyLatestCurrentCard() async throws {
         let traceURL = temporaryTraceURL("runtime-three-question-history-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
-        let expectedLatestQuestion = "Can you explain the difference between your VLA project and your LeoRover project"
+        let expectedLatestQuestion = "Can you explain the difference between your batch-policy project and your SyntheticEventService project"
         let transcript = [
             "What would you ask the engineering team to understand whether this role is a good fit?",
-            "If you had one more month to improve your LeoRover system, what would you improve first?",
-            "Can you explain the difference between your VLA project and your LeoRover project"
+            "If you had one more month to improve your SyntheticEventService system, what would you improve first?",
+            "Can you explain the difference between your batch-policy project and your SyntheticEventService project"
         ].joined(separator: " ")
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -1840,8 +1842,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         #expect(Set(rows.map(\.id)).count == rows.count)
         #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == rowQuestions)
         #expect(appState.currentSuggestion?.questionText == expectedLatestQuestion)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("VLA") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("LeoRover") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("batch-policy") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("SyntheticEventService") == true)
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
 
@@ -1852,14 +1854,14 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func partialDuplicateLeoRoverImprovementDoesNotCreateSecondRuntimeRow() async throws {
+    func partialDuplicateSyntheticEventServiceImprovementDoesNotCreateSecondRuntimeRow() async throws {
         let traceURL = temporaryTraceURL("runtime-partial-duplicate-improvement-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "complete-improvement",
             sessionID: session.id,
-            text: "If you had one more month to improve your LeoRover system, what would you improve first"
+            text: "If you had one more month to improve your SyntheticEventService system, what would you improve first"
         ))
 
         try await waitUntil(timeout: 60.0) {
@@ -1869,7 +1871,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "partial-improvement",
             sessionID: session.id,
-            text: "If you had one more month to improve your LeoRover",
+            text: "If you had one more month to improve your SyntheticEventService",
             asrFinalizationReason: "partial"
         ))
 
@@ -1891,12 +1893,12 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
-    func wrongProjectLeoRoverImprovementAnswerIsRejectedBeforePersistenceAndTraced() async throws {
+    func wrongProjectSyntheticEventServiceImprovementAnswerIsRejectedBeforePersistenceAndTraced() async throws {
         let traceURL = temporaryTraceURL("runtime-wrong-project-grounding-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
         let question = detectedQuestion(
             sessionID: session.id,
-            text: "If you had one more month to improve your LeoRover system, what would you improve first?",
+            text: "If you had one more month to improve your SyntheticEventService system, what would you improve first?",
             intent: .projectDeepDive,
             strategy: .projectWalkthrough
         )
@@ -1904,7 +1906,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             sessionID: session.id,
             questionID: question.id,
             questionText: question.questionText,
-            sayFirst: "I would improve the target-conditioned semantic-geometric re-ranker from my VLM grasping thesis, because the grasp scorer could rerank candidates better."
+            sayFirst: "I would improve the target-conditioned semantic-geometric re-ranker from my VLM deliverying thesis, because the delivery scorer could rerank candidates better."
         )
         card.questionIntent = .improvementPlan
         card.promptPrimaryQuestion = question.questionText
@@ -1960,8 +1962,8 @@ struct RuntimePathSingleSourceOfTruthTests {
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
         let transcript = [
             "What would you ask the engineering team to understand whether this role is a good fit?",
-            "If you had one more month to improve your LeoRover system, what would you improve first?",
-            "Can you explain the difference between your VLA project and your LeoRover project?"
+            "If you had one more month to improve your SyntheticEventService system, what would you improve first?",
+            "Can you explain the difference between your batch-policy project and your SyntheticEventService project?"
         ].joined(separator: " ")
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -1993,8 +1995,8 @@ struct RuntimePathSingleSourceOfTruthTests {
     func rapidThreeQuestionLatestPersistenceRemainsStableAcrossTenIsolatedRuns() async throws {
         let transcript = [
             "What would you ask the engineering team to understand whether this role is a good fit?",
-            "If you had one more month to improve your LeoRover system, what would you improve first?",
-            "Can you explain the difference between your VLA project and your LeoRover project?"
+            "If you had one more month to improve your SyntheticEventService system, what would you improve first?",
+            "Can you explain the difference between your batch-policy project and your SyntheticEventService project?"
         ].joined(separator: " ")
         let expectedIntent = AnswerRelevanceIntent.projectComparison.rawValue
         let terminalPunctuation = CharacterSet(charactersIn: ".!?")
@@ -2071,9 +2073,9 @@ struct RuntimePathSingleSourceOfTruthTests {
         )
         appState.answerProviderModeOverride = .deepSeekPrimary
         appState.interviewContextMode = .general
-        let pipelineStatement = "The synthetic fixture candidate built a LeoRover ROS2 system that connected YOLOv8 perception, target poses, localization, navigation, manipulation, robot-state validation, and recovery behavior."
-        let decoderStatement = "The synthetic fixture candidate evaluated autoregressive, diffusion, and flow-matching decoders with DROID trajectories in a MuJoCo Franka simulation, recording seven out of ten and one out of ten trial outcomes."
-        let debuggingStatement = "The synthetic fixture candidate debugged real-world integration using logs, timestamp checks, calibration checks, lighting and occlusion tests, contact-uncertainty analysis, and recovery validation."
+        let pipelineStatement = "The synthetic fixture candidate built a SyntheticEventService message bus system that connected SyntheticEventClassifier classification, routing decisions, routing, dispatch, delivery, service-state validation, and recovery behavior."
+        let decoderStatement = "The synthetic fixture candidate evaluated autoregressive, diffusion, and flow-matching decoders with SyntheticReplayCorpus request sequences in a SyntheticTestSandbox SyntheticWorker simulation, recording seven out of ten and one out of ten trial outcomes."
+        let debuggingStatement = "The synthetic fixture candidate debugged real-world integration using logs, timestamp checks, schema validation checks, schema drift and occlusion tests, concurrency-uncertainty analysis, and recovery validation."
         try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
             id: "runtime-path-profile",
             displayName: "Synthetic Runtime Path Candidate",
@@ -2388,8 +2390,8 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             content = """
             {
               "strategy": "Real-world mitigation answer",
-              "say_first": "Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline.",
-              "key_points": ["Lighting, calibration, timing, localization, and contact effects were less controlled than simulation.", "I used logs and timestamp checks to isolate where the pipeline drifted.", "Validation gates and recovery behaviors kept failures from silently propagating.", "The mitigation was system-level debugging, not only retraining perception."],
+              "say_first": "Real-world execution was harder because schema drift, schema validation, timing, imperfect routing, and concurrency uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline.",
+              "key_points": ["Lighting, schema validation, timing, routing, and concurrency effects were less controlled than simulation.", "I used logs and timestamp checks to isolate where the pipeline drifted.", "Validation gates and recovery behaviors kept failures from silently propagating.", "The mitigation was system-level debugging, not only retraining classification."],
               "follow_up_ready": ["I can also give a concrete example of one failure and how I isolated it."],
               "confidence": 0.9,
               "caution": "None",
@@ -2397,12 +2399,12 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
               "risk_level": "low"
             }
             """
-        } else if isRoboticsPipelineQuestion(currentQuestion) {
+        } else if isServicePipelineQuestion(currentQuestion) {
             content = """
             {
-              "strategy": "LeoRover full decision process",
-              "say_first": "My LeoRover system moved from YOLOv8 perception to localization, navigation, manipulation, and recovery by turning detections into target poses, validating robot state and timing, then using ROS2 behaviors to navigate, attempt the grasp, and recover when execution was uncertain.",
-              "key_points": ["Perception produced target poses rather than just labels.", "Localization and navigation moved the real robot into a feasible manipulation state.", "Manipulation and recovery depended on validation, timing, and robot-state checks."],
+              "strategy": "SyntheticEventService full decision process",
+              "say_first": "My SyntheticEventService system moved from SyntheticEventClassifier classification to routing, dispatch, delivery, and recovery by turning classifications into routing decisions, validating service state and timing, then using message bus behaviors to navigate, attempt the delivery, and recover when execution was uncertain.",
+              "key_points": ["Classification produced routing decisions rather than just labels.", "Routing and dispatch moved the production service into a feasible delivery state.", "Delivery and recovery depended on validation, timing, and service-state checks."],
               "follow_up_ready": ["I can also describe one handoff failure and how I debugged it."],
               "confidence": 0.9,
               "caution": "None",
@@ -2413,9 +2415,9 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
         } else if isDebuggingReflectionQuestion(currentQuestion) {
             content = """
             {
-              "strategy": "Real robot debugging lesson",
-              "say_first": "The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module. On LeoRover I had to compare logs, timestamps, calibration assumptions, perception outputs, localization state, navigation timing, and manipulation recovery to reproduce failures and stop small state mismatches from propagating.",
-              "key_points": ["Real-robot debugging was mainly an integration problem.", "Logs, timestamps, calibration checks, and reproducible failures exposed bad handoffs.", "Recovery and validation kept perception, navigation, and manipulation errors from spreading."],
+              "strategy": "Production service debugging lesson",
+              "say_first": "The most important lesson I learned from debugging the production service was that reliability depends on instrumenting every handoff, not just improving one module. On SyntheticEventService I had to compare logs, timestamps, schema validation assumptions, classification outputs, routing state, dispatch timing, and delivery recovery to reproduce failures and stop small state mismatches from propagating.",
+              "key_points": ["Production-service debugging was mainly an integration problem.", "Logs, timestamps, schema validation checks, and reproducible failures exposed bad handoffs.", "Recovery and validation kept classification, dispatch, and delivery errors from spreading."],
               "follow_up_ready": ["I can also give a concrete example of one timing mismatch I would isolate."],
               "confidence": 0.9,
               "caution": "None",
@@ -2424,26 +2426,26 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             }
             """
         } else if !isInterviewerQuestionsQuestion(currentQuestion) &&
-            (currentQuestion.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
+            (currentQuestion.localizedCaseInsensitiveContains("connect SyntheticEventClassifier classification") ||
                 currentQuestion.localizedCaseInsensitiveContains("recovery behaviors")) {
             content = """
             {
-              "strategy": "LeoRover system integration",
-              "say_first": "My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain.",
-              "key_points": ["YOLOv8 detections became target poses for localization and navigation.", "Manipulation depended on validated perception and robot-state handoffs.", "Recovery behaviors handled missed detections, bad poses, and real-world execution uncertainty.", "The real robot was harder because lighting, timing, calibration, and contact effects were less controlled than a demo."],
-              "follow_up_ready": ["I can also describe how I debugged whether a failure came from perception, localization, navigation, or manipulation."],
+              "strategy": "SyntheticEventService system integration",
+              "say_first": "My SyntheticEventService system connected SyntheticEventClassifier classifications to routing, dispatch, delivery, and recovery by turning classification outputs into routing decisions, validating them against service state, then using message bus behaviors to navigate, attempt delivery, and recover when classification or execution was uncertain.",
+              "key_points": ["SyntheticEventClassifier classifications became routing decisions for routing and dispatch.", "Delivery depended on validated classification and service-state handoffs.", "Recovery behaviors handled missed classifications, bad poses, and real-world execution uncertainty.", "The production service was harder because schema drift, timing, schema validation, and concurrency effects were less controlled than a demo."],
+              "follow_up_ready": ["I can also describe how I debugged whether a failure came from classification, routing, dispatch, or delivery."],
               "confidence": 0.9,
               "caution": "None",
               "evidence_used": [],
               "risk_level": "low"
             }
             """
-        } else if currentQuestion.localizedCaseInsensitiveContains("What information did the robot need") {
+        } else if currentQuestion.localizedCaseInsensitiveContains("What information did the service need") {
             content = """
             {
-              "strategy": "Robot decision information answer",
-              "say_first": "The robot needed object identity, target pose or location, distance, spatial relationship to the robot, reachability, and a navigation target before it could decide where to move and what to grasp.",
-              "key_points": ["Object identity and target pose defined what to act on.", "Distance, spatial relationship, and reachability checked whether action was feasible.", "Navigation and grasp decisions used the same validated target state."],
+              "strategy": "Service decision information answer",
+              "say_first": "The service needed object identity, routing decision or location, distance, spatial relationship to the service, reachability, and a dispatch target before it could decide where to move and what to delivery.",
+              "key_points": ["Object identity and routing decision defined what to act on.", "Distance, spatial relationship, and reachability checked whether action was feasible.", "Dispatch and delivery decisions used the same validated target state."],
               "follow_up_ready": ["I can also explain how I validated the handoff before acting."],
               "confidence": 0.9,
               "caution": "None",
@@ -2451,12 +2453,12 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
               "risk_level": "low"
             }
             """
-        } else if currentQuestion.localizedCaseInsensitiveContains("visual detections into physical actions") {
+        } else if currentQuestion.localizedCaseInsensitiveContains("visual classifications into physical actions") {
             content = """
             {
-              "strategy": "Visual detection to action answer",
-              "say_first": "In LeoRover, visual detections became physical actions by converting object detections into target poses, validating the pose against robot state, then passing that target through ROS2 to localization, navigation, manipulation, and recovery behaviors.",
-              "key_points": ["Visual detections were converted into target poses.", "Localization and navigation moved the robot toward a feasible manipulation pose.", "Manipulation and recovery behavior handled grasp attempts, missed detections, and bad poses."],
+              "strategy": "Visual classification to action answer",
+              "say_first": "In SyntheticEventService, visual classifications became physical actions by converting object classifications into routing decisions, validating the pose against service state, then passing that target through message bus to routing, dispatch, delivery, and recovery behaviors.",
+              "key_points": ["Visual classifications were converted into routing decisions.", "Routing and dispatch moved the service toward a feasible delivery pose.", "Delivery and recovery behavior handled delivery attempts, missed classifications, and bad poses."],
               "follow_up_ready": ["I can also describe one failure where validation stopped a bad handoff."],
               "confidence": 0.9,
               "caution": "None",
@@ -2465,15 +2467,15 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             }
             """
         } else if !isInterviewerQuestionsQuestion(currentQuestion) &&
-            (currentQuestion.localizedCaseInsensitiveContains("YOLOv8") ||
+            (currentQuestion.localizedCaseInsensitiveContains("SyntheticEventClassifier") ||
                 currentQuestion.localizedCaseInsensitiveContains("confident but wrong") ||
                 currentQuestion.localizedCaseInsensitiveContains("detector")) {
             content = """
             {
               "strategy": "Detector debugging answer",
-              "say_first": "I would debug the confident but wrong YOLOv8 prediction on LeoRover by reproducing the exact frames, inspecting bounding boxes, class labels and confidence scores, then checking calibration, lighting, occlusion, glare, motion blur, and temporal consistency before retraining only if the data issue is systematic.",
-              "key_points": ["Reproduce frames and logs for the false positive.", "Inspect bounding boxes, class labels, and confidence scores.", "Check camera calibration, lighting, occlusion, glare, motion blur, and temporal consistency.", "Add validation/recovery first; retrain only for systematic domain gaps."],
-              "follow_up_ready": ["I can also explain how I would separate perception failure from downstream localization or navigation errors."],
+              "say_first": "I would debug the confident but wrong SyntheticEventClassifier prediction on SyntheticEventService by reproducing the exact frames, inspecting bounding boxes, class labels and confidence scores, then checking schema validation, schema drift, occlusion, glare, motion blur, and temporal consistency before retraining only if the data issue is systematic.",
+              "key_points": ["Reproduce frames and logs for the false positive.", "Inspect bounding boxes, class labels, and confidence scores.", "Check input stream schema validation, schema drift, occlusion, glare, motion blur, and temporal consistency.", "Add validation/recovery first; retrain only for systematic domain gaps."],
+              "follow_up_ready": ["I can also explain how I would separate classification failure from downstream routing or dispatch errors."],
               "confidence": 0.9,
               "caution": "None",
               "evidence_used": [],
@@ -2497,28 +2499,28 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             }
             """
         } else if currentQuestion.localizedCaseInsensitiveContains("another month") ||
-            currentQuestion.localizedCaseInsensitiveContains("improve your LeoRover") ||
-            currentQuestion.localizedCaseInsensitiveContains("improve your Lero") {
+            currentQuestion.localizedCaseInsensitiveContains("improve your SyntheticEventService") ||
+            currentQuestion.localizedCaseInsensitiveContains("improve your Synthetic Event Service") {
             content = """
             {
               "strategy": "Improvement plan",
-              "say_first": "If I had one more month to improve LeoRover, I would first strengthen the real-robot evaluation pipeline with more objects, more initial positions, and more failure cases, then improve perception robustness under lighting and occlusion, spatial consistency checks, calibration diagnostics, and closed-loop recovery.",
-              "key_points": ["Broaden LeoRover evaluation with more objects and initial positions.", "Add more failure-case testing for the full retrieval pipeline.", "Improve robust perception, spatial consistency, calibration diagnostics, and recovery after missed detections or failed grasps."],
-              "follow_up_ready": ["I can also explain how I would measure whether those changes improved real-robot reliability."],
+              "say_first": "If I had one more month to improve SyntheticEventService, I would first strengthen the production-service evaluation pipeline with more objects, more initial positions, and more failure cases, then improve classification robustness under schema drift and occlusion, spatial consistency checks, schema validation diagnostics, and closed-loop recovery.",
+              "key_points": ["Broaden SyntheticEventService evaluation with more objects and initial positions.", "Add more failure-case testing for the full retrieval pipeline.", "Improve robust classification, spatial consistency, schema validation diagnostics, and recovery after missed classifications or failed deliveries."],
+              "follow_up_ready": ["I can also explain how I would measure whether those changes improved production-service reliability."],
               "confidence": 0.9,
               "caution": "None",
               "evidence_used": [],
               "risk_level": "low"
             }
             """
-        } else if currentQuestion.localizedCaseInsensitiveContains("difference between your VLA project") ||
+        } else if currentQuestion.localizedCaseInsensitiveContains("difference between your batch-policy project") ||
             currentQuestion.localizedCaseInsensitiveContains("difference between your villa project") ||
-            (currentQuestion.localizedCaseInsensitiveContains("VLA project") && currentQuestion.localizedCaseInsensitiveContains("LeoRover project")) {
+            (currentQuestion.localizedCaseInsensitiveContains("batch-policy project") && currentQuestion.localizedCaseInsensitiveContains("SyntheticEventService project")) {
             content = """
             {
               "strategy": "Project comparison",
-              "say_first": "The VLA project was a MuJoCo and Franka learning-policy project using DROID trajectories and decoder comparisons, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The main difference is simulation-based policy research versus deployed robotic system integration.",
-              "key_points": ["VLA: MuJoCo/Franka model-learning and decoder comparison.", "LeoRover: real robot ROS2, YOLOv8, navigation, localisation, and manipulation.", "Difference: learned policy evaluation in simulation versus real-world robotics integration."],
+              "say_first": "The batch-policy project was a SyntheticTestSandbox and SyntheticWorker learning-policy project using SyntheticReplayCorpus request sequences and decoder comparisons, while SyntheticEventService was a production service message bus integration project with SyntheticEventClassifier classification, dispatch, routing, and delivery. The main difference is simulation-based policy research versus deployed event-processing service integration.",
+              "key_points": ["batch-policy: SyntheticTestSandbox/SyntheticWorker model-learning and decoder comparison.", "SyntheticEventService: production service message bus, SyntheticEventClassifier, dispatch, routing, and delivery.", "Difference: learned policy evaluation in simulation versus production service integration."],
               "follow_up_ready": ["I can also explain what each project taught me about deployment reliability."],
               "confidence": 0.9,
               "caution": "None",
@@ -2531,9 +2533,9 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             content = """
             {
               "strategy": "STAR integration answer",
-              "say_first": "On LeoRover, the situation was that ROS2 perception, navigation, and manipulation handoffs were not always synchronized. I reproduced the failure, isolated the fragile timing boundary, then added validation and recovery behavior so the retrieval pipeline became more reliable.",
-              "key_points": ["Situation: LeoRover ROS2 module integration issue.", "Action: checked logs, timestamps, and perception/navigation/manipulation handoffs.", "Result: validation and recovery improved real-robot reliability."],
-              "follow_up_ready": ["I can also explain how I separated perception noise from navigation timing failures."],
+              "say_first": "On SyntheticEventService, the situation was that message bus classification, dispatch, and delivery handoffs were not always synchronized. I reproduced the failure, isolated the fragile timing boundary, then added validation and recovery behavior so the retrieval pipeline became more reliable.",
+              "key_points": ["Situation: SyntheticEventService message bus module integration issue.", "Action: checked logs, timestamps, and classification/dispatch/delivery handoffs.", "Result: validation and recovery improved production-service reliability."],
+              "follow_up_ready": ["I can also explain how I separated classification noise from dispatch timing failures."],
               "confidence": 0.9,
               "caution": "None",
               "evidence_used": [],
@@ -2541,12 +2543,12 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             }
             """
         } else if currentQuestion.localizedCaseInsensitiveContains("sim-to-real") ||
-            currentQuestion.localizedCaseInsensitiveContains("fails on a real robot") {
+            currentQuestion.localizedCaseInsensitiveContains("fails on a production service") {
             content = """
             {
               "strategy": "Sim-to-real debugging",
-              "say_first": "I would diagnose the sim-to-real gap by comparing MuJoCo and real-robot observations, action scaling, timing, calibration, contact dynamics, and failure videos, then isolate whether the issue is perception, control, dynamics mismatch, or distribution shift before changing the policy.",
-              "key_points": ["Compare simulator and real observations, actions, timing, and calibration.", "Inspect contact dynamics, latency, failure videos, and logs.", "Isolate perception, control, dynamics mismatch, or distribution shift before retraining."],
+              "say_first": "I would diagnose the sim-to-real gap by comparing SyntheticTestSandbox and production-service observations, action scaling, timing, schema validation, concurrency dynamics, and failure videos, then isolate whether the issue is classification, control, dynamics mismatch, or distribution shift before changing the policy.",
+              "key_points": ["Compare simulator and real observations, actions, timing, and schema validation.", "Inspect concurrency dynamics, latency, failure videos, and logs.", "Isolate classification, control, dynamics mismatch, or distribution shift before retraining."],
               "follow_up_ready": ["I can also explain how I would design a small ablation to separate policy errors from environment mismatch."],
               "confidence": 0.9,
               "caution": "None",
@@ -2558,9 +2560,9 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             content = """
             {
               "strategy": "Direct decoder comparison",
-              "say_first": "In my MuJoCo VLA evaluation, diffusion was strongest at about 7/10 successful grasps because it denoises a continuous action trajectory, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors.",
-              "key_points": ["Compared autoregressive, diffusion, and flow-matching decoders in MuJoCo VLA.", "Diffusion refines the full continuous action sequence.", "Autoregressive prediction can compound errors, while flow-matching was harder to stabilize in this setup."],
-              "follow_up_ready": ["I can explain why that made diffusion smoother and more robust for manipulation."],
+              "say_first": "In my SyntheticTestSandbox batch-policy evaluation, diffusion was strongest at about 7/10 successful requests because it denoises a continuous action request sequence, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors.",
+              "key_points": ["Compared autoregressive, diffusion, and flow-matching decoders in SyntheticTestSandbox batch-policy.", "Diffusion refines the full continuous action sequence.", "Autoregressive prediction can compound errors, while flow-matching was harder to stabilize in this setup."],
+              "follow_up_ready": ["I can explain why that made diffusion smoother and more robust for delivery."],
               "confidence": 0.9,
               "caution": "None",
               "evidence_used": [],
@@ -2586,104 +2588,104 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             if self.isMitigationQuestion(currentQuestion) {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline.
+                    SAY_FIRST: Real-world execution was harder because schema drift, schema validation, timing, imperfect routing, and concurrency uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline.
                     KEY_POINTS:
-                    - Lighting, calibration, timing, localization, and contact effects were less controlled than simulation.
+                    - Lighting, schema validation, timing, routing, and concurrency effects were less controlled than simulation.
                     - Logs and timestamp checks isolated where the pipeline drifted.
                     - Validation gates and recovery behaviors prevented failures from silently propagating.
-                    - The mitigation was system-level debugging, not only retraining perception.
+                    - The mitigation was system-level debugging, not only retraining classification.
                     FOLLOW_UP:
                     - I can also give a concrete example of one failure and how I isolated it.
                     """
                 } else {
-                    text = "Real-world execution was harder because lighting, calibration, timing, imperfect localization, and contact uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline."
+                    text = "Real-world execution was harder because schema drift, schema validation, timing, imperfect routing, and concurrency uncertainty changed together, so I mitigated it with logs, timestamp checks, validation gates, and recovery behaviors instead of assuming a clean demo pipeline."
                 }
-            } else if self.isRoboticsPipelineQuestion(currentQuestion) {
+            } else if self.isServicePipelineQuestion(currentQuestion) {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: My LeoRover system moved from YOLOv8 perception to localization, navigation, manipulation, and recovery by turning detections into target poses, validating robot state and timing, then using ROS2 behaviors to navigate, attempt the grasp, and recover when execution was uncertain.
+                    SAY_FIRST: My SyntheticEventService system moved from SyntheticEventClassifier classification to routing, dispatch, delivery, and recovery by turning classifications into routing decisions, validating service state and timing, then using message bus behaviors to navigate, attempt the delivery, and recover when execution was uncertain.
                     KEY_POINTS:
-                    - Perception produced target poses rather than just labels.
-                    - Localization and navigation moved the real robot into a feasible manipulation state.
-                    - Manipulation and recovery depended on validation, timing, and robot-state checks.
+                    - Classification produced routing decisions rather than just labels.
+                    - Routing and dispatch moved the production service into a feasible delivery state.
+                    - Delivery and recovery depended on validation, timing, and service-state checks.
                     FOLLOW_UP:
                     - I can also describe one handoff failure and how I debugged it.
                     """
                 } else {
-                    text = "My LeoRover system moved from YOLOv8 perception to localization, navigation, manipulation, and recovery by turning detections into target poses, validating robot state and timing, then using ROS2 behaviors to navigate, attempt the grasp, and recover when execution was uncertain."
+                    text = "My SyntheticEventService system moved from SyntheticEventClassifier classification to routing, dispatch, delivery, and recovery by turning classifications into routing decisions, validating service state and timing, then using message bus behaviors to navigate, attempt the delivery, and recover when execution was uncertain."
                 }
             } else if self.isDebuggingReflectionQuestion(currentQuestion) {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module. On LeoRover I had to compare logs, timestamps, calibration assumptions, perception outputs, localization state, navigation timing, and manipulation recovery to reproduce failures and stop small state mismatches from propagating.
+                    SAY_FIRST: The most important lesson I learned from debugging the production service was that reliability depends on instrumenting every handoff, not just improving one module. On SyntheticEventService I had to compare logs, timestamps, schema validation assumptions, classification outputs, routing state, dispatch timing, and delivery recovery to reproduce failures and stop small state mismatches from propagating.
                     KEY_POINTS:
-                    - Real-robot debugging was mainly an integration problem.
-                    - Logs, timestamps, calibration checks, and reproducible failures exposed bad handoffs.
-                    - Recovery and validation kept perception, navigation, and manipulation errors from spreading.
+                    - Production-service debugging was mainly an integration problem.
+                    - Logs, timestamps, schema validation checks, and reproducible failures exposed bad handoffs.
+                    - Recovery and validation kept classification, dispatch, and delivery errors from spreading.
                     FOLLOW_UP:
                     - I can also give a concrete example of one timing mismatch I would isolate.
                     """
                 } else {
-                    text = "The most important lesson I learned from debugging the real robot was that reliability depends on instrumenting every handoff, not just improving one module. On LeoRover I had to compare logs, timestamps, calibration assumptions, perception outputs, localization state, navigation timing, and manipulation recovery to reproduce failures and stop small state mismatches from propagating."
+                    text = "The most important lesson I learned from debugging the production service was that reliability depends on instrumenting every handoff, not just improving one module. On SyntheticEventService I had to compare logs, timestamps, schema validation assumptions, classification outputs, routing state, dispatch timing, and delivery recovery to reproduce failures and stop small state mismatches from propagating."
                 }
             } else if !self.isInterviewerQuestionsQuestion(currentQuestion) &&
-                (currentQuestion.localizedCaseInsensitiveContains("connect YOLOv8 detection") ||
+                (currentQuestion.localizedCaseInsensitiveContains("connect SyntheticEventClassifier classification") ||
                     currentQuestion.localizedCaseInsensitiveContains("recovery behaviors")) {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain.
+                    SAY_FIRST: My SyntheticEventService system connected SyntheticEventClassifier classifications to routing, dispatch, delivery, and recovery by turning classification outputs into routing decisions, validating them against service state, then using message bus behaviors to navigate, attempt delivery, and recover when classification or execution was uncertain.
                     KEY_POINTS:
-                    - YOLOv8 detections became target poses for localization and navigation.
-                    - Manipulation depended on validated perception and robot-state handoffs.
-                    - Recovery behaviors handled missed detections, bad poses, and real-world execution uncertainty.
-                    - The real robot was harder because lighting, timing, calibration, and contact effects were less controlled than a demo.
+                    - SyntheticEventClassifier classifications became routing decisions for routing and dispatch.
+                    - Delivery depended on validated classification and service-state handoffs.
+                    - Recovery behaviors handled missed classifications, bad poses, and real-world execution uncertainty.
+                    - The production service was harder because schema drift, timing, schema validation, and concurrency effects were less controlled than a demo.
                     FOLLOW_UP:
-                    - I can also describe how I debugged whether a failure came from perception, localization, navigation, or manipulation.
+                    - I can also describe how I debugged whether a failure came from classification, routing, dispatch, or delivery.
                     """
                 } else {
-                    text = "My LeoRover system connected YOLOv8 detections to localization, navigation, manipulation, and recovery by turning perception outputs into target poses, validating them against robot state, then using ROS2 behaviors to navigate, attempt manipulation, and recover when detection or execution was uncertain."
+                    text = "My SyntheticEventService system connected SyntheticEventClassifier classifications to routing, dispatch, delivery, and recovery by turning classification outputs into routing decisions, validating them against service state, then using message bus behaviors to navigate, attempt delivery, and recover when classification or execution was uncertain."
                 }
-            } else if currentQuestion.localizedCaseInsensitiveContains("What information did the robot need") {
+            } else if currentQuestion.localizedCaseInsensitiveContains("What information did the service need") {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: The robot needed object identity, target pose or location, distance, spatial relationship to the robot, reachability, and a navigation target before it could decide where to move and what to grasp.
+                    SAY_FIRST: The service needed object identity, routing decision or location, distance, spatial relationship to the service, reachability, and a dispatch target before it could decide where to move and what to delivery.
                     KEY_POINTS:
-                    - Object identity and target pose defined what to act on.
+                    - Object identity and routing decision defined what to act on.
                     - Distance, spatial relationship, and reachability checked whether action was feasible.
-                    - Navigation and grasp decisions used the same validated target state.
+                    - Dispatch and delivery decisions used the same validated target state.
                     FOLLOW_UP:
                     - I can also explain how I validated the handoff before acting.
                     """
                 } else {
-                    text = "The robot needed object identity, target pose or location, distance, spatial relationship to the robot, reachability, and a navigation target before it could decide where to move and what to grasp."
+                    text = "The service needed object identity, routing decision or location, distance, spatial relationship to the service, reachability, and a dispatch target before it could decide where to move and what to delivery."
                 }
-            } else if currentQuestion.localizedCaseInsensitiveContains("visual detections into physical actions") {
+            } else if currentQuestion.localizedCaseInsensitiveContains("visual classifications into physical actions") {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: In LeoRover, visual detections became physical actions by converting object detections into target poses, validating the pose against robot state, then passing that target through ROS2 to localization, navigation, manipulation, and recovery behaviors.
+                    SAY_FIRST: In SyntheticEventService, visual classifications became physical actions by converting object classifications into routing decisions, validating the pose against service state, then passing that target through message bus to routing, dispatch, delivery, and recovery behaviors.
                     KEY_POINTS:
-                    - Visual detections were converted into target poses.
-                    - Localization and navigation moved the robot toward a feasible manipulation pose.
-                    - Manipulation and recovery behavior handled grasp attempts, missed detections, and bad poses.
+                    - Visual classifications were converted into routing decisions.
+                    - Routing and dispatch moved the service toward a feasible delivery pose.
+                    - Delivery and recovery behavior handled delivery attempts, missed classifications, and bad poses.
                     FOLLOW_UP:
                     - I can also describe one failure where validation stopped a bad handoff.
                     """
                 } else {
-                    text = "In LeoRover, visual detections became physical actions by converting object detections into target poses, validating the pose against robot state, then passing that target through ROS2 to localization, navigation, manipulation, and recovery behaviors."
+                    text = "In SyntheticEventService, visual classifications became physical actions by converting object classifications into routing decisions, validating the pose against service state, then passing that target through message bus to routing, dispatch, delivery, and recovery behaviors."
                 }
             } else if !self.isInterviewerQuestionsQuestion(currentQuestion) &&
-                (currentQuestion.localizedCaseInsensitiveContains("YOLOv8") ||
+                (currentQuestion.localizedCaseInsensitiveContains("SyntheticEventClassifier") ||
                     currentQuestion.localizedCaseInsensitiveContains("confident but wrong") ||
                     currentQuestion.localizedCaseInsensitiveContains("detector")) {
                 text = """
-                SAY_FIRST: I would debug the confident but wrong YOLOv8 prediction on LeoRover by reproducing the exact frames, inspecting bounding boxes, class labels and confidence scores, then checking calibration, lighting, occlusion, glare, motion blur, and temporal consistency before retraining only if the data issue is systematic.
+                SAY_FIRST: I would debug the confident but wrong SyntheticEventClassifier prediction on SyntheticEventService by reproducing the exact frames, inspecting bounding boxes, class labels and confidence scores, then checking schema validation, schema drift, occlusion, glare, motion blur, and temporal consistency before retraining only if the data issue is systematic.
                 KEY_POINTS:
                 - Reproduce frames and logs for the false positive.
                 - Inspect bounding boxes, class labels, and confidence scores.
-                - Check calibration, lighting, occlusion, glare, motion blur, and temporal consistency.
+                - Check schema validation, schema drift, occlusion, glare, motion blur, and temporal consistency.
                 - Add validation or recovery before retraining.
                 FOLLOW_UP:
-                - I can also explain how I would separate perception failure from downstream localization or navigation errors.
+                - I can also explain how I would separate classification failure from downstream routing or dispatch errors.
                 """
             } else if currentQuestion.localizedCaseInsensitiveContains("what questions would you ask us") ||
                 currentQuestion.localizedCaseInsensitiveContains("what would you ask the engineering team") ||
@@ -2703,67 +2705,67 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
                     text = "What would success look like in the first three months? How is the engineering team structured? Which deployment challenge is the team prioritising now?"
                 }
             } else if currentQuestion.localizedCaseInsensitiveContains("another month") ||
-                currentQuestion.localizedCaseInsensitiveContains("improve your LeoRover") ||
-                currentQuestion.localizedCaseInsensitiveContains("improve your Lero") {
+                currentQuestion.localizedCaseInsensitiveContains("improve your SyntheticEventService") ||
+                currentQuestion.localizedCaseInsensitiveContains("improve your Synthetic Event Service") {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: If I had one more month to improve LeoRover, I would first strengthen the real-robot evaluation pipeline with more objects, more initial positions, and more failure cases, then improve perception robustness under lighting and occlusion, spatial consistency checks, calibration diagnostics, and closed-loop recovery.
+                    SAY_FIRST: If I had one more month to improve SyntheticEventService, I would first strengthen the production-service evaluation pipeline with more objects, more initial positions, and more failure cases, then improve classification robustness under schema drift and occlusion, spatial consistency checks, schema validation diagnostics, and closed-loop recovery.
                     KEY_POINTS:
-                    - Broaden LeoRover evaluation with more objects and initial positions.
+                    - Broaden SyntheticEventService evaluation with more objects and initial positions.
                     - Add more failure-case testing for the full retrieval pipeline.
-                    - Improve robust perception, spatial consistency, calibration diagnostics, and recovery after missed detections or failed grasps.
+                    - Improve robust classification, spatial consistency, schema validation diagnostics, and recovery after missed classifications or failed deliveries.
                     FOLLOW_UP:
-                    - I can also explain how I would measure whether those changes improved real-robot reliability.
+                    - I can also explain how I would measure whether those changes improved production-service reliability.
                     """
                 } else {
-                    text = "If I had one more month to improve LeoRover, I would first strengthen the real-robot evaluation pipeline with more objects, more initial positions, and more failure cases, then improve perception robustness under lighting and occlusion, spatial consistency checks, calibration diagnostics, and closed-loop recovery."
+                    text = "If I had one more month to improve SyntheticEventService, I would first strengthen the production-service evaluation pipeline with more objects, more initial positions, and more failure cases, then improve classification robustness under schema drift and occlusion, spatial consistency checks, schema validation diagnostics, and closed-loop recovery."
                 }
-            } else if currentQuestion.localizedCaseInsensitiveContains("difference between your VLA project") ||
+            } else if currentQuestion.localizedCaseInsensitiveContains("difference between your batch-policy project") ||
                 currentQuestion.localizedCaseInsensitiveContains("difference between your villa project") ||
-                (currentQuestion.localizedCaseInsensitiveContains("VLA project") && currentQuestion.localizedCaseInsensitiveContains("LeoRover project")) {
+                (currentQuestion.localizedCaseInsensitiveContains("batch-policy project") && currentQuestion.localizedCaseInsensitiveContains("SyntheticEventService project")) {
                 text = """
-                SAY_FIRST: The VLA project was a MuJoCo and Franka learning-policy project using DROID trajectories and decoder comparisons, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The main difference is simulation-based policy research versus deployed robotic system integration.
+                SAY_FIRST: The batch-policy project was a SyntheticTestSandbox and SyntheticWorker learning-policy project using SyntheticReplayCorpus request sequences and decoder comparisons, while SyntheticEventService was a production service message bus integration project with SyntheticEventClassifier classification, dispatch, routing, and delivery. The main difference is simulation-based policy research versus deployed event-processing service integration.
                 KEY_POINTS:
-                - VLA: MuJoCo/Franka model-learning and decoder comparison.
-                - LeoRover: real robot ROS2, YOLOv8, navigation, localisation, and manipulation.
-                - Difference: learned policy evaluation in simulation versus real-world robotics integration.
+                - batch-policy: SyntheticTestSandbox/SyntheticWorker model-learning and decoder comparison.
+                - SyntheticEventService: production service message bus, SyntheticEventClassifier, dispatch, routing, and delivery.
+                - Difference: learned policy evaluation in simulation versus production service integration.
                 FOLLOW_UP:
                 - I can also explain what each project taught me about deployment reliability.
                 """
             } else if currentQuestion.localizedCaseInsensitiveContains("system integration") ||
                 currentQuestion.localizedCaseInsensitiveContains("debug a system") {
                 text = """
-                SAY_FIRST: On LeoRover, the situation was a ROS2 integration problem where perception, navigation, and manipulation handoffs were not always synchronized. I reproduced the failure, isolated the fragile timing boundary, then added validation and recovery behavior so the full retrieval pipeline became more reliable.
+                SAY_FIRST: On SyntheticEventService, the situation was a message bus integration problem where classification, dispatch, and delivery handoffs were not always synchronized. I reproduced the failure, isolated the fragile timing boundary, then added validation and recovery behavior so the full retrieval pipeline became more reliable.
                 KEY_POINTS:
-                - Situation: LeoRover ROS2 module integration issue.
-                - Action: checked logs, timestamps, and perception/navigation/manipulation handoffs.
-                - Result: recovery behavior improved real-robot reliability.
+                - Situation: SyntheticEventService message bus module integration issue.
+                - Action: checked logs, timestamps, and classification/dispatch/delivery handoffs.
+                - Result: recovery behavior improved production-service reliability.
                 FOLLOW_UP:
-                - I can also explain how I separated perception noise from navigation timing failures.
+                - I can also explain how I separated classification noise from dispatch timing failures.
                 """
             } else if currentQuestion.localizedCaseInsensitiveContains("sim-to-real") ||
-                currentQuestion.localizedCaseInsensitiveContains("fails on a real robot") {
+                currentQuestion.localizedCaseInsensitiveContains("fails on a production service") {
                 text = """
-                SAY_FIRST: I would diagnose the sim-to-real gap by comparing MuJoCo and real-robot observations, action scaling, timing, calibration, contact dynamics, and failure videos, then isolate whether the issue is perception, control, dynamics mismatch, or distribution shift before changing the policy.
+                SAY_FIRST: I would diagnose the sim-to-real gap by comparing SyntheticTestSandbox and production-service observations, action scaling, timing, schema validation, concurrency dynamics, and failure videos, then isolate whether the issue is classification, control, dynamics mismatch, or distribution shift before changing the policy.
                 KEY_POINTS:
-                - Compare simulator and real observations, actions, timing, and calibration.
-                - Inspect contact dynamics, latency, failure videos, and logs.
-                - Isolate perception, control, dynamics mismatch, or distribution shift before retraining.
+                - Compare simulator and real observations, actions, timing, and schema validation.
+                - Inspect concurrency dynamics, latency, failure videos, and logs.
+                - Isolate classification, control, dynamics mismatch, or distribution shift before retraining.
                 FOLLOW_UP:
                 - I can also explain how I would design a small ablation to separate policy errors from environment mismatch.
                 """
             } else if prompt.contains("Return plain text sections only") {
                 text = """
-                SAY_FIRST: In my MuJoCo VLA evaluation, diffusion was strongest at about 7/10 successful grasps because it denoised a continuous action trajectory, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors.
+                SAY_FIRST: In my SyntheticTestSandbox batch-policy evaluation, diffusion was strongest at about 7/10 successful requests because it denoised a continuous action request sequence, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors.
                 KEY_POINTS:
-                - Compared autoregressive, diffusion, and flow-matching decoders in MuJoCo VLA.
+                - Compared autoregressive, diffusion, and flow-matching decoders in SyntheticTestSandbox batch-policy.
                 - Diffusion refines the full continuous action sequence.
                 - Autoregressive prediction can compound errors, while flow-matching was harder to stabilize.
                 FOLLOW_UP:
-                - I can explain why that made diffusion smoother and more robust for manipulation.
+                - I can explain why that made diffusion smoother and more robust for delivery.
                 """
             } else {
-                text = "In my MuJoCo VLA evaluation, diffusion was strongest at about 7/10 successful grasps because it denoised a continuous action trajectory, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors."
+                text = "In my SyntheticTestSandbox batch-policy evaluation, diffusion was strongest at about 7/10 successful requests because it denoised a continuous action request sequence, while autoregressive and flow-matching decoders were weaker at about 1/10, with autoregressive prediction accumulating step-by-step errors."
             }
             let delay = self.stageAStreamDelay(for: prompt)
             let stageAHangAfterToken = isFullCardPrompt ? nil : self.stageAStreamHangAfterTokenCount(for: prompt)
@@ -2845,24 +2847,24 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             lower.contains("before accepting an offer")
     }
 
-    private func isRoboticsPipelineQuestion(_ text: String) -> Bool {
+    private func isServicePipelineQuestion(_ text: String) -> Bool {
         let lower = text.lowercased()
-        let mentionsPerception = lower.contains("perception") ||
+        let mentionsClassification = lower.contains("classification") ||
             lower.contains("detector") ||
-            lower.contains("detection") ||
-            lower.contains("yolov8")
+            lower.contains("classification") ||
+            lower.contains("syntheticeventclassifier")
         let mentionsAction = lower.contains("physical action") ||
             lower.contains("action") ||
-            lower.contains("navigation") ||
-            lower.contains("manipulation") ||
-            lower.contains("grasp") ||
+            lower.contains("dispatch") ||
+            lower.contains("delivery") ||
+            lower.contains("delivery") ||
             lower.contains("recovery")
         let asksPipeline = lower.contains("pipeline") ||
             lower.contains("decision-making process") ||
             lower.contains("connect") ||
-            lower.contains("from perception") ||
+            lower.contains("from classification") ||
             lower.contains("influence")
-        return mentionsPerception && mentionsAction && asksPipeline
+        return mentionsClassification && mentionsAction && asksPipeline
     }
 
     private func isDebuggingReflectionQuestion(_ text: String) -> Bool {
@@ -2878,10 +2880,10 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             lower.contains("debug") ||
             lower.contains("failure") ||
             lower.contains("trace")
-        let mentionsRealRobot = lower.contains("real robot") ||
-            lower.contains("real-robot") ||
-            lower.contains("robot") ||
-            lower.contains("leorover") ||
+        let mentionsRealRobot = lower.contains("production service") ||
+            lower.contains("production-service") ||
+            lower.contains("service") ||
+            lower.contains("syntheticeventservice") ||
             lower.contains("integration")
         return mentionsLesson && mentionsDebugging && mentionsRealRobot
     }

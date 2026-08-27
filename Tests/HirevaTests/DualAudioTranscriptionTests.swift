@@ -3,6 +3,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 @MainActor
 struct DualAudioTranscriptionTests {
@@ -60,7 +62,7 @@ struct DualAudioTranscriptionTests {
         let cv = try documents.saveDocument(
             type: .cv,
             title: "Dual Audio Candidate",
-            content: String(repeating: "Built deterministic Swift audio pipeline tests for robotics interview software. ", count: 8)
+            content: String(repeating: "Built deterministic Swift audio pipeline tests for distributed-systems interview software. ", count: 8)
         )
         let role = try documents.saveDocument(
             type: .jobDescription,
@@ -75,7 +77,7 @@ struct DualAudioTranscriptionTests {
             education: [],
             experience: [evidence(
                 id: "dual-audio-experience",
-                statement: "Built deterministic Swift audio pipeline tests for robotics interview software.",
+                statement: "Built deterministic Swift audio pipeline tests for distributed-systems interview software.",
                 documentID: cv.id,
                 type: .experience
             )],
@@ -200,7 +202,7 @@ struct DualAudioTranscriptionTests {
         }
 
         systemSession.simulateEmit(
-            text: "Could you explain your LeoRover project from end to end?",
+            text: "Could you explain your SyntheticEventService event-delivery project from end to end?",
             isFinal: true
         )
         let segments = await collector.value
@@ -346,7 +348,7 @@ struct DualAudioTranscriptionTests {
             sessionID: "dual-audio-gating",
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Can you describe your robotics projects?"
+            text: "Can you describe your distributed-systems projects?"
         )
         appState.last10SegmentsDiagnostics.removeAll()
         await appState.handleTranscriptSegment(systemSegment)
@@ -374,7 +376,7 @@ struct DualAudioTranscriptionTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Can you describe your robotics projects?",
+            text: "Can you describe your distributed-systems projects?",
             recognitionIsFinal: true
         ))
 
@@ -409,15 +411,15 @@ struct DualAudioTranscriptionTests {
         }
         defer { collector.cancel() }
 
-        micSession.simulateEmit(text: "This is my complete candidate answer regarding robotics experience", isFinal: false)
+        micSession.simulateEmit(text: "This is my complete candidate answer regarding distributed-systems experience", isFinal: false)
         micSession.simulateEmit(text: "Take", isFinal: true)
         try await waitUntil("partial and truncated final segments") { segments.count == 2 }
 
-        #expect(micSession.lastPartialTranscript == "This is my complete candidate answer regarding robotics experience")
+        #expect(micSession.lastPartialTranscript == "This is my complete candidate answer regarding distributed-systems experience")
         #expect(micSession.lastFinalTranscript == "Take")
-        #expect(micSession.bestTranscriptUsed == "This is my complete candidate answer regarding robotics experience")
+        #expect(micSession.bestTranscriptUsed == "This is my complete candidate answer regarding distributed-systems experience")
         #expect(micSession.finalizationReason == "final much shorter than recent partial")
-        #expect(segments.last?.text == "This is my complete candidate answer regarding robotics experience")
+        #expect(segments.last?.text == "This is my complete candidate answer regarding distributed-systems experience")
     }
 
     @Test
@@ -431,15 +433,15 @@ struct DualAudioTranscriptionTests {
         }
         defer { collector.cancel() }
 
-        micSession.simulateEmit(text: "Robotics and VLA policies", isFinal: false)
+        micSession.simulateEmit(text: "Streaming and batch-processing policies", isFinal: false)
         micSession.simulateEmit(text: "", isFinal: true)
         try await waitUntil("partial and empty final segments") { segments.count == 2 }
 
-        #expect(micSession.lastPartialTranscript == "Robotics and VLA policies")
+        #expect(micSession.lastPartialTranscript == "Streaming and batch-processing policies")
         #expect(micSession.lastFinalTranscript == "")
-        #expect(micSession.bestTranscriptUsed == "Robotics and VLA policies")
+        #expect(micSession.bestTranscriptUsed == "Streaming and batch-processing policies")
         #expect(micSession.finalizationReason == "final empty but partial meaningful")
-        #expect(segments.last?.text == "Robotics and VLA policies")
+        #expect(segments.last?.text == "Streaming and batch-processing policies")
     }
 
     @Test
@@ -488,28 +490,28 @@ struct DualAudioTranscriptionTests {
             return (segments, nil)
         }
 
-        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+        micSession.simulateEmit(text: "This is my candidate answer about my service project", isFinal: false)
         micSession.simulateEmit(text: "Take", isFinal: true)
-        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+        micSession.simulateEmit(text: "This is my candidate answer about my service project", isFinal: false)
         micSession.simulateEmit(text: "", isFinal: true)
         micSession.simulateEmit(text: "This is my candidate answer", isFinal: false)
-        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
-        systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
-        systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
+        micSession.simulateEmit(text: "This is my candidate answer about my service project", isFinal: true)
+        systemSession.simulateEmit(text: "Can you tell me about your service project?", isFinal: false)
+        systemSession.simulateEmit(text: "Can you tell me about your service project?", isFinal: true)
         let (segments, persistenceError) = await collector.value
         if let persistenceError { throw persistenceError }
         #expect(segments.count == 8)
 
-        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
-        #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")
+        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my service project")
+        #expect(systemSession.bestTranscriptUsed == "Can you tell me about your service project?")
         let savedSegments = try transcriptRepository.segments(sessionID: session.id)
         let segmentIDs = savedSegments.map(\.id)
         #expect(segmentIDs.count == Set(segmentIDs).count)
         #expect(savedSegments.filter { $0.source == .microphone }.contains {
-            $0.text == "This is my candidate answer about my robotics project"
+            $0.text == "This is my candidate answer about my service project"
         })
         #expect(savedSegments.filter { $0.source == .systemAudio }.contains {
-            $0.text == "Can you tell me about your robotics project?"
+            $0.text == "Can you tell me about your service project?"
         })
     }
 }
@@ -530,7 +532,7 @@ private final class DualAudioLLMClient: LLMClientProtocol {
         let content = """
         {
           "strategy": "Direct Answer",
-          "say_first": "I built deterministic Swift audio pipeline tests for robotics interview software.",
+          "say_first": "I built deterministic Swift audio pipeline tests for distributed-systems interview software.",
           "key_points": ["Tested microphone and system attribution", "Used finite deterministic synchronization"],
           "follow_up_ready": [],
           "confidence": 0.95,

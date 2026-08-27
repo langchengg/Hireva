@@ -2,11 +2,13 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 @MainActor
 struct QuestionDetectionTests {
     @Test
-    func leaderRoverASRVariantNormalizesToLeoRoverProjectIntent() {
+    func spokenAPIASRVariantNormalizesToSyntheticEventServiceProjectIntent() {
         let questions = SystemAudioQuestionExtractor.extract(from: "could you walk me through your a p i project")
 
         #expect(questions.count == 1)
@@ -16,7 +18,7 @@ struct QuestionDetectionTests {
     }
 
     @Test
-    func leroEndToEndNormalizesToCanonicalLeoRoverQuestion() {
+    func spokenProjectEndToEndNormalizesToCanonicalSyntheticEventServiceQuestion() {
         let questions = SystemAudioQuestionExtractor.extract(from: "could you walk me through your Atlas project from N to end")
 
         #expect(questions.map(\.text) == ["Could you walk me through your Atlas project from end-to-end"])
@@ -24,7 +26,7 @@ struct QuestionDetectionTests {
     }
 
     @Test
-    func trailingNextQuestionStarterIsTrimmedFromLeoRoverQuestion() {
+    func trailingNextQuestionStarterIsTrimmedFromSyntheticEventServiceQuestion() {
         let questions = SystemAudioQuestionExtractor.extract(from: "could you walk me through your Atlas project end-to-end and what you")
 
         #expect(questions.map(\.text) == ["Could you walk me through your Atlas project end-to-end"])
@@ -85,7 +87,7 @@ struct QuestionDetectionTests {
     }
 
     @Test
-    func semanticLeoRoverVariantsAreDuplicateSuppressed() throws {
+    func semanticSyntheticEventServiceVariantsAreDuplicateSuppressed() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "QuestionDetectionTests")
         let appState = AppState(database: database)
 
@@ -105,7 +107,7 @@ struct QuestionDetectionTests {
     }
 
     @Test
-    func mujocoDecoderComparisonASRVariantsNormalizeToCanonicalQuestion() {
+    func synthetictestsandboxDecoderComparisonASRVariantsNormalizeToCanonicalQuestion() {
         let questions = SystemAudioQuestionExtractor.extract(
             from: "What did you learn from comparing classifier regression and transformer alternatives"
         )
@@ -131,7 +133,7 @@ struct QuestionDetectionTests {
     }
 
     @Test
-    func yoloAndLeoRoverASRVariantsNormalizeToPerceptionDebuggingQuestion() {
+    func spokenAPIAndSyntheticServiceVariantsNormalizeToClassificationDebuggingQuestion() {
         let canonical = SystemAudioQuestionExtractor.canonicalizeQuestionText(
             "If your a p i detector gives a confident but wrong prediction, how would you debug it?"
         )
@@ -194,12 +196,12 @@ struct QuestionDetectionTests {
     }
 
     @Test
-    func leoRoverShortAndFullWalkthroughVariantsAreDuplicateSuppressed() throws {
+    func syntheticEventServiceShortAndFullWalkthroughVariantsAreDuplicateSuppressed() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "QuestionDetectionTests")
         let appState = AppState(database: database)
 
-        #expect(appState.isDuplicateAutoQuestion("could you explain your LeoRover project") == false)
-        #expect(appState.isDuplicateAutoQuestion("could you explain your LeoRover project from end to end") == true)
+        #expect(appState.isDuplicateAutoQuestion("could you explain your SyntheticEventService project") == false)
+        #expect(appState.isDuplicateAutoQuestion("could you explain your SyntheticEventService project from end to end") == true)
         #expect(appState.duplicateSuppressionCount == 1)
     }
 

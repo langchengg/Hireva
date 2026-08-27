@@ -3,6 +3,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 @MainActor
 struct GenerationUIStateTests {
@@ -101,7 +103,7 @@ struct GenerationUIStateTests {
         let question = DetectedQuestion(
             id: UUID().uuidString,
             sessionID: UUID().uuidString,
-            questionText: "Could you walk me through your first project, the LeoRover navigation pipeline?",
+            questionText: "Could you walk me through your first project, the SyntheticEventService event-delivery pipeline?",
             intent: .projectDeepDive,
             answerStrategy: .projectWalkthrough,
             confidence: 0.95,
@@ -131,9 +133,9 @@ struct GenerationUIStateTests {
         client.fullCardContent = """
         {
           "strategy": "Project Walkthrough",
-          "say_first": "I can walk through the LeoRover project as an autonomous object retrieval robot, covering the ROS2 pipeline, YOLOv8 perception, navigation, manipulation, and what I learned from real robot execution.",
-          "key_points": ["LeoRover autonomous object retrieval", "ROS2, YOLOv8 perception, navigation, and manipulation", "Real robot execution and reliability learning"],
-          "follow_up_ready": ["I can go deeper on ROS2 navigation and manipulation tradeoffs if helpful."],
+          "say_first": "I can walk through the SyntheticEventService project as a reliable event-delivery service, covering the message bus, SyntheticEventClassifier, routing, dispatch, delivery, and what I learned from production-like execution.",
+          "key_points": ["SyntheticEventService event-delivery goal", "Message bus, SyntheticEventClassifier, routing, dispatch, and delivery", "Production-like execution and reliability learning"],
+          "follow_up_ready": ["I can go deeper on routing and delivery tradeoffs if helpful."],
           "confidence": 0.82,
           "caution": "None",
           "evidence_used": [],
@@ -169,7 +171,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
+            text: "Could you walk me through your second project, the SyntheticEventService event-delivery pipeline?",
             suffix: "second-after-db-delay"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -345,7 +347,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
+            text: "Could you walk me through your second project, the SyntheticEventService event-delivery pipeline?",
             suffix: "second"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -402,7 +404,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
+            text: "Could you walk me through your second project, the SyntheticEventService event-delivery pipeline?",
             suffix: "second-stage-b"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -455,7 +457,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "Could you walk me through your second project, the LeoRover navigation pipeline?",
+            text: "Could you walk me through your second project, the SyntheticEventService event-delivery pipeline?",
             suffix: "second-hang"
         )
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
@@ -558,8 +560,8 @@ struct GenerationUIStateTests {
 
         let sections = StreamingSuggestionSections(
             strategy: "Role motivation",
-            sayFirst: "I want this role because it connects my robotics, AI, perception, and real-world deployment experience with a team where I can contribute and grow.",
-            keyPoints: ["Robotics and AI fit", "Real-world deployment interest"],
+            sayFirst: "I want this role because it connects my distributed-systems, classification, and production deployment experience with a team where I can contribute and grow.",
+            keyPoints: ["Distributed-systems fit", "Production deployment interest"],
             followUpReady: [],
             caution: ""
         )
@@ -609,8 +611,8 @@ struct GenerationUIStateTests {
             sessionID: session.id,
             questionID: secondQuestion.id,
             strategy: "Role motivation",
-            sayFirst: "I want this role because it connects with my robotics and deployed AI systems experience.",
-            keyPoints: ["Robotics fit"],
+            sayFirst: "I want this role because it connects with my distributed-systems and deployed classification-service experience.",
+            keyPoints: ["Distributed-systems fit"],
             followUpReady: [],
             confidence: 0.8,
             caution: nil,
@@ -682,7 +684,7 @@ struct GenerationUIStateTests {
         let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let question = try makeQuestion(
             sessionID: session.id,
-            text: "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?",
+            text: "What made production execution in SyntheticEventService harder than a clean test or demo environment?",
             suffix: "stage-b-semantic-fallback"
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -770,7 +772,7 @@ struct GenerationUIStateTests {
         let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let question = try makeQuestion(
             sessionID: session.id,
-            text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
+            text: "How did the service turn noisy event input into a confident classifier decision about which route to select?",
             suffix: "provider-first-answer-stage-b-rejected"
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -785,7 +787,7 @@ struct GenerationUIStateTests {
         )
         appState.lastDetectedQuestion = question
 
-        let providerSayFirst = "I inspected logs to isolate noisy camera input, then calibrated the camera and IMU, filtered unstable YOLOv8 detections, fused them with depth-based localization, and tested that perception confidence was stable before navigation and grasp planning."
+        let providerSayFirst = "I inspected traces to isolate malformed event input, then validated schemas and clocks, filtered unstable SyntheticEventClassifier labels, combined them with routing state, and tested that classification confidence was stable before dispatch and delivery scheduling."
         var currentProviderCard = SuggestionCard(
             id: "current-provider-completed-first-answer",
             sessionID: session.id,
@@ -793,9 +795,9 @@ struct GenerationUIStateTests {
             strategy: "DeepSeek",
             sayFirst: providerSayFirst,
             keyPoints: [
-                "Calibrated camera and IMU to reduce noise.",
-                "Filtered unstable YOLOv8 detections.",
-                "Used stable perception confidence before navigation and grasp planning."
+                "Validated schemas and clocks to reduce input errors.",
+                "Filtered unstable SyntheticEventClassifier labels.",
+                "Used stable classification confidence before dispatch and delivery scheduling."
             ],
             followUpReady: [],
             confidence: 0.86,
@@ -884,7 +886,7 @@ struct GenerationUIStateTests {
         let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let question = try makeQuestion(
             sessionID: session.id,
-            text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
+            text: "How did the service turn noisy event input into a confident classifier decision about which route to select?",
             suffix: "provider-empty-keypoints"
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -900,7 +902,7 @@ struct GenerationUIStateTests {
         appState.lastDetectedQuestion = question
         appState.activeRealtimeProvider = nil
 
-        let providerSayFirst = "I inspected logs to isolate noisy camera data, then calibrated the sensors and built a robust YOLOv8 perception pipeline that filtered sensor noise; I tested it under varying lighting and occlusion to validate stable object-approach decisions."
+        let providerSayFirst = "I inspected traces to isolate malformed event data, then validated schemas and built a robust SyntheticEventClassifier pipeline that filtered input errors; I tested it under schema drift and partial payloads to validate stable routing decisions."
         var currentProviderCard = SuggestionCard(
             id: "current-provider-empty-keypoints",
             sessionID: session.id,
@@ -967,7 +969,7 @@ struct GenerationUIStateTests {
         #expect(visible.isLocal == false)
         #expect(visible.softFallbackUsed == false)
         #expect(visible.keyPoints.isEmpty == false)
-        #expect(visible.keyPoints.joined(separator: " ").localizedCaseInsensitiveContains("YOLOv8") ||
+        #expect(visible.keyPoints.joined(separator: " ").localizedCaseInsensitiveContains("SyntheticEventClassifier") ||
             visible.keyPoints.joined(separator: " ").localizedCaseInsensitiveContains("sensor noise"))
     }
 
@@ -976,7 +978,7 @@ struct GenerationUIStateTests {
         let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let question = try makeQuestion(
             sessionID: session.id,
-            text: "How did the robot turn noisy camera input into a confident decision about which object to approach?",
+            text: "How did the service turn noisy event input into a confident classifier decision about which route to select?",
             suffix: "provider-timeout-period"
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
@@ -996,7 +998,7 @@ struct GenerationUIStateTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "DeepSeek First Answer",
-            sayFirst: "I inspected logs to isolate sensor noise and perception drift, then used a ROS2 pipeline with YOLOv8 detection, vision-guided localization, and camera-IMU calibration; I tested it in cluttered environments to validate stable object-approach decisions",
+            sayFirst: "I inspected traces to isolate input errors and classification drift, then used a message-bus pipeline with SyntheticEventClassifier labels, routing state, and schema-clock validation; I tested it under bursty workloads to validate stable routing decisions",
             keyPoints: [],
             followUpReady: [],
             confidence: 0.9,
@@ -1089,8 +1091,8 @@ struct GenerationUIStateTests {
             sessionID: session.id,
             questionID: secondQuestion.id,
             strategy: "Role fit",
-            sayFirst: "I want this role because it connects my robotics and deployed AI experience.",
-            keyPoints: ["Robotics fit"],
+            sayFirst: "I want this role because it connects my distributed-systems and deployed classification-service experience.",
+            keyPoints: ["Distributed-systems fit"],
             followUpReady: [],
             confidence: 0.9,
             caution: nil,
@@ -1175,7 +1177,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "How did you convert DROID demonstrations for MuJoCo Franka?",
+            text: "How did you convert SyntheticReplayCorpus records for SyntheticTestSandbox validation?",
             suffix: "queued-stream-label"
         )
         appState.activateGeneration(
@@ -1186,7 +1188,7 @@ struct GenerationUIStateTests {
             source: .systemAudio,
             speaker: .interviewer
         )
-        appState.streamedSayFirst = "I built the LeoRover project with ROS2 navigation and YOLOv8 perception."
+        appState.streamedSayFirst = "I built the SyntheticEventService project with a message bus, routing, and SyntheticEventClassifier classification."
         appState.currentSuggestion = nil
         appState.lastDetectedQuestion = secondQuestion
         appState.possibleQuestion = secondQuestion
@@ -1203,7 +1205,7 @@ struct GenerationUIStateTests {
         let (appState, session, firstQuestion, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
         let secondQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "If YOLOv8 is confidently wrong, how would you debug it?",
+            text: "If SyntheticEventClassifier is confidently wrong, how would you debug it?",
             suffix: "loading-label"
         )
         appState.activateGeneration(
@@ -1271,7 +1273,7 @@ struct GenerationUIStateTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "How did you adapt DROID demonstrations for MuJoCo?",
+            text: "How did you adapt SyntheticReplayCorpus records for SyntheticTestSandbox?",
             createdAt: Date(),
             asrFinalizationReason: "stable_partial",
             recognitionTaskID: "new-recognition-task",
@@ -1310,8 +1312,8 @@ struct GenerationUIStateTests {
             sessionID: session.id,
             questionID: firstQuestion.id,
             strategy: "Project walkthrough",
-            sayFirst: "I built the LeoRover project with ROS2 navigation, YOLOv8 perception, and real robot reliability checks.",
-            keyPoints: ["ROS2 navigation", "YOLOv8 perception"],
+            sayFirst: "I built the SyntheticEventService project with a message bus, routing, SyntheticEventClassifier classification, and production-like reliability checks.",
+            keyPoints: ["Message-bus routing", "SyntheticEventClassifier classification"],
             followUpReady: [],
             confidence: 0.9,
             caution: nil,
@@ -1361,8 +1363,8 @@ struct GenerationUIStateTests {
                 sessionID: session.id,
                 questionID: questionID,
                 strategy: "Project walkthrough",
-                sayFirst: "I built the LeoRover navigation pipeline with ROS2, perception, planning, and real-robot reliability checks, which improved recovery behaviour.",
-                keyPoints: ["ROS2 navigation", "Real robot reliability"],
+                sayFirst: "I built the SyntheticEventService event-delivery pipeline with a message bus, classification, routing, and production-like reliability checks, which improved recovery behaviour.",
+                keyPoints: ["Message-bus routing", "Production-like service reliability"],
                 followUpReady: [],
                 confidence: 0.9,
                 caution: nil,
@@ -1448,7 +1450,7 @@ struct GenerationUIStateTests {
         let (appState, session, _, _) = try makeAppState(client: ConsecutiveQuestionLLMClient(), bindCandidateContext: true)
         let thirdQuestion = try makeQuestion(
             sessionID: session.id,
-            text: "What was the biggest technical trade-off you made in your robotics projects?",
+            text: "What was the biggest technical trade-off you made in your distributed-systems projects?",
             suffix: "fallback-third"
         )
         let generationID = "generation-fallback-third"
@@ -1508,8 +1510,8 @@ struct GenerationUIStateTests {
             "third project": 1_000_000_000
         ]
         let (appState, session, firstQuestion, delayProvider) = try makeAppState(client: client, bindCandidateContext: true)
-        let secondQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your second project, the LeoRover navigation pipeline?", suffix: "second-rapid")
-        let thirdQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your third project, the LeoRover navigation pipeline?", suffix: "third-rapid")
+        let secondQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your second project, the SyntheticEventService event-delivery pipeline?", suffix: "second-rapid")
+        let thirdQuestion = try makeQuestion(sessionID: session.id, text: "Could you walk me through your third project, the SyntheticEventService event-delivery pipeline?", suffix: "third-rapid")
         try appState.suggestionRepository.saveDetectedQuestion(secondQuestion)
         try appState.suggestionRepository.saveDetectedQuestion(thirdQuestion)
         delayProvider.sleepDuration = 0
@@ -1576,9 +1578,9 @@ struct GenerationUIStateTests {
         if bindCandidateContext {
             let profileID = "generation-ui-profile-\(UUID().uuidString)"
             let projectStatements = [
-                "The synthetic candidate built a LeoRover ROS2 navigation project connecting perception, localization, planning, control, and recovery, which improved system reliability.",
-                "The synthetic candidate calibrated camera and IMU inputs, filtered unstable YOLOv8 detections and sensor noise, and used depth-based localization before navigation and grasp planning.",
-                "The synthetic candidate tested cluttered real-world environments and balanced perception confidence against response latency, which improved robust object-approach decisions."
+                "The synthetic candidate built a SyntheticEventService project connecting a message bus, classification, routing, scheduling, delivery, and recovery, which improved system reliability.",
+                "The synthetic candidate validated event schemas and clock inputs, filtered unstable SyntheticEventClassifier labels, and used routing state before dispatch and delivery scheduling.",
+                "The synthetic candidate tested bursty production-like workloads and balanced classification confidence against response latency, which improved robust routing decisions."
             ]
             try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
                 id: profileID,
@@ -1620,7 +1622,7 @@ struct GenerationUIStateTests {
             id: UUID().uuidString,
             sessionID: session.id,
             transcriptSegmentID: nil,
-            questionText: "Could you walk me through your first project, the LeoRover navigation pipeline?",
+            questionText: "Could you walk me through your first project, the SyntheticEventService event-delivery pipeline?",
             intent: .projectDeepDive,
             answerStrategy: .projectWalkthrough,
             confidence: 0.95,
@@ -1694,9 +1696,9 @@ private final class DeterministicGenerationLLMClient: LLMClientProtocol {
     var fullCardContent = """
     {
       "strategy": "Project Walkthrough",
-      "say_first": "I can explain the LeoRover project by describing the autonomous object retrieval goal, the ROS2 and YOLOv8 perception pipeline, navigation and manipulation choices, and the real robot result.",
-      "key_points": ["LeoRover object retrieval goal", "ROS2 and YOLOv8 perception pipeline", "Navigation, manipulation, and real robot learning"],
-      "follow_up_ready": ["I can explain the ROS2 navigation tradeoffs if useful."],
+      "say_first": "I can explain the SyntheticEventService project by describing the event-delivery goal, the message bus and SyntheticEventClassifier pipeline, routing and delivery choices, and the production-like result.",
+      "key_points": ["SyntheticEventService event-delivery goal", "Message bus and SyntheticEventClassifier pipeline", "Routing, delivery, and production-like learning"],
+      "follow_up_ready": ["I can explain the message-bus routing tradeoffs if useful."],
       "confidence": 0.8,
       "caution": "None",
       "evidence_used": [],
@@ -1749,7 +1751,7 @@ private final class DeterministicGenerationLLMClient: LLMClientProtocol {
                     continuation.finish()
                     return
                 }
-                for token in ["I ", "built ", "a ", "LeoRover ", "robotics ", "project ", "with ", "ROS2 ", "perception ", "and ", "navigation."] {
+                for token in ["I ", "built ", "a ", "SyntheticEventService ", "service ", "project ", "with ", "a message bus, ", "classification, ", "and ", "routing."] {
                     continuation.yield(token)
                 }
                 continuation.finish()
@@ -1864,9 +1866,9 @@ private final class ConsecutiveQuestionLLMClient: LLMClientProtocol, @unchecked 
         """
         {
           "strategy": "Project Walkthrough",
-          "say_first": "I can explain my \(questionKey) in the LeoRover work by covering the autonomous object retrieval goal, ROS2 and YOLOv8 perception, navigation, manipulation, and the real robot result.",
-          "key_points": ["LeoRover goal for \(questionKey)", "ROS2, YOLOv8, navigation, and manipulation", "Real robot result and learning"],
-          "follow_up_ready": ["I can go deeper on robotics tradeoffs if helpful."],
+          "say_first": "I can explain my \(questionKey) in the SyntheticEventService work by covering the event-delivery goal, the message bus and SyntheticEventClassifier, routing, delivery, and the production-like result.",
+          "key_points": ["SyntheticEventService goal for \(questionKey)", "Message bus, SyntheticEventClassifier, routing, and delivery", "Production-like result and learning"],
+          "follow_up_ready": ["I can go deeper on distributed-systems tradeoffs if helpful."],
           "confidence": 0.82,
           "caution": "None",
           "evidence_used": [],
@@ -1878,11 +1880,11 @@ private final class ConsecutiveQuestionLLMClient: LLMClientProtocol, @unchecked 
     private func stageBSections(for questionKey: String) -> [String] {
         [
             "Strategy: Project Walkthrough\n",
-            "Say First: I can explain my \(questionKey) in the LeoRover work by covering the autonomous object retrieval goal, ROS2 and YOLOv8 perception, navigation, manipulation, and the real robot result.\n",
+            "Say First: I can explain my \(questionKey) in the SyntheticEventService work by covering the event-delivery goal, the message bus and SyntheticEventClassifier, routing, delivery, and the production-like result.\n",
             "Key Points:\n",
-            "- LeoRover goal for \(questionKey)\n",
-            "- ROS2, YOLOv8, navigation, and manipulation\n",
-            "- Real robot result and learning\n",
+            "- SyntheticEventService goal for \(questionKey)\n",
+            "- Message bus, SyntheticEventClassifier, routing, and delivery\n",
+            "- Production-like result and learning\n",
             "Follow-up Ready:\n",
             "- I can go deeper on tradeoffs if helpful.\n",
             "Caution: None\n"

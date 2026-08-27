@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
@@ -464,21 +466,21 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func dependentBeforeFollowUpPreservesAntecedentContext() {
-        let question = "Before the robot moved toward the object, what safety or confidence checks did it need to pass?"
-        let unpunctuated = "Before the robot moved toward the object what safety or confidence checks did it need to pass"
+        let question = "Before the service dispatched the event, what safety or confidence checks did it need to pass?"
+        let unpunctuated = "Before the service dispatched the event what safety or confidence checks did it need to pass"
 
         #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
         #expect(QuestionCandidatePipeline.extract(from: unpunctuated).map(\.text) == [
-            "Before the robot moved toward the object, what safety or confidence checks did it need to pass?"
+            "Before the service dispatched the event, what safety or confidence checks did it need to pass?"
         ])
     }
 
     @Test
     func embeddedAuxiliaryTailStaysAttachedToLeadingWhClause() {
         let questions = [
-            "Which failure cases would you prioritise first when moving that method onto the real robot?",
+            "Which failure cases would you prioritise first when moving that method into a production service?",
             "Which part of the project could I contribute to most strongly during the first year?",
-            "Which failure cases would you prioritize in semantic, and geometric grasp re ranking, and how would you debug them on the real robot?"
+            "Which failure cases would you prioritize in semantic and rule-based event ranking, and how would you debug them in production?"
         ]
 
         for question in questions {
@@ -488,7 +490,7 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func directCopularQuestionKeepsConnectedHowAreYouTail() {
-        let text = "What is your current grasp research, and how are you evaluating semantic and geometric re-ranking?"
+        let text = "What is your current anomaly-ranking research, and how are you evaluating semantic and rule-based re-ranking?"
 
         let candidates = QuestionCandidatePipeline.extract(from: text, isFinal: true)
 
@@ -498,7 +500,7 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func dependentSincePrefaceStaysAttachedToQuestion() {
-        let question = "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months of the PhD?"
+        let question = "Since you have not yet worked directly with streaming infrastructure, how would you close that skills gap during the first six months of the project?"
 
         #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
     }
@@ -549,10 +551,10 @@ struct QuestionCandidatePipelineTests {
     @Test
     func standaloneWhatMadeRealWorldExecutionQuestionIsAccepted() throws {
         let candidate = try #require(QuestionCandidatePipeline.extract(
-            from: "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?"
+            from: "What made production execution in SyntheticEventService harder than a clean test or demo environment?"
         ).first)
 
-        #expect(candidate.text == "What made real-world execution on the LeoRover harder than a clean simulation or demo environment?")
+        #expect(candidate.text == "What made production execution in SyntheticEventService harder than a clean test or demo environment?")
         #expect(candidate.answerRelevanceIntent == .technicalChallenge)
     }
 
@@ -570,7 +572,7 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
-    func mokoAndSeemToRealCanonicalizeInFullQuestion() {
+    func simToRealVariantCanonicalizesInFullQuestion() {
         let candidates = QuestionCandidatePipeline.extract(
             from: "How would you diagnose a sim to real gap if your policy works in simulation but fails in production?"
         )
@@ -603,7 +605,7 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
-    func engineeringTeamFitThenLeoRoverImprovementSplitsIntoTwoCandidates() {
+    func engineeringTeamFitThenSyntheticEventServiceImprovementSplitsIntoTwoCandidates() {
         let transcript = "What would you ask the engineering team to understand whether this role is a good fit if you had one more month to improve your Atlas system what would you improve first"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
@@ -623,29 +625,29 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
-    func leoRoverOneMoreMonthRoutesToImprovementBeforeProjectWalkthrough() throws {
+    func syntheticEventServiceOneMoreMonthRoutesToImprovementBeforeProjectWalkthrough() throws {
         let candidate = try #require(QuestionCandidatePipeline.extract(
-            from: "If you had one more month to improve your LeoRover system, what would you improve first?"
+            from: "If you had one more month to improve your SyntheticEventService system, what would you improve first?"
         ).first)
 
         #expect(candidate.answerRelevanceIntent == .improvementPlan)
-        #expect(candidate.text == "If you had one more month to improve your LeoRover system, what would you improve first?")
+        #expect(candidate.text == "If you had one more month to improve your SyntheticEventService system, what would you improve first?")
     }
 
     @Test
-    func partialDuplicateLeoRoverImprovementQuestionIsRejectedAsIncomplete() {
+    func partialDuplicateSyntheticEventServiceImprovementQuestionIsRejectedAsIncomplete() {
         let transcript = [
-            "If you had one more month to improve your LeoRover system, what would you improve first?",
-            "If you had one more month to improve your LeoRover"
+            "If you had one more month to improve your SyntheticEventService system, what would you improve first?",
+            "If you had one more month to improve your SyntheticEventService"
         ].joined(separator: " ")
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "If you had one more month to improve your LeoRover system, what would you improve first?"
+            "If you had one more month to improve your SyntheticEventService system, what would you improve first?"
         ])
-        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: "If you had one more month to improve your LeoRover").accepted == false)
-        #expect(QuestionCompletenessGate.isIncompleteFragment("If you had one more month to improve your LeoRover"))
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: "If you had one more month to improve your SyntheticEventService").accepted == false)
+        #expect(QuestionCompletenessGate.isIncompleteFragment("If you had one more month to improve your SyntheticEventService"))
     }
 
     @Test
@@ -708,19 +710,19 @@ struct QuestionCandidatePipelineTests {
 
     @Test
     func unpunctuatedConversationalBoundaryPreservesAllNineQuestions() {
-        let transcript = "Hi thanks for joining today first could you tell me a little bit about yourself and what brought you into robotics great thanks could you walk me through your Leah Rover project what was the hardest technical challenge you faced how did you handle noisy detections or localization error errors why did the diffusion decoder perform better in your Mouko evaluation what would you change first if you had another month why do you want to join our team how comfortable are you with python C and Rose two do you have any questions for us"
+        let transcript = "Hi thanks for joining today first could you tell me a little bit about yourself and what brought you into distributed systems great thanks could you walk me through your Synthetic Event Service project what was the hardest technical challenge you faced how did you handle malformed events or routing errors why did the transformer decoder perform better in your Synthetic Test Sandbox evaluation what would you change first if you had another month why do you want to join our team how comfortable are you with python C and message queues do you have any questions for us"
 
         let candidates = QuestionCandidatePipeline.extract(from: transcript)
 
         #expect(candidates.map(\.text) == [
-            "Could you tell me a little bit about yourself and what brought you into robotics",
-            "Could you walk me through your Leah Rover project",
+            "Could you tell me a little bit about yourself and what brought you into distributed systems",
+            "Could you walk me through your Synthetic Event Service project",
             "What was the hardest technical challenge you faced",
-            "How did you handle noisy detections or localization error errors",
-            "Why did the diffusion decoder perform better in your Mouko evaluation",
+            "How did you handle malformed events or routing errors",
+            "Why did the transformer decoder perform better in your Synthetic Test Sandbox evaluation",
             "What would you change first if you had another month",
             "Why do you want to join our team",
-            "How comfortable are you with python C and Rose two",
+            "How comfortable are you with python C and message queues",
             "Do you have any questions for us"
         ])
         #expect(Set(candidates.map(\.duplicateKey)).count == 9)

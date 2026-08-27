@@ -3,6 +3,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 struct LocalModelsSetupTests {
     @Test
@@ -573,7 +575,7 @@ struct LocalModelsSetupTests {
     func localQwenPrimaryRecordsOllamaQwenSource() async throws {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = MockLocalLLMProvider(tokens: [
-            "I would debug a confident but wrong YOLOv8 prediction on the LeoRover by reproducing the exact frames, inspecting logs, bounding boxes, classes, and confidence, then checking calibration, lighting, occlusion, motion blur, and spatial consistency before deciding whether retraining is needed."
+            "I would debug a confident but wrong SyntheticEventClassifier category in SyntheticEventService by replaying the exact events, inspecting traces, labels, and confidence, then checking schema versions, malformed fields, rate spikes, clock skew, and sequence consistency before deciding whether classifier retraining is needed."
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -582,8 +584,8 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: generationID,
             cardID: "qwen-primary-card",
             requestStart: requestStart,
@@ -616,13 +618,13 @@ struct LocalModelsSetupTests {
             appState: appState,
             domain: .roboticsResearch,
             evidenceStatements: [
-                "Current research compares semantic grounding, geometric feasibility, clearance, collision risk, and grasp re-ranking using repeatable dissertation benchmarks and supervisor review before publication claims."
+                "Current research compares event classification and anomaly ranking methods using repeatable benchmarks and independent review before publication claims."
             ]
         )
         let question = localQwenQuestion(
             id: "phd-publication-question",
             sessionID: session.id,
-            text: "What experimental evidence would convince you that your semantic and geometric grasp re-ranking method is strong enough to support a publication?"
+            text: "What experimental evidence would convince you that your anomaly-ranking method is strong enough to support a publication?"
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
         appState.activateGeneration(
@@ -634,19 +636,19 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
         let cvChunk = localDocumentChunk(
-            id: "phd-grasp-evidence",
+            id: "phd-ranking-evidence",
             type: .cv,
-            content: "Current MSc work compares semantic grounding, geometric feasibility, clearance, collision risk, and grasp re-ranking."
+            content: "Current research compares event classification, anomaly ranking, false positives, and service-level failure modes."
         )
         let jdChunk = localDocumentChunk(
-            id: "unrelated-dexory-jd",
+            id: "unrelated-examplelogistics-jd",
             type: .jobDescription,
-            content: "Dexory robotics commissioning role in warehouse logistics."
+            content: "ExampleLogistics field-service role for an unrelated inventory product."
         )
         let provider = MockLocalLLMProvider(tokens: [
-            "I think publication would be possible if the dissertation benchmark shows repeatable improvements in semantic and geometric grasp re-ranking, and I would align those results with my supervisor before making a claim."
+            "I think publication would be possible if the benchmark shows repeatable improvements in anomaly ranking, and I would align those results with independent review before making a claim."
         ])
-        let expectedAnswer = "I think publication would be possible if the dissertation benchmark shows repeatable improvements in semantic and geometric grasp re-ranking, and I would align those results with my supervisor before making a claim."
+        let expectedAnswer = "I think publication would be possible if the benchmark shows repeatable improvements in anomaly ranking, and I would align those results with independent review before making a claim."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question.questionText,
             answerText: expectedAnswer,
@@ -678,8 +680,8 @@ struct LocalModelsSetupTests {
 
         #expect(finished)
         let prompt = try #require(provider.requests.first?.prompt)
-        #expect(prompt.localizedCaseInsensitiveContains("semantic grounding"))
-        #expect(!prompt.localizedCaseInsensitiveContains("Dexory"))
+        #expect(prompt.localizedCaseInsensitiveContains("event classification"))
+        #expect(!prompt.localizedCaseInsensitiveContains("ExampleLogistics"))
         #expect(appState.currentSuggestion?.ragChunkIDs.contains(jdChunk.id) == false)
         #expect(appState.currentSuggestion?.evidenceUsed.contains(jdChunk.id) == false)
     }
@@ -693,7 +695,7 @@ struct LocalModelsSetupTests {
         let question = localQwenQuestion(
             id: "phd-architecture-question",
             sessionID: session.id,
-            text: "Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution."
+            text: "Describe the service architecture you used, from event classification through the message bus to delivery execution."
         )
         try appState.suggestionRepository.saveDetectedQuestion(question)
         appState.activateGeneration(
@@ -705,7 +707,7 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
         let provider = MockLocalLLMProvider(tokens: [
-            "I used a ROS2-based control architecture where perception outputs a target pose, which I passed to planning and arm-control components for execution. Feedback validated the motion and triggered recovery if timing or localization errors occurred."
+            "I used a message-bus architecture where classification produced a routing decision, which I passed to scheduling and delivery components. Feedback validated each handoff and triggered recovery if timing or routing errors occurred."
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -714,7 +716,7 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robot perception and ROS2 experience.",
+            cvSummary: "Synthetic event-classification and message-bus experience.",
             jdSummary: "",
             generationID: "phd-architecture-generation",
             cardID: "phd-architecture-card",
@@ -751,19 +753,19 @@ struct LocalModelsSetupTests {
             appState: appState,
             domain: .roboticsResearch,
             evidenceStatements: [
-                "Real-world robot testing used camera, localization, navigation, and manipulation logs to reproduce handoff failures and validate recovery behavior on LeoRover.",
-                "A complete robot task connected perception, localization, navigation, manipulation, and action execution."
+                "Production-like service testing used ingestion, routing, scheduling, and delivery traces to reproduce handoff failures and validate recovery behavior in SyntheticEventService.",
+                "A complete service request connected ingestion, classification, routing, scheduling, delivery, and recovery."
             ]
         )
         let q4A = localQwenQuestion(
             id: "q4a-superseded",
             sessionID: session.id,
-            text: "Walk me through one complete robot task from perception to action."
+            text: "Walk me through one complete service request from ingestion to delivery."
         )
         let q4B = localQwenQuestion(
             id: "q4b-current",
             sessionID: session.id,
-            text: "What did real-world testing teach you about debugging robot behavior?"
+            text: "What did production-like testing teach you about debugging service behavior?"
         )
         try appState.suggestionRepository.saveDetectedQuestion(q4A)
         try appState.suggestionRepository.saveDetectedQuestion(q4B)
@@ -784,7 +786,7 @@ struct LocalModelsSetupTests {
             speaker: .interviewer
         )
 
-        let expectedAnswer = "Real-world testing taught me to debug the robot as a timed system: correlate camera, localization, navigation, and manipulation logs, reproduce the exact handoff failure, then validate one recovery behavior at a time on the LeoRover."
+        let expectedAnswer = "Production-like testing taught me to debug the service as a timed system: correlate ingestion, routing, scheduling, and delivery traces, reproduce the exact handoff failure, then validate one recovery behavior at a time in SyntheticEventService."
         let provider = MockLocalLLMProvider(tokens: [expectedAnswer])
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: q4B.questionText,
@@ -801,8 +803,8 @@ struct LocalModelsSetupTests {
             transcript: q4B.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: "q4b-generation",
             cardID: "q4b-card",
             requestStart: Date(),
@@ -839,7 +841,7 @@ struct LocalModelsSetupTests {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [
             [],
-            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the camera frames, checking bounding boxes, classes, confidence, calibration, lighting, occlusion, and spatial consistency before retraining or adding recovery behavior."]
+            ["I would debug a confident but wrong SyntheticEventClassifier category in SyntheticEventService by replaying the events, checking traces, labels, confidence, schema versions, malformed fields, rate spikes, and sequence consistency before retraining or adding recovery behavior."]
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -848,8 +850,8 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: generationID,
             cardID: "qwen-retry-card",
             requestStart: requestStart,
@@ -873,7 +875,7 @@ struct LocalModelsSetupTests {
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [
             [],
             [],
-            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the camera frames, checking bounding boxes, labels, confidence, calibration, lighting, occlusion, and the downstream pose handoff before changing the model or adding recovery behavior."]
+            ["I would debug a confident but wrong SyntheticEventClassifier category in SyntheticEventService by replaying the events, checking traces, labels, confidence, schema versions, malformed fields, rate spikes, and the downstream routing handoff before changing the model or adding recovery behavior."]
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -882,8 +884,8 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: generationID,
             cardID: "qwen-compact-recovery-card",
             requestStart: requestStart,
@@ -908,7 +910,7 @@ struct LocalModelsSetupTests {
             [],
             [],
             [],
-            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the exact camera frames, checking the predicted class, box, confidence, calibration, lighting, occlusion, and temporal consistency, then adding validation or retraining only after isolating the failure mode."]
+            ["I would debug a confident but wrong SyntheticEventClassifier category in SyntheticEventService by replaying the exact events, checking the predicted label, confidence, schema version, malformed fields, rate spikes, and temporal consistency, then adding validation or retraining only after isolating the failure mode."]
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -917,8 +919,8 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: generationID,
             cardID: "qwen-grounded-recovery-card",
             requestStart: requestStart,
@@ -979,7 +981,7 @@ struct LocalModelsSetupTests {
             ["I cannot answer because the required context is missing."],
             [],
             [],
-            ["I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the exact camera frames, checking classes, boxes, confidence, calibration, lighting, occlusion, and temporal consistency, then adding validation or retraining after isolating the cause."]
+            ["I would debug a confident but wrong SyntheticEventClassifier category in SyntheticEventService by replaying the exact events, checking labels, confidence, schema versions, malformed fields, rate spikes, and temporal consistency, then adding validation or retraining after isolating the cause."]
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -988,8 +990,8 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: generationID,
             cardID: "qwen-nonaligned-retry-card",
             requestStart: requestStart,
@@ -1011,7 +1013,7 @@ struct LocalModelsSetupTests {
     func localQwenFallbackPersistsFallbackReasonWithoutDeepSeekSource() async throws {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = MockLocalLLMProvider(tokens: [
-            "I would debug a confident but wrong YOLOv8 prediction on the LeoRover by replaying the frames, checking logs, bounding boxes, classes, confidence, calibration, lighting, occlusion, and then adding validation or recovery behavior before retraining."
+            "I would debug a confident but wrong SyntheticEventClassifier category in SyntheticEventService by replaying the events, checking traces, labels, confidence, schema versions, malformed fields, and rate spikes, then adding validation or recovery behavior before retraining."
         ])
 
         let finished = try await appState.finishWithLocalQwenAnswer(
@@ -1020,8 +1022,8 @@ struct LocalModelsSetupTests {
             transcript: question.questionText,
             context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
             retrievedChunks: [],
-            cvSummary: "Robotics CV",
-            jdSummary: "Robotics role",
+            cvSummary: "Synthetic distributed-systems profile",
+            jdSummary: "Synthetic service-reliability role",
             generationID: generationID,
             cardID: "qwen-fallback-card",
             requestStart: requestStart,
@@ -1050,15 +1052,16 @@ struct LocalModelsSetupTests {
 
     @Test
     func realOllamaQwenProviderSmokeWhenExplicitlyEnabled() async throws {
-        guard ProcessInfo.processInfo.environment["HIREVA_REAL_OLLAMA_SMOKE"] == "1" else {
-            return
-        }
+        try #require(
+            ProcessInfo.processInfo.environment["HIREVA_REAL_OLLAMA_SMOKE"] == "1",
+            "The reconciled release run must execute the local Ollama smoke lane"
+        )
         let provider = OllamaQwenProvider()
         let health = await provider.healthCheck(modelName: "qwen3.5:4b")
-        #expect(health.isReady == true)
+        try #require(health.isReady == true, "The required qwen3.5:4b model must be ready")
 
         let stream = try await provider.generateAnswer(request: LocalLLMRequest(
-            prompt: "Answer in one sentence: what is the role of localization in a robot pipeline?",
+            prompt: "Answer in one sentence: what is the role of routing in an event-processing pipeline?",
             systemPrompt: "You are a concise interview answer helper.",
             modelName: "qwen3.5:4b",
             temperature: 0.1,
@@ -1112,7 +1115,7 @@ struct LocalModelsSetupTests {
     }
 
     private func makeIsolatedUserDefaults() -> (UserDefaults, String) {
-        let suiteName = "com.langcheng.Hireva.tests.local-models.\(UUID().uuidString)"
+        let suiteName = "com.example.Hireva.tests.local-models.\(UUID().uuidString)"
         return (UserDefaults(suiteName: suiteName)!, suiteName)
     }
 
@@ -1127,7 +1130,7 @@ struct LocalModelsSetupTests {
 
     @MainActor
     private func makeLocalQwenRuntimeState(
-        questionText: String = "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?"
+        questionText: String = "If your SyntheticEventClassifier gives a confident but wrong event category in SyntheticEventService, how would you debug it?"
     ) throws -> (AppState, InterviewSession, DetectedQuestion, String, Date) {
         let appState = try AppState(database: AppDatabase(inMemory: true))
         let session = try appState.sessionRepository.createSession(mode: .microphone)

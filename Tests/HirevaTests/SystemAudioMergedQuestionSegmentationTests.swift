@@ -2,37 +2,39 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 @MainActor
 struct SystemAudioMergedQuestionSegmentationTests {
     // Full `swift test` runs other MainActor-heavy runtime suites concurrently.
     // This is not a latency assertion; the card/content assertions below remain strict.
     private static let runtimeWaitTimeout: TimeInterval = 30.0
-    private static let runtimeMergedTranscript = "Hi La IL ask these questions in a mixed order so please treat each one independently first why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy when you moved from a clean demo to real robot execution which part of the pipeline was most fragile"
+    private static let runtimeMergedTranscript = "Hi there I will ask these questions in a mixed order so please treat each one independently first why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for request scheduling than an auto regressive policy now let us switch to your technical project experience why might a diffusion based policy be more stable for request scheduling than an auto regressive policy when you moved from a clean demo to production execution which part of the pipeline was most fragile"
 
     private static let expectedQuestions = [
         "Why do you want to join our team",
-        "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
-        "When you moved from a clean demo to real robot execution which part of the pipeline was most fragile"
+        "Why might a diffusion based policy be more stable for request scheduling than an auto regressive policy",
+        "When you moved from a clean demo to production execution which part of the pipeline was most fragile"
     ]
     private static let fourQuestionRuntimeTranscript = [
-        "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
-        "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy",
+        "Why might a diffusion based policy be more stable for request scheduling than an auto regressive policy",
+        "Why might a diffusion based policy be more stable for request scheduling than an autoregressive policy",
         "could you explain your Atlas migration project",
         "could you explain your Atlas migration project from end to end when you",
         "when you moved from a clean test to production execution which part of the pipeline was most fragile",
         "why do you want to join our team"
     ].joined(separator: " ")
     private static let expectedFourQuestions = [
-        "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
+        "Why might a diffusion based policy be more stable for request scheduling than an auto regressive policy",
         "Could you explain your Atlas migration project from end-to-end",
         "When you moved from a clean test to production execution which part of the pipeline was most fragile",
         "Why do you want to join our team"
     ]
     private static let separateExpectedFourQuestions = [
-        "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
-        "Could you explain your LeoRover project from end-to-end",
-        "When you moved from a clean demo to real robot execution which part of the pipeline was most fragile",
+        "Why might a diffusion based policy be more stable for request scheduling than an auto regressive policy",
+        "Could you explain your synthetic event-intake service project from end-to-end",
+        "When you moved from a clean demo to production execution which part of the pipeline was most fragile",
         "Why do you want to join our team"
     ]
 
@@ -46,7 +48,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(texts[0].localizedCaseInsensitiveContains("join our team"))
         #expect(texts[1].localizedCaseInsensitiveContains("diffusion"))
         #expect(texts[1].localizedCaseInsensitiveContains("regressive"))
-        #expect(texts[2].localizedCaseInsensitiveContains("real robot execution"))
+        #expect(texts[2].localizedCaseInsensitiveContains("production execution"))
         #expect(texts[2].localizedCaseInsensitiveContains("pipeline"))
         #expect(texts.allSatisfy { !$0.localizedCaseInsensitiveContains("now let us switch") })
         #expect(questions.last?.intent == .technical)
@@ -56,7 +58,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
 
     @Test
     func alsoIfBoundarySplitsDecoderComparisonAndDetectorDebugging() {
-        let transcript = "What did you learn from comparing autoregressive diffusion and flow matching decoders in your Muja Cove project? Also, if your detector gives a confident but wrong prediction, how would you debug it?"
+        let transcript = "What did you learn from comparing autoregressive diffusion and flow matching decoders in your synthetic decoder sandbox project? Also, if your detector gives a confident but wrong prediction, how would you debug it?"
 
         let questions = SystemAudioQuestionExtractor.extract(from: transcript)
 
@@ -139,7 +141,9 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedQuestions.last ?? "")
             } == true &&
             appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible
+            !appState.currentSpinnerVisible &&
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("latency") == true &&
+            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timestamps") == true
         }
 
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
@@ -147,9 +151,9 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.lastDetectedQuestionText, Self.expectedQuestions.last ?? ""))
         #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.questionText ?? "", Self.expectedQuestions.last ?? ""))
         #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.promptPrimaryQuestion ?? "", Self.expectedQuestions.last ?? ""))
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("perception") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("localisation") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timing") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("ingestion") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("latency") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timestamps") == true)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("join our team") == false)
         #expect(client.detectionCallCount == 0)
 
@@ -242,9 +246,9 @@ struct SystemAudioMergedQuestionSegmentationTests {
     func separateFourQuestionRuntimeSequencePersistsExactlyFourAlignedCards() async throws {
         let (appState, _, session, client) = try makeAppState()
         let segments = [
-            "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
-            "could you explain your LeoRover project from end to end",
-            "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile",
+            "Why might a diffusion based policy be more stable for request scheduling than an auto regressive policy",
+            "could you explain your synthetic event-intake service project from end to end",
+            "when you moved from a clean demo to production execution which part of the pipeline was most fragile",
             "why do you want to join our team"
         ]
 
@@ -286,13 +290,13 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(cards.map { $0.questionIntent?.rawValue ?? "" } == ["model_comparison", "project_walkthrough", "technical_challenge", "why_role"])
         #expect(cards.allSatisfy { $0.alignmentVerdict == .aligned })
         #expect(cards.map { $0.questionText ?? "" }.filter { $0.localizedCaseInsensitiveContains("fragile") }.count == 1)
-        #expect(cards.map { $0.questionText ?? "" }.joined(separator: " ").localizedCaseInsensitiveContains("when you moved from a clean demo to real robot execution which part of the pipeline was most fragile when you moved") == false)
+        #expect(cards.map { $0.questionText ?? "" }.joined(separator: " ").localizedCaseInsensitiveContains("when you moved from a clean demo to production execution which part of the pipeline was most fragile when you moved") == false)
     }
 
     @Test
     func diffusionQuestionSplitDoesNotDisplayWhyRoleAnswer() async throws {
         let (appState, _, session, _) = try makeAppState()
-        let transcript = "Why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
+        let transcript = "Why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for request scheduling than an autoregressive policy"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
             id: "role-then-diffusion",
@@ -305,13 +309,13 @@ struct SystemAudioMergedQuestionSegmentationTests {
             appState.currentSuggestion.map {
                 SemanticDuplicateKeyBuilder.areDuplicates(
                     $0.questionText ?? "",
-                    "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy"
+                    "Why might a diffusion policy be more stable for request scheduling than an autoregressive policy"
                 )
             } == true &&
             (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
                 SemanticDuplicateKeyBuilder.areDuplicates(
                     $0.questionText ?? "",
-                    "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
+                    "Why might a diffusion based policy be more stable for request scheduling than an autoregressive policy"
                 )
             } == true &&
             appState.visibleAnswerExists &&
@@ -321,7 +325,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
         #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == [
             "Why do you want to join our team",
-            "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
+            "Why might a diffusion based policy be more stable for request scheduling than an autoregressive policy"
         ].map(SemanticDuplicateKeyBuilder.key))
         let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
         #expect(persisted.isEmpty == false)
@@ -470,7 +474,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
             questions[0].localizedCaseInsensitiveContains("join our team") &&
             questions[1].localizedCaseInsensitiveContains("diffusion") &&
             questions[1].localizedCaseInsensitiveContains("regressive") &&
-            questions[2].localizedCaseInsensitiveContains("real robot execution") &&
+            questions[2].localizedCaseInsensitiveContains("production execution") &&
             questions[2].localizedCaseInsensitiveContains("pipeline")
     }
 
@@ -574,7 +578,7 @@ private final class MergedQuestionLLMClient: LLMClientProtocol, @unchecked Senda
         if lower.contains("join our team") || lower.contains("why do you want") {
             intent = "company_fit"
             strategy = "direct_answer"
-        } else if lower.contains("leorover") || lower.contains("leo rover") || lower.contains("project") {
+        } else if lower.contains("event-intake service") || lower.contains("event intake service") || lower.contains("project") {
             intent = "project_deep_dive"
             strategy = "project_walkthrough"
         } else {
@@ -610,16 +614,16 @@ private final class MergedQuestionLLMClient: LLMClientProtocol, @unchecked Senda
         if lower.contains("diffusion") || lower.contains("autoregressive") || lower.contains("auto regressive") {
             return "I would say the diffusion policy was more robust than the autoregressive policy because it modelled continuous action distributions more smoothly and recovered better from small trajectory errors."
         }
-        if lower.contains("leorover") || lower.contains("leo rover") || lower.contains("project") {
-            return "My LeoRover project was an autonomous object retrieval robot where I built the ROS2 perception pipeline around YOLOv8, connected localisation to navigation, and coordinated manipulation. I validated the complete handoff on the real robot so it could pick up the target object reliably."
+        if lower.contains("event-intake service") || lower.contains("event intake service") || lower.contains("project") {
+            return "I built the synthetic event-intake service by connecting ingestion, validation, storage, notification, and recovery. I validated deterministic replay and duplicate-delivery handling so canonical records were delivered reliably."
         }
-        if lower.contains("fragile") || lower.contains("real robot execution") || lower.contains("pipeline") {
-            return "The most fragile challenge was the integration around noisy perception, localisation stability, and timing between navigation and manipulation. I debugged it with logs and timestamp traces, then tested and validated each handoff during real robot execution."
+        if lower.contains("fragile") || lower.contains("production execution") || lower.contains("pipeline") {
+            return "The most fragile challenge was production delivery and response latency across the ingestion and storage handoff. I debugged it using trace identifiers, per-stage timestamps, and schema validation, then applied staged fixes and rollback verification."
         }
         if lower.contains("join our team") {
-            return "I want to join this team because the role aligns with my experience building reliable deployed robotics systems, and I am motivated to contribute to its engineering responsibilities."
+            return "I want to join this team because the role aligns with my experience building reliable deployed distributed systems, and I am motivated to contribute to its engineering responsibilities."
         }
-        return "I would answer the latest interviewer question directly with a specific robotics example."
+        return "I would answer the latest interviewer question directly with a specific distributed-systems example."
     }
 
     private func keyPoint(for question: String) -> String {

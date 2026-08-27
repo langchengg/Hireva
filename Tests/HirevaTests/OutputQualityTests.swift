@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite
 struct OutputQualityTests {
     
@@ -12,7 +14,7 @@ struct OutputQualityTests {
         \\usepackage{hidelinks}
         \\geometry{left=0.4in}
         \\begin{document}
-        \\rSubsection{Robotics Project}{May 2026}{http://grasp.ai}{DeepMind}
+        \\rSubsection{Event Processing Project}{May 2026}{https://example.com}{Example Systems}
         This is a project description.
         \\end{document}
         """
@@ -27,10 +29,10 @@ struct OutputQualityTests {
         #expect(!sanitized.contains("geometry"))
         
         // Assert arguments of unknown custom macro preserved
-        #expect(sanitized.contains("Robotics Project"))
+        #expect(sanitized.contains("Event Processing Project"))
         #expect(sanitized.contains("May 2026"))
-        #expect(sanitized.contains("http://grasp.ai"))
-        #expect(sanitized.contains("DeepMind"))
+        #expect(sanitized.contains("https://example.com"))
+        #expect(sanitized.contains("Example Systems"))
         #expect(sanitized.contains("This is a project description"))
     }
     
@@ -40,19 +42,19 @@ struct OutputQualityTests {
         %----------------------------------------------------------------------------------------
         % PROFILE
         %----------------------------------------------------------------------------------------
-        MSc Robotics student focused on embodied AI and ROS2 systems.
+        Software engineering student focused on distributed event-processing systems.
         """
         let result = DocumentTextSanitizer.sanitize(input)
         
         #expect(result.wasSanitized == true)
         #expect(!result.sanitizedContent.contains("%"))
         #expect(!result.sanitizedContent.contains("PROFILE"))
-        #expect(result.sanitizedContent.contains("MSc Robotics student"))
+        #expect(result.sanitizedContent.contains("Software engineering student"))
     }
 
     @Test
     func latexPollutionDetectorIgnoresPlainTechnicalWords() throws {
-        let plain = "Converted target masks into 3D object geometry for grasp planning."
+        let plain = "Converted event payloads into validated records for downstream routing."
         let latex = #"Candidate used \geometry{left=0.4in} in a raw LaTeX resume."#
 
         #expect(DocumentTextSanitizer.containsResidualLatexFormattingNoise(plain) == false)
@@ -68,7 +70,7 @@ struct OutputQualityTests {
         \\documentclass{resume}
         \\usepackage{geometry}
         \\begin{document}
-        Candidate worked on robotics and VLM grasping thesis.
+        Candidate worked on a synthetic event-classification research project.
         \\end{document}
         """
         
@@ -107,7 +109,7 @@ struct OutputQualityTests {
             strategy: "Direct Answer",
             sayFirst: "I want this role because of my passion for hands-on systems.",
             keyPoints: ["\\documentclass{resume}", "\\textbf{Solid} foundation"],
-            followUpReady: ["\\usepackage{geometry}", "Ask about ROS2"],
+            followUpReady: ["\\usepackage{geometry}", "Ask about the message bus"],
             confidence: 0.9,
             caution: "None",
             evidenceUsed: ["formatting"],
@@ -138,7 +140,7 @@ struct OutputQualityTests {
         _ = try repo.saveDocument(
             type: .cv,
             title: "Header",
-            content: "Email: candidate@grasp.ai | Phone: 123-456-7890 | linkedin.com/in/candidate | github.com/candidate"
+            content: "Email: candidate@example.com | Profile: https://example.com/profile | Code: https://example.com/code"
         )
         
         // Save real content CV chunks
@@ -146,19 +148,19 @@ struct OutputQualityTests {
             type: .cv,
             title: "Resume Content",
             content: """
-            Robotics project: built a language-conditioned grasping pipeline with MuJoCo.
+            Systems project: built a synthetic event-classification pipeline in a test sandbox.
             
-            Work experience: software engineer building control loops for autonomous rovers.
+            Work experience: software engineer building retry controls for distributed services.
             
-            Education: Master of Science in Robotics Engineering from top university.
+            Education: graduate coursework in software systems at Example University.
             """
         )
         
         // Save Job Description
         _ = try repo.saveDocument(
             type: .jobDescription,
-            title: "Robotics Role",
-            content: "We are seeking a systems engineer to build robotic grasping software using C++ and ROS2."
+            title: "Distributed Systems Role",
+            content: "Example Systems seeks an engineer to build event-processing services using C++ and a message bus."
         )
         
         let settings = AppSettings.default

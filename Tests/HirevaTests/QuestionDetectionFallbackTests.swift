@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite
 struct QuestionDetectionFallbackTests {
     @Test
@@ -13,7 +15,7 @@ struct QuestionDetectionFallbackTests {
         {
           "should_trigger": false,
           "question_complete": false,
-          "question_text": "Could you walk me through your LeoRover project",
+          "question_text": "Could you walk me through your SyntheticEventService project",
           "intent": "project_deep_dive",
           "answer_strategy": "wait",
           "confidence": 0.6,
@@ -24,14 +26,14 @@ struct QuestionDetectionFallbackTests {
         let service = QuestionDetectionService(llmRouter: router)
 
         let result = try await service.detect(
-            transcriptContext: "Interviewer: Could you walk me through your LeoRover project",
+            transcriptContext: "Interviewer: Could you walk me through your SyntheticEventService project",
             sessionID: "session-1",
             transcriptSegmentID: "segment-1"
         )
 
         #expect(result.question.shouldTrigger)
         #expect(result.question.questionComplete)
-        #expect(result.question.questionText == "Could you walk me through your LeoRover project")
+        #expect(result.question.questionText == "Could you walk me through your SyntheticEventService project")
         #expect(result.question.intent == .projectDeepDive)
         #expect(result.question.answerStrategy == .projectWalkthrough)
         #expect(result.question.confidence >= 0.85)

@@ -3,6 +3,8 @@ import GRDB
 import Testing
 @testable import Hireva
 
+// All people, employers, and project scenarios in this file are synthetic.
+
 @Suite(.serialized)
 @MainActor
 struct SpeakerAttributionTests {
@@ -59,12 +61,12 @@ struct SpeakerAttributionTests {
         let cv = try documents.saveDocument(
             type: .cv,
             title: "Speaker Attribution Candidate",
-            content: String(repeating: "Built a LeoRover object retrieval system using ROS2, YOLOv8, localization, navigation, and manipulation. ", count: 8)
+            content: String(repeating: "Built a SyntheticEventService using a message bus, SyntheticEventClassifier, routing, dispatch, delivery, and recovery controls. ", count: 8)
         )
         let role = try documents.saveDocument(
             type: .jobDescription,
-            title: "Robotics Software Role",
-            content: String(repeating: "The role requires ROS2 robotics integration, perception, localization, navigation, manipulation, and reliable testing. ", count: 8)
+            title: "Distributed Systems Role",
+            content: String(repeating: "The role requires message-bus integration, event ingestion, routing, dispatch, delivery, and reliable testing. ", count: 8)
         )
         let contexts = InterviewContextRepository(database: database)
         let profile = CandidateProfile(
@@ -75,13 +77,13 @@ struct SpeakerAttributionTests {
             experience: [],
             projects: [evidence(
                 id: "speaker-attribution-project",
-                statement: "Built a LeoRover autonomous object retrieval system connecting ROS2, YOLOv8 perception, localization, navigation, and manipulation.",
+                statement: "Built a SyntheticEventService connecting a message bus, SyntheticEventClassifier, routing, dispatch, delivery, and recovery controls.",
                 documentID: cv.id,
                 type: .project
             )],
             skills: [evidence(
                 id: "speaker-attribution-skill",
-                statement: "Tests reliable handoffs between perception, localization, navigation, and manipulation on real robots.",
+                statement: "Tests reliable handoffs between event ingestion, routing, dispatch, and delivery in a production-like environment.",
                 documentID: cv.id,
                 type: .skill
             )],
@@ -95,18 +97,18 @@ struct SpeakerAttributionTests {
         )
         let opportunity = OpportunityContext(
             id: "speaker-attribution-opportunity",
-            title: "Robotics Software Engineer",
+            title: "Distributed Systems Engineer",
             organisation: "Test Organisation",
             opportunityType: .job,
             responsibilities: [evidence(
                 id: "speaker-attribution-responsibility",
-                statement: "Integrate and test perception-to-action robotics pipelines.",
+                statement: "Integrate and test ingestion-to-delivery service pipelines.",
                 documentID: role.id,
                 type: .responsibility
             )],
             requiredSkills: [evidence(
                 id: "speaker-attribution-required-skill",
-                statement: "ROS2, perception, localization, navigation, manipulation, and reliable testing.",
+                statement: "Message-bus integration, event ingestion, routing, dispatch, delivery, and reliable testing.",
                 documentID: role.id,
                 type: .requiredSkill
             )],
@@ -353,7 +355,7 @@ struct SpeakerAttributionTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Can you tell me about your robotics project?"
+            text: "Can you tell me about your distributed service project?"
         )
         appState.last10SegmentsDiagnostics.removeAll()
         await appState.handleTranscriptSegment(interviewerQuestion)
@@ -383,7 +385,7 @@ struct SpeakerAttributionTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Can you tell me about your robotics project?",
+            text: "Can you tell me about your distributed service project?",
             createdAt: Date(timeIntervalSince1970: 3),
             confidence: 1
         )
@@ -408,8 +410,8 @@ struct SpeakerAttributionTests {
             $0.source == .systemAudio && $0.speaker == .interviewer
         })
         #expect(appState.lastDetectionShouldTrigger)
-        #expect(suggestion.sayFirst.contains("LeoRover"))
-        #expect(suggestion.sayFirst.contains("ROS2"))
+        #expect(suggestion.sayFirst.contains("SyntheticEventService"))
+        #expect(suggestion.sayFirst.contains("message bus"))
     }
 }
 
@@ -433,7 +435,7 @@ private final class SpeakerAttributionLLMClient: LLMClientProtocol {
             {
               "should_trigger": true,
               "question_complete": true,
-              "question_text": "Can you tell me about your robotics project?",
+              "question_text": "Can you tell me about your distributed service project?",
               "intent": "project_deep_dive",
               "answer_strategy": "project_walkthrough",
               "confidence": 0.98,
@@ -472,16 +474,16 @@ private final class SpeakerAttributionLLMClient: LLMClientProtocol {
         }
     }
 
-    private static let sayFirst = "My robotics project was a LeoRover autonomous object retrieval system where I connected ROS2, YOLOv8 perception, localization, navigation, and manipulation."
+    private static let sayFirst = "My distributed-systems project was a SyntheticEventService where I connected a message bus, SyntheticEventClassifier, routing, dispatch, delivery, and recovery controls."
 
     private static let suggestionJSON = """
     {
       "strategy": "Project Walkthrough",
       "say_first": "\(sayFirst)",
-      "key_points": ["Built a ROS2 LeoRover retrieval pipeline", "Connected perception to navigation and manipulation", "Tested reliable handoffs"],
+      "key_points": ["Built a message-bus SyntheticEventService pipeline", "Connected ingestion to routing and delivery", "Tested reliable handoffs"],
       "follow_up_ready": ["I can explain how I validated each handoff."],
       "confidence": 0.95,
-      "caution": "Keep the answer grounded in the LeoRover project."
+      "caution": "Keep the answer grounded in the SyntheticEventService project."
     }
     """
 
@@ -491,12 +493,12 @@ private final class SpeakerAttributionLLMClient: LLMClientProtocol {
     SAY_FIRST:
     \(sayFirst)
     KEY_POINTS:
-    - Built a ROS2 LeoRover retrieval pipeline.
-    - Connected perception to navigation and manipulation.
+    - Built a message-bus SyntheticEventService pipeline.
+    - Connected ingestion to routing and delivery.
     - Tested reliable handoffs.
     FOLLOW_UP_READY:
     - I can explain how I validated each handoff.
     CAUTION:
-    Keep the answer grounded in the LeoRover project.
+    Keep the answer grounded in the SyntheticEventService project.
     """
 }

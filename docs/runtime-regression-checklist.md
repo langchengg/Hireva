@@ -78,12 +78,14 @@ exercise macOS hardware, TCC permission state, or real Apple Speech callbacks.
 
 ## Manual Smoke Sequence
 
+The scenario names and prompts below are synthetic and contain no candidate or employer data.
+
 Use one fresh session in System Audio Only mode. Play these questions in order
 and wait for each visible answer:
 
 1. `What would you ask the engineering team to understand whether this role is a good fit?`
-2. `If you had one more month to improve your LeoRover system, what would you improve first?`
-3. `Can you explain the difference between your VLA project and your LeoRover project?`
+2. `If you had one more month to improve your synthetic event-delivery service, what would you improve first?`
+3. `Can you explain the difference between your batch-processing project and your event-delivery service?`
 
 Expected persisted intents:
 
