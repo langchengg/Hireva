@@ -443,7 +443,7 @@ struct RuntimeVerificationScriptTests {
         let contents = try String(contentsOf: url, encoding: .utf8)
         let requiredInvocations = [
             "run_step \"Swift build\" swift build",
-            "run_step \"Swift test\" swift test",
+            "run_step \"Reconciled Swift test\" run_reconciled_swift_tests",
             "run_step \"runtime_smoke\" ./scripts/runtime_smoke.sh --suite all",
             "run_step \"build_and_run verify\" run_build_and_run_verification"
         ]
@@ -455,6 +455,11 @@ struct RuntimeVerificationScriptTests {
 
         #expect(contents.contains("HirevaBuildTimestampUTC"))
         #expect(contents.contains("hireva.sqlite"))
+        #expect(contents.contains("./scripts/reconcile_tests.sh \"$RECONCILIATION_OUTPUT_DIRECTORY\""))
+        #expect(contents.contains("HIREVA_REAL_OLLAMA_SMOKE=1"))
+        #expect(contents.contains("RUN_LOCAL_QWEN_EXTRACTION_TEST=1"))
+        #expect(contents.contains("HIREVA_REAL_PARAKEET_STREAM_TEST=1"))
+        #expect(contents.contains("run_step \"Swift test\" swift test") == false)
     }
 
     @Test
@@ -475,6 +480,17 @@ struct RuntimeVerificationScriptTests {
             to: scriptsDirectory.appendingPathComponent("verify_runtime_stability.sh")
         )
         try writeExecutable("#!/usr/bin/env bash\nexit 0\n", to: binDirectory.appendingPathComponent("swift"))
+        try writeExecutable(
+            """
+            #!/usr/bin/env bash
+            [[ "${HIREVA_REAL_OLLAMA_SMOKE:-}" == "1" ]] || exit 61
+            [[ "${RUN_LOCAL_QWEN_EXTRACTION_TEST:-}" == "1" ]] || exit 62
+            [[ "${HIREVA_REAL_PARAKEET_STREAM_TEST:-}" == "1" ]] || exit 63
+            [[ $# -eq 1 ]] || exit 64
+            exit 0
+            """,
+            to: scriptsDirectory.appendingPathComponent("reconcile_tests.sh")
+        )
         try writeExecutable("#!/usr/bin/env bash\nexit 0\n", to: scriptsDirectory.appendingPathComponent("runtime_smoke.sh"))
         try writeExecutable("#!/usr/bin/env bash\nexit 23\n", to: scriptDirectory.appendingPathComponent("build_and_run.sh"))
 
@@ -486,7 +502,7 @@ struct RuntimeVerificationScriptTests {
 
         #expect(result.status != 0)
         #expect(result.output.contains("Swift build: PASS"))
-        #expect(result.output.contains("Swift test: PASS"))
+        #expect(result.output.contains("Reconciled Swift test: PASS"))
         #expect(result.output.contains("runtime_smoke: PASS"))
         #expect(result.output.contains("build_and_run verify: FAIL"))
         #expect(result.output.contains("overall: FAIL"))
@@ -511,15 +527,16 @@ struct RuntimeVerificationScriptTests {
             to: scriptsDirectory.appendingPathComponent("verify_runtime_stability.sh")
         )
         try writeExecutable(
+            "#!/usr/bin/env bash\nexit 0\n",
+            to: binDirectory.appendingPathComponent("swift")
+        )
+        try writeExecutable(
             """
             #!/usr/bin/env bash
-            if [[ "${1:-}" == "test" ]]; then
-                echo '✘ Test syntheticPersistenceFailure() failed after 0.1 seconds with 1 issue.'
-                exit 41
-            fi
-            exit 0
+            echo '✘ Test syntheticPersistenceFailure() failed after 0.1 seconds with 1 issue.'
+            exit 41
             """,
-            to: binDirectory.appendingPathComponent("swift")
+            to: scriptsDirectory.appendingPathComponent("reconcile_tests.sh")
         )
         try writeExecutable("#!/usr/bin/env bash\nexit 0\n", to: scriptsDirectory.appendingPathComponent("runtime_smoke.sh"))
         try writeExecutable("#!/usr/bin/env bash\nexit 23\n", to: scriptDirectory.appendingPathComponent("build_and_run.sh"))
@@ -531,7 +548,7 @@ struct RuntimeVerificationScriptTests {
         )
 
         #expect(result.status != 0)
-        #expect(result.output.contains("Step failed: Swift test"))
+        #expect(result.output.contains("Step failed: Reconciled Swift test"))
         #expect(result.output.contains("Full log:"))
         #expect(result.output.contains("Failing tests:"))
         #expect(result.output.contains("syntheticPersistenceFailure"))

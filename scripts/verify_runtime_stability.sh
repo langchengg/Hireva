@@ -7,6 +7,7 @@ APP_BINARY="$ROOT_DIR/dist/Hireva.app/Contents/MacOS/Hireva"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
 TOTAL_STARTED_AT="$(date +%s)"
+RECONCILIATION_OUTPUT_DIRECTORY="${HIREVA_RECONCILIATION_OUTPUT_DIRECTORY:-/tmp/hireva-runtime-stability-reconciliation-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 
 STEP_NAMES=()
 STEP_RESULTS=()
@@ -36,6 +37,7 @@ print_summary() {
     fi
     echo "Total elapsed: ${total_elapsed}s"
     echo "Expected DB: $DB_PATH"
+    echo "Reconciliation evidence: $RECONCILIATION_OUTPUT_DIRECTORY"
 }
 
 print_failure_diagnostics() {
@@ -102,6 +104,13 @@ run_build_and_run_verification() {
     print_bundle_timestamps
 }
 
+run_reconciled_swift_tests() {
+    HIREVA_REAL_OLLAMA_SMOKE=1 \
+        RUN_LOCAL_QWEN_EXTRACTION_TEST=1 \
+        HIREVA_REAL_PARAKEET_STREAM_TEST=1 \
+        ./scripts/reconcile_tests.sh "$RECONCILIATION_OUTPUT_DIRECTORY"
+}
+
 print_bundle_timestamps() {
     local build_timestamp_utc
 
@@ -125,7 +134,7 @@ cd "$ROOT_DIR" || {
 }
 
 run_step "Swift build" swift build
-run_step "Swift test" swift test
+run_step "Reconciled Swift test" run_reconciled_swift_tests
 run_step "runtime_smoke" ./scripts/runtime_smoke.sh --suite all
 run_step "build_and_run verify" run_build_and_run_verification
 
