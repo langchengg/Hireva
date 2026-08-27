@@ -9,12 +9,14 @@ usage() {
     cat <<'USAGE'
 Usage: HIREVA_SIGNING_MODE=<mode> HIREVA_BUILD_ARCHS="<archs>" \
        [HIREVA_SIGNING_IDENTITY=<identity>] \
+       [HIREVA_EXPECTED_TEAM_IDENTIFIER=<10-character-team-id>] \
        ./script/release/verify_app.sh /path/to/Hireva.app
 
 Verify bundle structure, required Mach-O architectures, nested signatures,
 requested signature class, hardened runtime/timestamp policy, and the reviewed
 entitlement set. Verification reads the signature and does not require access
-to its private signing key.
+to its private signing key. Developer ID verification requires the expected
+Team ID explicitly; it is never inferred from the artifact.
 USAGE
 }
 

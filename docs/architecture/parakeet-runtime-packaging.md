@@ -34,10 +34,19 @@ artifacts are outside the `0.1.0` scope.
    `script/runtime/prepare_sherpa_runtime.sh`.
 3. The preparation script downloads the pinned sherpa-onnx macOS arm64 shared
    archive and matching C API header over HTTPS and verifies their pinned
-   SHA-256 values.
-4. `clang++` builds the Objective-C++ helper for `arm64` with an `@rpath`
+   SHA-256 values. License and notice texts are vendored separately under
+   `Resources/ThirdPartyNotices`; their four upstream SHA-256 values are checked
+   before bundling, so notice assembly is not network- or cache-dependent.
+4. Before signing, the two vendor dylibs receive an equal-length, exact-count
+   replacement of the vendor CI source prefix and are stripped with
+   `strip -S -x`. The reviewed replacement counts are 214 for sherpa-onnx and
+   584 for ONNX Runtime; any count drift fails the build.
+5. `clang++` builds the Objective-C++ helper for `arm64` with an `@rpath`
    dependency on `libsherpa-onnx-c-api.dylib`.
-5. The build copies and signs the helper and dylibs inside-out before signing
+6. The SwiftPM release executable receives a separate equal-length replacement
+   of its deterministic temporary build prefix, so dependency diagnostics do
+   not retain the host build directory.
+7. The build copies and signs the helper and dylibs inside-out before signing
    the app bundle.
 
 Expected release layout:
@@ -86,6 +95,47 @@ Before any distribution candidate is accepted, verify all of the following:
   Application Support path after installation;
 - third-party license and notice payloads described in
   `docs/third-party-licenses.md` accompany the distribution.
+
+`script/release/package_release.sh --validate-only` is the shared artifact
+contract. `scripts/package_dmg.sh` accepts an already signed app plus a new,
+nonexistent output directory; it does not build or launch. The DMG path emits
+an adjacent JSON manifest containing app/DMG hashes, build identity, runtime
+hashes and pinned provenance, and the Parakeet descriptor/archive identity.
+
+The runtime records deliberately separate three non-interchangeable hashes:
+
+| Field | Bytes covered | Purpose |
+| --- | --- | --- |
+| `source_library_sha256` | Complete vendor dylib before any local transformation | Binds the input to the pinned upstream archive |
+| `macho_payload_sha256` | Canonical, post-sanitization and post-strip Mach-O payload, excluding the mutable code-signature allocation | Proves the reviewed executable payload survives signing or re-signing |
+| `signed_artifact_sha256` | Complete final signed dylib | Binds a particular packaged artifact, including its signature bytes |
+
+`source_archive_sha256` separately binds the downloaded vendor archive. The
+canonical payload algorithm is identified as
+`hireva-thin-arm64-macho-canonical-sha256-v1`. Its repository-owned parser
+accepts only a regular, non-symlink, thin `arm64` Mach-O no larger than 64 MiB;
+it bounds load-command, section, and code-signature entry counts and validates
+segment/section ranges, `__LINKEDIT` page sizing, and the embedded-signature
+SuperBlob. It removes `LC_CODE_SIGNATURE` and its final allocation, rewrites the
+canonical header command counts, and normalizes `__LINKEDIT` file/virtual sizes
+before hashing the canonical header, commands, zero padding, and retained
+file-backed payload. Signature bytes, signer identity, timestamp, and unused
+signature allocation therefore cannot change the payload hash, while any
+retained code or data change does.
+
+The DMG app-content hash uses the manifest algorithm identifier
+`sha256-v1-of-lowercase-file-sha256-hex-tab-relative-path-nul-in-lc-all-c-find-s-order`.
+For each regular app file in `LC_ALL=C find -s` order, it serializes lowercase
+file SHA-256 hex, one tab, the app-relative path, and one NUL byte, then hashes
+the concatenated stream. The mounted read-only image must reproduce that value.
+
+Release validation rejects absolute user paths, development path keys, and
+Mach-O load commands outside the reviewed system and bundled-runtime allowlist.
+The completed image is mounted read-only and non-browsing, the mounted app is
+revalidated, and its deterministic content hash must match the staged app before
+the image is accepted. Developer ID input requires an explicit expected
+10-character Team ID and explicit distribution-DMG authorization; this script
+itself never notarizes, staples, or publishes.
 
 ## Unresolved Release Gates
 

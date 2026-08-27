@@ -18,10 +18,12 @@ set -euo pipefail
 MODE="${1:-run}"
 REQUESTED_SIGNING_IDENTITY="${HIREVA_SIGNING_IDENTITY:-${INTERVIEW_COPILOT_SIGNING_IDENTITY:-}}"
 REQUESTED_SIGNING_MODE="${HIREVA_SIGNING_MODE:-adhoc}"
+REQUESTED_EXPECTED_TEAM_IDENTIFIER="${HIREVA_EXPECTED_TEAM_IDENTIFIER:-}"
 REQUESTED_SWIFTPM_BUILD_PATH="${HIREVA_SWIFTPM_BUILD_PATH:-${INTERVIEW_COPILOT_SWIFTPM_BUILD_PATH:-}}"
 REQUESTED_PREBUILT_BINARY="${HIREVA_PREBUILT_BINARY:-${INTERVIEW_COPILOT_PREBUILT_BINARY:-}}"
 REQUESTED_FIXED_USER_HOME="${HIREVA_FIXED_USER_HOME:-${INTERVIEW_COPILOT_FIXED_USER_HOME:-}}"
 REQUESTED_BUILD_ARCHS="${HIREVA_BUILD_ARCHS:-arm64}"
+REQUESTED_EMBED_DEVELOPMENT_PATHS="${HIREVA_EMBED_DEVELOPMENT_PATHS:-0}"
 
 # --- Stable identity constants (do NOT change without resetting TCC) ---
 APP_NAME="Hireva"                                  # .app bundle name
@@ -35,6 +37,8 @@ MIN_SYSTEM_VERSION="14.0"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=runtime/runtime_contract.sh
+source "$ROOT_DIR/script/runtime/runtime_contract.sh"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -48,11 +52,19 @@ APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.icns"
 APP_ICON_BUNDLE="$APP_RESOURCES/AppIcon.icns"
+PRIVACY_MANIFEST_SOURCE="$ROOT_DIR/Resources/PrivacyInfo.xcprivacy"
+PRIVACY_MANIFEST_BUNDLE="$APP_RESOURCES/PrivacyInfo.xcprivacy"
+RUNTIME_PROVENANCE_BUNDLE="$APP_RESOURCES/RuntimeProvenance.plist"
+GRDB_RESOURCE_BUNDLE_APP="$APP_RESOURCES/GRDB_GRDB.bundle"
+LEGACY_GRDB_RESOURCE_BUNDLE_APP="$APP_BUNDLE/GRDB_GRDB.bundle"
 PARAKEET_RUNTIME_BUILD_DIR="${HIREVA_PARAKEET_RUNTIME_BUILD_DIR:-$ROOT_DIR/.build/parakeet-helper}"
 PARAKEET_HELPER_BUILD="$PARAKEET_RUNTIME_BUILD_DIR/Helpers/parakeet_asr_helper"
 PARAKEET_HELPER_BUNDLE="$APP_HELPERS/parakeet_asr_helper"
+PARAKEET_RUNTIME_PROVENANCE_BUILD="$PARAKEET_RUNTIME_BUILD_DIR/RuntimeProvenance.plist"
+RELEASE_BUILD_PATH_SANITIZER="$ROOT_DIR/script/runtime/sanitize_release_build_paths.sh"
+RELEASE_MAIN_BUILD_PATH_REPLACEMENT_COUNT=31
 BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-GIT_COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+GIT_COMMIT_HASH="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if GIT_STATUS_PORCELAIN="$(git status --porcelain --untracked-files=normal 2>/dev/null)"; then
@@ -85,6 +97,10 @@ if [[ "$REQUESTED_BUILD_ARCHS" != "arm64" ]]; then
 fi
 
 if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then
+    if [[ ! "$REQUESTED_EXPECTED_TEAM_IDENTIFIER" =~ ^[A-Z0-9]{10}$ ]]; then
+        echo "[sign] ERROR: developer-id requires HIREVA_EXPECTED_TEAM_IDENTIFIER as a 10-character Apple Team ID." >&2
+        exit 2
+    fi
     if [[ "$GIT_TREE_STATE" != "clean" ]]; then
         echo "[build] ERROR: developer-id builds require a clean Git worktree; found $GIT_TREE_STATE." >&2
         exit 2
@@ -95,6 +111,27 @@ else
 fi
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
     echo "[build] ERROR: HIREVA_BUILD_CONFIGURATION must be debug or release." >&2
+    exit 2
+fi
+if [[ "$BUILD_CONFIGURATION" == "release" && -n "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
+    echo "[build] ERROR: release SwiftPM build paths are managed deterministically; unset HIREVA_SWIFTPM_BUILD_PATH." >&2
+    exit 2
+fi
+if [[ "$BUILD_CONFIGURATION" == "release" ]] && \
+   [[ ! "$GIT_COMMIT_HASH" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "[build] ERROR: release assembly requires a full lowercase Git commit ID." >&2
+    exit 2
+fi
+case "$REQUESTED_EMBED_DEVELOPMENT_PATHS" in
+    0|1) ;;
+    *)
+        echo "[build] ERROR: HIREVA_EMBED_DEVELOPMENT_PATHS must be 0 or 1." >&2
+        exit 2
+        ;;
+esac
+if [[ "$REQUESTED_EMBED_DEVELOPMENT_PATHS" == "1" ]] && \
+   [[ "$BUILD_CONFIGURATION" != "debug" || "$REQUESTED_SIGNING_MODE" != "development" ]]; then
+    echo "[build] ERROR: development paths may be embedded only in an explicit debug development-signed build." >&2
     exit 2
 fi
 
@@ -182,9 +219,13 @@ Environment:
                      Pass CFFIXED_USER_HOME only to the launched app process
   HIREVA_SIGNING_MODE=adhoc|development|developer-id
                      Select an explicit signing mode; no implicit fallback.
+  HIREVA_EXPECTED_TEAM_IDENTIFIER=XXXXXXXXXX
+                     Required explicitly for developer-id; never inferred from a certificate.
   HIREVA_SIGNING_IDENTITY, HIREVA_SWIFTPM_BUILD_PATH, HIREVA_PREBUILT_BINARY,
   HIREVA_BUILD_ARCHS=arm64, HIREVA_BUILD_CONFIGURATION=debug|release
                      Configure signing, architecture, and build inputs.
+  HIREVA_EMBED_DEVELOPMENT_PATHS=0|1
+                     Opt in to source-path diagnostics for debug development-signed builds only.
 EOF
 }
 
@@ -384,8 +425,8 @@ fi
 
 # --- Build ---
 if [[ -n "$REQUESTED_PREBUILT_BINARY" ]]; then
-    if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then
-        echo "[build] ERROR: developer-id distribution does not accept HIREVA_PREBUILT_BINARY." >&2
+    if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+        echo "[build] ERROR: release assembly does not accept HIREVA_PREBUILT_BINARY." >&2
         exit 2
     fi
     echo "[build] Using prebuilt binary: $REQUESTED_PREBUILT_BINARY"
@@ -393,8 +434,35 @@ if [[ -n "$REQUESTED_PREBUILT_BINARY" ]]; then
 else
     echo "[build] Building $SPM_PRODUCT_NAME ($BUILD_CONFIGURATION, arm64) ..."
     SWIFTPM_BUILD_ARGS=(-c "$BUILD_CONFIGURATION" --arch arm64)
+    EPHEMERAL_RELEASE_BUILD_PATH=""
+    if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+        REQUESTED_SWIFTPM_BUILD_PATH="/private/tmp/hireva-swiftpm-release-$GIT_COMMIT_HASH"
+        if [[ -e "$REQUESTED_SWIFTPM_BUILD_PATH" || -L "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
+            echo "[build] ERROR: deterministic release build path is already reserved: $REQUESTED_SWIFTPM_BUILD_PATH" >&2
+            exit 2
+        fi
+        /bin/mkdir -m 700 "$REQUESTED_SWIFTPM_BUILD_PATH"
+        EPHEMERAL_RELEASE_BUILD_PATH="$REQUESTED_SWIFTPM_BUILD_PATH"
+        cleanup_ephemeral_release_build() {
+            if [[ "$EPHEMERAL_RELEASE_BUILD_PATH" =~ ^/private/tmp/hireva-swiftpm-release-[0-9a-f]{40}$ ]]; then
+                /bin/rm -rf "$EPHEMERAL_RELEASE_BUILD_PATH"
+            fi
+        }
+        trap cleanup_ephemeral_release_build EXIT
+    fi
     if [[ -n "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
-        mkdir -p "$REQUESTED_SWIFTPM_BUILD_PATH"
+        if [[ -L "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
+            echo "[build] ERROR: SwiftPM build path must not be a symbolic link." >&2
+            exit 2
+        fi
+        if [[ ! -e "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
+            mkdir -p "$REQUESTED_SWIFTPM_BUILD_PATH"
+        fi
+        if [[ ! -d "$REQUESTED_SWIFTPM_BUILD_PATH" ]]; then
+            echo "[build] ERROR: SwiftPM build path is not a directory." >&2
+            exit 2
+        fi
+        REQUESTED_SWIFTPM_BUILD_PATH="$(cd "$REQUESTED_SWIFTPM_BUILD_PATH" && pwd -P)"
         SWIFTPM_BUILD_ARGS+=(--build-path "$REQUESTED_SWIFTPM_BUILD_PATH")
         echo "[build] Using SwiftPM build path: $REQUESTED_SWIFTPM_BUILD_PATH"
     fi
@@ -406,6 +474,18 @@ if [[ ! -f "$BUILD_BINARY" ]]; then
     echo "[build] ERROR: Built binary not found at $BUILD_BINARY" >&2
     exit 1
 fi
+BUILD_PRODUCTS_DIR="$(cd "$(dirname "$BUILD_BINARY")" && pwd -P)"
+GRDB_RESOURCE_BUNDLE_BUILD="$BUILD_PRODUCTS_DIR/GRDB_GRDB.bundle"
+if [[ ! -d "$GRDB_RESOURCE_BUNDLE_BUILD" ]] || \
+   [[ ! -s "$GRDB_RESOURCE_BUNDLE_BUILD/PrivacyInfo.xcprivacy" ]] || \
+   ! /usr/bin/plutil -lint "$GRDB_RESOURCE_BUNDLE_BUILD/PrivacyInfo.xcprivacy" >/dev/null; then
+    echo "[build] ERROR: SwiftPM did not produce the pinned GRDB resource bundle beside the executable." >&2
+    exit 1
+fi
+if /usr/bin/strings -a "$BUILD_BINARY" | /usr/bin/grep -F 'GRDB_GRDB.bundle' >/dev/null; then
+    echo "[build] ERROR: linked code uses GRDB's SwiftPM Bundle.module accessor; the resource bundle cannot be relocated into a standard macOS app layout." >&2
+    exit 1
+fi
 
 # --- Assemble .app bundle ---
 # Preserve the outer .app directory. Cloud file providers can move a deleted
@@ -413,7 +493,7 @@ fi
 # app with the same bundle identifier. Replacing only Contents keeps one path.
 echo "[bundle] Clearing stale bundle contents at $APP_CONTENTS ..."
 mkdir -p "$APP_BUNDLE"
-rm -rf "$APP_CONTENTS"
+rm -rf "$APP_CONTENTS" "$LEGACY_GRDB_RESOURCE_BUNDLE_APP"
 find "$DIST_DIR" -name '._*' -delete 2>/dev/null || true
 find "$DIST_DIR" -name '.DS_Store' -delete 2>/dev/null || true
 if [[ ! -e "$APP_CONTENTS" ]]; then
@@ -430,6 +510,36 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_HELPERS" "$APP_FRAMEWORKS" \
 find "$APP_MACOS" -type f ! -name "$EXECUTABLE_NAME" -delete 2>/dev/null || true
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+# SwiftPM's executable convention places dependency bundles beside the binary.
+# A signed macOS .app may contain only Contents at its root, so this metadata-only
+# GRDB bundle belongs in Contents/Resources. The binary check above fails closed
+# if a future GRDB version makes its generated Bundle.module accessor live.
+echo "[bundle] Copying the pinned GRDB SwiftPM resource bundle into app resources..."
+/usr/bin/ditto --norsrc "$GRDB_RESOURCE_BUNDLE_BUILD" "$GRDB_RESOURCE_BUNDLE_APP"
+
+# SwiftPM debug executables can carry a toolchain search path. Release bundles
+# must be self-contained, so remove every non-relocatable rpath before signing.
+if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+    while IFS= read -r embedded_rpath; do
+        case "$embedded_rpath" in
+            @loader_path|@loader_path/../Frameworks|@executable_path/../Frameworks)
+                ;;
+            *)
+                echo "[bundle] Removing non-release LC_RPATH: $embedded_rpath"
+                /usr/bin/install_name_tool -delete_rpath "$embedded_rpath" "$APP_BINARY"
+                ;;
+        esac
+    done < <(/usr/bin/otool -l "$APP_BINARY" | /usr/bin/awk \
+        '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2 }')
+    echo "[bundle] Removing local and debug symbols from the release executable..."
+    /usr/bin/strip -S -x "$APP_BINARY"
+    [[ -x "$RELEASE_BUILD_PATH_SANITIZER" ]] || {
+        echo "[bundle] ERROR: release build-path sanitizer is unavailable." >&2
+        exit 1
+    }
+    "$RELEASE_BUILD_PATH_SANITIZER" "$APP_BINARY" "$REQUESTED_SWIFTPM_BUILD_PATH" \
+        "$RELEASE_MAIN_BUILD_PATH_REPLACEMENT_COUNT"
+fi
 
 # --- Generate Info.plist ---
 /usr/bin/plutil -create xml1 "$INFO_PLIST"
@@ -447,14 +557,17 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert NSHumanReadableCopyright   -string "Copyright 2026"       "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaBuildTimestampUTC    -string "$BUILD_TIMESTAMP_UTC" "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaGitCommitHash        -string "$GIT_COMMIT_HASH"     "$INFO_PLIST"
-/usr/bin/plutil -insert HirevaGitBranch            -string "$GIT_BRANCH"          "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaGitTreeState         -string "$GIT_TREE_STATE"      "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaSigningMode          -string "$REQUESTED_SIGNING_MODE" "$INFO_PLIST"
+/usr/bin/plutil -insert HirevaBuildConfiguration   -string "$BUILD_CONFIGURATION" "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaRuntimeMode          -string "bundled_native"        "$INFO_PLIST"
 if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then
     /usr/bin/plutil -insert HirevaDistributionBuild -bool true "$INFO_PLIST"
 else
     /usr/bin/plutil -insert HirevaDistributionBuild -bool false "$INFO_PLIST"
+fi
+if [[ "$REQUESTED_EMBED_DEVELOPMENT_PATHS" == "1" ]]; then
+    /usr/bin/plutil -insert HirevaGitBranch           -string "$GIT_BRANCH"          "$INFO_PLIST"
     /usr/bin/plutil -insert HirevaSourceRoot         -string "$ROOT_DIR"            "$INFO_PLIST"
     /usr/bin/plutil -insert HirevaExpectedBundlePath -string "$EXPECTED_BUNDLE_PATH" "$INFO_PLIST"
 fi
@@ -481,6 +594,14 @@ fi
 echo "[bundle] Copying app icon to bundle resources..."
 cp "$APP_ICON_SOURCE" "$APP_ICON_BUNDLE"
 
+if [[ ! -s "$PRIVACY_MANIFEST_SOURCE" ]] || \
+   ! /usr/bin/plutil -lint "$PRIVACY_MANIFEST_SOURCE" >/dev/null; then
+    echo "[bundle] ERROR: valid app privacy manifest not found at $PRIVACY_MANIFEST_SOURCE" >&2
+    exit 1
+fi
+echo "[bundle] Copying app privacy manifest to bundle resources..."
+cp "$PRIVACY_MANIFEST_SOURCE" "$PRIVACY_MANIFEST_BUNDLE"
+
 echo "[bundle] Copying release documentation and verified third-party notices..."
 for document in \
     third-party-licenses.md \
@@ -499,12 +620,20 @@ if [[ ! -x "$PARAKEET_HELPER_BUILD" ]]; then
     echo "[bundle] ERROR: native Parakeet helper was not produced." >&2
     exit 1
 fi
+if [[ ! -s "$PARAKEET_RUNTIME_PROVENANCE_BUILD" ]] || \
+   ! /usr/bin/plutil -lint "$PARAKEET_RUNTIME_PROVENANCE_BUILD" >/dev/null; then
+    echo "[bundle] ERROR: verified native runtime provenance was not produced." >&2
+    exit 1
+fi
 cp "$PARAKEET_HELPER_BUILD" "$PARAKEET_HELPER_BUNDLE"
 cp "$PARAKEET_RUNTIME_BUILD_DIR/Frameworks/libsherpa-onnx-c-api.dylib" "$APP_FRAMEWORKS/"
-cp "$PARAKEET_RUNTIME_BUILD_DIR/Frameworks/libonnxruntime.1.27.0.dylib" "$APP_FRAMEWORKS/"
+cp "$PARAKEET_RUNTIME_BUILD_DIR/Frameworks/libonnxruntime.$HIREVA_ONNX_RUNTIME_VERSION.dylib" "$APP_FRAMEWORKS/"
+cp "$PARAKEET_RUNTIME_PROVENANCE_BUILD" "$RUNTIME_PROVENANCE_BUNDLE"
 chmod 0755 "$PARAKEET_HELPER_BUNDLE"
 
-if find "$APP_CONTENTS" -type f \( -name 'parakeet_asr_sidecar.py' -o -name 'parakeet_asr_sidecar' \) | grep -q .; then
+if find "$APP_CONTENTS" -type f \
+    \( -name 'parakeet_asr_sidecar.py' -o -name 'parakeet_asr_sidecar' \) \
+    -print -quit | grep -q .; then
     echo "[bundle] ERROR: legacy Python Parakeet runtime leaked into the app bundle." >&2
     exit 1
 fi
@@ -572,6 +701,14 @@ print_signing_diagnostics() {
 }
 
 # --- Code Signing ---
+if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then
+    CURRENT_GIT_COMMIT_HASH="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    CURRENT_GIT_STATUS="$(git status --porcelain --untracked-files=normal 2>/dev/null || echo status-unavailable)"
+    if [[ "$CURRENT_GIT_COMMIT_HASH" != "$GIT_COMMIT_HASH" ]] || [[ -n "$CURRENT_GIT_STATUS" ]]; then
+        echo "[sign] ERROR: source HEAD or worktree changed after the Developer ID build began." >&2
+        exit 2
+    fi
+fi
 echo "[sign] Available code-signing identities:"
 security find-identity -v -p codesigning || true
 SIGNING_IDENTITY="$REQUESTED_SIGNING_IDENTITY"
@@ -579,11 +716,13 @@ echo "[sign] Explicit mode: $REQUESTED_SIGNING_MODE"
 HIREVA_SIGNING_MODE="$REQUESTED_SIGNING_MODE" \
 HIREVA_BUILD_ARCHS="$REQUESTED_BUILD_ARCHS" \
 HIREVA_SIGNING_IDENTITY="$SIGNING_IDENTITY" \
+HIREVA_EXPECTED_TEAM_IDENTIFIER="$REQUESTED_EXPECTED_TEAM_IDENTIFIER" \
     "$ROOT_DIR/script/release/sign_app.sh" "$APP_BUNDLE"
 
 echo "[sign] Verifying code signature..."
 if ! HIREVA_SIGNING_MODE="$REQUESTED_SIGNING_MODE" \
     HIREVA_BUILD_ARCHS="$REQUESTED_BUILD_ARCHS" \
+    HIREVA_EXPECTED_TEAM_IDENTIFIER="$REQUESTED_EXPECTED_TEAM_IDENTIFIER" \
     "$ROOT_DIR/script/release/verify_app.sh" "$APP_BUNDLE"; then
     echo "[sign] ERROR: code signature verification failed." >&2
     print_signing_diagnostics

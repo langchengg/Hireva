@@ -12,18 +12,25 @@ as Parakeet or silently fall back to Apple Speech.
 - ASR source metadata: `local_parakeet_asr`
 - Local path: `~/Library/Application Support/Hireva/LocalModels/asr/parakeet-tdt-0.6b-v3-int8`
 - Download URL: `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2`
-- Checksum: not configured
+- Descriptor version: `asr-models-5793d0fd397c5778`
+- Archive size: exactly `487170055` bytes
+- Archive SHA-256: `5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf`
 
 Required files under the local path:
 
-- `encoder.int8.onnx`, minimum 652 MB
-- `decoder.int8.onnx`, minimum 11.8 MB
-- `joiner.int8.onnx`, minimum 6.3 MB
-- `tokens.txt`, minimum 90 KB
+- `encoder.int8.onnx`, exactly `652184281` bytes, SHA-256
+  `acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247`
+- `decoder.int8.onnx`, exactly `11845275` bytes, SHA-256
+  `179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e`
+- `joiner.int8.onnx`, exactly `6355277` bytes, SHA-256
+  `3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3`
+- `tokens.txt`, exactly `93939` bytes, SHA-256
+  `d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d`
 
-Readiness currently verifies required file presence and minimum sizes. It does
-not perform cryptographic checksum verification because the upstream release
-does not publish a single checksum manifest for this app to verify.
+Installation and readiness verify the app-pinned archive identity and the
+exact size and SHA-256 of every required model payload. The pinned values are
+part of Hireva's reviewed descriptor; they are not inferred from mutable
+upstream metadata at install time.
 
 ## Native runtime contract
 

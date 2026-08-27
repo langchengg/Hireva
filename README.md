@@ -106,21 +106,26 @@ Hireva currently ships as a source-built developer preview for Apple Silicon Mac
 
 #### Option 1 — Install from a local DMG
 
-Build the app and create the DMG:
+Build a release-configuration app without launching it, then create the DMG in
+a new output directory:
 
 ```bash
 git clone https://github.com/langchengg/Hireva.git
 cd Hireva
-./scripts/package_dmg.sh
+HIREVA_SIGNING_MODE=adhoc HIREVA_BUILD_CONFIGURATION=release \
+  ./script/build_and_run.sh --identity-check
+mkdir -p release-candidates
+./scripts/package_dmg.sh dist/Hireva.app release-candidates/0.1.0-1-adhoc
 ```
 
-The package is written to:
+The package and its JSON provenance manifest are written to:
 
 ```text
-release/Hireva-0.1.0-arm64.dmg
+release-candidates/0.1.0-1-adhoc/Hireva-0.1.0-1-arm64.dmg
+release-candidates/0.1.0-1-adhoc/Hireva-0.1.0-1-arm64.manifest.json
 ```
 
-1. Open `Hireva-0.1.0-arm64.dmg`.
+1. Open `Hireva-0.1.0-1-arm64.dmg`.
 2. Drag **Hireva** into the **Applications** folder.
 3. Launch Hireva from Applications.
 4. Complete the requested microphone and/or Screen & System Audio Recording permissions.
@@ -309,10 +314,21 @@ swift test
 ./scripts/runtime_smoke.sh --suite all
 ./scripts/verify_runtime_stability.sh
 ./script/build_and_run.sh --verify
-./scripts/package_dmg.sh
+HIREVA_SIGNING_MODE=adhoc HIREVA_BUILD_CONFIGURATION=release \
+  ./script/build_and_run.sh --identity-check
+mkdir -p release-candidates
+./scripts/package_dmg.sh dist/Hireva.app release-candidates/0.1.0-1-adhoc
 ```
 
 `script/build_and_run.sh` is the canonical build/sign/launch entrypoint for the SwiftPM GUI application. It creates `dist/Hireva.app`, bundles the native Parakeet runtime and required notices, signs nested code according to the explicit signing mode, launches the bundle, and verifies the running process.
+`scripts/package_dmg.sh` consumes that existing signed app, reuses the strict
+release validator before and after a read-only image mount, refuses existing
+output directories, and does not build, launch, sign, notarize, staple, or
+publish the application. Developer ID input additionally requires an explicit
+10-character `HIREVA_EXPECTED_TEAM_IDENTIFIER` and
+`HIREVA_ALLOW_DISTRIBUTION_DMG=1` operator authorization. Never place a real
+Team ID, signing identity, notary profile, or credential in repository files or
+artifact metadata.
 
 Useful engineering references:
 

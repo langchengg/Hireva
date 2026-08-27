@@ -30,6 +30,17 @@ release_validate_mode() {
     esac
 }
 
+release_validate_expected_team_identifier() {
+    if [[ "$RELEASE_SIGNING_MODE" != "developer-id" ]]; then
+        return
+    fi
+    release_require_env HIREVA_EXPECTED_TEAM_IDENTIFIER
+    if [[ ! "$HIREVA_EXPECTED_TEAM_IDENTIFIER" =~ ^[A-Z0-9]{10}$ ]]; then
+        release_die "HIREVA_EXPECTED_TEAM_IDENTIFIER must be a 10-character Apple Team ID"
+    fi
+    RELEASE_EXPECTED_TEAM_IDENTIFIER="$HIREVA_EXPECTED_TEAM_IDENTIFIER"
+}
+
 release_load_architectures() {
     local raw
     local arch
@@ -63,9 +74,10 @@ release_plist_value() {
 
 release_load_app() {
     local requested_path="$1"
-    local parent
     local package_type
 
+    requested_path="$(/usr/bin/ruby -e 'print File.expand_path(ARGV.fetch(0))' "$requested_path")" || \
+        release_die "unable to normalize app bundle path"
     if [[ ! -d "$requested_path" ]]; then
         release_die "app bundle does not exist: $requested_path"
     fi
@@ -76,8 +88,8 @@ release_load_app() {
         release_die "expected a .app bundle: $requested_path"
     fi
 
-    parent="$(cd "$(dirname "$requested_path")" && pwd -P)"
-    RELEASE_APP_PATH="$parent/$(basename "$requested_path")"
+    RELEASE_APP_PATH="$(cd "$requested_path" && pwd -P)" || \
+        release_die "unable to resolve app bundle path: $requested_path"
     RELEASE_INFO_PLIST="$RELEASE_APP_PATH/Contents/Info.plist"
     if [[ ! -f "$RELEASE_INFO_PLIST" ]] || ! /usr/bin/plutil -lint "$RELEASE_INFO_PLIST" >/dev/null; then
         release_die "missing or invalid Info.plist: $RELEASE_INFO_PLIST"
@@ -204,6 +216,7 @@ release_validate_identity_for_signing() {
 
     RELEASE_SIGNING_VALUE=""
     RELEASE_IDENTITY_LABEL=""
+    release_validate_expected_team_identifier
 
     if [[ "$RELEASE_SIGNING_MODE" == "adhoc" ]]; then
         if [[ -n "$requested" ]]; then
@@ -336,24 +349,56 @@ release_assert_release_entitlements() {
 release_assert_signature_mode() {
     local app="$1"
     local details
+    local expected_team
     local macho
     local macho_details
+    local outer_authority
+    local outer_identifier
+    local outer_team
+    local nested_authority
+    local nested_team
 
     if ! /usr/bin/codesign --verify --deep --strict --verbose=4 "$app"; then
         release_die "code signature verification failed: $app"
     fi
     details="$(release_signature_details "$app")" || release_die "unable to inspect signature: $app"
+    outer_identifier="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^Identifier=//p' | /usr/bin/head -1)"
+    [[ "$outer_identifier" == "$RELEASE_BUNDLE_IDENTIFIER" ]] || \
+        release_die "outer CodeDirectory identifier differs from CFBundleIdentifier"
 
     case "$RELEASE_SIGNING_MODE" in
         adhoc)
             if ! printf '%s\n' "$details" | /usr/bin/grep -q '^Signature=adhoc$'; then
                 release_die "signature does not match HIREVA_SIGNING_MODE=adhoc"
             fi
+            release_collect_machos
+            for macho in "${RELEASE_MACHO_PATHS[@]}"; do
+                macho_details="$(release_signature_details "$macho")" || \
+                    release_die "unable to inspect nested Mach-O signature: $macho"
+                if ! printf '%s\n' "$macho_details" | /usr/bin/grep -q '^Signature=adhoc$'; then
+                    release_die "nested Mach-O signature does not match the outer ad-hoc mode: $macho"
+                fi
+            done
             ;;
         development)
             if ! printf '%s\n' "$details" | /usr/bin/grep -q '^Authority=Apple Development:'; then
                 release_die "signature does not match HIREVA_SIGNING_MODE=development"
             fi
+            outer_authority="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1)"
+            outer_team="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1)"
+            [[ -n "$outer_authority" && -n "$outer_team" ]] || \
+                release_die "development signature is missing authority or TeamIdentifier"
+            release_collect_machos
+            for macho in "${RELEASE_MACHO_PATHS[@]}"; do
+                macho_details="$(release_signature_details "$macho")" || \
+                    release_die "unable to inspect nested Mach-O signature: $macho"
+                nested_authority="$(printf '%s\n' "$macho_details" | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1)"
+                nested_team="$(printf '%s\n' "$macho_details" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1)"
+                [[ "$nested_authority" == "$outer_authority" ]] || \
+                    release_die "nested Mach-O signing authority differs from outer app: $macho"
+                [[ "$nested_team" == "$outer_team" ]] || \
+                    release_die "nested Mach-O TeamIdentifier differs from outer app: $macho"
+            done
             ;;
         developer-id)
             if ! printf '%s\n' "$details" | /usr/bin/grep -q '^Authority=Developer ID Application:'; then
@@ -365,11 +410,25 @@ release_assert_signature_mode() {
             if ! printf '%s\n' "$details" | /usr/bin/grep -q '^Timestamp='; then
                 release_die "developer-id signature is missing a secure timestamp"
             fi
+            outer_authority="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1)"
+            outer_team="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1)"
+            [[ -n "$outer_authority" && -n "$outer_team" ]] || \
+                release_die "developer-id signature is missing authority or TeamIdentifier"
+            release_validate_expected_team_identifier
+            expected_team="$RELEASE_EXPECTED_TEAM_IDENTIFIER"
+            [[ "$outer_team" == "$expected_team" ]] || \
+                release_die "developer-id TeamIdentifier differs from HIREVA_EXPECTED_TEAM_IDENTIFIER"
             release_assert_release_entitlements "$app"
             release_collect_machos
             for macho in "${RELEASE_MACHO_PATHS[@]}"; do
                 macho_details="$(release_signature_details "$macho")" || \
                     release_die "unable to inspect nested Mach-O signature: $macho"
+                nested_authority="$(printf '%s\n' "$macho_details" | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1)"
+                nested_team="$(printf '%s\n' "$macho_details" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1)"
+                [[ "$nested_authority" == "$outer_authority" ]] || \
+                    release_die "nested Mach-O signing authority differs from outer app: $macho"
+                [[ "$nested_team" == "$outer_team" ]] || \
+                    release_die "nested Mach-O TeamIdentifier differs from outer app: $macho"
                 if ! printf '%s\n' "$macho_details" | /usr/bin/grep -Eq '^CodeDirectory .*flags=.*\(runtime\)'; then
                     release_die "nested Mach-O is missing hardened runtime: $macho"
                 fi
@@ -384,14 +443,14 @@ release_assert_signature_mode() {
 release_prepare_output_root() {
     local requested
     release_require_env HIREVA_RELEASE_OUTPUT_DIR
-    requested="$HIREVA_RELEASE_OUTPUT_DIR"
+    requested="$(/usr/bin/ruby -e 'print File.expand_path(ARGV.fetch(0))' \
+        "$HIREVA_RELEASE_OUTPUT_DIR")" || release_die "unable to normalize HIREVA_RELEASE_OUTPUT_DIR"
     if [[ -L "$requested" ]]; then
         release_die "HIREVA_RELEASE_OUTPUT_DIR must not be a symbolic link: $requested"
     fi
-    if [[ -e "$requested" ]] && [[ ! -d "$requested" ]]; then
-        release_die "HIREVA_RELEASE_OUTPUT_DIR is not a directory: $requested"
+    if [[ ! -d "$requested" ]]; then
+        release_die "HIREVA_RELEASE_OUTPUT_DIR must be an existing directory: $requested"
     fi
-    /bin/mkdir -p "$requested"
     RELEASE_OUTPUT_ROOT="$(cd "$requested" && pwd -P)"
 }
 

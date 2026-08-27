@@ -13,6 +13,8 @@ Required environment:
   HIREVA_SIGNING_MODE      adhoc, development, or developer-id
   HIREVA_BUILD_ARCHS       Required architectures, comma or space separated
   HIREVA_SIGNING_IDENTITY  Required for development/developer-id; forbidden for adhoc
+  HIREVA_EXPECTED_TEAM_IDENTIFIER
+                           Explicit 10-character Apple Team ID for developer-id
 
 The app is modified in place. Identity, architecture, bundle, and metadata
 validation complete before the first signing operation.

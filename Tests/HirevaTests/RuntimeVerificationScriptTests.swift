@@ -606,10 +606,17 @@ struct RuntimeVerificationScriptTests {
             contentsOf: repositoryRoot.appendingPathComponent("script/runtime/prepare_sherpa_runtime.sh"),
             encoding: .utf8
         )
-        #expect(runtimePreparation.contains("SHERPA_LIBRARY_SHA256=\"08caf3346b82648540c8c9b738ee10b06e728a5ea525184230b25321ec57f047\""))
-        #expect(runtimePreparation.contains("ONNX_RUNTIME_LIBRARY_SHA256=\"8e822d761fac13e47c6725baf1e65d9858ea00bf0af3e61a43b7c6a65a794439\""))
+        let runtimeContract = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("script/runtime/runtime_contract.sh"),
+            encoding: .utf8
+        )
+        #expect(runtimePreparation.contains("source \"$ROOT_DIR/script/runtime/runtime_contract.sh\""))
+        #expect(runtimePreparation.contains("SHERPA_LIBRARY_SHA256=\"$HIREVA_SHERPA_LIBRARY_SOURCE_SHA256\""))
+        #expect(runtimePreparation.contains("ONNX_RUNTIME_LIBRARY_SHA256=\"$HIREVA_ONNX_LIBRARY_SOURCE_SHA256\""))
+        #expect(runtimeContract.contains("HIREVA_SHERPA_LIBRARY_SOURCE_SHA256=\"08caf3346b82648540c8c9b738ee10b06e728a5ea525184230b25321ec57f047\""))
+        #expect(runtimeContract.contains("HIREVA_ONNX_LIBRARY_SOURCE_SHA256=\"8e822d761fac13e47c6725baf1e65d9858ea00bf0af3e61a43b7c6a65a794439\""))
         #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libsherpa-onnx-c-api.dylib\""))
-        #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libonnxruntime.1.27.0.dylib\""))
+        #expect(runtimePreparation.contains("verify_sha256 \"$SDK_ROOT/lib/libonnxruntime.$HIREVA_ONNX_RUNTIME_VERSION.dylib\""))
         #expect(runtimePreparation.contains("verify_sha256 \"$HEADER_PATH\" \"$HEADER_SHA256\""))
 
         let extractedSherpaHash = try #require(
@@ -862,7 +869,10 @@ struct RuntimeVerificationScriptTests {
             encoding: .utf8
         )
         #expect(migration.contains("$HOME/Developer/Hireva"))
-        #expect(migration.contains("rsync -a --delete"))
+        #expect(migration.contains("rsync -an"))
+        #expect(migration.contains("rsync -a"))
+        #expect(!migration.contains("rsync -a --delete"), "Workspace migration commands must never delete destination data")
+        #expect(migration.contains("Do not add --delete."))
         #expect(migration.contains("--exclude '.git'"))
 
         let notarization = try String(

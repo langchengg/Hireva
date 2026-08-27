@@ -95,6 +95,8 @@ Before distribution, the release owner must verify that the final artifact
 contains the exact license and notice payloads for the versions actually
 shipped. At minimum this includes sherpa-onnx's Apache 2.0 license, ONNX
 Runtime's MIT license and full `ThirdPartyNotices.txt`, GRDB's MIT license, and
-the Parakeet attribution/change notice with a CC BY 4.0 link. This repository's
-current documentation inventory does not prove that the final artifact already
-contains those files.
+the Parakeet attribution/change notice with a CC BY 4.0 link. The first four
+upstream-controlled texts are vendored under `Resources/ThirdPartyNotices` and
+the build and package gates verify their pinned SHA-256 values. The Parakeet
+model attribution remains in this reviewed document because the model is
+downloaded separately rather than embedded in the application.

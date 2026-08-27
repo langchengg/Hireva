@@ -12,6 +12,8 @@ Usage: notarize_release.sh /path/to/versioned-release-directory
 Required environment:
   HIREVA_SIGNING_MODE        Must be developer-id
   HIREVA_BUILD_ARCHS         Required architectures, comma or space separated
+  HIREVA_EXPECTED_TEAM_IDENTIFIER
+                              Explicit 10-character Apple Team ID
   HIREVA_NOTARY_PROFILE      Existing notarytool Keychain profile
   HIREVA_RELEASE_OUTPUT_DIR  Parent of the versioned release directory
 

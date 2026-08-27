@@ -196,3 +196,10 @@ Developer ID Application signature with hardened runtime, has been notarized,
 has the notarization ticket stapled, passes Gatekeeper assessment, and has been
 validated on a clean Mac. Notarization submission is not part of the default
 local release workflow.
+
+Every Developer ID build, verification, package, and notarization command must
+receive `HIREVA_EXPECTED_TEAM_IDENTIFIER` as an explicit 10-character Team ID;
+the release tools never infer it from the artifact. DMG creation additionally
+requires `HIREVA_ALLOW_DISTRIBUTION_DMG=1`, and notarization separately requires
+the operator-selected Keychain profile. Use placeholders in runbooks and logs;
+do not commit real identity, profile, certificate, or credential values.

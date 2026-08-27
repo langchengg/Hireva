@@ -8,14 +8,16 @@ source "$SCRIPT_DIR/release_common.sh"
 usage() {
     cat <<'USAGE'
 Usage: HIREVA_SIGNING_MODE=<mode> [HIREVA_SIGNING_IDENTITY=<identity>] \
+       [HIREVA_EXPECTED_TEAM_IDENTIFIER=<10-character-team-id>] \
        ./script/release/check_identity.sh
 
 Validate the explicitly selected signing mode and identity without changing an
 app bundle. Supported modes are adhoc, development, and developer-id.
 
 development and developer-id require HIREVA_SIGNING_IDENTITY to select exactly
-one currently valid identity. Adhoc requires it to be unset. A full common name
-or SHA-1 hash is accepted for certificate-backed modes.
+one currently valid identity. Developer ID also requires the expected Team ID
+explicitly. Adhoc requires the identity to be unset. A full common name or
+SHA-1 hash is accepted for certificate-backed modes.
 USAGE
 }
 
