@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import Testing
 @testable import Hireva
@@ -131,6 +132,50 @@ struct ParakeetNativeRuntimeTests {
     }
 
     @Test
+    func structuredHelperFailureDoesNotSurfaceDiagnosticDetails() async throws {
+        let privateDiagnosticToken = "fixture-private-\(UUID().uuidString)"
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        printf '%s\n' '{"type":"error","code":"model_file_unavailable","message":"\(privateDiagnosticToken)"}'
+        exit 1
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "structured-error", captureMode: .systemAudioOnly)
+        )
+
+        var receivedError: Error?
+        do {
+            for try await _ in stream {}
+        } catch {
+            receivedError = error
+        }
+
+        let sidecarError = try #require(receivedError as? ParakeetSidecarError)
+        #expect(sidecarError == .helperFailure(.modelFileUnavailable))
+        #expect(sidecarError.localizedDescription == "Parakeet native helper failed (model_file_unavailable).")
+        #expect(sidecarError.localizedDescription.contains(privateDiagnosticToken) == false)
+    }
+
+    @Test
+    func nativeHelperPublishesStableStructuredFailureCodes() throws {
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("native/parakeet_asr_helper.mm"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("@\"code\""))
+        #expect(source.contains("model_file_unavailable"))
+        #expect(source.contains("model_lock_unavailable"))
+        #expect(source.contains("recognizer_initialization_failed"))
+        #expect(source.contains("input_protocol_failure"))
+        #expect(source.contains("queue_limit_exceeded"))
+        #expect(source.contains("audio_file_unavailable"))
+        #expect(source.contains("runtime_conflict"))
+    }
+
+    @Test
     func transcriptReaderPreservesDelayedJSONLLines() async throws {
         let helper = try makeExecutable("""
         #!/bin/sh
@@ -226,10 +271,26 @@ struct ParakeetNativeRuntimeTests {
     @Test
     func realRuntimePreservesMultipleUtterancesInOneStream() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["HIREVA_REAL_PARAKEET_STREAM_TEST"] == "1" else { return }
+        try #require(
+            environment["HIREVA_REAL_PARAKEET_STREAM_TEST"] == "1",
+            "The reconciled release run must execute the real Parakeet stream lane"
+        )
         let helperPath = try #require(environment["HIREVA_PARAKEET_HELPER_PATH"])
         let modelPath = try #require(environment["HIREVA_PARAKEET_MODEL_PATH"])
         let audioPath = try #require(environment["HIREVA_PARAKEET_TEST_AUDIO"])
+        let provenancePath = try #require(environment["HIREVA_PARAKEET_TEST_AUDIO_PROVENANCE"])
+        let audioData = try Data(contentsOf: URL(fileURLWithPath: audioPath))
+        let provenanceData = try Data(contentsOf: URL(fileURLWithPath: provenancePath))
+        let provenance = try JSONDecoder().decode(SyntheticAudioProvenance.self, from: provenanceData)
+        let audioSHA256 = SHA256.hash(data: audioData).map { String(format: "%02x", $0) }.joined()
+        #expect(provenance.schemaVersion == 1)
+        #expect(provenance.synthetic)
+        #expect(provenance.containsRealPersonalData == false)
+        #expect(provenance.generator == "macos_say")
+        #expect(provenance.audio.filename == URL(fileURLWithPath: audioPath).lastPathComponent)
+        #expect(provenance.audio.sha256 == audioSHA256)
+        #expect(provenance.audio.sizeBytes == audioData.count)
+        #expect(provenance.utterances.count == 3)
         let runtime = ParakeetSidecarRuntimeClient(
             executableURLProvider: { URL(fileURLWithPath: helperPath) }
         )
@@ -266,8 +327,64 @@ struct ParakeetNativeRuntimeTests {
         await runtime.stop()
         let events = try await collector.value
         #expect(events.count == 3)
+        #expect(events.allSatisfy { $0.isFinal })
+        #expect(events.allSatisfy { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        #expect(events.allSatisfy { !$0.segmentId.isEmpty })
+        #expect(Set(events.map(\.segmentId)).count == 3)
         #expect(events.allSatisfy { $0.source == ASRSource.localParakeetASR.rawValue })
+        #expect(events.allSatisfy { $0.audioSource == AudioSourceType.systemAudio.rawValue })
+        #expect(events.allSatisfy { $0.speaker == SpeakerRole.interviewer.rawValue })
+        for (event, expected) in zip(events, provenance.utterances) {
+            let normalized = event.text.lowercased()
+            #expect(expected.expectedTranscriptTerms.count >= 2)
+            #expect(
+                expected.expectedTranscriptTerms.allSatisfy { normalized.contains($0.lowercased()) },
+                "ASR event \(event.segmentId) did not preserve synthetic utterance \(expected.id): \(event.text)"
+            )
+        }
         #expect(runtime.audioWriterDiagnostics().droppedChunks == 0)
+    }
+
+    private struct SyntheticAudioProvenance: Decodable {
+        struct Audio: Decodable {
+            let filename: String
+            let sha256: String
+            let sizeBytes: Int
+
+            enum CodingKeys: String, CodingKey {
+                case filename
+                case sha256
+                case sizeBytes = "size_bytes"
+            }
+        }
+
+        struct Utterance: Decodable {
+            let id: String
+            let text: String
+            let expectedTranscriptTerms: [String]
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case text
+                case expectedTranscriptTerms = "expected_transcript_terms"
+            }
+        }
+
+        let schemaVersion: Int
+        let synthetic: Bool
+        let containsRealPersonalData: Bool
+        let generator: String
+        let audio: Audio
+        let utterances: [Utterance]
+
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version"
+            case synthetic
+            case containsRealPersonalData = "contains_real_personal_data"
+            case generator
+            case audio
+            case utterances
+        }
     }
 
     private var currentArchitecture: String {
@@ -278,6 +395,13 @@ struct ParakeetNativeRuntimeTests {
 #else
         "unknown"
 #endif
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     private func makeHealthExecutable(architecture: String) throws -> URL {

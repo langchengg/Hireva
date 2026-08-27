@@ -112,5 +112,4 @@ case "$CANONICAL_SUITE" in
 esac
 
 echo "Runtime smoke suite: $SUITE"
-export RUNTIME_SMOKE_SUITE="$CANONICAL_SUITE"
 swift test --filter "$TEST_FILTER"

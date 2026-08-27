@@ -48,6 +48,7 @@ struct Options {
 using Recognizer = std::unique_ptr<const SherpaOnnxOfflineRecognizer,
                                    decltype(&SherpaOnnxDestroyOfflineRecognizer)>;
 
+[[noreturn]] void Fail(const std::string &code, const std::string &message);
 [[noreturn]] void Fail(const std::string &message);
 
 class ModelUseLock {
@@ -65,7 +66,8 @@ class ModelUseLock {
         close(descriptor_);
         descriptor_ = -1;
       }
-      Fail("Could not acquire the Parakeet model-use lock");
+      Fail("model_lock_unavailable",
+           "Could not acquire the Parakeet model-use lock");
     }
   }
 
@@ -96,13 +98,18 @@ void WriteJSON(NSDictionary *object, FILE *stream = stdout) {
   std::fflush(stream);
 }
 
-[[noreturn]] void Fail(const std::string &message) {
+[[noreturn]] void Fail(const std::string &code, const std::string &message) {
   WriteJSON(@{
     @"type" : @"error",
+    @"code" : [NSString stringWithUTF8String:code.c_str()],
     @"message" : [NSString stringWithUTF8String:message.c_str()]
   });
   std::fprintf(stderr, "fatal: %s\n", message.c_str());
   std::exit(1);
+}
+
+[[noreturn]] void Fail(const std::string &message) {
+  Fail("runtime_failure", message);
 }
 
 std::string RequiredArgument(int argc, char **argv, int *index,
@@ -174,7 +181,7 @@ bool IsRegularReadableFile(const std::string &path) {
 
 Recognizer CreateRecognizer(const Options &options) {
   if (options.modelDirectory.empty()) {
-    Fail("--model-dir is required");
+    Fail("model_file_unavailable", "--model-dir is required");
   }
 
   const std::string encoder = options.modelDirectory + "/encoder.int8.onnx";
@@ -183,7 +190,8 @@ Recognizer CreateRecognizer(const Options &options) {
   const std::string tokens = options.modelDirectory + "/tokens.txt";
   for (const auto &path : {encoder, decoder, joiner, tokens}) {
     if (!IsRegularReadableFile(path)) {
-      Fail("Missing or unreadable model file: " + path);
+      Fail("model_file_unavailable",
+           "Missing or unreadable model file: " + path);
     }
   }
 
@@ -203,7 +211,8 @@ Recognizer CreateRecognizer(const Options &options) {
   const SherpaOnnxOfflineRecognizer *recognizer =
       SherpaOnnxCreateOfflineRecognizer(&config);
   if (recognizer == nullptr) {
-    Fail("Failed to create the Parakeet recognizer");
+    Fail("recognizer_initialization_failed",
+         "Failed to create the Parakeet recognizer");
   }
   return Recognizer(recognizer, &SherpaOnnxDestroyOfflineRecognizer);
 }
@@ -236,7 +245,8 @@ std::string Decode(const SherpaOnnxOfflineRecognizer *recognizer,
   const SherpaOnnxOfflineStream *stream =
       SherpaOnnxCreateOfflineStream(recognizer);
   if (stream == nullptr) {
-    Fail("Failed to create an offline recognition stream");
+    Fail("recognizer_initialization_failed",
+         "Failed to create an offline recognition stream");
   }
   SherpaOnnxAcceptWaveformOffline(stream, kTargetSampleRate, samples.data(),
                                   static_cast<int32_t>(samples.size()));
@@ -361,7 +371,8 @@ class DecodeQueue {
     const double duration =
         static_cast<double>(utterance.samples.size()) / kTargetSampleRate;
     if (duration > kMaximumQueuedAudioSeconds) {
-      Fail("One utterance exceeds the bounded decode queue");
+      Fail("queue_limit_exceeded",
+           "One utterance exceeds the bounded decode queue");
     }
 
     std::unique_lock<std::mutex> lock(mutex_);
@@ -438,7 +449,9 @@ NSDictionary *ParseJSONLine(const std::string &line) {
   id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
   if (![object isKindOfClass:NSDictionary.class]) {
     const char *message = error.localizedDescription.UTF8String;
-    Fail(std::string("Invalid JSONL input: ") + (message ?: "not an object"));
+    Fail("input_protocol_failure",
+         std::string("Invalid JSONL input: ") +
+             (message ?: "not an object"));
   }
   return static_cast<NSDictionary *>(object);
 }
@@ -503,7 +516,8 @@ int RunJSONL(const Options &options) {
       if ([type isEqualToString:@"audio"]) {
         if (![event[@"encoding"] isEqual:@"float32le"] ||
             ![event[@"audio"] isKindOfClass:NSString.class]) {
-          Fail("Unsupported or missing audio encoding");
+          Fail("input_protocol_failure",
+               "Unsupported or missing audio encoding");
         }
         const int32_t sampleRate = [event[@"sampleRate"] intValue];
         const int32_t channels = std::max(1, [event[@"channels"] intValue]);
@@ -511,7 +525,7 @@ int RunJSONL(const Options &options) {
             initWithBase64EncodedString:event[@"audio"]
                                  options:0];
         if (audio == nil || audio.length % sizeof(float) != 0) {
-          Fail("Invalid float32 audio payload");
+          Fail("input_protocol_failure", "Invalid float32 audio payload");
         }
         const size_t interleavedCount = audio.length / sizeof(float);
         const float *interleaved = static_cast<const float *>(audio.bytes);
@@ -520,7 +534,8 @@ int RunJSONL(const Options &options) {
           mono.assign(interleaved, interleaved + interleavedCount);
         } else {
           if (interleavedCount % static_cast<size_t>(channels) != 0) {
-            Fail("Audio frame count is not divisible by channel count");
+            Fail("input_protocol_failure",
+                 "Audio frame count is not divisible by channel count");
           }
           mono.resize(interleavedCount / channels);
           for (size_t frame = 0; frame < mono.size(); ++frame) {
@@ -538,7 +553,7 @@ int RunJSONL(const Options &options) {
                   stringWithUTF8String:DefaultAudioSource(options).c_str()];
         if (![sourceValue isEqualToString:@"microphone"] &&
             ![sourceValue isEqualToString:@"systemAudio"]) {
-          Fail("Unsupported audioSource");
+          Fail("input_protocol_failure", "Unsupported audioSource");
         }
         segmenterFor(sourceValue.UTF8String)
             ->Accept(mono.data(), mono.size(), sampleRate);
@@ -547,7 +562,7 @@ int RunJSONL(const Options &options) {
       } else if ([type isEqualToString:@"stop"]) {
         shouldStop = true;
       } else {
-        Fail("Unsupported JSONL event type");
+        Fail("input_protocol_failure", "Unsupported JSONL event type");
       }
     }
     if (shouldStop) {
@@ -565,7 +580,7 @@ int DecodeWave(const Options &options,
                const SherpaOnnxOfflineRecognizer *recognizer) {
   const SherpaOnnxWave *wave = SherpaOnnxReadWave(options.wavPath.c_str());
   if (wave == nullptr) {
-    Fail("Failed to read WAV file");
+    Fail("audio_file_unavailable", "Failed to read WAV file");
   }
   const auto samples =
       Resample(wave->samples, wave->num_samples, wave->sample_rate);
@@ -633,6 +648,6 @@ int main(int argc, char **argv) {
     if (!options.jsonl) {
       Fail("--jsonl, --wav, --probe-model, or --health is required");
     }
-    Fail("Conflicting Parakeet runtime modes");
+    Fail("runtime_conflict", "Conflicting Parakeet runtime modes");
   }
 }

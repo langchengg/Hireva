@@ -1,6 +1,7 @@
 import AVFoundation
 import Darwin
 import Foundation
+import os
 
 enum ASRProviderID: String, Codable, CaseIterable, Identifiable, Hashable {
     case appleSpeech
@@ -229,12 +230,24 @@ extension ParakeetRuntimeClient {
     }
 }
 
+enum ParakeetHelperFailureCode: String, Codable, Equatable {
+    case runtimeFailure = "runtime_failure"
+    case modelFileUnavailable = "model_file_unavailable"
+    case modelLockUnavailable = "model_lock_unavailable"
+    case recognizerInitializationFailed = "recognizer_initialization_failed"
+    case inputProtocolFailure = "input_protocol_failure"
+    case queueLimitExceeded = "queue_limit_exceeded"
+    case audioFileUnavailable = "audio_file_unavailable"
+    case runtimeConflict = "runtime_conflict"
+}
+
 enum ParakeetSidecarError: LocalizedError, Equatable {
     case executableNotConfigured
     case launchFailed(String)
-    case invalidEvent(String)
+    case invalidEvent(byteCount: Int)
     case exited(Int32)
     case healthCheckFailed(String)
+    case helperFailure(ParakeetHelperFailureCode)
 
     var errorDescription: String? {
         switch self {
@@ -242,12 +255,14 @@ enum ParakeetSidecarError: LocalizedError, Equatable {
             return "Parakeet sidecar executable is not configured."
         case .launchFailed(let message):
             return "Parakeet sidecar failed to launch: \(message)"
-        case .invalidEvent(let line):
-            return "Parakeet sidecar emitted invalid transcript JSON: \(line)"
+        case .invalidEvent(let byteCount):
+            return "Parakeet sidecar emitted invalid transcript JSON (\(byteCount) bytes)."
         case .exited(let code):
             return "Parakeet sidecar exited with code \(code)."
         case .healthCheckFailed(let message):
             return "Parakeet runtime health check failed: \(message)"
+        case .helperFailure(let code):
+            return "Parakeet native helper failed (\(code.rawValue))."
         }
     }
 }
@@ -294,6 +309,11 @@ private final class ParakeetLineBuffer: @unchecked Sendable {
 }
 
 private final class ParakeetOutputStreamState: @unchecked Sendable {
+    private struct HelperErrorFrame: Decodable {
+        let type: String
+        let code: String
+    }
+
     private let lock = NSLock()
     private let buffer = ParakeetLineBuffer()
     private let continuation: AsyncThrowingStream<ParakeetTranscriptEvent, Error>.Continuation
@@ -326,17 +346,26 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
     private func emit(_ line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard let data = trimmed.data(using: .utf8),
-              let event = try? JSONDecoder().decode(ParakeetTranscriptEvent.self, from: data) else {
-            finish(ParakeetSidecarError.invalidEvent(line))
+        guard let data = trimmed.data(using: .utf8) else {
+            finish(ParakeetSidecarError.invalidEvent(byteCount: line.utf8.count))
             return
         }
-        lock.lock()
-        let shouldYield = !finished
-        lock.unlock()
-        if shouldYield {
-            continuation.yield(event)
+        if let event = try? JSONDecoder().decode(ParakeetTranscriptEvent.self, from: data) {
+            lock.lock()
+            let shouldYield = !finished
+            lock.unlock()
+            if shouldYield {
+                continuation.yield(event)
+            }
+            return
         }
+        if let frame = try? JSONDecoder().decode(HelperErrorFrame.self, from: data),
+           frame.type == "error" {
+            let code = ParakeetHelperFailureCode(rawValue: frame.code) ?? .runtimeFailure
+            finish(ParakeetSidecarError.helperFailure(code))
+            return
+        }
+        finish(ParakeetSidecarError.invalidEvent(byteCount: line.utf8.count))
     }
 
     private func finish(_ error: Error?) {
@@ -513,12 +542,12 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
                 if data.isEmpty {
                     handle.readabilityHandler = nil
                     for line in stderrBuffer.finish() where !line.isEmpty {
-                        print("[ParakeetSidecar] \(line)")
+                        Self.logSidecarDiagnostic(line)
                     }
                     return
                 }
                 for line in stderrBuffer.append(data) where !line.isEmpty {
-                    print("[ParakeetSidecar] \(line)")
+                    Self.logSidecarDiagnostic(line)
                 }
             }
 
@@ -554,7 +583,8 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
                     self.acceptsAudio && reservation.generation == self.streamGeneration
                 }
                 if currentStreamStillOwnsInput {
-                    print("[ParakeetSidecar] Failed to write audio chunk: \(error.localizedDescription)")
+                    let nsError = error as NSError
+                    PrivacySafeLogger.audioFailure(operation: .parakeetAudioWrite, code: nsError.code)
                 }
             }
         }
@@ -562,6 +592,10 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
 
     func stop() async {
         await stop(generation: nil)
+    }
+
+    private static func logSidecarDiagnostic(_ line: String) {
+        PrivacySafeLogger.parakeetHelperDiagnostic(byteCount: line.utf8.count)
     }
 
     private func stop(generation ownerGeneration: Int?) async {
@@ -920,7 +954,8 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         _ manager: AudioEngineManager,
         didFailWith error: Error
     ) {
-        print("[LocalParakeetASRProvider] Microphone capture failed: \(error.localizedDescription)")
+        let nsError = error as NSError
+        PrivacySafeLogger.audioFailure(operation: .parakeetMicrophoneCapture, code: nsError.code)
     }
 
     func systemAudioCaptureService(
@@ -935,7 +970,8 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didFailWithError error: Error
     ) {
-        print("[LocalParakeetASRProvider] System audio capture failed: \(error.localizedDescription)")
+        let nsError = error as NSError
+        PrivacySafeLogger.audioFailure(operation: .parakeetSystemAudioCapture, code: nsError.code)
     }
 
 }

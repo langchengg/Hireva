@@ -6,7 +6,7 @@ require "rexml/document"
 require "rexml/xpath"
 
 def usage
-  warn "usage: #{File.basename($PROGRAM_NAME)} <swift-test-list.log> <xunit.xml> <status.csv>"
+  warn "usage: #{File.basename($PROGRAM_NAME)} <swift-test-list.log> <xunit.xml> <status.csv> <release-test-prerequisites.tsv>"
   exit 2
 end
 
@@ -14,9 +14,9 @@ def occurrences(values)
   values.each_with_object(Hash.new(0)) { |value, counts| counts[value] += 1 }
 end
 
-usage unless ARGV.length == 3
+usage unless ARGV.length == 4
 
-list_path, xunit_path, output_path = ARGV
+list_path, xunit_path, output_path, prerequisite_path = ARGV
 abort("status output already exists: #{output_path}") if File.exist?(output_path)
 
 specifier_pattern = /\A[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z_][A-Za-z0-9_]*\/.+\z/
@@ -77,6 +77,33 @@ unexpected.each do |id|
   rows << result
 end
 
+prerequisite_table = CSV.read(prerequisite_path, headers: true, col_sep: "\t")
+prerequisites = prerequisite_table.map(&:to_h)
+required_headers = %w[check_id gate lane status_policy privacy_or_isolation_constraint]
+missing_headers = required_headers.reject { |header| prerequisite_table.headers&.include?(header) }
+required_prerequisites = prerequisites.select do |row|
+  row.fetch("status_policy", "") == "REQUIRED_IN_RECONCILED_RUN"
+end
+required_ids = required_prerequisites.map { |row| row.fetch("check_id", "").strip }
+duplicate_prerequisite_ids = occurrences(prerequisites.map { |row| row.fetch("check_id", "").strip })
+  .select { |id, count| !id.empty? && count > 1 }
+  .keys
+  .sort
+blank_prerequisite_ids = prerequisites.each_index.select do |index|
+  prerequisites[index].fetch("check_id", "").strip.empty?
+end
+unsupported_policies = prerequisites.map { |row| row.fetch("status_policy", "").strip }
+  .reject { |policy| %w[REQUIRED_IN_RECONCILED_RUN NOT_RUN_POLICY_NO_SECRET].include?(policy) }
+  .uniq
+  .sort
+required_missing_discovery = required_ids.reject { |id| discovered_ids.key?(id) }.uniq.sort
+required_missing_results = required_ids.reject { |id| result_by_id.key?(id) }.uniq.sort
+required_nonpassing = required_ids.each_with_object([]) do |id, values|
+  result = result_by_id[id]
+  values << "#{id}=#{result[:status]}" unless result.nil? || result[:status] == "PASS"
+end.sort
+required_passed = required_ids.count { |id| result_by_id[id]&.fetch(:status, nil) == "PASS" }
+
 CSV.open(output_path, "wb", force_quotes: true, row_sep: "\n") do |csv|
   csv << %w[test_id suite test status duration_seconds assertion_issues]
   rows.sort_by { |row| row[:id] }.each do |row|
@@ -104,7 +131,9 @@ puts [
   "missing=#{missing.length}",
   "unexpected=#{unexpected.length}",
   "duplicate_discoveries=#{duplicate_discoveries.length}",
-  "duplicate_results=#{duplicate_results.length}"
+  "duplicate_results=#{duplicate_results.length}",
+  "required_manifest_checks=#{required_ids.length}",
+  "required_manifest_passed=#{required_passed}"
 ].join(" ")
 puts "status_table=#{output_path}"
 
@@ -118,6 +147,13 @@ problems << "missing xUnit results: #{missing.join(', ')}" if missing.any?
 problems << "unregistered xUnit results: #{unexpected.join(', ')}" if unexpected.any?
 problems << "duplicate discoveries: #{duplicate_discoveries.join(', ')}" if duplicate_discoveries.any?
 problems << "duplicate xUnit results: #{duplicate_results.join(', ')}" if duplicate_results.any?
+problems << "prerequisite manifest missing headers: #{missing_headers.join(', ')}" if missing_headers.any?
+problems << "blank prerequisite check_id rows: #{blank_prerequisite_ids.map { |index| index + 2 }.join(', ')}" if blank_prerequisite_ids.any?
+problems << "duplicate prerequisite check_ids: #{duplicate_prerequisite_ids.join(', ')}" if duplicate_prerequisite_ids.any?
+problems << "unsupported prerequisite status policies: #{unsupported_policies.join(', ')}" if unsupported_policies.any?
+problems << "required manifest checks missing from discovery: #{required_missing_discovery.join(', ')}" if required_missing_discovery.any?
+problems << "required manifest checks missing from xUnit: #{required_missing_results.join(', ')}" if required_missing_results.any?
+problems << "required manifest checks did not pass: #{required_nonpassing.join(', ')}" if required_nonpassing.any?
 
 unless problems.empty?
   problems.each { |problem| warn "reconciliation failure: #{problem}" }
