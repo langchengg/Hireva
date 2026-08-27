@@ -4,7 +4,7 @@ enum AppPaths {
     static let appName = HirevaProductIdentity.applicationSupportDirectoryName
 
     static var applicationSupportDirectory: URL {
-        if let verification = HirevaVerificationConfiguration.current {
+        if let verification = verifiedConfigurationIfRequested() {
             return verification.applicationSupportDirectory
         }
         return FileManager.default.homeDirectoryForCurrentUser
@@ -14,7 +14,7 @@ enum AppPaths {
     }
 
     static var localModelsDirectory: URL {
-        HirevaVerificationConfiguration.current?.localModelsDirectory ??
+        verifiedConfigurationIfRequested()?.localModelsDirectory ??
             applicationSupportDirectory.appendingPathComponent("LocalModels", isDirectory: true)
     }
 
@@ -57,5 +57,13 @@ enum AppPaths {
             at: attachmentsDirectory,
             withIntermediateDirectories: true
         )
+    }
+
+    private static func verifiedConfigurationIfRequested() -> HirevaVerificationConfiguration? {
+        guard HirevaVerificationConfiguration.isRequested else { return nil }
+        guard let configuration = HirevaVerificationConfiguration.current else {
+            preconditionFailure("Hireva verification configuration is invalid; refusing production-path fallback.")
+        }
+        return configuration
     }
 }

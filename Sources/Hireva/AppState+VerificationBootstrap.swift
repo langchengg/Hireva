@@ -1,7 +1,29 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 enum HirevaVerificationEventPolicy {
+    private static let allowedFieldsByEvent: [String: Set<String>] = [
+        "bootstrap.started": ["runID", "databaseLocation", "scenarioSHA256"],
+        "bootstrap.configured": ["asrProvider", "answerProvider", "candidateProfileID", "opportunityContextID"],
+        "bootstrap.failed": ["errorCode"],
+        "control.next_session.requested": [],
+        "control.next_session.failed": ["errorCode"],
+        "control.stopped": [],
+        "verification.finished": ["suggestionRows", "databaseLocation", "systemCaptureRunning"],
+        "control.rejected": ["actionCode"],
+        "bootstrap.ready": ["sessionID", "contextSnapshotID", "activeASRProvider", "systemCaptureRunning"],
+        "sck.first_buffer": ["sessionID", "totalBuffers", "sampleRate", "channelCount", "lastBufferAt"],
+        "asr.transcript": ["sessionID", "segmentID", "textCharacters", "textWords", "source", "speaker", "asrProvider", "isFinal", "finalizationReason"],
+        "question.accepted": ["sessionID", "questionID", "questionCharacters", "contextSnapshotID"],
+        "generation.started": ["sessionID", "questionID", "generationID", "contextSnapshotID"],
+        "suggestion.visible": ["sessionID", "suggestionID", "questionID", "generationID", "contextSnapshotID", "matchedTurnID", "answerCharacters", "answerProvider", "alignmentVerdict"],
+        "dialogue.decision": ["sessionID", "segmentID", "triggerDecision", "questionID", "generationID", "speaker", "source", "asrProvider"],
+        "sqlite.suggestion_count": ["sessionID", "count", "latestQuestionCharacters"],
+        "app.error": ["errorCode", "sessionID"],
+        "status": ["sessionID", "captureState", "systemCaptureRunning", "activeASRProvider", "questionID", "generationID", "suggestionID", "suggestionRows"],
+    ]
+
     static func recordsTranscript(isSystemSpeaker: Bool, isFinal: Bool = true) -> Bool {
         !isSystemSpeaker && isFinal
     }
@@ -25,6 +47,27 @@ enum HirevaVerificationEventPolicy {
     ) -> Bool {
         stageBStatus != "superseded" &&
             finalVisibleSource != "local_superseded_question_snapshot"
+    }
+
+    static func allows(event: String, fields: [String: Any]) -> Bool {
+        guard let allowedFields = allowedFieldsByEvent[event] else { return false }
+        return Set(fields.keys) == allowedFields
+    }
+
+    static func verificationTurnID(sessionID: String, turnIndex: Int) -> String {
+        "\(sessionID).\(turnIndex)"
+    }
+
+    static func finalizationReasonCode(_ reason: String?) -> String {
+        switch reason {
+        case "partial": return "partial"
+        case "stable_partial": return "stable_partial"
+        case "final", "final_accepted", "final is longer or similar": return "final_accepted"
+        case "final empty but partial meaningful": return "partial_used_for_empty_final"
+        case "final much shorter than recent partial": return "partial_used_for_short_final"
+        case nil, "": return "unspecified"
+        default: return "other"
+        }
     }
 }
 
@@ -64,7 +107,10 @@ enum HirevaVerificationReadinessPolicy {
 
 extension AppState {
     func runVerificationBootstrapIfRequested() {
-        guard let configuration = HirevaVerificationConfiguration.current else { return }
+        guard HirevaVerificationConfiguration.isRequested else { return }
+        guard let configuration = HirevaVerificationConfiguration.current else {
+            preconditionFailure("Hireva verification configuration is invalid.")
+        }
         HirevaVerificationCoordinator.shared.start(appState: self, configuration: configuration)
     }
 }
@@ -89,6 +135,7 @@ private final class HirevaVerificationCoordinator {
     private var lastTraceKey = ""
     private var lastPersistenceCount = 0
     private var lastError = ""
+    private var expectedVisibleQuestionMatches: [(turnID: String, needle: String)] = []
 
     func start(appState: AppState, configuration: HirevaVerificationConfiguration) {
         guard !started else { return }
@@ -100,11 +147,11 @@ private final class HirevaVerificationCoordinator {
             writer = try HirevaVerificationEventWriter(configuration: configuration)
             emit("bootstrap.started", [
                 "runID": configuration.runID,
-                "databasePath": AppPaths.databaseURL.path,
-                "scenarioPath": configuration.scenarioURL.path,
+                "databaseLocation": "isolated_verification_support",
+                "scenarioSHA256": configuration.scenarioSHA256,
             ])
         } catch {
-            fputs("Hireva verification bootstrap could not create its event log: \(error.localizedDescription)\n", stderr)
+            PrivacySafeLogger.verificationFailure(code: .eventLogUnavailable)
             return
         }
 
@@ -133,15 +180,42 @@ private final class HirevaVerificationCoordinator {
     private func configureAndStart() async {
         guard let appState, let configuration else { return }
         do {
+            let scenarioData = try Data(contentsOf: configuration.scenarioURL)
+            let scenarioSHA256 = SHA256.hash(data: scenarioData)
+                .map { String(format: "%02x", $0) }
+                .joined()
+            guard scenarioSHA256 == configuration.scenarioSHA256 else {
+                throw VerificationBootstrapError.invalidScenario("Scenario changed after validation.")
+            }
             let scenario = try JSONDecoder().decode(
                 HirevaAppVerificationScenario.self,
-                from: Data(contentsOf: configuration.scenarioURL)
+                from: scenarioData
             )
             guard scenario.synthetic, scenario.runID == configuration.runID else {
                 throw VerificationBootstrapError.invalidScenario("Scenario identity is not synthetic or does not match the configured run.")
             }
             guard scenario.answerProvider == "local_qwen" else {
                 throw VerificationBootstrapError.invalidScenario("Verification may only select the local Qwen answer provider.")
+            }
+            guard scenario.diagnosticTraceMode == "metadataOnly" else {
+                throw VerificationBootstrapError.invalidScenario("Verification evidence requires metadata-only diagnostic traces.")
+            }
+            expectedVisibleQuestionMatches = scenario.sessions.flatMap { session in
+                session.turns.enumerated().compactMap { turnIndex, turn in
+                    guard turn.expectedShouldTrigger,
+                          turn.rapid != true,
+                          let needle = turn.expectedQuestionNeedle,
+                          !needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        return nil
+                    }
+                    return (
+                        HirevaVerificationEventPolicy.verificationTurnID(
+                            sessionID: session.id,
+                            turnIndex: turnIndex
+                        ),
+                        needle
+                    )
+                }
             }
 
             appState.automaticContextBuildTask?.cancel()
@@ -182,7 +256,7 @@ private final class HirevaVerificationCoordinator {
             settings.manualOnlyMode = false
             settings.allowQuestionDetectionFromMicrophoneOnly = false
             settings.saveTranscriptsLocally = true
-            settings.diagnosticTraceMode = scenario.diagnosticTraceMode == "fullText" ? .fullText : .metadataOnly
+            settings.diagnosticTraceMode = .metadataOnly
             appState.saveSettings(settings)
             appState.interviewSessionMode = .auto
             appState.detectionDebounceSeconds = 0.05
@@ -195,8 +269,9 @@ private final class HirevaVerificationCoordinator {
             appState.startListening(mode: .microphone)
             try await waitForListening(appState)
         } catch {
-            emit("bootstrap.failed", ["error": error.localizedDescription])
-            appState.showError("Verification bootstrap failed: \(error.localizedDescription)")
+            emit("bootstrap.failed", ["errorCode": "bootstrap_failure"])
+            clearOwnedVerificationDefaults()
+            appState.showError("Verification bootstrap failed. Review the synthetic scenario and local runtime prerequisites.")
         }
     }
 
@@ -214,12 +289,13 @@ private final class HirevaVerificationCoordinator {
             do {
                 try await waitForListening(appState)
             } catch {
-                emit("control.next_session.failed", ["error": error.localizedDescription])
+                emit("control.next_session.failed", ["errorCode": "capture_restart_failure"])
             }
         case "stop":
             appState.stopListening(reason: .userRequested)
             await appState.captureTeardownTask?.value
             emit("control.stopped")
+            clearOwnedVerificationDefaults()
         case "status":
             emitStatus(appState)
         case "finish":
@@ -229,11 +305,12 @@ private final class HirevaVerificationCoordinator {
             captureObservableEvents()
             emit("verification.finished", [
                 "suggestionRows": appState.diagnosticSuggestionRowCount,
-                "databasePath": appState.activeDatabasePath,
+                "databaseLocation": "isolated_verification_support",
                 "systemCaptureRunning": appState.systemCaptureRunning,
             ])
+            clearOwnedVerificationDefaults()
         default:
-            emit("control.rejected", ["action": action])
+            emit("control.rejected", ["actionCode": "unsupported_action"])
         }
     }
 
@@ -285,12 +362,15 @@ private final class HirevaVerificationCoordinator {
             emit("asr.transcript", [
                 "sessionID": segment.sessionID,
                 "segmentID": segment.id,
-                "text": segment.text,
+                "textCharacters": segment.text.count,
+                "textWords": segment.text.split(whereSeparator: \.isWhitespace).count,
                 "source": segment.source.rawValue,
                 "speaker": segment.speaker.rawValue,
                 "asrProvider": segment.asrSource?.rawValue ?? "unknown",
                 "isFinal": segment.recognitionIsFinal ?? true,
-                "finalizationReason": segment.asrFinalizationReason ?? "",
+                "finalizationReason": HirevaVerificationEventPolicy.finalizationReasonCode(
+                    segment.asrFinalizationReason
+                ),
             ])
         }
 
@@ -299,7 +379,7 @@ private final class HirevaVerificationCoordinator {
             emit("question.accepted", [
                 "sessionID": sessionID,
                 "questionID": questionID,
-                "questionText": appState.lastDetectedQuestion?.questionText ?? "",
+                "questionCharacters": appState.lastDetectedQuestion?.questionText.count ?? 0,
                 "contextSnapshotID": appState.currentSession?.contextSnapshotID ?? "",
             ])
         }
@@ -327,8 +407,8 @@ private final class HirevaVerificationCoordinator {
                 "questionID": suggestion.detectedQuestionID ?? "",
                 "generationID": suggestion.generationID ?? "",
                 "contextSnapshotID": suggestion.contextSnapshotID ?? "",
-                "questionText": suggestion.questionText ?? "",
-                "answer": suggestion.sayFirst,
+                "matchedTurnID": matchingTurnID(for: suggestion.questionText ?? ""),
+                "answerCharacters": suggestion.sayFirst.count,
                 "answerProvider": suggestion.finalVisibleSource ?? suggestion.sayFirstSource ?? "",
                 "alignmentVerdict": HirevaVerificationEventPolicy.alignmentVerdictValue(
                     suggestion.alignmentVerdict
@@ -337,16 +417,13 @@ private final class HirevaVerificationCoordinator {
         }
 
         let trace = appState.lastTranscriptQuestionGenerationTrace
-        let traceKey = "\(trace.transcriptSegmentID)|\(trace.triggerDecision)|\(trace.detectedQuestionID ?? "")|\(trace.generationID ?? "")|\(trace.ignoredReason)"
+        let traceKey = "\(trace.transcriptSegmentID)|\(trace.triggerDecision)|\(trace.detectedQuestionID ?? "")|\(trace.generationID ?? "")"
         if !trace.transcriptSegmentID.isEmpty, traceKey != lastTraceKey {
             lastTraceKey = traceKey
             emit("dialogue.decision", [
                 "sessionID": sessionID,
                 "segmentID": trace.transcriptSegmentID,
                 "triggerDecision": trace.triggerDecision,
-                "triggerReason": trace.triggerReason,
-                "suppressionReason": trace.suppressionReason,
-                "ignoredReason": trace.ignoredReason,
                 "questionID": trace.detectedQuestionID ?? "",
                 "generationID": trace.generationID ?? "",
                 "speaker": trace.speaker,
@@ -361,19 +438,19 @@ private final class HirevaVerificationCoordinator {
             emit("sqlite.suggestion_count", [
                 "sessionID": sessionID,
                 "count": persistenceCount,
-                "latestQuestion": appState.diagnosticLatestSuggestionQuestionText,
+                "latestQuestionCharacters": appState.diagnosticLatestSuggestionQuestionText.count,
             ])
         }
         if let error = appState.errorMessage, !error.isEmpty, error != lastError {
             lastError = error
-            emit("app.error", ["error": error, "sessionID": sessionID])
+            emit("app.error", ["errorCode": "app_reported_error", "sessionID": sessionID])
         }
     }
 
     private func emitStatus(_ appState: AppState) {
         emit("status", [
             "sessionID": appState.currentSession?.id ?? "",
-            "captureState": appState.currentCaptureRuntimeState.displayName,
+            "captureState": appState.currentCaptureRuntimeState.id,
             "systemCaptureRunning": appState.systemCaptureRunning,
             "activeASRProvider": appState.activeASRProviderID?.rawValue ?? "",
             "questionID": appState.activeQuestionID ?? "",
@@ -385,6 +462,24 @@ private final class HirevaVerificationCoordinator {
 
     private func emit(_ event: String, _ fields: [String: Any] = [:]) {
         writer?.write(event: event, fields: fields)
+    }
+
+    private func clearOwnedVerificationDefaults() {
+        guard let suiteName = configuration?.userDefaultsSuiteName,
+              let defaults = UserDefaults(suiteName: suiteName) else { return }
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    private func matchingTurnID(for question: String) -> String {
+        let normalizedQuestion = question
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        return expectedVisibleQuestionMatches.first { candidate in
+            let normalizedNeedle = candidate.needle
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .lowercased()
+            return normalizedQuestion.contains(normalizedNeedle)
+        }?.turnID ?? ""
     }
 
     private func iso8601(_ date: Date?) -> String {
@@ -408,6 +503,7 @@ private final class HirevaVerificationEventWriter {
     }
 
     func write(event: String, fields: [String: Any]) {
+        guard HirevaVerificationEventPolicy.allows(event: event, fields: fields) else { return }
         var payload = fields
         payload["event"] = event
         payload["timestamp"] = ISO8601DateFormatter().string(from: Date())
@@ -430,6 +526,7 @@ private struct HirevaAppVerificationScenario: Decodable {
     let diagnosticTraceMode: String
     let candidateProfile: VerificationCandidateProfile
     let opportunityContext: VerificationOpportunityContext
+    let sessions: [VerificationSession]
 
     var domain: InterviewDomainID {
         get throws {
@@ -439,6 +536,17 @@ private struct HirevaAppVerificationScenario: Decodable {
             return domain
         }
     }
+}
+
+private struct VerificationSession: Decodable {
+    let id: String
+    let turns: [VerificationTurn]
+}
+
+private struct VerificationTurn: Decodable {
+    let expectedShouldTrigger: Bool
+    let rapid: Bool?
+    let expectedQuestionNeedle: String?
 }
 
 private struct VerificationCandidateProfile: Decodable {

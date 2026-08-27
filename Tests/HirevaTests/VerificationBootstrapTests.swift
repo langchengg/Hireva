@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import Hireva
@@ -32,6 +33,38 @@ struct VerificationBootstrapTests {
         ]
         #expect(JSONSerialization.isValidJSONObject(payload))
         #expect(payload["alignmentVerdict"] as? String == "aligned")
+    }
+
+    @Test
+    func verificationEvidenceAllowlistRejectsPathsRawAnswersAndErrors() {
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "bootstrap.started",
+            fields: ["runID": "synthetic-run", "databaseLocation": "isolated_verification_support", "scenarioSHA256": String(repeating: "a", count: 64)]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "bootstrap.started",
+            fields: ["databasePath": "private-path-token"]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "suggestion.visible",
+            fields: ["answer": "private-answer-token"]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "suggestion.visible",
+            fields: ["questionText": "private-question-token"]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "dialogue.decision",
+            fields: ["ignoredReason": "private-reason-token"]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "app.error",
+            fields: ["error": "private-error-token"]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(event: "unknown.event", fields: [:]))
+        #expect(HirevaVerificationEventPolicy.finalizationReasonCode("final is longer or similar") == "final_accepted")
+        #expect(HirevaVerificationEventPolicy.finalizationReasonCode("provider supplied detail") == "other")
+        #expect(HirevaVerificationEventPolicy.verificationTurnID(sessionID: "session-1", turnIndex: 2) == "session-1.2")
     }
 
     @Test
@@ -73,11 +106,17 @@ struct VerificationBootstrapTests {
         for directory in [root, output, support, models] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        try #"{"synthetic":true,"runID":"verification-test"}"#.write(to: scenario, atomically: true, encoding: .utf8)
+        let scenarioSHA256 = try writeConfigurationScenario(
+            to: scenario,
+            synthetic: true,
+            runID: "verification-test"
+        )
 
-        let environment = [
+        var environment = [
             "HIREVA_VERIFICATION_MODE": "1",
             "HIREVA_VERIFICATION_SCENARIO_PATH": scenario.path,
+            "HIREVA_VERIFICATION_SCENARIO_SHA256": scenarioSHA256,
+            "HIREVA_VERIFICATION_RUN_NONCE": String(repeating: "a", count: 32),
             "HIREVA_VERIFICATION_OUTPUT_ROOT": output.path,
             "HIREVA_VERIFICATION_APP_SUPPORT_DIR": support.path,
             "HIREVA_VERIFICATION_MODEL_ROOT": models.path,
@@ -87,15 +126,53 @@ struct VerificationBootstrapTests {
             bundleSourceRoot: "/definitely/a/different/source/root"
         ))
         #expect(configuration.runID == "verification-test")
+        #expect(configuration.runNonce == String(repeating: "a", count: 32))
+        #expect(configuration.scenarioSHA256 == scenarioSHA256)
         #expect(configuration.outputDirectory == output.standardizedFileURL)
         #expect(configuration.applicationSupportDirectory == support.standardizedFileURL)
         #expect(configuration.localModelsDirectory == models.standardizedFileURL)
+        #expect(configuration.userDefaultsSuiteName.hasSuffix(".\(String(repeating: "a", count: 32))"))
+
+        var secondRunEnvironment = environment
+        secondRunEnvironment["HIREVA_VERIFICATION_RUN_NONCE"] = String(repeating: "b", count: 32)
+        let secondRun = try #require(HirevaVerificationConfiguration.load(
+            environment: secondRunEnvironment,
+            bundleSourceRoot: nil
+        ))
+        #expect(secondRun.userDefaultsSuiteName != configuration.userDefaultsSuiteName)
+
+        let scenarioLink = root.appendingPathComponent("scenario-link.json")
+        try FileManager.default.createSymbolicLink(at: scenarioLink, withDestinationURL: scenario)
+        var linkedScenario = environment
+        linkedScenario["HIREVA_VERIFICATION_SCENARIO_PATH"] = scenarioLink.path
+        #expect(HirevaVerificationConfiguration.load(environment: linkedScenario, bundleSourceRoot: nil) == nil)
+
+        let outputLink = root.appendingPathComponent("output-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: outputLink, withDestinationURL: output)
+        var linkedOutput = environment
+        linkedOutput["HIREVA_VERIFICATION_OUTPUT_ROOT"] = outputLink.path
+        #expect(HirevaVerificationConfiguration.load(environment: linkedOutput, bundleSourceRoot: nil) == nil)
 
         var missingMode = environment
         missingMode.removeValue(forKey: "HIREVA_VERIFICATION_MODE")
         #expect(HirevaVerificationConfiguration.load(environment: missingMode, bundleSourceRoot: nil) == nil)
 
-        try #"{"synthetic":false,"runID":"verification-test"}"#.write(to: scenario, atomically: true, encoding: .utf8)
+        var missingDigest = environment
+        missingDigest.removeValue(forKey: "HIREVA_VERIFICATION_SCENARIO_SHA256")
+        #expect(HirevaVerificationConfiguration.load(environment: missingDigest, bundleSourceRoot: nil) == nil)
+
+        var missingNonce = environment
+        missingNonce.removeValue(forKey: "HIREVA_VERIFICATION_RUN_NONCE")
+        #expect(HirevaVerificationConfiguration.load(environment: missingNonce, bundleSourceRoot: nil) == nil)
+
+        try FileHandle(forWritingTo: scenario).closeAfterWriting(Data([0x0A]))
+        #expect(HirevaVerificationConfiguration.load(environment: environment, bundleSourceRoot: nil) == nil)
+
+        environment["HIREVA_VERIFICATION_SCENARIO_SHA256"] = try writeConfigurationScenario(
+            to: scenario,
+            synthetic: false,
+            runID: "verification-test"
+        )
         #expect(HirevaVerificationConfiguration.load(environment: environment, bundleSourceRoot: nil) == nil)
     }
 
@@ -110,10 +187,16 @@ struct VerificationBootstrapTests {
         for directory in [sourceRoot, output, support] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        try #"{"synthetic":true,"runID":"containment-test"}"#.write(to: scenario, atomically: true, encoding: .utf8)
+        let scenarioSHA256 = try writeConfigurationScenario(
+            to: scenario,
+            synthetic: true,
+            runID: "containment-test"
+        )
         let environment = [
             "HIREVA_VERIFICATION_MODE": "1",
             "HIREVA_VERIFICATION_SCENARIO_PATH": scenario.path,
+            "HIREVA_VERIFICATION_SCENARIO_SHA256": scenarioSHA256,
+            "HIREVA_VERIFICATION_RUN_NONCE": String(repeating: "c", count: 32),
             "HIREVA_VERIFICATION_OUTPUT_ROOT": output.path,
             "HIREVA_VERIFICATION_APP_SUPPORT_DIR": support.path,
             "HIREVA_VERIFICATION_MODEL_ROOT": root.appendingPathComponent("missing-model-root").path,
@@ -121,5 +204,33 @@ struct VerificationBootstrapTests {
 
         #expect(HirevaVerificationConfiguration.load(environment: environment, bundleSourceRoot: sourceRoot.path) == nil)
         #expect(HirevaVerificationConfiguration.load(environment: environment, bundleSourceRoot: nil) == nil)
+    }
+
+    private func writeConfigurationScenario(
+        to url: URL,
+        synthetic: Bool,
+        runID: String
+    ) throws -> String {
+        let payload: [String: Any] = [
+            "synthetic": synthetic,
+            "runID": runID,
+            "provenance": [
+                "schemaVersion": 1,
+                "origin": "project_authored_synthetic_fixture",
+                "containsRealPersonalData": false,
+                "reviewedForRelease": true,
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: url)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private extension FileHandle {
+    func closeAfterWriting(_ data: Data) throws {
+        try seekToEnd()
+        try write(contentsOf: data)
+        try close()
     }
 }

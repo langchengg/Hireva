@@ -1,0 +1,88 @@
+{
+  "synthetic": true,
+  "runID": "release-verification-v1",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-candidate-release-v1",
+    "displayName": "Synthetic Candidate",
+    "domain": "software_engineering",
+    "evidence": [
+      {
+        "id": "synthetic-candidate-event-service",
+        "type": "project",
+        "statement": "Built a synthetic event-processing service with idempotent message handling, bounded retries, and delivery recovery checks."
+      },
+      {
+        "id": "synthetic-candidate-release-evidence",
+        "type": "achievement",
+        "statement": "Verified synthetic releases with latency measurements, failure injection, rollback rehearsal, and queue-depth monitoring."
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-release-v1",
+    "title": "Synthetic Release Reliability Role",
+    "evidence": [
+      {
+        "id": "synthetic-opportunity-reliability",
+        "type": "requirement",
+        "statement": "The synthetic role requires deterministic validation of event delivery, recovery behavior, and release rollback readiness."
+      },
+      {
+        "id": "synthetic-opportunity-observability",
+        "type": "requirement",
+        "statement": "The synthetic role values measurable latency, bounded retries, and observable queue health."
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 4,
+  "expectedTriggerCount": 3,
+  "expectedRejectCount": 1,
+  "expectedVisibleCount": 2,
+  "expectedRapidCancellationCount": 1,
+  "sessions": [
+    {
+      "id": "release-session-1",
+      "turns": [
+        {
+          "text": "This is a synthetic release rehearsal statement without a question.",
+          "expectedShouldTrigger": false,
+          "rate": 165,
+          "voiceSlot": 0
+        },
+        {
+          "text": "Can you explain how you designed the event processing service?",
+          "expectedShouldTrigger": true,
+          "expectedQuestionNeedle": "designed the event processing service",
+          "rate": 170,
+          "voiceSlot": 1
+        },
+        {
+          "text": "What reliability checks did you add to the message queue?",
+          "expectedShouldTrigger": true,
+          "expectedQuestionNeedle": "reliability checks did you add",
+          "rate": 180,
+          "voiceSlot": 2,
+          "rapid": true
+        },
+        {
+          "text": "How did you verify recovery after a failed delivery?",
+          "expectedShouldTrigger": true,
+          "expectedQuestionNeedle": "verify recovery after a failed delivery",
+          "rate": 175,
+          "voiceSlot": 0
+        }
+      ]
+    }
+  ]
+}

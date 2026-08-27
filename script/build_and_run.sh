@@ -128,6 +128,8 @@ launch_existing_bundle() {
         for variable_name in \
             HIREVA_VERIFICATION_MODE \
             HIREVA_VERIFICATION_SCENARIO_PATH \
+            HIREVA_VERIFICATION_SCENARIO_SHA256 \
+            HIREVA_VERIFICATION_RUN_NONCE \
             HIREVA_VERIFICATION_OUTPUT_ROOT \
             HIREVA_VERIFICATION_APP_SUPPORT_DIR \
             HIREVA_VERIFICATION_MODEL_ROOT; do
@@ -200,6 +202,92 @@ case "$MODE" in
         ;;
 esac
 
+preflight_verification_environment() {
+    [[ "${HIREVA_VERIFICATION_MODE:-}" == "1" ]] || return 0
+
+    case "$MODE" in
+        run|--relaunch|relaunch|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify) ;;
+        *) return 0 ;;
+    esac
+
+    local scenario_path="${HIREVA_VERIFICATION_SCENARIO_PATH:-}"
+    local expected_digest="${HIREVA_VERIFICATION_SCENARIO_SHA256:-}"
+    local run_nonce="${HIREVA_VERIFICATION_RUN_NONCE:-}"
+    local output_path="${HIREVA_VERIFICATION_OUTPUT_ROOT:-}"
+    local support_path="${HIREVA_VERIFICATION_APP_SUPPORT_DIR:-}"
+    local model_path="${HIREVA_VERIFICATION_MODEL_ROOT:-}"
+    [[ -f "$scenario_path" && ! -L "$scenario_path" ]] || {
+        echo "[verification] ERROR: scenario must be a regular non-symlink file." >&2
+        return 2
+    }
+    [[ "$expected_digest" =~ ^[a-f0-9]{64}$ ]] || {
+        echo "[verification] ERROR: scenario digest must be an explicit lowercase SHA-256." >&2
+        return 2
+    }
+    [[ "$run_nonce" =~ ^[a-f0-9]{32}$ ]] || {
+        echo "[verification] ERROR: run nonce must be a fresh 32-character lowercase hexadecimal value." >&2
+        return 2
+    }
+    local directory
+    for directory in "$output_path" "$support_path" "$model_path"; do
+        [[ -d "$directory" && ! -L "$directory" ]] || {
+            echo "[verification] ERROR: output, app-support, and model roots must be existing non-symlink directories." >&2
+            return 2
+        }
+    done
+
+    local scenario_real output_real support_real model_real source_real
+    scenario_real="$(cd -P "$(dirname "$scenario_path")" && pwd)/$(basename "$scenario_path")" || return 2
+    output_real="$(cd -P "$output_path" && pwd)" || return 2
+    support_real="$(cd -P "$support_path" && pwd)" || return 2
+    model_real="$(cd -P "$model_path" && pwd)" || return 2
+    source_real="$(cd -P "$ROOT_DIR" && pwd)" || return 2
+    [[ "$output_real" != "$support_real" ]] || {
+        echo "[verification] ERROR: output and app-support roots must be distinct." >&2
+        return 2
+    }
+    case "$output_real/" in "$support_real/"*) echo "[verification] ERROR: isolated roots must not contain one another." >&2; return 2;; esac
+    case "$support_real/" in "$output_real/"*) echo "[verification] ERROR: isolated roots must not contain one another." >&2; return 2;; esac
+    case "$output_real/" in "$source_real/"*) echo "[verification] ERROR: output must remain outside the source repository." >&2; return 2;; esac
+    case "$support_real/" in "$source_real/"*) echo "[verification] ERROR: app support must remain outside the source repository." >&2; return 2;; esac
+
+    local production_support="$HOME/Library/Application Support/Hireva"
+    if [[ -d "$HOME/Library/Application Support" ]]; then
+        production_support="$(cd -P "$HOME/Library/Application Support" && pwd)/Hireva"
+    fi
+    [[ "$support_real" != "$production_support" ]] || {
+        echo "[verification] ERROR: verification cannot use the production support directory." >&2
+        return 2
+    }
+
+    local approved_scenario_relative="scripts/fixtures/release_verification_scenario_v1.json"
+    local approved_scenario="$ROOT_DIR/$approved_scenario_relative"
+    [[ -f "$approved_scenario" && ! -L "$approved_scenario" ]] &&
+        git -C "$ROOT_DIR" ls-files --error-unmatch "$approved_scenario_relative" >/dev/null 2>&1 &&
+        git -C "$ROOT_DIR" diff --quiet -- "$approved_scenario_relative" &&
+        git -C "$ROOT_DIR" diff --cached --quiet -- "$approved_scenario_relative" || {
+            echo "[verification] ERROR: the approved release scenario must be tracked and unmodified." >&2
+            return 2
+        }
+    /usr/bin/cmp -s "$scenario_real" "$approved_scenario" || {
+        echo "[verification] ERROR: real verification accepts only the approved synthetic scenario." >&2
+        return 2
+    }
+
+    local validation validation_digest snapshot_digest
+    if ! validation="$(/usr/bin/ruby "$ROOT_DIR/scripts/validate_synthetic_verification_scenario.rb" "$scenario_real")"; then
+        echo "[verification] ERROR: scenario failed synthetic provenance validation." >&2
+        return 2
+    fi
+    validation_digest="$(printf '%s\n' "$validation" | sed -n 's/^SYNTHETIC_SCENARIO_SHA256=//p')"
+    snapshot_digest="$(/usr/bin/shasum -a 256 "$scenario_real" | /usr/bin/awk '{print $1}')"
+    [[ "$validation_digest" == "$expected_digest" && "$snapshot_digest" == "$expected_digest" ]] || {
+        echo "[verification] ERROR: scenario digest changed or does not match the validated fixture." >&2
+        return 2
+    }
+    [[ -n "$model_real" ]] || return 2
+}
+
 # --- Handle --reset-tcc mode early ---
 if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
     echo "Resetting TCC permissions for $BUNDLE_ID ..."
@@ -209,6 +297,10 @@ if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
     echo "Done. Rebuild and relaunch to re-grant permissions."
     exit 0
 fi
+
+# A verification launch is rejected before any app process is stopped, bundle
+# is rebuilt, or signature is changed unless every isolated input is valid.
+preflight_verification_environment
 
 cd "$ROOT_DIR"
 
