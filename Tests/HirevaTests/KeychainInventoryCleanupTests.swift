@@ -79,6 +79,50 @@ struct KeychainInventoryCleanupTests {
     }
 
     @Test
+    func migrationCoversHistoricalLowercaseBundleServiceAndRetainsSourceItem() throws {
+        let historicalService = "com.interviewcopilot.mac"
+        let historicalAccount = "DeepSeekAPIKey"
+        let store = InMemoryMockKeychainStore()
+        try store.saveGenericPassword(
+            data: Data(Self.syntheticCredential.utf8),
+            service: historicalService,
+            account: historicalAccount
+        )
+        let keychain = KeychainService(store: store)
+
+        keychain.performMigrationIfNeeded()
+
+        #expect(keychain.legacyItemFound)
+        #expect(keychain.legacyItemCount == 1)
+        #expect(keychain.migrationPerformed)
+        #expect(try store.loadGenericPassword(
+            service: KeychainConstants.service,
+            account: KeychainConstants.deepSeekAccount
+        ) == Self.syntheticCredential)
+        #expect(try store.loadGenericPassword(
+            service: historicalService,
+            account: historicalAccount
+        ) == Self.syntheticCredential)
+    }
+
+    @Test
+    func deleteAllAPIKeysCoversHistoricalLowercaseBundleService() throws {
+        let historicalService = "com.interviewcopilot.mac"
+        let store = InMemoryMockKeychainStore()
+        try store.saveGenericPassword(
+            data: Data(Self.syntheticCredential.utf8),
+            service: historicalService,
+            account: Self.legacyOrphanAccount
+        )
+        let keychain = KeychainService(store: store)
+
+        let deletedCount = try keychain.deleteAllAPIKeys()
+
+        #expect(deletedCount == 1)
+        #expect(try store.genericPasswordAccounts(service: historicalService).isEmpty)
+    }
+
+    @Test
     @MainActor
     func deleteAllLocalDataRemovesProviderEmbeddingAndOrphanCredentialsOnly() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "KeychainInventoryCleanup")

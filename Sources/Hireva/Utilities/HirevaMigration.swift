@@ -47,6 +47,7 @@ enum LegacyHirevaIdentifiers {
     static let olderKeychainServices = [
         "InterviewCopilotMac",
         "InterviewCopilotMac.LLMProviderKeys",
+        "com.interviewcopilot.mac",
         "com.langcheng.hireva.mac",
         "com.langcheng.InterviewCopilotMac"
     ]
