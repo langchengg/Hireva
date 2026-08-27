@@ -21,11 +21,14 @@ final class SettingsRepository {
             )
         }
 
-        guard let value = rawValue, let data = value.data(using: .utf8) else {
-            return .default
+        let decoded: AppSettings
+        if let value = rawValue,
+           let data = value.data(using: .utf8),
+           let stored = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            decoded = stored
+        } else {
+            decoded = .default
         }
-
-        let decoded = (try? JSONDecoder().decode(AppSettings.self, from: data)) ?? .default
         let settings: AppSettings
         if let validated = try? decoded.validatedForLiveUse() {
             settings = validated
@@ -38,16 +41,18 @@ final class SettingsRepository {
             safe.embeddingApiKeyAccount = AppSettings.default.embeddingApiKeyAccount
             settings = safe
         }
-        if Self.containsLegacyAppSettingsMarkers(value) {
-            try saveSettings(settings)
+        let canonicalValue = try Self.encodedSettings(settings)
+        if rawValue != canonicalValue {
+            try setValue(canonicalValue, forKey: settingsKey)
         }
         return settings
     }
 
     func saveSettings(_ settings: AppSettings) throws {
-        let data = try JSONEncoder().encode(settings.validatedForLiveUse())
-        let value = String(data: data, encoding: .utf8) ?? "{}"
-        try setValue(value, forKey: settingsKey)
+        try setValue(
+            Self.encodedSettings(settings.validatedForLiveUse()),
+            forKey: settingsKey
+        )
     }
 
     func apiCallCount() throws -> Int {
@@ -155,10 +160,11 @@ final class SettingsRepository {
 
     func providerConfigurations() throws -> [LLMProviderConfiguration] {
         try database.dbQueue.read { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM llm_provider_configurations ORDER BY created_at ASC")
-                .map(Self.makeProviderConfiguration)
-                .filter { !Self.isLegacyLocalProvider($0) }
-                .compactMap { try? $0.validatedForLiveUse() }
+            try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM llm_provider_configurations ORDER BY created_at ASC, id ASC"
+            )
+            .compactMap(Self.makeProviderConfiguration)
         }
     }
 
@@ -169,16 +175,14 @@ final class SettingsRepository {
                 sql: "SELECT * FROM llm_provider_configurations WHERE id = ?",
                 arguments: [id.uuidString]
             )
-            guard let rawProvider = row.map(Self.makeProviderConfiguration),
-                  !Self.isLegacyLocalProvider(rawProvider),
-                  let provider = try? rawProvider.validatedForLiveUse() else {
-                return nil
-            }
-            return provider
+            return row.flatMap(Self.makeProviderConfiguration)
         }
     }
 
     func saveProviderConfiguration(_ provider: LLMProviderConfiguration) throws {
+        guard provider.kind == .deepSeek || provider.kind == .openAICompatible else {
+            throw LLMProviderError.notConfigured(provider.kind.displayName)
+        }
         var provider = try provider.validatedForLiveUse()
         provider.updatedAt = Date()
         try database.dbQueue.write { db in
@@ -209,19 +213,36 @@ final class SettingsRepository {
     }
 
     func deleteProviderConfiguration(id: UUID) throws {
+        let updatedAt = DateCoding.string(from: Date())
         try database.dbQueue.write { db in
             try db.execute(sql: "DELETE FROM llm_provider_configurations WHERE id = ?", arguments: [id.uuidString])
-        }
-        if try activeRealtimeProvider()?.id == id {
-            let fallback = try providerConfigurations().first
-            if let fallback {
-                try setActiveRealtimeProvider(id: fallback.id)
-            }
-        }
-        if try activeRecapProvider()?.id == id {
-            let fallback = try providerConfigurations().first
-            if let fallback {
-                try setActiveRecapProvider(id: fallback.id)
+
+            let providers = try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM llm_provider_configurations ORDER BY created_at ASC, id ASC"
+            )
+            .compactMap(Self.makeProviderConfiguration)
+            let validIDs = Set(providers.map { $0.id.uuidString })
+            let fallback = providers.first(where: { $0.id == LLMProviderConfiguration.deepSeekDefaultID })
+                ?? providers.first(where: { $0.kind == .deepSeek })
+                ?? providers.first
+
+            for key in [activeRealtimeProviderIDKey, activeRecapProviderIDKey] {
+                let rawValue = try String.fetchOne(
+                    db,
+                    sql: "SELECT value FROM app_settings WHERE key = ?",
+                    arguments: [key]
+                )
+                let canonicalID = rawValue.flatMap(UUID.init(uuidString:)).map(\.uuidString)
+                if let canonicalID, validIDs.contains(canonicalID) {
+                    if rawValue != canonicalID {
+                        try Self.upsertValue(canonicalID, forKey: key, updatedAt: updatedAt, db: db)
+                    }
+                } else if let fallback {
+                    try Self.upsertValue(fallback.id.uuidString, forKey: key, updatedAt: updatedAt, db: db)
+                } else {
+                    try db.execute(sql: "DELETE FROM app_settings WHERE key = ?", arguments: [key])
+                }
             }
         }
     }
@@ -265,15 +286,29 @@ final class SettingsRepository {
 
     private func setValue(_ value: String, forKey key: String) throws {
         try database.dbQueue.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO app_settings (key, value, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-                """,
-                arguments: [key, value, DateCoding.string(from: Date())]
+            try Self.upsertValue(
+                value,
+                forKey: key,
+                updatedAt: DateCoding.string(from: Date()),
+                db: db
             )
         }
+    }
+
+    private static func upsertValue(
+        _ value: String,
+        forKey key: String,
+        updatedAt: String,
+        db: Database
+    ) throws {
+        try db.execute(
+            sql: """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            arguments: [key, value, updatedAt]
+        )
     }
 
     private static func providerArguments(_ provider: LLMProviderConfiguration) -> StatementArguments {
@@ -294,32 +329,70 @@ final class SettingsRepository {
         ]
     }
 
-    private static func makeProviderConfiguration(row: Row) -> LLMProviderConfiguration {
-        LLMProviderConfiguration(
-            id: UUID(uuidString: row["id"]) ?? UUID(),
-            name: row["name"],
-            kind: LLMProviderKind(rawValue: row["kind"]) ?? .openAICompatible,
-            baseURL: row["base_url"],
-            model: row["model"],
+    private static func makeProviderConfiguration(row: Row) -> LLMProviderConfiguration? {
+        guard let rawID = row["id"] as String?,
+              let id = UUID(uuidString: rawID),
+              rawID == id.uuidString,
+              let rawKind = row["kind"] as String?,
+              let kind = LLMProviderKind(rawValue: rawKind),
+              kind == .deepSeek || kind == .openAICompatible,
+              let name = row["name"] as String?,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              let baseURL = row["base_url"] as String?,
+              let model = row["model"] as String?,
+              !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !model.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              let isDefaultForRealtime = strictBoolean(row, column: "is_default_for_realtime"),
+              let isDefaultForRecap = strictBoolean(row, column: "is_default_for_recap"),
+              let supportsJSONMode = strictBoolean(row, column: "supports_json_mode"),
+              let supportsStreaming = strictBoolean(row, column: "supports_streaming"),
+              let supportsThinking = strictBoolean(row, column: "supports_thinking"),
+              let createdAtString = row["created_at"] as String?,
+              let createdAt = strictDate(createdAtString),
+              let updatedAtString = row["updated_at"] as String?,
+              let updatedAt = strictDate(updatedAtString) else {
+            return nil
+        }
+
+        let rawProvider = LLMProviderConfiguration(
+            id: id,
+            name: name,
+            kind: kind,
+            baseURL: baseURL,
+            model: model,
             apiKeyAccount: row["api_key_account"],
-            isDefaultForRealtime: row["is_default_for_realtime"],
-            isDefaultForRecap: row["is_default_for_recap"],
-            supportsJSONMode: row["supports_json_mode"],
-            supportsStreaming: row["supports_streaming"],
-            supportsThinking: row["supports_thinking"],
-            createdAt: DateCoding.date(from: row["created_at"]),
-            updatedAt: DateCoding.date(from: row["updated_at"])
+            isDefaultForRealtime: isDefaultForRealtime,
+            isDefaultForRecap: isDefaultForRecap,
+            supportsJSONMode: supportsJSONMode,
+            supportsStreaming: supportsStreaming,
+            supportsThinking: supportsThinking,
+            createdAt: createdAt,
+            updatedAt: updatedAt
         )
+        return try? rawProvider.validatedForLiveUse()
     }
 
-    private static func isLegacyLocalProvider(_ provider: LLMProviderConfiguration) -> Bool {
-        provider.kind == .ollamaLocal || provider.baseURL.localizedCaseInsensitiveContains("localhost:11434")
+    private static func strictBoolean(_ row: Row, column: String) -> Bool? {
+        guard let value = row[column] as Int?, value == 0 || value == 1 else { return nil }
+        return value == 1
     }
 
-    private static func containsLegacyAppSettingsMarkers(_ value: String) -> Bool {
-        value.contains("localOllama")
-            || value.contains("nomic-embed-text")
-            || value.localizedCaseInsensitiveContains("localhost:11434")
-            || value.contains("ollamaRequestTimeoutSeconds")
+    private static func strictDate(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) {
+            return date
+        }
+
+        let regular = ISO8601DateFormatter()
+        regular.formatOptions = [.withInternetDateTime]
+        return regular.date(from: value)
+    }
+
+    private static func encodedSettings(_ settings: AppSettings) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try encoder.encode(settings), as: UTF8.self)
     }
 }

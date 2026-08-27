@@ -536,6 +536,10 @@ final class AppDatabase {
                 """)
         }
 
+        migrator.registerMigration(ProviderPersistenceMigrationV19.identifier) { db in
+            try ProviderPersistenceMigrationV19.migrate(db)
+        }
+
         return migrator
     }
 }
