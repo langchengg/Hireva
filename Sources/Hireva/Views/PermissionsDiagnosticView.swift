@@ -44,7 +44,9 @@ struct PermissionsDiagnosticView: View {
         let defaults = UserDefaults.standard
         let version = defaults.integer(forKey: HirevaPreferenceKeys.migrationVersion)
         let result = defaults.string(forKey: HirevaPreferenceKeys.migrationResult) ?? "Not run"
-        let legacyPath = defaults.string(forKey: HirevaPreferenceKeys.legacyDataPath) ?? "None"
+        let legacyDirectoryName = HirevaMigrationCoordinator.sanitizedLegacyDirectoryName(
+            defaults.string(forKey: HirevaPreferenceKeys.legacyDataDirectoryName)
+        )
         let legacyCopied = defaults.bool(forKey: HirevaPreferenceKeys.legacyDataMigrated)
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -53,7 +55,10 @@ struct PermissionsDiagnosticView: View {
             diagnosticRow("Migration version", version == 0 ? "Not run" : String(version))
             diagnosticRow("Migration result", result)
             diagnosticRow("Legacy data copied", legacyCopied ? "Yes (legacy retained)" : "No")
-            diagnosticRow("Legacy data path", legacyPath)
+            diagnosticRow(
+                "Legacy data record",
+                legacyDirectoryName.map { "\($0) (path hidden)" } ?? "None"
+            )
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

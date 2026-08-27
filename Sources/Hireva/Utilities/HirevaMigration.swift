@@ -27,7 +27,10 @@ enum HirevaPreferenceKeys {
 
     static let migrationVersion = "hirevaMigrationVersion"
     static let legacyDataMigrated = "legacyInterviewCopilotDataMigrated"
-    static let legacyDataPath = "legacyDataPath"
+    // Keep the persisted key for compatibility with existing installs, but
+    // store only a directory label. Absolute user paths must never be surfaced
+    // in diagnostics or migration markers.
+    static let legacyDataDirectoryName = "legacyDataPath"
     static let migrationTimestamp = "migrationTimestamp"
     static let migrationResult = "migrationResult"
 }
@@ -85,7 +88,7 @@ struct HirevaMigrationReport: Equatable {
 }
 
 struct HirevaMigrationCoordinator {
-    static let migrationVersion = 1
+    static let migrationVersion = 2
     static let markerFilename = "hireva-migration.json"
 
     let applicationSupportRoot: URL
@@ -123,6 +126,7 @@ struct HirevaMigrationCoordinator {
 
     func performBeforeDatabaseOpen() throws -> HirevaMigrationReport {
         try fileManager.createDirectory(at: applicationSupportRoot, withIntermediateDirectories: true)
+        normalizePersistedLegacyDirectoryName()
         let migratedPreferenceKeys = migratePreferences()
         let legacyDirectory = applicationSupportRoot.appendingPathComponent(
             LegacyHirevaIdentifiers.applicationSupportDirectoryName,
@@ -141,7 +145,10 @@ struct HirevaMigrationCoordinator {
             applicationSupportResult = legacyExists ? .keptExistingHirevaData : .freshInstall
             databaseResult = try prepareDatabaseCopy(in: hirevaDirectory)
             if legacyExists {
-                defaults.set(legacyDirectory.path, forKey: HirevaPreferenceKeys.legacyDataPath)
+                defaults.set(
+                    LegacyHirevaIdentifiers.applicationSupportDirectoryName,
+                    forKey: HirevaPreferenceKeys.legacyDataDirectoryName
+                )
             }
             try writeMarker(
                 in: hirevaDirectory,
@@ -169,7 +176,10 @@ struct HirevaMigrationCoordinator {
                 throw error
             }
             applicationSupportResult = .copiedLegacyData
-            defaults.set(legacyDirectory.path, forKey: HirevaPreferenceKeys.legacyDataPath)
+            defaults.set(
+                LegacyHirevaIdentifiers.applicationSupportDirectoryName,
+                forKey: HirevaPreferenceKeys.legacyDataDirectoryName
+            )
         } else {
             applicationSupportResult = .freshInstall
             databaseResult = .noDatabase
@@ -277,6 +287,29 @@ struct HirevaMigrationCoordinator {
         return fileManager.fileExists(atPath: candidate) ? candidate : path
     }
 
+    static func sanitizedLegacyDirectoryName(_ storedValue: String?) -> String? {
+        guard let storedValue else { return nil }
+        let trimmed = storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let component = (trimmed as NSString).lastPathComponent
+        guard !component.isEmpty, component != ".", component != "..", component != "/" else {
+            return nil
+        }
+        return component
+    }
+
+    private func normalizePersistedLegacyDirectoryName() {
+        let key = HirevaPreferenceKeys.legacyDataDirectoryName
+        guard let stored = defaults.string(forKey: key) else { return }
+        if let sanitized = Self.sanitizedLegacyDirectoryName(stored) {
+            if sanitized != stored {
+                defaults.set(sanitized, forKey: key)
+            }
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     private func writeMarker(
         in directory: URL,
         applicationSupport: HirevaMigrationReport.ApplicationSupportResult,
@@ -288,7 +321,7 @@ struct HirevaMigrationCoordinator {
             let migrationTimestamp: String
             let applicationSupportResult: String
             let databaseResult: String
-            let legacyDataPath: String?
+            let legacyDataDirectoryName: String?
             let legacyDataRetained: Bool
         }
         let marker = Marker(
@@ -296,7 +329,9 @@ struct HirevaMigrationCoordinator {
             migrationTimestamp: ISO8601DateFormatter().string(from: now()),
             applicationSupportResult: applicationSupport.rawValue,
             databaseResult: database.rawValue,
-            legacyDataPath: legacyDirectory?.path,
+            legacyDataDirectoryName: legacyDirectory == nil
+                ? nil
+                : LegacyHirevaIdentifiers.applicationSupportDirectoryName,
             legacyDataRetained: legacyDirectory != nil
         )
         let data = try JSONEncoder().encode(marker)

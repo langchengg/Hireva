@@ -69,6 +69,17 @@ struct HirevaRenameMigrationTests {
         #expect(FileManager.default.fileExists(atPath: newDirectory.appendingPathComponent(HirevaMigrationCoordinator.markerFilename).path))
         #expect(fixture.defaults.bool(forKey: HirevaPreferenceKeys.legacyDataMigrated))
 
+        let markerData = try Data(
+            contentsOf: newDirectory.appendingPathComponent(HirevaMigrationCoordinator.markerFilename)
+        )
+        let marker = try #require(try JSONSerialization.jsonObject(with: markerData) as? [String: Any])
+        #expect(marker["migrationVersion"] as? Int == HirevaMigrationCoordinator.migrationVersion)
+        #expect(
+            marker["legacyDataDirectoryName"] as? String
+                == LegacyHirevaIdentifiers.applicationSupportDirectoryName
+        )
+        #expect(String(decoding: markerData, as: UTF8.self).contains(fixture.supportRoot.path) == false)
+
         let migrated = try AppDatabase(path: newDatabase)
         #expect(try DocumentRepository(database: migrated).documents().map(\.title) == ["Preserved CV"])
         let integrity = try migrated.dbQueue.read { db in
@@ -97,7 +108,34 @@ struct HirevaRenameMigrationTests {
         #expect(report.applicationSupport == .keptExistingHirevaData)
         #expect(try String(contentsOf: newDirectory.appendingPathComponent("identity.txt"), encoding: .utf8) == "hireva")
         #expect(FileManager.default.fileExists(atPath: legacyDirectory.appendingPathComponent("identity.txt").path))
-        #expect(fixture.defaults.string(forKey: HirevaPreferenceKeys.legacyDataPath) == legacyDirectory.path)
+        #expect(
+            fixture.defaults.string(forKey: HirevaPreferenceKeys.legacyDataDirectoryName)
+                == LegacyHirevaIdentifiers.applicationSupportDirectoryName
+        )
+    }
+
+    @Test
+    func persistedLegacyAbsolutePathIsReducedToDirectoryName() throws {
+        let fixture = try makeFixture()
+        let legacyDirectory = fixture.supportRoot.appendingPathComponent(
+            LegacyHirevaIdentifiers.applicationSupportDirectoryName,
+            isDirectory: true
+        )
+        fixture.defaults.set(
+            legacyDirectory.path,
+            forKey: HirevaPreferenceKeys.legacyDataDirectoryName
+        )
+
+        _ = try fixture.coordinator.performBeforeDatabaseOpen()
+
+        #expect(
+            fixture.defaults.string(forKey: HirevaPreferenceKeys.legacyDataDirectoryName)
+                == LegacyHirevaIdentifiers.applicationSupportDirectoryName
+        )
+        #expect(
+            HirevaMigrationCoordinator.sanitizedLegacyDirectoryName(legacyDirectory.path)
+                == LegacyHirevaIdentifiers.applicationSupportDirectoryName
+        )
     }
 
     @Test
