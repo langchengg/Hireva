@@ -518,6 +518,51 @@ final class AppleSpeechTranscriptionSession: NSObject {
     }
 }
 
+/// Injectable capture boundary used to prove Apple Speech startup rollback
+/// without touching real TCC state or audio devices in tests.
+struct AppleSpeechCaptureRuntime {
+    var startRecognitionSession: (AppleSpeechTranscriptionSession) async throws -> Void
+    var startMicrophoneCapture: (any AudioEngineBufferDelegate) throws -> Void
+    var stopMicrophoneCapture: (any AudioEngineBufferDelegate) -> Void
+    var startSystemAudioCapture: (any SystemAudioBufferDelegate) async throws -> Void
+    var stopSystemAudioCapture: (any SystemAudioBufferDelegate) -> Void
+
+    static func live() -> AppleSpeechCaptureRuntime {
+        let suppressHardwareCapture = isRunningUnderTestOrAutomation()
+        return AppleSpeechCaptureRuntime(
+            startRecognitionSession: { session in
+                try await session.start()
+            },
+            startMicrophoneCapture: { delegate in
+                guard !suppressHardwareCapture else { return }
+                try AudioEngineManager.shared.registerForCapture(delegate)
+            },
+            stopMicrophoneCapture: { delegate in
+                guard !suppressHardwareCapture else { return }
+                AudioEngineManager.shared.unregister(delegate)
+            },
+            startSystemAudioCapture: { delegate in
+                guard !suppressHardwareCapture else { return }
+                let service = ScreenCaptureKitSystemAudioCaptureService.shared
+                service.register(delegate)
+                do {
+                    try await service.startSystemAudioCapture()
+                } catch {
+                    service.unregister(delegate)
+                    service.stopSystemAudioCapture()
+                    throw error
+                }
+            },
+            stopSystemAudioCapture: { delegate in
+                guard !suppressHardwareCapture else { return }
+                let service = ScreenCaptureKitSystemAudioCaptureService.shared
+                service.unregister(delegate)
+                service.stopSystemAudioCapture()
+            }
+        )
+    }
+}
+
 final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, AudioEngineBufferDelegate, SystemAudioBufferDelegate {
     let providerName = "Apple Speech Session Manager"
     
@@ -529,16 +574,22 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
     private var isRecording = false
     private var captureMode: AudioCaptureMode = .microphoneAndSystem
     private var currentParentSessionID: String?
+    private var microphoneCaptureStarted = false
+    private var systemAudioCaptureStarted = false
+    private var microphoneRecoveryGeneration: UInt64 = 0
+    private let captureRuntime: AppleSpeechCaptureRuntime
     
     // Callback to let AppState know that session parameters changed (useful for diagnostics update triggers)
     var onSessionStateChanged: (() -> Void)?
     var onRuntimeEvent: ((TranscriptRuntimeEvent) -> Void)?
+    var onFatalCaptureError: ((Error) -> Void)?
     
     lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { continuation in
         self.continuation = continuation
     }
     
-    override init() {
+    init(captureRuntime: AppleSpeechCaptureRuntime = .live()) {
+        self.captureRuntime = captureRuntime
         super.init()
     }
     
@@ -551,84 +602,83 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         
         self.currentParentSessionID = sessionID
         self.captureMode = captureMode
-        self.isRecording = true
         
         PrivacySafeLogger.appleSpeechCaptureStarted(mode: captureMode)
         
-        #if DEBUG
-        let isTesting = ProcessInfo.processInfo.processName.localizedCaseInsensitiveContains("test") ||
-                        ProcessInfo.processInfo.environment["SWIFT_TESTING"] != nil ||
-                        NSClassFromString("XCTestCase") != nil
-        #else
-        let isTesting = false
-        #endif
-        
         let micRequired = (captureMode == .microphoneOnly || captureMode == .microphoneAndSystem)
         let systemRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
-        
-        if micRequired {
-            PrivacySafeLogger.appleSpeechMicrophoneCaptureStarted()
-            let micSessionID = AudioTranscriptionSessionID(source: .microphone)
-            let session = AppleSpeechTranscriptionSession(
-                sessionID: micSessionID,
-                parentSessionID: sessionID,
-                onEmit: { [weak self] segment in
-                    self?.continuation?.yield(segment)
-                },
-                onStateChange: { [weak self] in
-                    self?.onSessionStateChanged?()
-                },
-                onRuntimeEvent: { [weak self] event in
-                    self?.onRuntimeEvent?(event)
-                }
-            )
-            self.microphoneSession = session
-            try await session.start()
-            
-            if !isTesting {
-                // Register to AudioEngineManager
-                AudioEngineManager.shared.register(self)
-            }
-        }
-        
-        if systemRequired {
-            PrivacySafeLogger.appleSpeechSystemAudioCaptureStarted()
-            let systemSessionID = AudioTranscriptionSessionID(source: .systemAudio)
-            let session = AppleSpeechTranscriptionSession(
-                sessionID: systemSessionID,
-                parentSessionID: sessionID,
-                onEmit: { [weak self] segment in
-                    self?.continuation?.yield(segment)
-                },
-                onStateChange: { [weak self] in
-                    self?.onSessionStateChanged?()
-                },
-                onRuntimeEvent: { [weak self] event in
-                    self?.onRuntimeEvent?(event)
-                }
-            )
-            self.systemAudioSession = session
-            try await session.start()
-            
-            if !isTesting {
-                // Register to ScreenCaptureKitSystemAudioCaptureService
-                ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
-                try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
-            }
-        }
-        
-        // Concurrent-session guard check
-        if captureMode == .microphoneAndSystem {
-            let micActive = microphoneSession?.simulatedTaskActive == true || microphoneSession?.recognitionTask != nil
-            let sysActive = systemAudioSession?.simulatedTaskActive == true || systemAudioSession?.recognitionTask != nil
-            if !micActive || !sysActive {
-                let errorMsg = "Apple Speech could not run two concurrent transcription streams. Use System Audio Only / Manual Capture or configure an alternate ASR provider."
-                PrivacySafeLogger.appleSpeechConcurrentSessionGuard(
-                    microphoneActive: micActive,
-                    systemActive: sysActive
+
+        do {
+            // Phase one prepares every recognition request. No hardware input
+            // is attached until both required requests are proven active.
+            if micRequired {
+                PrivacySafeLogger.appleSpeechMicrophoneCaptureStarted()
+                let micSessionID = AudioTranscriptionSessionID(source: .microphone)
+                let session = AppleSpeechTranscriptionSession(
+                    sessionID: micSessionID,
+                    parentSessionID: sessionID,
+                    onEmit: { [weak self] segment in
+                        self?.continuation?.yield(segment)
+                    },
+                    onStateChange: { [weak self] in
+                        self?.onSessionStateChanged?()
+                    },
+                    onRuntimeEvent: { [weak self] event in
+                        self?.onRuntimeEvent?(event)
+                    }
                 )
-                throw TranscriptionError.unavailable(errorMsg)
+                self.microphoneSession = session
+                try await captureRuntime.startRecognitionSession(session)
             }
+
+            if systemRequired {
+                PrivacySafeLogger.appleSpeechSystemAudioCaptureStarted()
+                let systemSessionID = AudioTranscriptionSessionID(source: .systemAudio)
+                let session = AppleSpeechTranscriptionSession(
+                    sessionID: systemSessionID,
+                    parentSessionID: sessionID,
+                    onEmit: { [weak self] segment in
+                        self?.continuation?.yield(segment)
+                    },
+                    onStateChange: { [weak self] in
+                        self?.onSessionStateChanged?()
+                    },
+                    onRuntimeEvent: { [weak self] event in
+                        self?.onRuntimeEvent?(event)
+                    }
+                )
+                self.systemAudioSession = session
+                try await captureRuntime.startRecognitionSession(session)
+            }
+
+            if captureMode == .microphoneAndSystem {
+                let micActive = microphoneSession?.simulatedTaskActive == true || microphoneSession?.recognitionTask != nil
+                let sysActive = systemAudioSession?.simulatedTaskActive == true || systemAudioSession?.recognitionTask != nil
+                if !micActive || !sysActive {
+                    let errorMsg = "Apple Speech could not run two concurrent transcription streams. Use System Audio Only / Manual Capture or configure an alternate ASR provider."
+                    PrivacySafeLogger.appleSpeechConcurrentSessionGuard(
+                        microphoneActive: micActive,
+                        systemActive: sysActive
+                    )
+                    throw TranscriptionError.unavailable(errorMsg)
+                }
+            }
+
+            // Phase two attaches the required inputs. Any later failure rolls
+            // back every session and previously attached input in `catch`.
+            if micRequired {
+                microphoneCaptureStarted = true
+                try captureRuntime.startMicrophoneCapture(self)
+            }
+            if systemRequired {
+                systemAudioCaptureStarted = true
+                try await captureRuntime.startSystemAudioCapture(self)
+            }
+
+            isRecording = true
+        } catch {
+            stop()
+            throw error
         }
     }
 
@@ -661,19 +711,23 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
     
     func stop() {
         isRecording = false
-        
+        microphoneRecoveryGeneration &+= 1
+
+        if microphoneCaptureStarted {
+            microphoneCaptureStarted = false
+            captureRuntime.stopMicrophoneCapture(self)
+        }
+        if systemAudioCaptureStarted {
+            systemAudioCaptureStarted = false
+            captureRuntime.stopSystemAudioCapture(self)
+        }
+
         // Stop & cleanup sessions
         microphoneSession?.stop()
         microphoneSession = nil
         
         systemAudioSession?.stop()
         systemAudioSession = nil
-        
-        // Unregister from capture services
-        AudioEngineManager.shared.unregister(self)
-        
-        ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
-        ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
         
         currentParentSessionID = nil
     }
@@ -691,12 +745,22 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
     func audioEngineManagerDidRestartAfterRouteChange(
         _ manager: AudioEngineManager
     ) {
+        Task { @MainActor [weak self] in
+            await self?.recoverMicrophoneRecognitionAfterRouteChange()
+        }
+    }
+
+    @MainActor
+    private func recoverMicrophoneRecognitionAfterRouteChange() async {
         guard let currentParentSessionID, microphoneSession != nil else { return }
         PrivacySafeLogger.appleSpeechMicrophoneRouteChanged()
-        
+
+        microphoneRecoveryGeneration &+= 1
+        let recoveryGeneration = microphoneRecoveryGeneration
+
         // Recover route safely by spinning up a new microphone ASR session
         microphoneSession?.stop()
-        
+
         let micSessionID = AudioTranscriptionSessionID(source: .microphone)
         let session = AppleSpeechTranscriptionSession(
             sessionID: micSessionID,
@@ -712,17 +776,25 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
             }
         )
         self.microphoneSession = session
-        
-        Task {
-            do {
-                try await session.start()
-            } catch {
-                let nsError = error as NSError
-                PrivacySafeLogger.audioFailure(
-                    operation: .appleSpeechMicrophoneRecovery,
-                    code: nsError.code
-                )
+
+        do {
+            try await captureRuntime.startRecognitionSession(session)
+            guard microphoneRecoveryGeneration == recoveryGeneration,
+                  isRecording,
+                  self.microphoneSession === session else {
+                session.stop()
+                return
             }
+        } catch {
+            let nsError = error as NSError
+            PrivacySafeLogger.audioFailure(
+                operation: .appleSpeechMicrophoneRecovery,
+                code: nsError.code
+            )
+            guard microphoneRecoveryGeneration == recoveryGeneration,
+                  self.microphoneSession === session else { return }
+            stop()
+            onFatalCaptureError?(error)
         }
     }
     
@@ -732,7 +804,11 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
     ) {
         let nsError = error as NSError
         PrivacySafeLogger.audioFailure(operation: .appleSpeechMicrophoneInput, code: nsError.code)
-        microphoneSession?.stop()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.stop()
+            self.onFatalCaptureError?(error)
+        }
     }
     
     // MARK: - SystemAudioBufferDelegate conformance (System Audio Loopback)
@@ -751,6 +827,10 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
     ) {
         let nsError = error as NSError
         PrivacySafeLogger.audioFailure(operation: .appleSpeechSystemAudioCapture, code: nsError.code)
-        systemAudioSession?.stop()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.stop()
+            self.onFatalCaptureError?(error)
+        }
     }
 }

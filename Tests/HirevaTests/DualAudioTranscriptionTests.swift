@@ -12,6 +12,10 @@ struct DualAudioTranscriptionTests {
         let description: String
     }
 
+    private struct InjectedCaptureFailure: LocalizedError {
+        let errorDescription: String?
+    }
+
     private final class MockPermissionService: PermissionService {
         override func checkMicrophonePermission() -> MicrophonePermissionState { .authorized }
 
@@ -235,6 +239,160 @@ struct DualAudioTranscriptionTests {
         let micRequest = try #require(service.microphoneSession?.request)
         let systemRequest = try #require(service.systemAudioSession?.request)
         #expect(micRequest !== systemRequest)
+    }
+
+    @Test
+    func systemInputFailureRollsBackMicrophoneAndBothRecognitionSessions() async throws {
+        var microphoneStartCount = 0
+        var microphoneStopCount = 0
+        var systemStartCount = 0
+        var systemStopCount = 0
+        var systemDelegateAttached = false
+        let runtime = AppleSpeechCaptureRuntime(
+            startRecognitionSession: { session in
+                try await session.start()
+            },
+            startMicrophoneCapture: { _ in
+                microphoneStartCount += 1
+            },
+            stopMicrophoneCapture: { _ in
+                microphoneStopCount += 1
+            },
+            startSystemAudioCapture: { _ in
+                systemStartCount += 1
+                systemDelegateAttached = true
+                throw InjectedCaptureFailure(errorDescription: "Synthetic system input failure")
+            },
+            stopSystemAudioCapture: { _ in
+                systemStopCount += 1
+                systemDelegateAttached = false
+            }
+        )
+        let service = AppleSpeechTranscriptionService(captureRuntime: runtime)
+
+        do {
+            try await service.start(
+                sessionID: "dual-start-rollback",
+                captureMode: .microphoneAndSystem
+            )
+            Issue.record("Expected system input startup to fail")
+        } catch {
+            #expect(error.localizedDescription == "Synthetic system input failure")
+        }
+
+        #expect(microphoneStartCount == 1)
+        #expect(microphoneStopCount == 1)
+        #expect(systemStartCount == 1)
+        #expect(systemStopCount == 1)
+        #expect(!systemDelegateAttached)
+        #expect(service.microphoneSession == nil)
+        #expect(service.systemAudioSession == nil)
+
+        service.stop()
+        service.stop()
+        #expect(microphoneStopCount == 1)
+        #expect(systemStopCount == 1)
+        #expect(!systemDelegateAttached)
+    }
+
+    @Test
+    func appStateStartupFailureClearsProviderAndEndsNewSession() async throws {
+        let appState = try makeAppState()
+        defer { cancelAsyncWork(appState) }
+
+        var microphoneStartCount = 0
+        var microphoneStopCount = 0
+        let runtime = AppleSpeechCaptureRuntime(
+            startRecognitionSession: { session in
+                try await session.start()
+            },
+            startMicrophoneCapture: { _ in
+                microphoneStartCount += 1
+            },
+            stopMicrophoneCapture: { _ in
+                microphoneStopCount += 1
+            },
+            startSystemAudioCapture: { _ in
+                throw InjectedCaptureFailure(errorDescription: "Synthetic AppState system input failure")
+            },
+            stopSystemAudioCapture: { _ in }
+        )
+        let service = AppleSpeechTranscriptionService(captureRuntime: runtime)
+        appState.appleSpeechServiceFactory = { service }
+        appState.setSelectedASRProvider(.appleSpeech)
+        var settings = appState.settings
+        settings.audioCaptureMode = .microphoneAndSystem
+        appState.saveSettings(settings)
+
+        appState.startListening(mode: .microphone)
+        try await waitUntil("AppState capture startup rollback") {
+            if case .error = appState.currentCaptureRuntimeState { return true }
+            return false
+        }
+
+        #expect(microphoneStartCount == 1)
+        #expect(microphoneStopCount == 1)
+        #expect(appState.appleSpeechService == nil)
+        #expect(appState.activeTranscriptionProvider == nil)
+        #expect(appState.activeASRProviderID == nil)
+        #expect(service.microphoneSession == nil)
+        #expect(service.systemAudioSession == nil)
+        let failedSession = try #require(appState.currentSession)
+        let persisted = try #require(try appState.sessionRepository.session(id: failedSession.id))
+        #expect(persisted.endedAt != nil)
+
+        service.stop()
+        service.stop()
+        #expect(microphoneStopCount == 1)
+    }
+
+    @Test
+    func microphoneRouteRecoveryFailureStopsTheWholeCaptureAtomically() async throws {
+        var recognitionStartCount = 0
+        var microphoneStartCount = 0
+        var microphoneStopCount = 0
+        var fatalErrorCount = 0
+        let runtime = AppleSpeechCaptureRuntime(
+            startRecognitionSession: { session in
+                recognitionStartCount += 1
+                if recognitionStartCount == 2 {
+                    throw InjectedCaptureFailure(errorDescription: "Synthetic route recovery failure")
+                }
+                try await session.start()
+            },
+            startMicrophoneCapture: { _ in
+                microphoneStartCount += 1
+            },
+            stopMicrophoneCapture: { _ in
+                microphoneStopCount += 1
+            },
+            startSystemAudioCapture: { _ in },
+            stopSystemAudioCapture: { _ in }
+        )
+        let service = AppleSpeechTranscriptionService(captureRuntime: runtime)
+        service.onFatalCaptureError = { _ in fatalErrorCount += 1 }
+        try await service.start(
+            sessionID: "route-recovery-rollback",
+            captureMode: .microphoneOnly
+        )
+
+        #expect(recognitionStartCount == 1)
+        #expect(microphoneStartCount == 1)
+        #expect(service.microphoneSession != nil)
+
+        service.audioEngineManagerDidRestartAfterRouteChange(.shared)
+        try await waitUntil("failed route recovery rollback") {
+            fatalErrorCount == 1 && service.microphoneSession == nil
+        }
+
+        #expect(recognitionStartCount == 2)
+        #expect(microphoneStopCount == 1)
+        #expect(service.systemAudioSession == nil)
+
+        service.stop()
+        service.stop()
+        #expect(microphoneStopCount == 1)
+        #expect(fatalErrorCount == 1)
     }
 
     @Test

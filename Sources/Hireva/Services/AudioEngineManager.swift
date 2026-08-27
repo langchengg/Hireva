@@ -63,7 +63,20 @@ public final class AudioEngineManager {
 
     /// Registers a delegate to receive audio buffer callbacks.
     public func register(_ delegate: any AudioEngineBufferDelegate) {
-        queue.sync {
+        do {
+            try registerForCapture(delegate)
+        } catch {
+            // Existing diagnostic listeners use the non-throwing API. Capture
+            // owners that must fail their startup transaction call the
+            // throwing variant below.
+        }
+    }
+
+    /// Registers a delegate and proves that the shared microphone engine is
+    /// running before returning. If startup fails, the delegate is removed so
+    /// callers never retain a half-started capture registration.
+    public func registerForCapture(_ delegate: any AudioEngineBufferDelegate) throws {
+        try queue.sync {
             pruneAndClean()
             let alreadyExists = delegates.contains { $0.value === delegate }
             if !alreadyExists {
@@ -79,7 +92,12 @@ public final class AudioEngineManager {
                     operation: .audioTapInstall,
                     code: errorCode
                 )
-                notifyRouteFailed(error: Self.userFacingCaptureError(code: errorCode))
+                let captureError = Self.userFacingCaptureError(code: errorCode)
+                if !alreadyExists {
+                    delegates.removeAll { $0.value === delegate || $0.value == nil }
+                }
+                notifyRouteFailed(error: captureError)
+                throw captureError
             }
         }
     }
@@ -156,12 +174,20 @@ public final class AudioEngineManager {
                 let inputNode = audioEngine.inputNode
                 let format = inputNode.outputFormat(forBus: 0)
                 
-                inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, time in
-                    self?.broadcast(buffer: buffer, time: time)
-                }
-                
-                audioEngine.prepare()
-                try audioEngine.start()
+                try Self.performTapStartTransaction(
+                    install: {
+                        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, time in
+                            self?.broadcast(buffer: buffer, time: time)
+                        }
+                        self.audioEngine.prepare()
+                    },
+                    start: {
+                        try self.audioEngine.start()
+                    },
+                    rollback: {
+                        self.tearDownInputTap()
+                    }
+                )
                 isTapInstalled = true
                 self.audioRecoveryState = "Active"
                 
@@ -185,7 +211,12 @@ public final class AudioEngineManager {
     private func ensureTapInstalled() throws {
         guard !isTapInstalled else {
             if !audioEngine.isRunning {
-                try audioEngine.start()
+                do {
+                    try audioEngine.start()
+                } catch {
+                    tearDownInputTap()
+                    throw error
+                }
             }
             return
         }
@@ -193,23 +224,52 @@ public final class AudioEngineManager {
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
 
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, time in
-            self?.broadcast(buffer: buffer, time: time)
-        }
-
-        audioEngine.prepare()
-        try audioEngine.start()
+        try Self.performTapStartTransaction(
+            install: {
+                inputNode.removeTap(onBus: 0)
+                inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, time in
+                    self?.broadcast(buffer: buffer, time: time)
+                }
+                self.audioEngine.prepare()
+            },
+            start: {
+                try self.audioEngine.start()
+            },
+            rollback: {
+                self.tearDownInputTap()
+            }
+        )
         isTapInstalled = true
         self.audioRecoveryState = "Active"
+    }
+
+    /// Keeps tap installation and engine startup atomic. Internal visibility
+    /// permits hermetic tests to prove rollback without touching audio hardware.
+    static func performTapStartTransaction(
+        install: () throws -> Void,
+        start: () throws -> Void,
+        rollback: () -> Void
+    ) throws {
+        do {
+            try install()
+            try start()
+        } catch {
+            rollback()
+            throw error
+        }
+    }
+
+    private func tearDownInputTap() {
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.reset()
+        isTapInstalled = false
     }
 
     /// Stops the shared audio engine and uninstalls the tap.
     private func removeTap() {
         guard isTapInstalled else { return }
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        isTapInstalled = false
+        tearDownInputTap()
         self.audioRecoveryState = "Idle"
     }
 

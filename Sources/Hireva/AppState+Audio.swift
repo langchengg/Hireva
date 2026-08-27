@@ -56,9 +56,10 @@ extension AppState {
     /// Coordinates permissions, session creation, Apple Speech startup, and
     /// capture diagnostics on MainActor.
     ///
-    /// System Audio Only must not request microphone or speech-recognition
-    /// permission. Microphone Only must not start system audio capture. Mic +
-    /// System starts both streams through AppleSpeechTranscriptionService.
+    /// System Audio Only must never request microphone permission and requests
+    /// Speech permission only when Apple Speech is selected. Microphone Only
+    /// must not start system audio capture. Mic + System starts both streams
+    /// through AppleSpeechTranscriptionService.
     private func startListeningAsync(mode: InterviewMode, startupID: UUID) async {
         guard captureStartupIsCurrent(startupID) else { return }
         currentCaptureRuntimeState = .starting
@@ -67,6 +68,7 @@ extension AppState {
         addCaptureEvent(name: "startListeningAsync", stateBefore: "idle", stateAfter: "starting", reason: "userRequested")
         recordLifecycleTrace("capture.start.requested", reason: "user_requested")
 
+        var sessionCreatedForStartup: InterviewSession?
         do {
             liveState = .requestingPermission
             if mode != .mock {
@@ -132,7 +134,7 @@ extension AppState {
                 }
 
                 if systemAudioRequired {
-                    let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                    let probeResult = await screenSystemAudioPermissionProbe.probe()
                     guard captureStartupIsCurrent(startupID) else { return }
                     let state = determineProbeState(result: probeResult)
 
@@ -147,7 +149,7 @@ extension AppState {
                             try? await Task.sleep(for: .milliseconds(1000))
                             guard captureStartupIsCurrent(startupID) else { return }
 
-                            let finalProbe = await ScreenSystemAudioPermissionProbe.shared.probe()
+                            let finalProbe = await screenSystemAudioPermissionProbe.probe()
                             guard captureStartupIsCurrent(startupID) else { return }
                             let finalState = determineProbeState(result: finalProbe)
                             self.systemAudioProbeResult = finalProbe
@@ -234,6 +236,7 @@ extension AppState {
             } else {
                 resetLiveContextForFreshSession()
                 session = try createContextBoundSession(mode: mode)
+                sessionCreatedForStartup = session
             }
             currentSession = session
             if transcriptSegments.isEmpty {
@@ -309,7 +312,7 @@ extension AppState {
                     return
                 }
 
-                let speechService = AppleSpeechTranscriptionService()
+                let speechService = appleSpeechServiceFactory()
                 self.appleSpeechService = speechService
                 self.activeTranscriptionProvider = speechService
                 self.activeASRProviderRuntime = nil
@@ -323,6 +326,19 @@ extension AppState {
                 speechService.onRuntimeEvent = { [weak self] event in
                     Task { @MainActor in
                         self?.recordTranscriptRuntimeEvent(event)
+                    }
+                }
+                speechService.onFatalCaptureError = { [weak self, weak speechService] error in
+                    Task { @MainActor in
+                        guard let self,
+                              let speechService,
+                              self.appleSpeechService === speechService else { return }
+                        let message = self.userFacing(error)
+                        self.stopListening(reason: .asrTaskFailed)
+                        self.lastSystemAudioASRError = message
+                        self.liveState = .error(message)
+                        self.currentCaptureRuntimeState = .error(reason: message)
+                        self.showError(message)
                     }
                 }
 
@@ -363,6 +379,7 @@ extension AppState {
                 startAudioSignalMonitoring()
             }
         } catch {
+            await rollbackFailedCaptureStartup(createdSession: sessionCreatedForStartup)
             guard captureStartupIsCurrent(startupID) else { return }
             markActiveASRProvider(nil)
             ownsSystemAudioCaptureRuntime = false
@@ -372,6 +389,37 @@ extension AppState {
             addCaptureEvent(name: "startListeningFailed", stateBefore: "starting", stateAfter: "error", reason: message)
             failAction(ActionID.startInterview, title: "Could not start", message: message)
             showError(message)
+        }
+    }
+
+    private func rollbackFailedCaptureStartup(
+        createdSession: InterviewSession?
+    ) async {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+
+        activeTranscriptionProvider?.stop()
+        activeTranscriptionProvider = nil
+
+        let localProvider = activeASRProviderRuntime
+        activeASRProviderRuntime = nil
+        await localProvider?.stopTranscription()
+
+        appleSpeechService?.stop()
+        appleSpeechService = nil
+        ownsSystemAudioCaptureRuntime = false
+        markActiveASRProvider(nil)
+
+        AudioEngineManager.shared.unregister(microphoneDiagnostics)
+        microphoneDiagnostics.stopMicTest()
+        stopAudioSignalMonitoring()
+
+        if let createdSession {
+            let stoppedAt = Date()
+            try? sessionRepository.endSession(id: createdSession.id)
+            if currentSession?.id == createdSession.id {
+                currentSession?.endedAt = stoppedAt
+            }
         }
     }
 

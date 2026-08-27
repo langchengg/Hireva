@@ -123,8 +123,13 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-            try await stream.startCapture()
-            streamInstance = stream
+            do {
+                try await stream.startCapture()
+                streamInstance = stream
+            } catch {
+                try? await stream.stopCapture()
+                throw error
+            }
         } catch {
             PrivacySafeLogger.audioFailure(
                 operation: .screenCaptureCompactStream,
@@ -140,8 +145,13 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
                 let stream = SCStream(filter: filter, configuration: config, delegate: nil)
                 try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
                 try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-                try await stream.startCapture()
-                streamInstance = stream
+                do {
+                    try await stream.startCapture()
+                    streamInstance = stream
+                } catch {
+                    try? await stream.stopCapture()
+                    throw error
+                }
             } catch {
                 PrivacySafeLogger.audioFailure(
                     operation: .screenCaptureFallbackStream,
@@ -188,12 +198,13 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     func stopSystemAudioCapture() {
         sampleWatchdogTask?.cancel()
         sampleWatchdogTask = nil
-
-        guard let stream = stream else { return }
-        self.stream = nil
         self.isCapturing = false
         self.rmsLevel = 0
         self.decibels = -90
+        self.hasReceivedSamplesSinceStart = false
+
+        guard let stream = stream else { return }
+        self.stream = nil
         
         let streamToStop = stream
         Task {

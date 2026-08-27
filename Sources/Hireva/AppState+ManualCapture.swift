@@ -3,7 +3,77 @@
 // focused question. It must not change continuous audio mode routing, automatic
 // detection rules, or provider/keychain behavior.
 
+import AVFoundation
 import Foundation
+
+struct ManualCaptureRuntime {
+    var startCapture: @MainActor (ManualCaptureSource, Int, @escaping () -> Void, @escaping (Error) -> Void) async throws -> Void
+    var stopCaptureAndReturnBuffers: @MainActor () -> [AVAudioPCMBuffer]
+    var cancelCapture: @MainActor () -> Void
+    var capturedBufferCount: @MainActor () -> Int
+    var lastBufferTimestamp: @MainActor () -> Date?
+
+    @MainActor
+    static func live() -> ManualCaptureRuntime {
+        ManualCaptureRuntime(
+            startCapture: { source, maxDuration, onTimeout, onFatalError in
+                try await ManualQuestionCaptureService.shared.startCapture(
+                    source: source,
+                    maxDuration: maxDuration,
+                    onTimeout: onTimeout,
+                    onFatalCaptureError: onFatalError
+                )
+            },
+            stopCaptureAndReturnBuffers: {
+                ManualQuestionCaptureService.shared.stopCaptureAndReturnBuffers()
+            },
+            cancelCapture: {
+                ManualQuestionCaptureService.shared.cancelCapture()
+            },
+            capturedBufferCount: {
+                ManualQuestionCaptureService.shared.capturedBufferCount
+            },
+            lastBufferTimestamp: {
+                ManualQuestionCaptureService.shared.lastBufferTimestamp
+            }
+        )
+    }
+}
+
+struct ManualTranscriptionRuntime {
+    var startTranscription: @MainActor (
+        @escaping (String) -> Void,
+        @escaping (String) -> Void,
+        @escaping (String) -> Void
+    ) async throws -> Void
+    var appendBuffer: @MainActor (AVAudioPCMBuffer) -> Void
+    var endAudioAndFinalize: @MainActor (Double) async throws -> String
+    var cancel: @MainActor () -> Void
+
+    @MainActor
+    static func live() -> ManualTranscriptionRuntime {
+        ManualTranscriptionRuntime(
+            startTranscription: { onPartial, onFinal, onError in
+                try await ManualQuestionTranscriptionService.shared.startTranscription(
+                    onPartialResult: onPartial,
+                    onFinalResult: onFinal,
+                    onError: onError
+                )
+            },
+            appendBuffer: { buffer in
+                ManualQuestionTranscriptionService.shared.appendBuffer(buffer)
+            },
+            endAudioAndFinalize: { timeout in
+                try await ManualQuestionTranscriptionService.shared.endAudioAndFinalize(
+                    timeoutSeconds: timeout
+                )
+            },
+            cancel: {
+                ManualQuestionTranscriptionService.shared.cancel()
+            }
+        )
+    }
+}
 
 extension AppState {
 // MARK: - Manual Capture Push-to-Ask Controls
@@ -16,6 +86,17 @@ extension AppState {
 @MainActor
 func startManualCapture() {
     guard !isActionLoading(ActionID.manualRecord) else { return }
+    switch manualCaptureState {
+    case .recording, .stopping, .transcribing, .generatingSuggestion, .waitingForPermission:
+        warnAction(
+            ActionID.manualRecord,
+            title: "Capture already active",
+            message: "Finish or cancel the current manual capture before starting another."
+        )
+        return
+    default:
+        break
+    }
     guard onboardingComplete else {
         let message = liveBlockedReason ?? "Run the readiness check before recording a question."
         failAction(ActionID.manualRecord, title: "Setup incomplete", message: message)
@@ -36,106 +117,207 @@ func startManualCapture() {
     self.manualCaptureSource = settings.manualCaptureSource.rawValue
     
     let source = settings.manualCaptureSource
-    
-    Task {
+    let previousStartupTask = manualCaptureStartupTask
+    previousStartupTask?.cancel()
+    let operationID = UUID()
+    manualCaptureOperationID = operationID
+    manualCaptureStartupID = operationID
+
+    manualCaptureStartupTask = Task { [weak self] in
+        await previousStartupTask?.value
+        guard let self else { return }
+        guard self.manualCaptureOperationIsCurrent(operationID) else { return }
+        defer {
+            if self.manualCaptureStartupID == operationID {
+                self.manualCaptureStartupID = nil
+                self.manualCaptureStartupTask = nil
+            }
+        }
+
         do {
             self.manualCaptureState = .waitingForPermission
             
             if source == .systemAudio {
                 // Check Screen Capture Preflight & Probe access
-                let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                let probeResult = await screenSystemAudioPermissionProbe.probe()
+                guard manualCaptureOperationIsCurrent(operationID) else { return }
                 let state = determineProbeState(result: probeResult)
                 self.systemAudioProbeResult = probeResult
                 self.systemAudioPermissionState = state
                 
                 guard state == .granted else {
                     let message = "System audio permission is required to capture interviewer audio."
-                    self.manualCaptureState = .error(message)
-                    self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
+                    failManualCaptureStart(
+                        operationID: operationID,
+                        title: "Permission needed",
+                        message: message
+                    )
                     return
                 }
             } else {
                 // Microphone permission required
-                let micStatus = await permissionService.requestMicrophonePermission()
-                refreshPermissions()
+                var micStatus = permissionService.checkMicrophonePermission()
+                if micStatus == .notDetermined {
+                    micStatus = await permissionService.requestMicrophonePermission()
+                    guard manualCaptureOperationIsCurrent(operationID) else { return }
+                    refreshPermissions()
+                }
                 guard micStatus == .authorized else {
                     let message = "Microphone permission is required to record speech."
-                    self.manualCaptureState = .error(message)
-                    self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
-                    return
-                }
-                
-                let speechStatus = await permissionService.requestSpeechRecognition()
-                refreshPermissions()
-                guard speechStatus == .granted else {
-                    let message = "Speech Recognition permission is required for transcription."
-                    self.manualCaptureState = .error(message)
-                    self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
+                    failManualCaptureStart(
+                        operationID: operationID,
+                        title: "Permission needed",
+                        message: message
+                    )
                     return
                 }
             }
-            
-            self.manualCaptureState = .recording
-            self.completeAction(ActionID.manualRecord, title: "Recording question", message: "Audio capture is active. Stop when the question is complete.")
-            
-            // Initialize transcription task in parallel with capture for real-time partial feedback
-            try await ManualQuestionTranscriptionService.shared.startTranscription(
-                onPartialResult: { [weak self] partialText in
+
+            // Manual transcription always uses SFSpeechRecognizer, regardless
+            // of whether its audio buffers come from the microphone or SCK.
+            var speechStatus = permissionService.speechStatus()
+            if speechStatus == .notDetermined {
+                speechStatus = await permissionService.requestSpeechRecognition()
+                guard manualCaptureOperationIsCurrent(operationID) else { return }
+                refreshPermissions()
+            }
+            guard speechStatus == .granted else {
+                let message = "Speech Recognition permission is required for transcription."
+                failManualCaptureStart(
+                    operationID: operationID,
+                    title: "Permission needed",
+                    message: message
+                )
+                return
+            }
+
+            // Start recognition first, then attach audio. Neither `.recording`
+            // nor success feedback is published until both phases succeed.
+            try await manualTranscriptionRuntime.startTranscription(
+                { [weak self] partialText in
                     guard let self = self else { return }
                     Task { @MainActor in
+                        guard self.manualCaptureOperationID == operationID else { return }
                         self.manualCaptureTranscript = partialText
                     }
                 },
-                onFinalResult: { [weak self] finalText in
+                { [weak self] finalText in
                     guard let self = self else { return }
                     Task { @MainActor in
+                        guard self.manualCaptureOperationID == operationID else { return }
                         self.manualCaptureTranscript = finalText
                     }
                 },
-                onError: { [weak self] err in
+                { [weak self] err in
                     guard let self = self else { return }
                     Task { @MainActor in
-                        self.manualCaptureState = .error(err)
+                        self.failCurrentManualCaptureOperation(operationID: operationID, message: err)
                     }
                 }
             )
-            
-            try await ManualQuestionCaptureService.shared.startCapture(
-                source: source,
-                maxDuration: settings.maxManualCaptureSeconds
-            ) { [weak self] in
+            guard manualCaptureOperationIsCurrent(operationID) else {
+                rollbackManualCaptureStart()
+                return
+            }
+
+            try await manualCaptureRuntime.startCapture(
+                source,
+                settings.maxManualCaptureSeconds,
+                { [weak self] in
                 guard let self = self else { return }
                 // Max duration reached handler
                 Task { @MainActor in
+                    guard self.manualCaptureOperationID == operationID else { return }
                     self.stopAndTranscribeManualCapture(maxDurationReached: true)
                 }
+                },
+                { [weak self] error in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.failCurrentManualCaptureOperation(
+                        operationID: operationID,
+                        message: error.localizedDescription
+                    )
+                }
+                }
+            )
+            guard manualCaptureOperationIsCurrent(operationID) else {
+                rollbackManualCaptureStart()
+                return
             }
+
+            self.manualCaptureState = .recording
+            self.completeAction(ActionID.manualRecord, title: "Recording question", message: "Audio capture is active. Stop when the question is complete.")
         } catch {
+            rollbackManualCaptureStart()
+            guard manualCaptureOperationIsCurrent(operationID) else { return }
+            manualCaptureOperationID = nil
             self.manualCaptureState = .error(error.localizedDescription)
             self.failAction(ActionID.manualRecord, title: "Capture failed", message: error.localizedDescription)
         }
     }
 }
 
+private func manualCaptureOperationIsCurrent(_ operationID: UUID) -> Bool {
+    manualCaptureOperationID == operationID && !Task.isCancelled
+}
+
+private func rollbackManualCaptureStart() {
+    manualCaptureRuntime.cancelCapture()
+    manualTranscriptionRuntime.cancel()
+}
+
+private func failCurrentManualCaptureOperation(operationID: UUID, message: String) {
+    guard manualCaptureOperationID == operationID else { return }
+    let actionID = (manualCaptureState == .transcribing || manualCaptureState == .stopping)
+        ? ActionID.manualStopTranscribe
+        : ActionID.manualRecord
+    manualCaptureOperationID = nil
+    rollbackManualCaptureStart()
+    manualCaptureState = .error(message)
+    failAction(actionID, title: "Capture failed", message: message)
+}
+
+private func failManualCaptureStart(
+    operationID: UUID,
+    title: String,
+    message: String
+) {
+    guard manualCaptureOperationID == operationID else { return }
+    manualCaptureOperationID = nil
+    manualCaptureState = .error(message)
+    failAction(ActionID.manualRecord, title: title, message: message)
+}
+
 @MainActor
 func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
     guard self.manualCaptureState == .recording else { return }
+    guard let operationID = manualCaptureOperationID else { return }
     guard !isActionLoading(ActionID.manualStopTranscribe) else { return }
     beginAction(ActionID.manualStopTranscribe, title: "Transcribing", message: "Stopping audio and finalizing the transcript...")
     
     self.manualCaptureState = .stopping
     
     // Cache buffer metrics before stopping stream clears capturedBuffers array
-    self.manualCaptureBufferCount = ManualQuestionCaptureService.shared.capturedBufferCount
-    self.manualCaptureLastBufferTimestamp = ManualQuestionCaptureService.shared.lastBufferTimestamp
+    self.manualCaptureBufferCount = manualCaptureRuntime.capturedBufferCount()
+    self.manualCaptureLastBufferTimestamp = manualCaptureRuntime.lastBufferTimestamp()
     self.manualCaptureSource = settings.manualCaptureSource.rawValue
     
     // Stop capturing audio
-    let buffers = ManualQuestionCaptureService.shared.stopCaptureAndReturnBuffers()
+    let buffers = manualCaptureRuntime.stopCaptureAndReturnBuffers()
     
     self.manualCaptureState = .transcribing
     
-    Task {
+    let finalizationID = UUID()
+    manualCaptureFinalizationID = finalizationID
+    manualCaptureFinalizationTask?.cancel()
+    manualCaptureFinalizationTask = Task {
+        defer {
+            if self.manualCaptureFinalizationID == finalizationID {
+                self.manualCaptureFinalizationID = nil
+                self.manualCaptureFinalizationTask = nil
+            }
+        }
         do {
             if maxDurationReached {
                 self.manualCaptureError = "Max recording duration reached"
@@ -143,11 +325,12 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
             
             // Feed the remaining buffers to transcription just in case
             for buffer in buffers {
-                ManualQuestionTranscriptionService.shared.appendBuffer(buffer)
+                manualTranscriptionRuntime.appendBuffer(buffer)
             }
             
             // End Speech audio and await final transcript or timeout (10s watchdog)
-            let finalTranscript = try await ManualQuestionTranscriptionService.shared.endAudioAndFinalize(timeoutSeconds: 10.0)
+            let finalTranscript = try await manualTranscriptionRuntime.endAudioAndFinalize(10.0)
+            guard manualCaptureOperationID == operationID else { return }
             let trimmed = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             
             self.manualCaptureTranscript = trimmed
@@ -155,17 +338,21 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
             if trimmed.isEmpty {
                 let message = "No speech detected or transcription failed. Try recording again."
                 self.manualCaptureState = .error(message)
+                self.manualCaptureOperationID = nil
                 self.failAction(ActionID.manualStopTranscribe, title: "Transcription failed", message: message)
                 return
             }
             
             self.manualCaptureState = .transcriptReady
+            self.manualCaptureOperationID = nil
             self.completeAction(ActionID.manualStopTranscribe, title: "Transcript ready", message: "Review the question and generate an answer.")
             
             if !settings.showTranscriptBeforeSending && settings.autoSendAfterTranscription {
                 sendManualCaptureToAI()
             }
         } catch {
+            guard manualCaptureOperationID == operationID else { return }
+            manualCaptureOperationID = nil
             self.manualCaptureState = .error(error.localizedDescription)
             self.failAction(ActionID.manualStopTranscribe, title: "Transcription failed", message: error.localizedDescription)
         }
@@ -174,9 +361,21 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
 
 @MainActor
 func cancelManualCapture() {
+    if isActionLoading(ActionID.manualRecord) {
+        clearActionFeedback(ActionID.manualRecord)
+    }
+    if isActionLoading(ActionID.manualStopTranscribe) {
+        clearActionFeedback(ActionID.manualStopTranscribe)
+    }
     beginAction(ActionID.manualCancel, title: "Cancelling", message: "Discarding the current manual capture...")
-    ManualQuestionCaptureService.shared.cancelCapture()
-    ManualQuestionTranscriptionService.shared.cancel()
+    manualCaptureOperationID = nil
+    manualCaptureStartupID = nil
+    manualCaptureStartupTask?.cancel()
+    manualCaptureFinalizationID = nil
+    manualCaptureFinalizationTask?.cancel()
+    manualCaptureFinalizationTask = nil
+    manualCaptureRuntime.cancelCapture()
+    manualTranscriptionRuntime.cancel()
     cancelActiveGenerationForStop()
     generationUIState = .idle
     self.manualCaptureState = .idle

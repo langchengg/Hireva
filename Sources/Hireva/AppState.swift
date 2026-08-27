@@ -688,6 +688,16 @@ final class AppState: ObservableObject {
     var captureStartupTask: Task<Void, Never>?
     var captureStartupID: UUID?
     var captureTeardownTask: Task<Void, Never>?
+    var manualCaptureStartupTask: Task<Void, Never>?
+    var manualCaptureStartupID: UUID?
+    var manualCaptureFinalizationTask: Task<Void, Never>?
+    var manualCaptureFinalizationID: UUID?
+    var manualCaptureOperationID: UUID?
+    var manualCaptureRuntime = ManualCaptureRuntime.live()
+    var manualTranscriptionRuntime = ManualTranscriptionRuntime.live()
+    var appleSpeechServiceFactory: () -> AppleSpeechTranscriptionService = {
+        AppleSpeechTranscriptionService()
+    }
     var systemAudioPermissionVerificationTask: Task<Void, Never>?
     var systemAudioPermissionVerificationGeneration: UInt64 = 0
     // internal for AppState extension access only
@@ -1065,6 +1075,8 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         transcriptionTask?.cancel()
         captureStartupTask?.cancel()
+        manualCaptureStartupTask?.cancel()
+        manualCaptureFinalizationTask?.cancel()
         systemAudioPermissionVerificationTask?.cancel()
         stageBTask?.cancel()
         softFallbackTask?.cancel()
@@ -1102,10 +1114,14 @@ final class AppState: ObservableObject {
         didShutdownForTesting = true
         let captureStartupTask = captureStartupTask
         let captureTeardownTask = captureTeardownTask
+        let manualCaptureStartupTask = manualCaptureStartupTask
+        let manualCaptureFinalizationTask = manualCaptureFinalizationTask
         let asrProviderRuntime = activeASRProviderRuntime
         cancelOwnedWorkForShutdown()
         await captureStartupTask?.value
         await captureTeardownTask?.value
+        await manualCaptureStartupTask?.value
+        await manualCaptureFinalizationTask?.value
         await asrProviderRuntime?.stopTranscription()
         await Task.yield()
         await Task.yield()
@@ -1126,6 +1142,15 @@ final class AppState: ObservableObject {
         activeAITask = nil
         captureStartupID = nil
         captureStartupTask?.cancel()
+        manualCaptureOperationID = nil
+        manualCaptureStartupID = nil
+        manualCaptureStartupTask?.cancel()
+        manualCaptureStartupTask = nil
+        manualCaptureFinalizationID = nil
+        manualCaptureFinalizationTask?.cancel()
+        manualCaptureFinalizationTask = nil
+        manualCaptureRuntime.cancelCapture()
+        manualTranscriptionRuntime.cancel()
         systemAudioPermissionVerificationGeneration &+= 1
         systemAudioPermissionVerificationTask?.cancel()
         systemAudioPermissionVerificationTask = nil

@@ -2,6 +2,45 @@ import AVFoundation
 import Foundation
 import ScreenCaptureKit
 
+final class ManualCaptureBufferStore: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.langcheng.hireva.manualcapture.buffers")
+    private var buffers: [AVAudioPCMBuffer] = []
+    private var acceptingBuffers = false
+
+    func beginCapture() {
+        queue.sync {
+            buffers.removeAll(keepingCapacity: true)
+            acceptingBuffers = true
+        }
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) -> Int? {
+        queue.sync {
+            guard acceptingBuffers else { return nil }
+            buffers.append(buffer)
+            return buffers.count
+        }
+    }
+
+    func drain() -> [AVAudioPCMBuffer] {
+        queue.sync {
+            let result = buffers
+            buffers.removeAll(keepingCapacity: true)
+            acceptingBuffers = false
+            return result
+        }
+    }
+
+    func removeAll() {
+        queue.sync {
+            acceptingBuffers = false
+            buffers.removeAll(keepingCapacity: true)
+        }
+    }
+    var count: Int { queue.sync { buffers.count } }
+    var snapshot: [AVAudioPCMBuffer] { queue.sync { buffers } }
+}
+
 public final class ManualQuestionCaptureService: NSObject, ObservableObject, SystemAudioBufferDelegate, AudioEngineBufferDelegate {
     public static let shared = ManualQuestionCaptureService()
     
@@ -12,14 +51,15 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     @Published public var capturedBufferCount: Int = 0
     @Published public var lastBufferTimestamp: Date? = nil
     
-    public private(set) var capturedBuffers: [AVAudioPCMBuffer] = []
+    public var capturedBuffers: [AVAudioPCMBuffer] { bufferStore.snapshot }
     
     private var timer: Timer?
     private var maxSeconds: Int = 60
     private var onTimeoutTriggered: (() -> Void)?
+    private var onFatalCaptureError: ((Error) -> Void)?
     private var activeSource: ManualCaptureSource = .systemAudio
     
-    private let queue = DispatchQueue(label: "com.langcheng.hireva.manualcapture")
+    private let bufferStore = ManualCaptureBufferStore()
     
     private override init() {
         super.init()
@@ -37,32 +77,59 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     public func startCapture(
         source: ManualCaptureSource,
         maxDuration: Int = 60,
-        onTimeout: @escaping () -> Void
+        onTimeout: @escaping () -> Void,
+        onFatalCaptureError: @escaping (Error) -> Void = { _ in }
     ) async throws {
         if let mock = ManualQuestionCaptureService.mockStartCapture {
             try await mock(source, maxDuration, onTimeout)
             return
         }
-        
-        self.isRecording = true
+
+        // A new start replaces any stale prior registration. `cancelCapture`
+        // is idempotent and leaves both shared capture backends detached.
+        cancelCapture()
         self.recordingDuration = 0.0
         self.rmsLevel = 0.0
         self.decibels = -90.0
         self.capturedBufferCount = 0
         self.lastBufferTimestamp = nil
-        self.capturedBuffers = []
+        self.bufferStore.beginCapture()
         self.maxSeconds = maxDuration
         self.onTimeoutTriggered = onTimeout
+        self.onFatalCaptureError = onFatalCaptureError
         self.activeSource = source
-        
-        if source == .systemAudio {
-            ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
-            try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
-        } else {
-            AudioEngineManager.shared.register(self)
+
+        do {
+            if source == .systemAudio {
+                ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
+                try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
+            } else {
+                try AudioEngineManager.shared.registerForCapture(self)
+            }
+
+            self.isRecording = true
+            installRecordingTimer()
+        } catch {
+            rollbackFailedStart(source: source)
+            throw error
         }
-        
-        installRecordingTimer()
+    }
+
+    @MainActor
+    private func rollbackFailedStart(source: ManualCaptureSource) {
+        timer?.invalidate()
+        timer = nil
+        isRecording = false
+        onTimeoutTriggered = nil
+        onFatalCaptureError = nil
+        bufferStore.removeAll()
+
+        if source == .systemAudio {
+            ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
+            ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
+        } else {
+            AudioEngineManager.shared.unregister(self)
+        }
     }
 
     @MainActor
@@ -98,9 +165,10 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         timer?.invalidate()
         timer = nil
         isRecording = false
+        onTimeoutTriggered = nil
         
-        let buffers = capturedBuffers
-        capturedBuffers = []
+        let buffers = bufferStore.drain()
+        onFatalCaptureError = nil
         
         if activeSource == .systemAudio {
             ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
@@ -122,7 +190,9 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         timer?.invalidate()
         timer = nil
         isRecording = false
-        capturedBuffers = []
+        onTimeoutTriggered = nil
+        onFatalCaptureError = nil
+        bufferStore.removeAll()
         
         if activeSource == .systemAudio {
             ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
@@ -134,7 +204,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     
     // MARK: - Metering helper
     private func processBuffer(_ buffer: AVAudioPCMBuffer) {
-        capturedBuffers.append(buffer)
+        guard let bufferCount = bufferStore.append(buffer) else { return }
         
         guard let channelData = buffer.floatChannelData else { return }
         let channelCount = Int(buffer.format.channelCount)
@@ -156,7 +226,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         Task { @MainActor in
             self.rmsLevel = Double(rms)
             self.decibels = db
-            self.capturedBufferCount = self.capturedBuffers.count
+            self.capturedBufferCount = bufferCount
             self.lastBufferTimestamp = Date()
         }
     }
@@ -178,11 +248,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
             operation: .manualQuestionCapture,
             code: (error as NSError).code
         )
-        Task { @MainActor in
-            self.timer?.invalidate()
-            self.timer = nil
-            self.isRecording = false
-        }
+        Task { @MainActor in self.handleFatalCaptureError(error) }
     }
     
     // MARK: - AudioEngineBufferDelegate conformance
@@ -202,10 +268,21 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
             operation: .manualQuestionCapture,
             code: (error as NSError).code
         )
-        Task { @MainActor in
-            self.timer?.invalidate()
-            self.timer = nil
-            self.isRecording = false
-        }
+        Task { @MainActor in self.handleFatalCaptureError(error) }
+    }
+
+    @MainActor
+    private func handleFatalCaptureError(_ error: Error) {
+        guard let callback = onFatalCaptureError else { return }
+        onFatalCaptureError = nil
+        cancelCapture()
+        callback(error)
+    }
+
+    @MainActor
+    func installFatalCaptureErrorHandlerForTesting(_ callback: @escaping (Error) -> Void) {
+        onFatalCaptureError = callback
+        activeSource = .microphone
+        isRecording = true
     }
 }

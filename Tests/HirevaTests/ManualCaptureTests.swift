@@ -11,6 +11,51 @@ struct ManualCaptureTests {
         let description: String
     }
 
+    private struct InjectedStartFailure: LocalizedError {
+        let errorDescription: String?
+    }
+
+    private struct FixedScreenSystemAudioPermissionProbe: ScreenSystemAudioPermissionProbing {
+        let result: ScreenSystemAudioPermissionProbeResult
+
+        func probe() async -> ScreenSystemAudioPermissionProbeResult { result }
+    }
+
+    private static let grantedScreenSystemAudioProbeResult = ScreenSystemAudioPermissionProbeResult(
+        preflightGranted: true,
+        shareableContentProbeSucceeded: true,
+        streamAudioProbeSucceeded: true,
+        errorDescription: nil,
+        likelyIdentityMismatch: false
+    )
+
+    @MainActor
+    private final class AsyncGate {
+        private var continuations: [CheckedContinuation<Void, Never>] = []
+        private(set) var waiterCount = 0
+        private var isOpen = false
+
+        func wait() async {
+            guard !isOpen else { return }
+            waiterCount += 1
+            await withCheckedContinuation { continuation in
+                if isOpen {
+                    continuation.resume()
+                } else {
+                    continuations.append(continuation)
+                }
+            }
+        }
+
+        func open() {
+            guard !isOpen else { return }
+            isOpen = true
+            let waiting = continuations
+            continuations.removeAll()
+            waiting.forEach { $0.resume() }
+        }
+    }
+
     private func makeTemporaryDatabase() throws -> AppDatabase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HirevaManualCaptureTests-\(UUID().uuidString)", isDirectory: true)
@@ -122,29 +167,33 @@ struct ManualCaptureTests {
     private final class MockPermissionService: PermissionService {
         var micRequestedCount = 0
         var speechRequestedCount = 0
+        var microphoneState: MicrophonePermissionState = .authorized
+        var speechState: PermissionState = .granted
 
         override func checkMicrophonePermission() -> MicrophonePermissionState {
-            return .authorized
+            microphoneState
         }
 
         override func requestMicrophonePermission() async -> MicrophonePermissionState {
             micRequestedCount += 1
-            return .authorized
+            microphoneState = .authorized
+            return microphoneState
         }
 
         override func requestSpeechRecognition() async -> PermissionState {
             speechRequestedCount += 1
-            return .granted
+            speechState = .granted
+            return speechState
         }
 
         override func speechStatus() -> PermissionState {
-            return .granted
+            speechState
         }
 
         override func snapshot() -> PermissionSnapshot {
             return PermissionSnapshot(
-                microphone: .granted,
-                speechRecognition: .granted,
+                microphone: microphoneState.legacyState,
+                speechRecognition: speechState,
                 screenRecording: .granted,
                 systemAudioCapture: .granted
             )
@@ -158,7 +207,8 @@ struct ManualCaptureTests {
     private func makeAppState(
         database: AppDatabase,
         client: any LLMClientProtocol,
-        permissionService: MockPermissionService
+        permissionService: MockPermissionService,
+        screenSystemAudioPermissionProbe: (any ScreenSystemAudioPermissionProbing)? = nil
     ) throws -> AppState {
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
@@ -171,6 +221,9 @@ struct ManualCaptureTests {
             llmRouter: router,
             permissionService: permissionService,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            screenSystemAudioPermissionProbe: screenSystemAudioPermissionProbe ?? FixedScreenSystemAudioPermissionProbe(
+                result: Self.grantedScreenSystemAudioProbeResult
+            ),
             dialogueDefaults: nil
         )
         appState.answerProviderModeOverride = .deepSeekPrimary
@@ -242,7 +295,6 @@ struct ManualCaptureTests {
 
     // Reset all mock hooks before/after tests
     private func resetMockHooks() {
-        ScreenSystemAudioPermissionProbe.mockProbe = nil
         ManualQuestionCaptureService.mockStartCapture = nil
         ManualQuestionCaptureService.mockStopCapture = nil
         ManualQuestionCaptureService.mockCancelCapture = nil
@@ -269,6 +321,7 @@ struct ManualCaptureTests {
         try await setupOnboardingData(database: database)
 
         let mockPermission = MockPermissionService()
+        mockPermission.speechState = .notDetermined
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
         defer { appState.cancelManualCapture() }
@@ -279,17 +332,6 @@ struct ManualCaptureTests {
         settings.showTranscriptBeforeSending = false
         settings.autoSendAfterTranscription = true
         appState.saveSettings(settings)
-
-        // Mock preflight screen recording to succeed
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
-        }
 
         // Mock audio capture start
         var captureStarted = false
@@ -314,9 +356,10 @@ struct ManualCaptureTests {
             appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
         }
 
-        // Assert Constraint 1: systemAudio manual capture does not request microphone/speech permission
+        // System-audio input does not need microphone access, but manual
+        // transcription still uses SFSpeechRecognizer and must gate Speech.
         #expect(mockPermission.micRequestedCount == 0)
-        #expect(mockPermission.speechRequestedCount == 0)
+        #expect(mockPermission.speechRequestedCount == 1)
         #expect(captureStarted)
         #expect(transcriptionStarted)
         #expect(appState.manualCaptureState == .recording)
@@ -356,6 +399,8 @@ struct ManualCaptureTests {
         try await setupOnboardingData(database: database)
 
         let mockPermission = MockPermissionService()
+        mockPermission.microphoneState = .notDetermined
+        mockPermission.speechState = .notDetermined
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
         defer { appState.cancelManualCapture() }
@@ -363,6 +408,8 @@ struct ManualCaptureTests {
         // 1. Force microphone manual capture source
         var settings = appState.settings
         settings.manualCaptureSource = .microphone
+        settings.showTranscriptBeforeSending = true
+        settings.autoSendAfterTranscription = false
         appState.saveSettings(settings)
 
         // Mock audio capture start
@@ -392,6 +439,300 @@ struct ManualCaptureTests {
         #expect(transcriptionStarted)
     }
 
+    @Test
+    func captureStartFailureRollsBackPreparedTranscription() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: MockPermissionService()
+        )
+        defer { appState.cancelManualCapture() }
+
+        var settings = appState.settings
+        settings.manualCaptureSource = .microphone
+        appState.saveSettings(settings)
+
+        var transcriptionStartCount = 0
+        var transcriptionCancelCount = 0
+        var captureStartCount = 0
+        var captureCancelCount = 0
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in
+                transcriptionStartCount += 1
+            },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" },
+            cancel: {
+                transcriptionCancelCount += 1
+            }
+        )
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in
+                captureStartCount += 1
+                #expect(appState.manualCaptureState == .waitingForPermission)
+                throw InjectedStartFailure(errorDescription: "Synthetic capture start failure")
+            },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: {
+                captureCancelCount += 1
+            },
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("manual capture startup failure") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
+        }
+
+        #expect(transcriptionStartCount == 1)
+        #expect(captureStartCount == 1)
+        #expect(transcriptionCancelCount == 1)
+        #expect(captureCancelCount == 1)
+        #expect(appState.manualCaptureOperationID == nil)
+        if case .error(let message) = appState.manualCaptureState {
+            #expect(message == "Synthetic capture start failure")
+        } else {
+            Issue.record("Expected capture startup to fail closed")
+        }
+    }
+
+    @Test
+    func transcriptionStartFailureNeverAttachesAudioCapture() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: MockPermissionService()
+        )
+        defer { appState.cancelManualCapture() }
+
+        var settings = appState.settings
+        settings.manualCaptureSource = .microphone
+        appState.saveSettings(settings)
+
+        var captureStartCount = 0
+        var captureCancelCount = 0
+        var transcriptionCancelCount = 0
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in
+                throw InjectedStartFailure(errorDescription: "Synthetic transcription start failure")
+            },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" },
+            cancel: {
+                transcriptionCancelCount += 1
+            }
+        )
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in
+                captureStartCount += 1
+            },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: {
+                captureCancelCount += 1
+            },
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("manual transcription startup failure") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
+        }
+
+        #expect(captureStartCount == 0)
+        #expect(captureCancelCount == 1)
+        #expect(transcriptionCancelCount == 1)
+        #expect(appState.manualCaptureOperationID == nil)
+    }
+
+    @Test
+    func systemAudioSpeechDenialStartsNoManualRuntime() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let permissions = MockPermissionService()
+        permissions.speechState = .denied
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: permissions
+        )
+        defer { appState.cancelManualCapture() }
+
+        var settings = appState.settings
+        settings.manualCaptureSource = .systemAudio
+        appState.saveSettings(settings)
+
+        var captureStartCount = 0
+        var transcriptionStartCount = 0
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in captureStartCount += 1 },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: {},
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in transcriptionStartCount += 1 },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" },
+            cancel: {}
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("manual Speech permission denial") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
+        }
+
+        #expect(permissions.micRequestedCount == 0)
+        #expect(permissions.speechRequestedCount == 0)
+        #expect(captureStartCount == 0)
+        #expect(transcriptionStartCount == 0)
+        #expect(appState.manualCaptureOperationID == nil)
+    }
+
+    @Test
+    func systemAudioPermissionFailureStartsNoSpeechOrCaptureRuntime() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let permissions = MockPermissionService()
+        permissions.speechState = .notDetermined
+        let failedProbe = FixedScreenSystemAudioPermissionProbe(
+            result: ScreenSystemAudioPermissionProbeResult(
+                preflightGranted: false,
+                shareableContentProbeSucceeded: false,
+                streamAudioProbeSucceeded: false,
+                errorDescription: "Synthetic permission denial",
+                likelyIdentityMismatch: false
+            )
+        )
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: permissions,
+            screenSystemAudioPermissionProbe: failedProbe
+        )
+        defer { appState.cancelManualCapture() }
+        var settings = appState.settings
+        settings.manualCaptureSource = .systemAudio
+        appState.saveSettings(settings)
+
+        var captureStartCount = 0
+        var transcriptionStartCount = 0
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in captureStartCount += 1 },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: {},
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in transcriptionStartCount += 1 },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" },
+            cancel: {}
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("manual system-audio permission failure") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
+        }
+
+        #expect(permissions.micRequestedCount == 0)
+        #expect(permissions.speechRequestedCount == 0)
+        #expect(captureStartCount == 0)
+        #expect(transcriptionStartCount == 0)
+        #expect(appState.manualCaptureOperationID == nil)
+        #expect(appState.systemAudioPermissionState == .permissionMissing)
+    }
+
+    @Test
+    func lateFailureFromCancelledStartupCannotOverwriteReplacementCapture() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: MockPermissionService()
+        )
+        defer { appState.cancelManualCapture() }
+
+        var settings = appState.settings
+        settings.manualCaptureSource = .microphone
+        appState.saveSettings(settings)
+
+        let firstStartupGate = AsyncGate()
+        var transcriptionStartCount = 0
+        var transcriptionCancelCount = 0
+        var captureStartCount = 0
+        var captureCancelCount = 0
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in
+                transcriptionStartCount += 1
+                if transcriptionStartCount == 1 {
+                    await firstStartupGate.wait()
+                    throw InjectedStartFailure(errorDescription: "Late obsolete startup failure")
+                }
+            },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" },
+            cancel: { transcriptionCancelCount += 1 }
+        )
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in captureStartCount += 1 },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: { captureCancelCount += 1 },
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("first manual startup to suspend") {
+            firstStartupGate.waiterCount == 1
+        }
+        appState.cancelManualCapture()
+        appState.startManualCapture()
+
+        // The replacement is serialized behind the cancelled startup, so it
+        // cannot share resources with the obsolete operation.
+        #expect(transcriptionStartCount == 1)
+        #expect(captureStartCount == 0)
+        firstStartupGate.open()
+        try await waitUntil("replacement manual capture to start") {
+            appState.manualCaptureState == .recording
+        }
+
+        #expect(transcriptionStartCount == 2)
+        #expect(captureStartCount == 1)
+        #expect(transcriptionCancelCount == 2)
+        #expect(captureCancelCount == 2)
+        #expect(appState.manualCaptureOperationID != nil)
+        #expect(appState.manualCaptureState == .recording)
+    }
+
     // MARK: - Requirement 3 Test
     @Test
     func testShowTranscriptBeforeSendingOverridesAutoSend() async throws {
@@ -413,16 +754,6 @@ struct ManualCaptureTests {
         settings.autoSendAfterTranscription = true
         appState.saveSettings(settings)
 
-        // Mock preflight screen recording to succeed
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
-        }
         ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
@@ -469,15 +800,6 @@ struct ManualCaptureTests {
         settings.autoSendAfterTranscription = true
         appState.saveSettings(settings)
 
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
-        }
         ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
@@ -525,15 +847,6 @@ struct ManualCaptureTests {
         settings.autoSendAfterTranscription = true
         appState.saveSettings(settings)
 
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
-        }
         ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
         ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
 
@@ -582,16 +895,6 @@ struct ManualCaptureTests {
         settings.showTranscriptBeforeSending = false
         settings.autoSendAfterTranscription = true
         appState.saveSettings(settings)
-
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
-        }
 
         var capturedTimeoutBlock: (() -> Void)?
         ManualQuestionCaptureService.mockStartCapture = { source, maxSec, onTimeout in
@@ -649,6 +952,7 @@ struct ManualCaptureTests {
         }
 
         appState.manualCaptureState = .recording
+        appState.manualCaptureOperationID = UUID()
         captureService.capturedBufferCount = 42
         captureService.recordingDuration = 10.5
         let testTimestamp = Date()
@@ -855,5 +1159,261 @@ struct ManualCaptureTests {
         #expect(suggestion.sayFirst.contains("I want this role"))
         #expect(suggestion.keyPoints.count >= 2)
         #expect(suggestion.keyPoints.contains("Engineering growth"))
+    }
+
+    @Test
+    func audioTapStartFailureAlwaysRollsBackInstalledTap() {
+        enum StartError: Error { case failed }
+        var events: [String] = []
+        do {
+            try AudioEngineManager.performTapStartTransaction(
+                install: { events.append("install") },
+                start: { events.append("start"); throw StartError.failed },
+                rollback: { events.append("stop-remove-reset") }
+            )
+            Issue.record("Expected synthetic engine start failure")
+        } catch StartError.failed {
+            #expect(events == ["install", "start", "stop-remove-reset"])
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
+    func finalizationCancelClaimsOnceAgainstLateFinalAndTimeout() async throws {
+        let coordinator = ManualTranscriptionFinalizationCoordinator()
+        var timeoutCount = 0
+        let waiter = Task {
+            try await coordinator.wait(
+                timeout: .milliseconds(30),
+                fallbackText: { "timed out" },
+                onTimeout: { timeoutCount += 1 }
+            )
+        }
+        try await waitUntil("finalization continuation installation") {
+            coordinator.hasPendingContinuation
+        }
+        coordinator.cancel()
+        coordinator.resolve(.success("late final"))
+        try await Task.sleep(for: .milliseconds(60))
+
+        do {
+            _ = try await waiter.value
+            Issue.record("Expected cancellation")
+        } catch is CancellationError {
+            #expect(coordinator.terminalClaimCount == 1)
+            #expect(timeoutCount == 0)
+            #expect(!coordinator.hasPendingContinuation)
+        }
+    }
+
+    @Test
+    func staleFinalizationCancellationCannotTerminateReplacementWait() async throws {
+        let coordinator = ManualTranscriptionFinalizationCoordinator()
+        let first = Task {
+            try await coordinator.wait(
+                timeout: .seconds(1),
+                fallbackText: { "first timeout" },
+                onTimeout: {}
+            )
+        }
+        try await waitUntil("first finalization continuation") {
+            coordinator.hasPendingContinuation
+        }
+        let firstGeneration = coordinator.currentGeneration
+        coordinator.cancel()
+        do {
+            _ = try await first.value
+            Issue.record("Expected first finalization cancellation")
+        } catch is CancellationError {}
+
+        let second = Task {
+            try await coordinator.wait(
+                timeout: .seconds(1),
+                fallbackText: { "second timeout" },
+                onTimeout: {}
+            )
+        }
+        try await waitUntil("replacement finalization continuation") {
+            coordinator.hasPendingContinuation
+        }
+        #expect(coordinator.currentGeneration != firstGeneration)
+
+        coordinator.cancel(expectedGeneration: firstGeneration)
+        #expect(coordinator.hasPendingContinuation)
+        coordinator.resolve(.success("replacement result"))
+        #expect(try await second.value == "replacement result")
+        #expect(coordinator.terminalClaimCount == 2)
+    }
+
+    @Test
+    func transcriptionErrorWhileCaptureStartAwaitsFailsClosed() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: MockPermissionService()
+        )
+        defer { appState.cancelManualCapture() }
+        var settings = appState.settings
+        settings.manualCaptureSource = .microphone
+        appState.saveSettings(settings)
+
+        let startGate = AsyncGate()
+        var errorCallback: ((String) -> Void)?
+        var captureCancelCount = 0
+        var transcriptionCancelCount = 0
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, onError in errorCallback = onError },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" },
+            cancel: { transcriptionCancelCount += 1 }
+        )
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in await startGate.wait() },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: { captureCancelCount += 1 },
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("capture startup suspension") { startGate.waiterCount == 1 }
+        #expect(appState.manualCaptureState == .waitingForPermission)
+        errorCallback?("Synthetic recognition failure")
+        try await waitUntil("startup callback failure") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
+        }
+        startGate.open()
+        try await waitUntil("failed startup rollback completion") {
+            appState.manualCaptureStartupTask == nil
+        }
+        #expect(appState.manualCaptureOperationID == nil)
+        #expect(appState.manualCaptureState != .recording)
+        #expect(captureCancelCount == 2)
+        #expect(transcriptionCancelCount == 2)
+    }
+
+    @Test
+    func cancelDuringTranscriptionAllowsSecondRoundToFinalize() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: MockPermissionService()
+        )
+        defer { appState.cancelManualCapture() }
+        var settings = appState.settings
+        settings.manualCaptureSource = .microphone
+        settings.showTranscriptBeforeSending = true
+        settings.autoSendAfterTranscription = false
+        appState.saveSettings(settings)
+
+        let firstFinalizeGate = AsyncGate()
+        var finalizationCount = 0
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, _ in },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: {},
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in },
+            appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in
+                finalizationCount += 1
+                if finalizationCount == 1 {
+                    await firstFinalizeGate.wait()
+                    return "obsolete first transcript"
+                }
+                return "second transcript"
+            },
+            cancel: {}
+        )
+
+        appState.startManualCapture()
+        try await waitUntil("first recording") { appState.manualCaptureState == .recording }
+        appState.stopAndTranscribeManualCapture()
+        try await waitUntil("first finalization suspension") { firstFinalizeGate.waiterCount == 1 }
+        #expect(appState.isActionLoading(ActionID.manualStopTranscribe))
+        appState.cancelManualCapture()
+        #expect(!appState.isActionLoading(ActionID.manualStopTranscribe))
+
+        appState.startManualCapture()
+        try await waitUntil("second recording") { appState.manualCaptureState == .recording }
+        appState.stopAndTranscribeManualCapture()
+        try await waitUntil("second transcript") { appState.manualCaptureState == .transcriptReady }
+        #expect(appState.manualCaptureTranscript == "second transcript")
+        #expect(!appState.isActionLoading(ActionID.manualStopTranscribe))
+        firstFinalizeGate.open()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(appState.manualCaptureTranscript == "second transcript")
+    }
+
+    @Test
+    func backendFatalErrorCleansServiceAndCoordinatorState() async throws {
+        resetMockHooks()
+        defer { resetMockHooks() }
+        let service = ManualQuestionCaptureService.shared
+        var serviceCallbackCount = 0
+        service.installFatalCaptureErrorHandlerForTesting { _ in serviceCallbackCount += 1 }
+        let failure = InjectedStartFailure(errorDescription: "Backend stopped")
+        service.audioEngineManager(AudioEngineManager.shared, didFailWith: failure)
+        try await waitUntil("service fatal cleanup") { serviceCallbackCount == 1 }
+        #expect(!service.isRecording)
+
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let appState = try makeAppState(
+            database: database,
+            client: TrackingLLMClient(),
+            permissionService: MockPermissionService()
+        )
+        defer { appState.cancelManualCapture() }
+        var fatalCallback: ((Error) -> Void)?
+        appState.manualCaptureRuntime = ManualCaptureRuntime(
+            startCapture: { _, _, _, onFatal in fatalCallback = onFatal },
+            stopCaptureAndReturnBuffers: { [] },
+            cancelCapture: {},
+            capturedBufferCount: { 0 },
+            lastBufferTimestamp: { nil }
+        )
+        appState.manualTranscriptionRuntime = ManualTranscriptionRuntime(
+            startTranscription: { _, _, _ in }, appendBuffer: { _ in },
+            endAudioAndFinalize: { _ in "" }, cancel: {}
+        )
+        appState.startManualCapture()
+        try await waitUntil("recording before fatal backend error") {
+            appState.manualCaptureState == .recording
+        }
+        fatalCallback?(failure)
+        try await waitUntil("coordinator fatal error") {
+            if case .error = appState.manualCaptureState { return true }
+            return false
+        }
+        #expect(appState.manualCaptureOperationID == nil)
+    }
+
+    @Test
+    func capturedBufferStoreSerializesConcurrentAppendAndDrain() {
+        let store = ManualCaptureBufferStore()
+        store.beginCapture()
+        DispatchQueue.concurrentPerform(iterations: 200) { _ in
+            let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1)!
+            _ = store.append(buffer)
+        }
+        #expect(store.count == 200)
+        #expect(store.drain().count == 200)
+        #expect(store.count == 0)
+        #expect(store.append(makeDummyAudioBuffer()) == nil)
     }
 }
