@@ -222,17 +222,18 @@ struct ParakeetNativeRuntimeTests {
     }
 
     @Test
-    func stdoutEOFWaitsForNonzeroProcessTermination() async throws {
+    func nonzeroProcessTerminationBeforeStdoutEOFIsPreserved() async throws {
         let helper = try makeExecutable("""
         #!/bin/sh
-        exec 1>&-
-        sleep 0.2
+        # The background child inherits stdout, keeping the pipe open after
+        # the helper process itself has exited with the status under test.
+        sleep 1 &
         exit 7
         """)
         let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
-            config: ASRConfig(sessionID: "eof-before-exit", captureMode: .systemAudioOnly)
+            config: ASRConfig(sessionID: "exit-before-eof", captureMode: .systemAudioOnly)
         )
 
         var receivedError: Error?

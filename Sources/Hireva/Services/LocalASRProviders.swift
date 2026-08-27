@@ -334,16 +334,7 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
         guard !data.isEmpty else {
             handle.readabilityHandler = nil
             buffer.finish().forEach(emit)
-            lock.lock()
-            sawEndOfOutput = true
-            if processTerminationStatus == nil, !process.isRunning {
-                processTerminationStatus = process.terminationStatus
-            }
-            let status = processTerminationStatus
-            lock.unlock()
-            if let status {
-                finishForTermination(status)
-            }
+            finishAtEndOfOutput()
             return
         }
         buffer.append(data).forEach(emit)
@@ -352,11 +343,13 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
     func processDidTerminate(status: Int32) {
         lock.lock()
         processTerminationStatus = status
-        let shouldFinish = sawEndOfOutput
-        lock.unlock()
-        if shouldFinish {
-            finishForTermination(status)
+        guard sawEndOfOutput, !finished else {
+            lock.unlock()
+            return
         }
+        finished = true
+        lock.unlock()
+        complete(status == 0 ? nil : ParakeetSidecarError.exited(status))
     }
 
     private func emit(_ line: String) {
@@ -392,16 +385,42 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
         }
         finished = true
         lock.unlock()
+        complete(error)
+    }
+
+    private func finishAtEndOfOutput() {
+        lock.lock()
+        sawEndOfOutput = true
+        if processTerminationStatus == nil, !process.isRunning {
+            processTerminationStatus = process.terminationStatus
+        }
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let status = processTerminationStatus
+        lock.unlock()
+
+        // stdout EOF is the output protocol's terminal event. A helper may
+        // close stdout before it exits, so do not hold the stream open waiting
+        // for an otherwise still-running process. If termination was already
+        // observed, preserve its status after all output has drained.
+        let error: Error? = if let status, status != 0 {
+            ParakeetSidecarError.exited(status)
+        } else {
+            nil
+        }
+        complete(error)
+    }
+
+    private func complete(_ error: Error?) {
         process.terminationHandler = nil
         if let error {
             continuation.finish(throwing: error)
         } else {
             continuation.finish()
         }
-    }
-
-    private func finishForTermination(_ status: Int32) {
-        finish(status == 0 ? nil : ParakeetSidecarError.exited(status))
     }
 }
 
