@@ -9,12 +9,15 @@ Usage: ./scripts/runtime_smoke.sh [--suite SUITE]
 
 Suites:
   all
+  release-64
   bad-fragments
   rapid-two
+  callback-ownership
   rapid-three
   conditional-asr
   noisy-canonicalization
   incomplete-stream
+  stage-b-watchdog
   long-interview
   apple-speech-cross-task-replay
   seven-question-real-order
@@ -47,7 +50,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$SUITE" in
-  all|bad-fragments|rapid-two|rapid-three|conditional-asr|noisy-canonicalization|incomplete-stream|long-interview|apple-speech-cross-task-replay|seven-question-real-order|apple-speech-cumulative-replay|real-long-interview-ordering)
+  all|release-64|bad-fragments|rapid-two|callback-ownership|rapid-three|conditional-asr|noisy-canonicalization|incomplete-stream|stage-b-watchdog|long-interview|apple-speech-cross-task-replay|seven-question-real-order|apple-speech-cumulative-replay|real-long-interview-ordering)
     ;;
   *)
     echo "error: unknown runtime smoke suite: $SUITE" >&2
@@ -66,6 +69,48 @@ case "$CANONICAL_SUITE" in
     ;;
 esac
 
+TEST_FILTER="RuntimeSmokeHarnessTests"
+case "$CANONICAL_SUITE" in
+  all)
+    ;;
+  release-64)
+    TEST_FILTER="RuntimeSmokeHarnessTests.release64QuestionGate"
+    ;;
+  bad-fragments)
+    TEST_FILTER="RuntimeSmokeHarnessTests.badFragmentsSuiteRejectsWithoutGenerationOrPersistence"
+    ;;
+  rapid-two)
+    TEST_FILTER="RuntimeSmokeHarnessTests.rapidTwoQuestionSuiteRejectsLateFirstQuestionCallbacksAndPersistsSeparateRows"
+    ;;
+  callback-ownership)
+    TEST_FILTER="RuntimeSmokeHarnessTests.replacementCancelsLiveCallbackAfterGenerationBecomesTerminal"
+    ;;
+  rapid-three)
+    TEST_FILTER="RuntimeSmokeHarnessTests.rapidThreeQuestionSuiteKeepsLatestCardAfterTwoLateProviderCompletions"
+    ;;
+  conditional-asr)
+    TEST_FILTER="RuntimeSmokeHarnessTests.conditionalASRSuiteKeepsFullConditionalQuestion"
+    ;;
+  noisy-canonicalization)
+    TEST_FILTER="RuntimeSmokeHarnessTests.noisyCanonicalizationSuiteNormalizesCommonASRVariants"
+    ;;
+  incomplete-stream)
+    TEST_FILTER="RuntimeSmokeHarnessTests.incompleteStreamSuiteRejectsPartialProviderAnswerAndUsesFallback"
+    ;;
+  stage-b-watchdog)
+    TEST_FILTER="RuntimeSmokeHarnessTests.completedStageBCancelsFullCardWatchdog"
+    ;;
+  long-interview)
+    TEST_FILTER="RuntimeSmokeHarnessTests.longInterviewSuiteKeepsSevenCumulativeQuestionsDistinctAndCurrent"
+    ;;
+  apple-speech-cross-task-replay)
+    TEST_FILTER="RuntimeSmokeHarnessTests.appleSpeechCumulativeReplaySuiteRejectsOldCallbacksAndKeepsNewestCard"
+    ;;
+  seven-question-real-order)
+    TEST_FILTER="RuntimeSmokeHarnessTests.realLongInterviewOrderingSuiteNeverRegressesToOldCumulativeQuestion"
+    ;;
+esac
+
 echo "Runtime smoke suite: $SUITE"
 export RUNTIME_SMOKE_SUITE="$CANONICAL_SUITE"
-swift test --filter RuntimeSmokeHarnessTests
+swift test --filter "$TEST_FILTER"

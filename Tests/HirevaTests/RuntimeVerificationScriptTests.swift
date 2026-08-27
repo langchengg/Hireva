@@ -13,6 +13,77 @@ struct RuntimeVerificationScriptTests {
     }
 
     @Test
+    func testResultReconciliationCountsCasesInsteadOfAssertionIssues() throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-reconciliation-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+
+        let list = sandbox.appendingPathComponent("swift-test-list.log")
+        let xunit = sandbox.appendingPathComponent("swift-test.xml")
+        let status = sandbox.appendingPathComponent("test-status.csv")
+        try """
+        Build complete! (0.1s)
+        HirevaTests.ExampleTests/passes()
+        HirevaTests.ExampleTests/failsTwice()
+        """.write(to: list, atomically: true, encoding: .utf8)
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <testsuites>
+          <testsuite name="TestResults" errors="0" tests="2" failures="2" skipped="0" time="0.2">
+            <testcase classname="HirevaTests.ExampleTests" name="passes()" time="0.1" />
+            <testcase classname="HirevaTests.ExampleTests" name="failsTwice()" time="0.1">
+              <failure message="first" />
+              <failure message="second" />
+            </testcase>
+          </testsuite>
+        </testsuites>
+        """.write(to: xunit, atomically: true, encoding: .utf8)
+
+        let result = try runRubyScript(
+            repositoryRoot.appendingPathComponent("scripts/reconcile_test_results.rb"),
+            currentDirectory: repositoryRoot,
+            arguments: [list.path, xunit.path, status.path]
+        )
+
+        #expect(result.status == 1)
+        #expect(result.output.contains("discovered=2"))
+        #expect(result.output.contains("reported=2"))
+        #expect(result.output.contains("passed=1"))
+        #expect(result.output.contains("failed=1"))
+        #expect(result.output.contains("assertion_issues=2"))
+        let table = try String(contentsOf: status, encoding: .utf8)
+        #expect(table.contains("\"HirevaTests.ExampleTests/passes()\",\"HirevaTests.ExampleTests\",\"passes()\",\"PASS\""))
+        #expect(table.contains("\"HirevaTests.ExampleTests/failsTwice()\",\"HirevaTests.ExampleTests\",\"failsTwice()\",\"FAIL\""))
+
+        let prerequisites = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release_test_prerequisites.tsv"),
+            encoding: .utf8
+        )
+        #expect(prerequisites.split(separator: "\n").count == 8)
+        #expect(prerequisites.contains("NOT_RUN_POLICY_NO_SECRET"))
+        #expect(prerequisites.contains("NOT_EXECUTED_PREREQUISITE"))
+
+        let emptyList = sandbox.appendingPathComponent("empty-list.log")
+        let emptyXUnit = sandbox.appendingPathComponent("empty-test.xml")
+        let emptyStatus = sandbox.appendingPathComponent("empty-status.csv")
+        try "Build complete! (0.1s)\n".write(to: emptyList, atomically: true, encoding: .utf8)
+        try "<testsuites><testsuite tests=\"0\" /></testsuites>\n".write(
+            to: emptyXUnit,
+            atomically: true,
+            encoding: .utf8
+        )
+        let emptyResult = try runRubyScript(
+            repositoryRoot.appendingPathComponent("scripts/reconcile_test_results.rb"),
+            currentDirectory: repositoryRoot,
+            arguments: [emptyList.path, emptyXUnit.path, emptyStatus.path]
+        )
+        #expect(emptyResult.status == 1)
+        #expect(emptyResult.output.contains("discovery reported zero tests"))
+        #expect(emptyResult.output.contains("xUnit reported zero test cases"))
+    }
+
+    @Test
     func runtimeStabilityGateExistsIsExecutableAndRunsRequiredCommandsInOrder() throws {
         let url = repositoryRoot.appendingPathComponent("scripts/verify_runtime_stability.sh")
         #expect(FileManager.default.fileExists(atPath: url.path))
@@ -485,6 +556,25 @@ struct RuntimeVerificationScriptTests {
         process.arguments = [scriptURL.path] + arguments
         process.currentDirectoryURL = currentDirectory
         process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, override in override }
+        process.standardOutput = output
+        process.standardError = output
+
+        try process.run()
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    private func runRubyScript(
+        _ scriptURL: URL,
+        currentDirectory: URL,
+        arguments: [String]
+    ) throws -> (status: Int32, output: String) {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ruby")
+        process.arguments = [scriptURL.path] + arguments
+        process.currentDirectoryURL = currentDirectory
         process.standardOutput = output
         process.standardError = output
 
