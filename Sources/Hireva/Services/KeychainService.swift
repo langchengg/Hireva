@@ -88,6 +88,7 @@ enum KeychainAPIKeyAccessState: Equatable {
 protocol KeychainStore: AnyObject {
     func saveGenericPassword(data: Data, service: String, account: String) throws
     func loadGenericPassword(service: String, account: String, authenticationPolicy: KeychainAuthenticationPolicy) throws -> String?
+    func genericPasswordAccounts(service: String) throws -> Set<String>
     func deleteGenericPassword(service: String, account: String) throws
 }
 
@@ -167,6 +168,57 @@ final class RealKeychainStore: KeychainStore {
         return value
     }
 
+    func genericPasswordAccounts(service: String) throws -> Set<String> {
+        var result: AnyObject?
+        let status = SecItemCopyMatching(
+            Self.genericPasswordAccountQuery(service: service) as CFDictionary,
+            &result
+        )
+        if status == errSecItemNotFound {
+            return []
+        }
+        guard status == errSecSuccess else {
+            throw KeychainError.unexpectedStatus(status)
+        }
+        return try Self.genericPasswordAccounts(from: result)
+    }
+
+    /// Inventory is deliberately attributes-only: account names are enough to
+    /// migrate or remove app-owned credentials, and no password data is read.
+    static func genericPasswordAccountQuery(service: String) -> [String: Any] {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecUseAuthenticationContext as String: context
+        ]
+    }
+
+    static func genericPasswordAccounts(from result: Any?) throws -> Set<String> {
+        guard let result else {
+            throw KeychainError.invalidData
+        }
+        let rawItems: [Any]
+        if let items = result as? [Any] {
+            rawItems = items
+        } else {
+            rawItems = [result]
+        }
+
+        var accounts: Set<String> = []
+        for rawItem in rawItems {
+            guard let attributes = rawItem as? [String: Any],
+                  let account = attributes[kSecAttrAccount as String] as? String else {
+                throw KeychainError.invalidData
+            }
+            accounts.insert(account)
+        }
+        return accounts
+    }
+
     func deleteGenericPassword(service: String, account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -181,10 +233,15 @@ final class RealKeychainStore: KeychainStore {
 }
 
 final class InMemoryMockKeychainStore: KeychainStore {
-    private var store: [String: Data] = [:]
+    private struct ItemKey: Hashable {
+        let service: String
+        let account: String
+    }
 
-    private func makeKey(service: String, account: String) -> String {
-        return "\(service):\(account)"
+    private var store: [ItemKey: Data] = [:]
+
+    private func makeKey(service: String, account: String) -> ItemKey {
+        ItemKey(service: service, account: account)
     }
 
     func saveGenericPassword(data: Data, service: String, account: String) throws {
@@ -200,6 +257,10 @@ final class InMemoryMockKeychainStore: KeychainStore {
         let key = makeKey(service: service, account: account)
         guard let data = store[key] else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    func genericPasswordAccounts(service: String) throws -> Set<String> {
+        Set(store.keys.lazy.filter { $0.service == service }.map(\.account))
     }
 
     func deleteGenericPassword(service: String, account: String) throws {
@@ -237,6 +298,7 @@ extension KeychainAuthenticationPolicy {
 /// for access again after rebuilds because the code signature identity changes.
 final class KeychainService {
     let store: KeychainStore
+    private let migrationAndCleanupLock = NSLock()
 
     // Diagnostic properties
     var migrationPerformed: Bool = false
@@ -268,7 +330,18 @@ final class KeychainService {
     }
 
     func performMigrationIfNeeded(accounts additionalAccounts: Set<String> = []) {
-        let accounts = additionalAccounts.union([
+        migrationAndCleanupLock.lock()
+        defer { migrationAndCleanupLock.unlock() }
+
+        var firstFailure: Error?
+        let currentAccounts: Set<String>
+        do {
+            currentAccounts = try store.genericPasswordAccounts(service: KeychainConstants.service)
+        } catch {
+            currentAccounts = []
+            firstFailure = error
+        }
+        let accounts = additionalAccounts.union(currentAccounts).union([
             KeychainConstants.deepSeekAccount,
             KeychainConstants.defaultEmbeddingAccount
         ])
@@ -276,7 +349,6 @@ final class KeychainService {
             LegacyHirevaIdentifiers.olderKeychainServices
         var discoveredItems = 0
         var migratedAccounts = 0
-        var firstFailure: Error?
 
         for account in accounts.sorted() {
             let currentValue: String?
@@ -413,6 +485,45 @@ final class KeychainService {
             self.lastWriteStatus = "Deleted"
         } catch {
             self.lastWriteStatus = "Error: \(error.localizedDescription)"
+            throw error
+        }
+    }
+
+    func storedAPIKeyAccounts() throws -> Set<String> {
+        try store.genericPasswordAccounts(service: KeychainConstants.service)
+    }
+
+    /// Removes every generic-password credential owned by current and legacy
+    /// Hireva services, including provider, embedding, and orphaned accounts.
+    /// Account inventory is attributes-only and each query is scoped to one
+    /// exact service identifier.
+    @discardableResult
+    func deleteAllAPIKeys() throws -> Int {
+        migrationAndCleanupLock.lock()
+        defer { migrationAndCleanupLock.unlock() }
+
+        let services = Set(
+            [KeychainConstants.service, LegacyHirevaIdentifiers.keychainService] +
+                LegacyHirevaIdentifiers.olderKeychainServices
+        ).sorted()
+        var deletedCount = 0
+        do {
+            for service in services {
+                let accounts = try store.genericPasswordAccounts(service: service)
+                for account in accounts.sorted() {
+                    try store.deleteGenericPassword(service: service, account: account)
+                    deletedCount += 1
+                }
+            }
+            for service in services {
+                guard try store.genericPasswordAccounts(service: service).isEmpty else {
+                    throw KeychainError.invalidData
+                }
+            }
+            lastWriteStatus = "Deleted \(deletedCount) credential(s)"
+            return deletedCount
+        } catch {
+            lastWriteStatus = "Error: \(error.localizedDescription)"
             throw error
         }
     }

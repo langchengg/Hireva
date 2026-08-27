@@ -50,18 +50,13 @@ extension AppState {
         )
         stopListening()
         do {
-            if includeAPIKey {
-                for account in providerConfigurations.compactMap(\.apiKeyAccount) {
-                    try? keychainService.deleteAPIKey(account: account)
-                }
-            }
             try localDataService.deleteAllLocalData(includeAPIKey: includeAPIKey)
             try clearRuntimeTranscriptTrace()
             clearLiveSession()
             refreshAll()
             let retainedItems = "Exported files, downloaded local models, and app preferences were kept."
             let clearedItems = includeAPIKey
-                ? "Imported documents, interview history, diagnostic traces, and currently configured provider keys were cleared."
+                ? "Imported documents, interview history, diagnostic traces, and all app-owned provider and embedding keys were cleared."
                 : "Imported documents, interview history, and diagnostic traces were cleared. Configured provider keys were kept."
             completeAction(
                 ActionID.clearLocalData,

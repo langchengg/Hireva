@@ -423,6 +423,7 @@ struct LLMProviderTests {
             var policies: [KeychainAuthenticationPolicy] = []
 
             func saveGenericPassword(data: Data, service: String, account: String) throws {}
+            func genericPasswordAccounts(service: String) throws -> Set<String> { [] }
             func deleteGenericPassword(service: String, account: String) throws {}
 
             func loadGenericPassword(
@@ -491,6 +492,7 @@ struct LLMProviderTests {
             var policies: [KeychainAuthenticationPolicy] = []
 
             func saveGenericPassword(data: Data, service: String, account: String) throws {}
+            func genericPasswordAccounts(service: String) throws -> Set<String> { [] }
             func deleteGenericPassword(service: String, account: String) throws {}
 
             func loadGenericPassword(
@@ -523,6 +525,10 @@ struct LLMProviderTests {
                 account: String,
                 authenticationPolicy: KeychainAuthenticationPolicy
             ) throws -> String? {
+                throw KeychainError.unexpectedStatus(errSecAuthFailed)
+            }
+
+            func genericPasswordAccounts(service: String) throws -> Set<String> {
                 throw KeychainError.unexpectedStatus(errSecAuthFailed)
             }
 

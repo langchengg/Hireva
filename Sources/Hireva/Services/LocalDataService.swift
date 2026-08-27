@@ -28,7 +28,7 @@ final class LocalDataService {
         try sessions.deleteAllSessions()
         try documents.deleteAllDocuments()
         if includeAPIKey {
-            try keychainService?.deleteAPIKey()
+            try keychainService?.deleteAllAPIKeys()
         }
     }
 }
