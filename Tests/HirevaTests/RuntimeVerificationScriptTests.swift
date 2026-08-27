@@ -879,10 +879,20 @@ struct RuntimeVerificationScriptTests {
             contentsOf: repositoryRoot.appendingPathComponent("docs/notarization-prep.md"),
             encoding: .utf8
         )
+        let notarizationScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("script/release/notarize_release.sh"),
+            encoding: .utf8
+        )
         #expect(notarization.contains("Developer ID Application"))
         #expect(notarization.contains("xcrun notarytool"))
-        #expect(notarization.contains("xcrun stapler"))
+        #expect(notarization.contains("./script/release/notarize_release.sh"))
+        #expect(notarization.contains("HIREVA_ALLOW_NOTARIZATION_SUBMIT=1"))
+        #expect(notarization.contains("staple a private copy"))
+        #expect(notarization.contains(".notarized.dmg"))
         #expect(notarization.contains("app-specific password"))
+        #expect(notarizationScript.contains("/usr/bin/xcrun notarytool submit"))
+        #expect(notarizationScript.contains("/usr/bin/xcrun stapler staple"))
+        #expect(notarizationScript.contains("/usr/bin/xcrun stapler validate"))
 
         let rollback = try String(
             contentsOf: repositoryRoot.appendingPathComponent("docs/rollback-known-good.md"),
