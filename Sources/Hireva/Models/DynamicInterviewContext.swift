@@ -176,7 +176,7 @@ struct InterviewDomainProfile: Codable, Identifiable, Hashable {
                 id: id,
                 commonTerminology: ["perception", "control", "manipulation", "sensing"],
                 answerQualityCriteria: ["methodological clarity", "failure analysis", "evidence-based claims"],
-                domainKnowledge: ["Tactile sensing can provide force, contact, slip, and pressure feedback."],
+                domainKnowledge: [],
                 honestyConstraints: universalHonesty + ["Domain knowledge must not be presented as hands-on candidate experience."],
                 preferredAnswerStructures: ["problem-method-evidence-limit", "claim-evidence-next-step"]
             )

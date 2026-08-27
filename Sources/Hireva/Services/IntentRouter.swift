@@ -93,7 +93,7 @@ enum IntentRouter {
                 "personal contribution", "architecture", "what did you build", "teach you",
                 "demonstrates your"
             ])) ||
-            (text.contains("personal contribution") && containsAny(text, ["project", "leorover", "vla", "robot"])) {
+            text.contains("personal contribution") {
             return .projectWalkthrough
         }
         return .generic
@@ -217,9 +217,21 @@ enum IntentRouter {
     }
 
     private static func isProjectComparisonQuestion(_ text: String) -> Bool {
-        containsAny(text, ["compare the projects", "difference between the projects", "how were the projects different", "contrast the projects"]) ||
-            (text.contains("difference between") && text.components(separatedBy: "project").count >= 3) ||
-            (text.contains("vla") && text.contains("leorover") && containsAny(text, ["difference", "compare", "contrast", "complement"]))
+        let comparison = containsAny(text, [
+            "compare", "comparison", "difference between", "different from", "contrast", "complement"
+        ])
+        let comparableWorkKinds = ["project", "service", "system", "product", "initiative", "application", "pipeline"]
+        let namesMultipleWorkItems = comparableWorkKinds.contains { workKind in
+            text.components(separatedBy: workKind).count >= 3
+        }
+        let relatesOwnedWork = containsAny(text, [
+            "complement your", "compare your", "different from your", "difference between your"
+        ]) && containsAny(text, [
+            "work", "experience", "project", "service", "system", "product", "initiative"
+        ])
+        return comparison && (namesMultipleWorkItems || containsAny(text, [
+            "the projects", "the services", "the systems", "the products", "the initiatives"
+        ]) || relatesOwnedWork)
     }
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
