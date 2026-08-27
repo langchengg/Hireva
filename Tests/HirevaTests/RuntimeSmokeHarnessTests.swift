@@ -3,7 +3,18 @@ import Testing
 @testable import Hireva
 
 private struct ReleaseQuestionManifest: Decodable {
+    let schemaVersion: Int
+    let synthetic: Bool
+    let containsRealPersonalData: Bool
+    let provenance: ReleaseQuestionProvenance
     let cases: [ReleaseQuestionManifestItem]
+}
+
+private struct ReleaseQuestionProvenance: Decodable {
+    let origin: String
+    let purpose: String
+    let authoringMethod: String
+    let sourceMaterial: String
 }
 
 private struct ReleaseQuestionManifestItem: Decodable {
@@ -34,10 +45,10 @@ func makeHermeticContextBoundSession(
 ) throws -> InterviewSession {
     let sourceID = "\(prefix)-synthetic-context"
     let candidateStatements = [
-        "The synthetic candidate built a LeoRover ROS2 system connecting YOLOv8 perception, localization, navigation, manipulation, and recovery behavior.",
-        "The synthetic candidate evaluated autoregressive, diffusion, and flow-matching policies with DROID trajectories in a MuJoCo Franka simulation.",
-        "The synthetic candidate debugged real-world robot execution using logs, timestamp checks, calibration checks, lighting and occlusion tests, and recovery validation.",
-        "The synthetic candidate uses Python, C++, and ROS2 and wants a robotics role focused on reliable deployed systems."
+        "The synthetic candidate built an event-intake service connecting ingestion, validation, storage, notification, and recovery, converted a synthetic vendor event dataset into canonical records, and handled duplicate delivery with deterministic replay.",
+        "The synthetic candidate compared transformer and classifier approaches on a purpose-built synthetic dataset and documented the evaluation limits.",
+        "The synthetic candidate diagnosed production delivery and response-latency failures with trace identifiers, per-stage timestamps, schema validation, staged fixes, and rollback verification.",
+        "The synthetic candidate uses Swift, SQL, and HTTP APIs and wants a product-engineering role focused on reliable local-first systems."
     ]
     let candidateEvidence = candidateStatements.enumerated().map { index, statement in
         ProfileEvidence(
@@ -52,7 +63,7 @@ func makeHermeticContextBoundSession(
         )
     }
     let opportunityStatements = [
-        "The synthetic robotics role requires perception, localization, navigation, manipulation, and systematic debugging of deployed robots.",
+        "The synthetic product-engineering role requires service integration, data validation, privacy safeguards, and systematic debugging of deployed software.",
         "The engineering team evaluates clear technical communication, reliable delivery, and evidence-based failure analysis."
     ]
     let opportunityEvidence = opportunityStatements.enumerated().map { index, statement in
@@ -87,8 +98,8 @@ func makeHermeticContextBoundSession(
     ))
     try appState.interviewContextRepository.saveOpportunityContext(OpportunityContext(
         id: opportunityID,
-        title: "Synthetic Robotics Engineer",
-        organisation: "Synthetic Robotics Lab",
+        title: "Synthetic Product Engineer",
+        organisation: "Example Systems Organisation",
         opportunityType: .job,
         responsibilities: [opportunityEvidence[0]],
         requiredSkills: [],
@@ -102,7 +113,7 @@ func makeHermeticContextBoundSession(
     appState.refreshAll()
     appState.selectCandidateProfile(profileID)
     appState.selectOpportunityContext(opportunityID)
-    appState.selectInterviewDomain(.roboticsResearch)
+    appState.selectInterviewDomain(.general)
 
     let session = try appState.createContextBoundSession(mode: mode, title: title)
     guard let snapshotID = session.contextSnapshotID,
@@ -136,72 +147,72 @@ func hermeticRuntimeAnswer(for prompt: String) -> String {
     let question = hermeticRuntimeQuestion(from: prompt)
     let lower = question.lowercased()
     if lower.contains("do you have any questions") || lower.contains("engineering team") || lower.contains("good fit") {
-        return "How does the engineering team define success for reliable deployed robotics? How is debugging ownership shared? What would strong performance in the first three months look like?"
+        return "How does the engineering team define success for reliable deployed software? How is debugging ownership shared? What would strong performance in the first three months look like?"
     }
     if lower.contains("why do you want") || lower.contains("join our team") || lower.contains("prepares you for this role") {
-        return "I want the role because it matches my experience building reliable deployed robotics systems and my goal to deepen that work with the team."
+        return "I want the role because it matches my supported experience building reliable local-first services and my goal to deepen that work with the team."
     }
     if lower.contains("another month") || lower.contains("one more month") || lower.contains("change first") || lower.contains("improve first") || lower.contains("do differently") {
-        return "My first priority for LeoRover would be to improve real-world reliability by adding failure-case tests, instrumenting perception and localization handoffs, evaluating recovery behavior, and validating the result on the robot."
+        return "My first priority for the event-intake service would be to improve production reliability by adding failure-case tests, instrumenting component handoffs, evaluating recovery behavior, and validating the result with staged traffic."
     }
-    if lower.contains("diffusion") || lower.contains("autoregressive") || lower.contains("flow-matching") {
-        return "Compared with autoregressive decoding, the diffusion policy was more reliable in MuJoCo because it represented continuous action distributions smoothly and tolerated trajectory uncertainty better."
+    if lower.contains("transformer") || lower.contains("classifier") || lower.contains("regression") {
+        return "I compared the transformer and classifier against the same synthetic holdout set, latency budget, and error categories; the classifier met the release constraint with fewer unsupported outputs, while the transformer remained a documented alternative."
     }
-    if lower.contains("vla") && lower.contains("leorover") {
-        return "The VLA project evaluated DROID trajectories and diffusion decoders in a MuJoCo Franka simulation, whereas the LeoRover project connected YOLOv8 perception, ROS2 navigation, manipulation, and recovery on a real robot."
+    if lower.contains("reporting service") && lower.contains("event-intake service") {
+        return "The reporting service focused on deterministic batch summaries, whereas the event-intake service connected validation, storage, notification, and recovery for live requests; both taught me to make boundaries observable."
     }
-    if lower.contains("sim real") || lower.contains("sim-to-real") || (lower.contains("hardware") && lower.contains("muji")) {
-        return "I would compare simulation and real hardware logs, then isolate calibration, timing, action scaling, contact dynamics, and observation differences before validating the policy again."
+    if lower.contains("simulation to production") || (lower.contains("simulation") && lower.contains("production")) {
+        return "I would compare simulation and production traces, then isolate configuration, timing, data-shape, dependency, and load differences before validating the change again with staged traffic."
     }
-    if lower.contains("droid") || lower.contains("franka") {
-        return "The transformation converted DROID demonstrations into synchronized trajectories, mapped actions into MuJoCo Franka control conventions, and validated timestamps and coordinate frames."
+    if lower.contains("vendor event") || lower.contains("canonical record") || lower.contains("dataset") {
+        return "I converted the synthetic vendor event dataset into canonical records, preserved source identifiers, rejected invalid schemas, and validated counts, timestamps, and field mappings against a fixed oracle."
     }
-    if lower.contains("yolo") || lower.contains("confident but wrong") {
-        return "I would reproduce the YOLOv8 confidence failure, inspect the original frame and logs, isolate the bounding-box, class, calibration, lighting, and occlusion conditions, then test and validate the fix before retraining."
+    if lower.contains("classification") || lower.contains("confident but wrong") || lower.contains("false positive") {
+        return "I would reproduce the confident classification failure, inspect its confidence threshold and original synthetic input trace, isolate labeling, feature, and distribution-shift conditions, then test the fix against positive and negative cases before retraining."
     }
-    if lower.contains("noisy") || lower.contains("localisation") || lower.contains("localization") || lower.contains("hardest technical challenge") || lower.contains("fragile") {
-        return "The main challenge was making noisy perception, localization, navigation, and manipulation work reliably together. I diagnosed it by inspecting logs and traces; validation guards, tests, and recovery behavior reduced risk."
+    if lower.contains("noisy") || lower.contains("hardest technical challenge") || lower.contains("fragile") || lower.contains("duplicate delivery") {
+        return "I found that the hardest technical challenge was keeping ingestion, validation, storage, and notification consistent during duplicate or delayed deliveries. I diagnosed it with traces and deterministic replay; idempotency guards, tests, and recovery behavior reduced risk."
     }
-    if lower.contains("walk me through") || lower.contains("leorover") || lower.contains("robotics project") {
-        return "I built a LeoRover object-retrieval pipeline that connected YOLOv8 perception to localization, navigation, manipulation, and recovery behavior. The result was repeatable end-to-end retrieval, and I learned to validate timestamps and frames at every handoff."
+    if lower.contains("walk me through") || lower.contains("event-intake project") || lower.contains("event-intake service") || lower.contains("demonstrates your system integration") {
+        return "I built a synthetic event-intake service that connected ingestion, validation, storage, notification, and recovery. The deterministic replay passed end to end, and I learned to validate identifiers and schemas at every handoff."
     }
-    if lower.contains("comfortable") || lower.contains("python") || lower.contains("c plus plus") || lower.contains("ros two") {
-        return "I am comfortable with Python, C++, and ROS2 because I have used them to build and debug perception, navigation, and manipulation pipelines."
+    if lower.contains("comfortable") || lower.contains("swift") || lower.contains("sql") || lower.contains("http") {
+        return "I am comfortable with Swift, SQL, and HTTP APIs because the synthetic profile records their use in the event-intake service, but it does not support claims about orchestration platforms."
     }
     if lower.contains("yourself") || lower.contains("background") {
-        return "I built a LeoRover ROS2 system connecting YOLOv8 perception, localization, navigation, manipulation, and recovery behavior, and that robotics work is the core of my technical background."
+        return "I built an event-intake service connecting ingestion, validation, storage, notification, and recovery, and that evidence-backed systems work is the core of this synthetic profile."
     }
     if lower.contains("trade off") || lower.contains("trade-off") || lower.contains("balance") {
-        return "I would define the accuracy and latency constraints, measure both on representative robot workloads, choose the smallest reliable model that meets the control deadline, and validate the trade-off on hardware."
+        return "I would define the accuracy and latency constraints, measure both on representative synthetic workloads, choose the smallest reliable approach that meets the response budget, and validate the trade-off under staged load."
     }
     if lower.contains("team") || lower.contains("teammate") || lower.contains("disagreement") || lower.contains("collaborat") {
         return "I would make the technical evidence visible through logs and reproducible tests, compare the alternatives against shared success criteria, document the decision, and verify the agreed approach with the team."
     }
     if lower.contains("ownership") || lower.contains("lead the investigation") {
-        return "I would take ownership by defining the failure, assigning observable checks at each system boundary, communicating progress, and validating the final fix on the robot."
+        return "I would take ownership by defining the failure, assigning observable checks at each service boundary, communicating progress, and validating the final fix with deterministic replay and staged traffic."
     }
     if lower.contains("ambiguous") || lower.contains("unclear") || lower.contains("clarify") {
-        return "I would clarify the user outcome, constraints, failure tolerance, and measurable success criteria before implementing the smallest testable robotics change."
+        return "I would clarify the user outcome, constraints, failure tolerance, and measurable success criteria before implementing the smallest testable change."
     }
     if lower.contains("latency") || lower.contains("bottleneck") {
-        return "I would instrument end-to-end and per-stage latency, correlate timestamps across perception and control, isolate the slow boundary, change one variable, and validate the result under representative load."
+        return "The synthetic profile supports trace identifiers and per-stage timestamps, so I would measure end-to-end latency, isolate the slow component, change one variable, and compare the fixed replay with the same synthetic workload."
     }
     if lower.contains("deploy") || lower.contains("rollback") || lower.contains("release") {
-        return "I would use a versioned artifact, offline regression tests, a staged hardware rollout, health checks, and a tested rollback path before broad robot deployment."
+        return "My proposed release gate would require a versioned artifact, offline regression checks, staged rollout, health checks, and a rollback rehearsal before broad deployment."
     }
     if lower.contains("privacy") || lower.contains("microphone audio") || lower.contains("transcript") {
         return "I would keep raw audio and transcript text local by default, require explicit opt-in for diagnostic text, minimize retained metadata, and provide a reliable local-data deletion path."
     }
-    if lower.contains("safety") || lower.contains("risking hardware") || lower.contains("allowing the robot to move") {
-        return "I would validate in simulation and a constrained test area, enforce confidence and state guards, keep an emergency stop, and expand motion only after recovery tests pass."
+    if lower.contains("safety") || lower.contains("risking customer data") || lower.contains("allowing the migration to write") {
+        return "I would validate with synthetic records in an isolated environment, enforce schema and state guards, keep a read-only dry run, and enable writes only after recovery tests pass."
     }
     if lower.contains("kubernetes") {
-        return "I have no supported Kubernetes deployment evidence in this profile, so I would state that limitation and relate only the reliability practices I have actually used."
+        return "I have no supported orchestration-platform evidence in this synthetic profile, so I would state that limitation and relate only the reliability practices actually recorded."
     }
     if lower.contains("team of twenty") {
-        return "I have no supported evidence of managing a large engineering team, so I would describe only the technical ownership and collaboration demonstrated in my robotics work."
+        return "I have no supported evidence of managing a large engineering team, so I would describe only the technical ownership and collaboration recorded in the synthetic profile."
     }
-    return "I would define the goal, use logs and evidence from the robotics system to choose a concrete action, validate the result against a measurable criterion, and communicate the remaining limitation."
+    return "I would define the goal, use traces and synthetic evidence to choose a concrete action, validate the result against a measurable criterion, and communicate the remaining limitation."
 }
 
 func hermeticRuntimeSectionTokens(for prompt: String) -> [String] {
@@ -228,7 +239,6 @@ func hermeticJSONString(_ value: String) -> String {
 struct RuntimeSmokeHarnessTests {
     @Test
     func release64QuestionGate() async throws {
-        guard Self.shouldRun("release-64") else { return }
         let manifestURL = try #require(Bundle.module.url(
             forResource: "release_64_questions",
             withExtension: "json"
@@ -237,6 +247,13 @@ struct RuntimeSmokeHarnessTests {
             ReleaseQuestionManifest.self,
             from: Data(contentsOf: manifestURL)
         )
+        #expect(manifest.schemaVersion == 2)
+        #expect(manifest.synthetic)
+        #expect(manifest.containsRealPersonalData == false)
+        #expect(manifest.provenance.origin == "project-authored synthetic fixture")
+        #expect(manifest.provenance.purpose == "deterministic release question-routing and answer-grounding verification")
+        #expect(manifest.provenance.authoringMethod == "purpose-built scenarios reviewed for domain and identity neutrality")
+        #expect(manifest.provenance.sourceMaterial == "no CV, job description, transcript, recording, or personal profile")
         #expect(manifest.cases.count == 64)
         let categories = Dictionary(grouping: manifest.cases, by: \ .category)
         #expect(categories.count == 32)
@@ -330,7 +347,6 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func badFragmentsSuiteRejectsWithoutGenerationOrPersistence() async throws {
-        guard Self.shouldRun("bad-fragments") else { return }
         let harness = try makeHarness(suite: "bad-fragments")
         let fragments = [
             "what did you learn from comp",
@@ -355,7 +371,6 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func rapidTwoQuestionSuiteRejectsLateFirstQuestionCallbacksAndPersistsSeparateRows() async throws {
-        guard Self.shouldRun("rapid-two") else { return }
         let harness = try makeHarness(suite: "rapid-two")
         harness.appState.delayProvider = RuntimeSmokeDeferredFallbackDelayProvider()
         harness.appState.generationFullCardWatchdogNanoseconds = 30_000_000_000
@@ -364,7 +379,7 @@ struct RuntimeSmokeHarnessTests {
         defer { harness.client.releaseBlockedStreams(containing: "engineering team") }
 
         let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit?"
-        let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
+        let secondQuestion = "If you had one more month to improve your event-intake service, what would you improve first?"
         await harness.feed(text: firstQuestion, id: "rapid-two-q1", secondsFromStart: 0)
         try await harness.waitForBlockedStreams(containing: "engineering team", startedAtLeast: 2)
         #expect(harness.appState.currentSuggestion == nil)
@@ -399,15 +414,14 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func replacementCancelsLiveCallbackAfterGenerationBecomesTerminal() async throws {
-        guard Self.shouldRun("callback-ownership") else { return }
         let harness = try makeHarness(suite: "callback-ownership")
         let first = harness.detectedQuestion(
             id: "callback-owner-q1",
-            text: "Could you explain your LeoRover project from end to end?"
+            text: "Could you explain your event-intake project from end to end?"
         )
         let second = harness.detectedQuestion(
             id: "callback-owner-q2",
-            text: "How did you convert DROID demonstrations for your MuJoCo simulation?"
+            text: "How did you convert the synthetic vendor event dataset into canonical records?"
         )
         let firstGenerationID = "callback-owner-generation-1"
         let secondGenerationID = "callback-owner-generation-2"
@@ -453,7 +467,6 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func rapidThreeQuestionSuiteKeepsLatestCardAfterTwoLateProviderCompletions() async throws {
-        guard Self.shouldRun("rapid-three") else { return }
         let harness = try makeHarness(suite: "rapid-three")
         harness.client.blockStreams(containing: "engineering team")
         harness.client.blockStreams(containing: "one more month")
@@ -463,8 +476,8 @@ struct RuntimeSmokeHarnessTests {
         }
 
         let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit?"
-        let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
-        let thirdQuestion = "Can you explain the difference between your VLA project and your LeoRover project?"
+        let secondQuestion = "If you had one more month to improve your event-intake service, what would you improve first?"
+        let thirdQuestion = "Can you explain the difference between your reporting service project and your event-intake service project?"
         await harness.feed(text: firstQuestion, id: "rapid-three-q1", secondsFromStart: 0)
         try await harness.waitForBlockedStreams(containing: "engineering team", startedAtLeast: 2)
         await harness.feed(text: secondQuestion, id: "rapid-three-q2", secondsFromStart: 1)
@@ -491,11 +504,11 @@ struct RuntimeSmokeHarnessTests {
         let comparisonText = ([comparison.sayFirst] + comparison.keyPoints).joined(separator: " ")
         #expect(interviewer.sayFirst.filter { $0 == "?" }.count >= 2)
         #expect(QuestionAnswerAlignmentEvaluator.isAnswerComplete(improvement.sayFirst))
-        #expect(improvement.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(comparisonText.localizedCaseInsensitiveContains("MuJoCo") || comparisonText.localizedCaseInsensitiveContains("Franka"))
-        #expect(comparisonText.localizedCaseInsensitiveContains("DROID") || comparisonText.localizedCaseInsensitiveContains("decoder"))
-        #expect(comparisonText.localizedCaseInsensitiveContains("ROS2") || comparisonText.localizedCaseInsensitiveContains("YOLOv8"))
-        #expect(comparisonText.localizedCaseInsensitiveContains("navigation") || comparisonText.localizedCaseInsensitiveContains("manipulation") || comparisonText.localizedCaseInsensitiveContains("recovery"))
+        #expect(improvement.sayFirst.localizedCaseInsensitiveContains("event-intake"))
+        #expect(comparisonText.localizedCaseInsensitiveContains("reporting service"))
+        #expect(comparisonText.localizedCaseInsensitiveContains("event-intake service"))
+        #expect(comparisonText.localizedCaseInsensitiveContains("batch summaries"))
+        #expect(comparisonText.localizedCaseInsensitiveContains("recovery"))
         #expect(harness.appState.liveSuggestionHistory.map(\.id) == rows.map(\.id))
         #expect(harness.appState.currentSuggestion?.questionIntent == .projectComparison)
         #expect(harness.appState.currentSuggestion?.questionText == thirdQuestion)
@@ -510,12 +523,11 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func conditionalASRSuiteKeepsFullConditionalQuestion() async throws {
-        guard Self.shouldRun("conditional-asr") else { return }
         let harness = try makeHarness(suite: "conditional-asr")
 
         await harness.feed(
-            text: "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?",
-            id: "conditional-asr-yolo"
+            text: "If your classification service gives a confident but wrong prediction for a synthetic event, how would you debug it?",
+            id: "conditional-asr-classification"
         )
 
         try await harness.waitForRows(1)
@@ -524,21 +536,20 @@ struct RuntimeSmokeHarnessTests {
         harness.printSummary(rows: rows, trace: trace)
 
         let row = try #require(rows.first)
-        #expect(row.questionText == "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?")
+        #expect(row.questionText == "If your classification service gives a confident but wrong prediction for a synthetic event, how would you debug it?")
         #expect(row.questionIntent == .perceptionDebugging)
-        #expect(row.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+        #expect(row.sayFirst.localizedCaseInsensitiveContains("classification"))
         #expect(row.sayFirst.localizedCaseInsensitiveContains("confidence"))
-        #expect((row.questionText ?? "").hasPrefix("If your yo love eight"))
+        #expect((row.questionText ?? "").hasPrefix("If your classification service"))
     }
 
     @Test
     func noisyCanonicalizationSuiteNormalizesCommonASRVariants() async throws {
-        guard Self.shouldRun("noisy-canonicalization") else { return }
         let harness = try makeHarness(suite: "noisy-canonicalization")
 
-        await harness.feed(text: "How would you diagnose a sim to real gap if your policy works in simulation but fails on hardware?", id: "noisy-sim-real")
+        await harness.feed(text: "How would you diagnose a sim to real gap if your service works in simulation but fails in production?", id: "noisy-sim-production")
         try await harness.waitForRows(1)
-        await harness.feed(text: "What did you learn from comparing auto aggressive diffusion and flow matching decoders in your villa project?", id: "noisy-vla")
+        await harness.feed(text: "What did you learn from comparing auto aggressive and transformer decoders in the synthetic evaluation project?", id: "noisy-model-comparison")
 
         try await harness.waitForRows(2)
         let rows = try harness.rows()
@@ -546,12 +557,11 @@ struct RuntimeSmokeHarnessTests {
         harness.printSummary(rows: rows, trace: trace)
 
         #expect(rows.contains { ($0.questionText ?? "").contains("sim-to-real") && ($0.questionText ?? "").contains("simulation") })
-        #expect(rows.contains { ($0.questionText ?? "").contains("auto aggressive") && ($0.questionText ?? "").contains("flow matching") && ($0.questionText ?? "").contains("villa project") })
+        #expect(rows.contains { ($0.questionText ?? "").contains("auto aggressive") && ($0.questionText ?? "").contains("transformer") && ($0.questionText ?? "").contains("synthetic evaluation project") })
     }
 
     @Test
     func incompleteStreamSuiteRejectsPartialProviderAnswerAndUsesFallback() async throws {
-        guard Self.shouldRun("incomplete-stream") else { return }
         let harness = try makeHarness(suite: "incomplete-stream")
         defer { harness.appState.cancelStageBTask() }
         harness.client.incompleteStageAForNeedle = "engineering team"
@@ -577,12 +587,11 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func completedStageBCancelsFullCardWatchdog() async throws {
-        guard Self.shouldRun("stage-b-watchdog") else { return }
         let harness = try makeHarness(suite: "stage-b-watchdog")
         harness.appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
 
         await harness.feed(
-            text: "Can you explain the difference between your VLA project and your LeoRover project?",
+            text: "Can you explain the difference between your reporting service project and your event-intake service project?",
             id: "stage-b-watchdog-q1"
         )
 
@@ -600,16 +609,15 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func longInterviewSuiteKeepsSevenCumulativeQuestionsDistinctAndCurrent() async throws {
-        guard Self.shouldRun("long-interview") else { return }
         let harness = try makeHarness(suite: "long-interview")
         let questions = [
-            "Could you briefly introduce yourself and your robotics background?",
-            "Could you explain your LeoRover project from end to end?",
-            "What was the hardest technical challenge in making the real robot work reliably?",
-            "In your VLA project, why did the diffusion decoder outperform the autoregressive and flow-matching versions?",
-            "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?",
-            "If your YOLOv8 detector confidently picks the wrong object on the LeoRover, how would you debug that before retraining the model?",
-            "Can you explain the difference between your VLA project and your LeoRover project?"
+            "Could you briefly introduce yourself and your systems background?",
+            "Could you explain your event-intake project from end to end?",
+            "What was the hardest technical challenge in making production delivery reliable?",
+            "Why did the classifier outperform the transformer version in your synthetic evaluation?",
+            "How did you convert the synthetic vendor event dataset into canonical records?",
+            "If your classification model confidently assigns the wrong priority to an event, how would you debug that before retraining the model?",
+            "Can you explain the difference between your reporting service project and your event-intake service project?"
         ]
         var cumulativeTranscript: [String] = []
 
@@ -663,16 +671,15 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func appleSpeechCumulativeReplaySuiteRejectsOldCallbacksAndKeepsNewestCard() async throws {
-        guard Self.shouldRun("apple-speech-cross-task-replay") else { return }
         let harness = try makeHarness(suite: "apple-speech-cross-task-replay")
-        harness.client.stageAStreamDelayByNeedle["LeoRover project"] = 5_000_000_000
+        harness.client.stageAStreamDelayByNeedle["event-intake project"] = 5_000_000_000
         let slowDelay = MockDelayProvider()
         slowDelay.sleepDuration = 5_000_000_000
         harness.appState.delayProvider = slowDelay
         harness.appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
-        let q1 = "Could you explain your LeoRover project from end to end?"
-        let q2 = "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?"
-        let q3 = "If your YOLOv8 detector confidently picks the wrong object on the LeoRover, how would you debug that before retraining the model?"
+        let q1 = "Could you explain your event-intake project from end to end?"
+        let q2 = "How did you convert the synthetic vendor event dataset into canonical records?"
+        let q3 = "If your classification model confidently assigns the wrong priority to an event, how would you debug that before retraining the model?"
 
         await harness.feed(text: q1, id: "apple-replay-callback-1", secondsFromStart: 0, recognitionTaskID: "apple-task-1", eventSequence: 1)
         try await harness.waitForTraceEvent("generationStarted")
@@ -698,8 +705,8 @@ struct RuntimeSmokeHarnessTests {
 
         #expect(Set(normalized).count == rows.count)
         #expect(rows.filter { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", q1) }.count == 1)
-        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("DROID") })
-        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("YOLOv8") })
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("vendor event dataset") })
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("classification model") })
         #expect(rows.allSatisfy { $0.stageBStatus != "cancelled" })
         #expect(harness.appState.currentSuggestion?.questionText == expectedQ3)
         #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
@@ -707,16 +714,15 @@ struct RuntimeSmokeHarnessTests {
 
     @Test
     func realLongInterviewOrderingSuiteNeverRegressesToOldCumulativeQuestion() async throws {
-        guard Self.shouldRun("seven-question-real-order") else { return }
         let harness = try makeHarness(suite: "seven-question-real-order")
         let questions = [
-            "Could you briefly introduce yourself and your robotics background?",
-            "Could you explain your LeoRover project from end to end?",
-            "What was the hardest technical challenge in making the real robot work reliably?",
-            "In your VLA project, why did the diffusion decoder outperform the autoregressive and flow-matching versions?",
-            "How did you convert real robot demonstrations from DROID into actions that your MuJoCo Franka simulation could use?",
-            "If your YOLOv8 detector confidently picks the wrong object on the LeoRover, how would you debug that before retraining the model?",
-            "Can you explain the difference between your VLA project and your LeoRover project?"
+            "Could you briefly introduce yourself and your systems background?",
+            "Could you explain your event-intake project from end to end?",
+            "What was the hardest technical challenge in making production delivery reliable?",
+            "Why did the classifier outperform the transformer version in your synthetic evaluation?",
+            "How did you convert the synthetic vendor event dataset into canonical records?",
+            "If your classification model confidently assigns the wrong priority to an event, how would you debug that before retraining the model?",
+            "Can you explain the difference between your reporting service project and your event-intake service project?"
         ]
         var cumulative: [String] = []
 
@@ -752,19 +758,11 @@ struct RuntimeSmokeHarnessTests {
         #expect(rows.count == 7)
         #expect(Set(normalized).count == rows.count)
         #expect(normalized == orderedAll)
-        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("DROID") })
-        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("YOLOv8") })
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("vendor event dataset") })
+        #expect(rows.contains { ($0.questionText ?? "").localizedCaseInsensitiveContains("classifier") })
         #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
         #expect(rows.allSatisfy { $0.stageBStatus != "cancelled" })
         #expect(!trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
-    }
-
-    private static func shouldRun(_ suite: String) -> Bool {
-        // Runtime smoke is a separate release gate. Running every long-lived
-        // harness concurrently with the ordinary unit suite creates resource
-        // contention that does not represent product behavior.
-        let selected = ProcessInfo.processInfo.environment["RUNTIME_SMOKE_SUITE"] ?? "none"
-        return selected == "all" || selected == suite
     }
 
     private static func logicalCandidateEvidenceID(_ rawID: String) -> String? {

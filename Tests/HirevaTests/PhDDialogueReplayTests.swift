@@ -86,7 +86,7 @@ struct PhDDialogueReplayTests {
         #expect(QuestionCandidatePipeline.extract(from: "I explained what is needed for deployment and then described the validation plan.").isEmpty)
 
         let questions = QuestionCandidatePipeline.extract(
-            from: "What did you do before Manchester? Were you using ROS for the later robot-control work?"
+            from: "What did you do before the current project? Were you using the service framework for the later integration work?"
         )
         #expect(questions.count == 2)
     }
@@ -94,16 +94,16 @@ struct PhDDialogueReplayTests {
     @Test
     func representativePanelQuestionsPassTheSingleQuestionRuntimeGuard() {
         let questions = [
-            "What did you do before Manchester? Were you with robotics, or what was your background and what projects were you involved with?",
-            "Sorry, perhaps I was unclear. Prior to your MSc in Manchester, what is your background and what is your engineering experience?",
-            "Did you do any projects with LLMs or VLMs, or is this new to you from this year?",
-            "Is there a plan to publish the work you have been doing during the MSc?",
+            "What did you do before the current project? What was your background and which systems were you involved with?",
+            "Sorry, perhaps I was unclear. Prior to this project, what was your technical background and engineering experience?",
+            "Did you do any projects with event streaming, or is that capability new to you?",
+            "Is there a plan to release the work after the current evaluation?",
             "How does your skill set and experience fit this project?",
-            "What role does tactile sensing play in robot tool manipulation?",
-            "Have you had any experience with tactile sensing, or is this just from your reading?",
-            "You have controlled a real robot before, right?",
-            "Which robots have you controlled, and what architectures did you use?",
-            "Were you using ROS, or were you directly talking to the Python library?",
+            "What role does schema validation play in event ingestion?",
+            "Have you had experience with event streaming, or is that knowledge from reading?",
+            "Have you operated a production system before?",
+            "Which systems have you operated, and what architectures did you use?",
+            "Were you using the service framework, or were you talking directly to the HTTP library?",
         ]
 
         for question in questions {
@@ -115,15 +115,15 @@ struct PhDDialogueReplayTests {
     }
 
     @Test
-    func realAcceptanceQuestionPhrasingsMapToPhDRubrics() {
+    func syntheticAcceptanceQuestionPhrasingsMapToCompatibilityRubrics() {
         let cases: [(String, PhDQuestionIntent)] = [
-            ("Before starting the Robotics Masters programme, which parts of your technical background best prepared you for research in embodied artificial intelligence?", .preMScBackground),
-            ("Before starting the robotics master's program, which parts of your technical background best prepared you for research in embodied artificial intelligence?", .preMScBackground),
-            ("Which part of your current grasping research gives the strongest evidence that you could make an effective contribution to this PhD?", .graspResearch),
-            ("Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months of the PhD?", .tactileLearningPlan),
-            ("Imagine that the camera predicts a stable grasp, but the tactile sensor reports that the object is slipping. How should the robot respond?", .tactileSlipResponse),
-            ("Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution.", .robotArchitecture),
-            ("Which failure cases would you prioritise first when moving that method onto the real robot?", .graspResearch)
+            ("Before joining the current project, which parts of your technical background best prepared you for this work?", .preMScBackground),
+            ("Prior to this project, which parts of your earlier engineering experience prepared you for the work?", .preMScBackground),
+            ("Which evaluation risks would you prioritise when validating that method before release?", .graspResearch),
+            ("Since you have not yet worked directly with the event-stream framework, how would you close that skills gap during the first six months?", .tactileLearningPlan),
+            ("Imagine the validator predicts an acceptable record, but the audit service reports an unexpected failure. How should the system respond?", .tactileSlipResponse),
+            ("Describe the system architecture you used, from ingestion through validation to storage execution.", .robotArchitecture),
+            ("Which failure cases would you prioritise first when validating that method for production?", .graspResearch)
         ]
 
         for (question, expected) in cases {
@@ -134,77 +134,77 @@ struct PhDDialogueReplayTests {
     }
 
     @Test
-    func phdHonestyRubricsRejectObservedBackgroundAndTactileOverclaims() {
-        let backgroundQuestion = "Before starting the Robotics Masters programme, which parts of your technical background best prepared you for embodied AI research?"
-        let backgroundAnswer = "My computer science and deep-learning work on vision-language-action models before my MSc prepared me for embodied AI."
-        let observedQuestion = "Before starting the robotics master's program, which parts of your technical background best prepared you for research in embodied artificial intelligence?"
-        let observedAnswer = "My background in robotics and ROS2 gave me the practical foundation to bridge vision-language models with real-world robotic manipulation."
-        let clarificationQuestion = "Did you already have hands-on experience with physical robots before the MSc, or was your earlier work mainly software and machine learning?"
-        let clarificationAnswer = "My earlier work was primarily software and machine learning, focused on developing vision-language-action models for robotic manipulation and real-robot grasp re-ranking."
-        let slipQuestion = "Imagine that the camera predicts a stable grasp, but the tactile sensor reports that the object is slipping. How should the robot respond?"
-        let slipAnswer = "I would immediately abort the current motion and apply a corrective force to re-establish contact. This closed-loop adaptation ensures the robot does not lose the object."
-        let tactileQuestion = "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months?"
-        let tactileAnswer = "I would read about tactile perception and build a simulation framework before any physical hardware, focusing on theoretical manipulation and ROS2."
-        let contaminatedTactileAnswer = "I would read the literature, then run controlled contact experiments on my existing LeoRover platform to calibrate camera and IMU inputs before developing a perception loop."
-        let noCalibrationTactilePlan = "I would study tactile sensor literature, work with the lab on controlled contact and slip experiments, process the acquired data, and integrate it into a small ROS2 manipulation loop under supervisor guidance."
-        let inventedMetricAnswer = "I designed a semantic-geometric re-ranker and demonstrated a 70% retrieval success rate on the real robot."
-        let inventedCompletedValidationAnswer = "I designed a target-conditioned semantic and geometric re-ranking pipeline for grasp candidates using detector confidence, target overlap, collision, and clearance. I integrated it into a real-robot pipeline and demonstrated improved failure-case reliability."
-        let inventedValidatedOnRobotsAnswer = "I use semantic and geometric re-ranking for grasp candidates with detector confidence, target overlap, collision, and clearance. I have validated these methods against execution failure cases on real robots."
-        let inventedValidationOutcome = "I prioritize semantic grounding failures for the referred target, then geometric collision and clearance failures in grasp candidates. My re-ranking pipeline uses detector confidence and target overlap, which significantly improved reliability during real-robot validation."
-        let inventedLatencyAnswer = "I built a ROS2 architecture where perception outputs a target pose to the planner and arm controller, with execution feedback and recovery that reduced end-to-end latency to 200 ms."
+    func honestyRubricsRejectWeakAnswersAndUnsupportedSyntheticClaims() {
+        let backgroundQuestion = "Before joining the current project, which parts of your technical background prepared you for this work?"
+        let backgroundAnswer = "I am motivated and interested in the work."
+        let observedQuestion = "Prior to this project, which parts of your earlier background prepared you for the work?"
+        let observedAnswer = "My background is relevant."
+        let clarificationQuestion = "Did you already have hands-on experience with event streaming, or was your knowledge mainly from reading?"
+        let clarificationAnswer = "I am experienced."
+        let conflictingSignalQuestion = "Imagine the validator predicts an acceptable record, but the audit service reports an unexpected failure. How should the system respond?"
+        let incompleteRecoveryAnswer = "I would immediately retry the request."
+        let learningQuestion = "Since you have not yet worked directly with the event-stream framework, how would you close that skills gap during the first six months?"
+        let incompleteLearningAnswer = "I would read the documentation."
+        let unsupportedFrameworkAnswer = "I operated a proprietary stream-processing cluster for five years and calibrated it against customer traffic."
+        let completeLearningPlan = "I would first study the framework, then build a small prototype and baseline with synthetic events, measure delivery and error behavior, and validate milestones before expanding the scope."
+        let inventedMetricAnswer = "I designed the event service and demonstrated a 99.99% success rate for customer traffic."
+        let inventedCompletedValidationAnswer = "I designed an event-ranking pipeline, integrated it into production, and demonstrated improved reliability across every failure case."
+        let inventedCustomerOutcomeAnswer = "I validated the method with customer records and eliminated all delivery failures."
+        let inventedScaleAnswer = "I built a service that processed one million live requests per second with no errors."
+        let inventedLatencyAnswer = "I built the full architecture and reduced end-to-end latency to two milliseconds in production."
 
         #expect(!PhDInterviewRubricPolicy.evaluate(question: backgroundQuestion, answer: backgroundAnswer).passed)
         #expect(!PhDInterviewRubricPolicy.evaluate(question: observedQuestion, answer: observedAnswer).passed)
         #expect(!PhDInterviewRubricPolicy.evaluate(question: clarificationQuestion, answer: clarificationAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: slipQuestion, answer: slipAnswer).passed)
-        #expect(!PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: tactileAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: conflictingSignalQuestion, answer: incompleteRecoveryAnswer).passed)
+        #expect(!PhDInterviewRubricPolicy.evaluate(question: learningQuestion, answer: incompleteLearningAnswer).passed)
         let validator = AnswerClaimValidator()
-        #expect(!validator.validate(answer: contaminatedTactileAnswer, candidateEvidence: [], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
-        #expect(PhDInterviewRubricPolicy.evaluate(question: tactileQuestion, answer: noCalibrationTactilePlan).passed)
-        for unsupportedAnswer in [inventedMetricAnswer, inventedCompletedValidationAnswer, inventedValidatedOnRobotsAnswer, inventedValidationOutcome, inventedLatencyAnswer] {
+        #expect(!validator.validate(answer: unsupportedFrameworkAnswer, candidateEvidence: [], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        #expect(PhDInterviewRubricPolicy.evaluate(question: learningQuestion, answer: completeLearningPlan).passed)
+        for unsupportedAnswer in [inventedMetricAnswer, inventedCompletedValidationAnswer, inventedCustomerOutcomeAnswer, inventedScaleAnswer, inventedLatencyAnswer] {
             #expect(!validator.validate(answer: unsupportedAnswer, candidateEvidence: [], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
         }
     }
 
     @Test
-    func phdRecoveryGuidanceProvidesVerifiedFactsForWeakContextQuestions() {
+    func recoveryGuidanceRequiresEvidenceForWeakContextQuestions() {
         let cases = [
-            "Before starting the Robotics Masters programme, which parts of your technical background prepared you for embodied AI?",
-            "Since you have not yet worked directly with tactile hardware, how would you close that skills gap?",
-            "Describe the control architecture you used on the robot arm through ROS2 to physical motion execution.",
-            "Which failure cases would you prioritise first when moving that grasp re-ranking method onto the real robot?"
+            "Before joining the current project, which parts of your technical background prepared you for this work?",
+            "Since you have not worked directly with the event-stream framework, how would you close that skills gap?",
+            "Describe the system architecture you used from ingestion through validation to storage execution.",
+            "Which evaluation risks would you prioritise first when validating that method for production?"
         ]
 
         for question in cases {
             let guidance = PhDInterviewRubricPolicy.promptGuidance(for: question)
             #expect(guidance.localizedCaseInsensitiveContains("Personal claims require selected candidate evidence"))
-            #expect(!guidance.localizedCaseInsensitiveContains("Dexory"))
+            #expect(!guidance.localizedCaseInsensitiveContains("Example Systems Organisation"))
         }
 
-        let graspGuidance = PhDInterviewRubricPolicy.promptGuidance(
-            for: "Which failure cases would you prioritise first when moving that method onto the real robot?"
+        let evaluationGuidance = PhDInterviewRubricPolicy.promptGuidance(
+            for: "Which evaluation risks would you prioritise first when validating that method for production?"
         )
-        #expect(graspGuidance.localizedCaseInsensitiveContains("Do not invent metrics"))
+        #expect(evaluationGuidance.localizedCaseInsensitiveContains("Do not invent metrics"))
     }
 
     @Test
-    func observedGroundedQwenParaphrasesPassSpecializedPhDRubric() {
+    func groundedSyntheticParaphrasesPassCompatibilityRubric() {
         let cases = [
             (
-                "Describe the control architecture you used on the robot arm, from the perception result through ROS2 to physical motion execution.",
-                "I used a ROS2-based control architecture where perception outputs a target pose, which I passed to the planning and arm-control components for execution. The system continuously validates the motion through feedback loops and implements recovery strategies if timing or localization errors occur."
+                "Describe the system architecture you used, from ingestion through validation to storage execution.",
+                "I used a modular system architecture where the ingestion component passes a validated record through an explicit interface to storage and notification. I trace each handoff and test recovery when validation or execution fails."
             ),
             (
-                "Which failure cases would you prioritize first when moving that method onto the real robot?",
-                "I would prioritize grounding errors and calibration mismatches first because they undermine semantic and geometric re-ranking of grasp candidates for the referred target. I would then test collision or clearance failures and validate execution recovery on the real robot."
+                "Which evaluation risks would you prioritize first when validating that method for production?",
+                "I would prioritize schema and duplicate-delivery failure modes, test the method against fixed synthetic cases, validate recovery metrics, and document limitations before any production decision."
             ),
             (
-                "Imagine that the camera predicts a stable grasp, but the tactile sensor reports that the object is slipping. How should the robot respond?",
-                "I would confirm the slip signal, cautiously adjust grip force, and reposition or regrasp if contact remains unstable. I would replan through the closed loop and stop safely if recovery could not stabilize the object."
+                "Imagine the validator predicts an acceptable record, but the audit service reports an unexpected failure. How should the system respond?",
+                "I would confirm both signals, stop the unsafe write, adjust the processing path, validate the record again, and use a safe fallback if the conflict remains."
             ),
             (
-                "Since you have not yet worked directly with tactile hardware, how would you close that skills gap during the first six months?",
-                "I would acknowledge that gap, study the sensor principles, calibrate tactile sensors, and run controlled contact and slip experiments with data acquisition and signal processing. I would then integrate the observations into a small ROS2 manipulation loop with guidance from the lab before scaling up."
+                "Since you have not yet worked directly with the event-stream framework, how would you close that skills gap during the first six months?",
+                "I would acknowledge the gap, first study the framework, build a small prototype and baseline with synthetic events, measure delivery and failure behavior, then validate milestones before expanding the scope."
             )
         ]
 
@@ -222,7 +222,7 @@ struct PhDDialogueReplayTests {
         let harness = try makeHarness()
         let turns = [
             PhDReplayTurn(0, "Panel A", .interviewer, .logistics, "You can start when you are ready."),
-            PhDReplayTurn(1, "Candidate", .candidate, .candidatePresentation, "My presentation explains a language-guided manipulation pipeline from perception to action."),
+            PhDReplayTurn(1, "Candidate", .candidate, .candidatePresentation, "My presentation explains a synthetic event pipeline from ingestion to validated storage."),
             PhDReplayTurn(2, "Candidate", .candidate, .candidatePresentation, "Can you see my slide? I will now describe the evaluation."),
         ]
 
@@ -245,7 +245,7 @@ struct PhDDialogueReplayTests {
                 "Panel B",
                 .interviewer,
                 .interviewerQuestions,
-                "What did you do before Manchester? Were you with robotics, or what was your background and what projects were you involved with?"
+                "What did you do before the current project, and what was your technical background?"
             ),
             expectedQuestionNeedle: "background",
             expectedIntent: .preMScBackground
@@ -253,60 +253,62 @@ struct PhDDialogueReplayTests {
 
         #expect(result.answerSource == AnswerSource.ollamaQwen.rawValue)
         #expect(result.quality.passed)
-        #expect(result.answer.localizedCaseInsensitiveContains("computer science"))
+        #expect(result.answer.localizedCaseInsensitiveContains("software engineering"))
+        #expect(result.answer.localizedCaseInsensitiveContains("before the current project"))
         #expect(!QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(result.answer))
     }
 
     @Test
-    func clarifiedPreMScQuestionSupersedesWithoutStaleAnswer() async throws {
+    func clarifiedEarlierBackgroundQuestionSupersedesWithoutStaleAnswer() async throws {
         let harness = try makeHarness()
         let first = try await harness.replayQuestion(
-            PhDReplayTurn(20, "Panel B", .interviewer, .interviewerQuestions, "What did you do before Manchester, and what was your background?"),
-            expectedQuestionNeedle: "before Manchester",
+            PhDReplayTurn(20, "Panel B", .interviewer, .interviewerQuestions, "What did you do before the current project, and what was your background?"),
+            expectedQuestionNeedle: "before the current project",
             expectedIntent: .preMScBackground
         )
         let firstQuestionID = try #require(harness.appState.activeQuestionID)
 
         let clarification = try await harness.replayQuestion(
-            PhDReplayTurn(21, "Panel B", .interviewer, .interviewerQuestions, "Sorry, perhaps I was unclear. Prior to your MSc in Manchester, what is your background and what is your engineering experience?"),
-            expectedQuestionNeedle: "Prior to your MSc",
+            PhDReplayTurn(21, "Panel B", .interviewer, .interviewerQuestions, "Sorry, perhaps I was unclear. What technical background did you have prior to this project, and what engineering experience prepared you?"),
+            expectedQuestionNeedle: "prior to this project",
             expectedIntent: .preMScBackground
         )
 
         let clarifiedQuestionID = try #require(harness.appState.activeQuestionID)
         #expect(clarifiedQuestionID != firstQuestionID)
-        #expect(clarification.answer.localizedCaseInsensitiveContains("before my MSc"))
-        #expect(clarification.answer.localizedCaseInsensitiveContains("computer science"))
+        #expect(clarification.answer.localizedCaseInsensitiveContains("before the current project"))
+        #expect(clarification.answer.localizedCaseInsensitiveContains("software engineering"))
         #expect(clarification.questionID == clarifiedQuestionID)
         #expect(first.questionID == firstQuestionID)
         #expect(harness.appState.currentSuggestion?.detectedQuestionID == clarifiedQuestionID)
-        #expect(harness.appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("prior to your MSc") == true)
+        #expect(harness.appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("prior to this project") == true)
         #expect(harness.appState.liveSuggestionHistory.contains { $0.detectedQuestionID == firstQuestionID })
     }
 
     @Test
-    func llmVlmExperienceAnswerPreservesHonesty() async throws {
+    func capabilityExperienceAnswerPreservesHonesty() async throws {
         let result = try await makeHarness().replayQuestion(
-            PhDReplayTurn(30, "Panel B", .interviewer, .interviewerQuestions, "Did you do any projects with LLMs or VLMs, or is this new to you from this year?"),
-            expectedQuestionNeedle: "LLMs or VLMs",
+            PhDReplayTurn(30, "Panel B", .interviewer, .interviewerQuestions, "Did you do any projects with event streaming, or is that capability new to you?"),
+            expectedQuestionNeedle: "event streaming",
             expectedIntent: .llmVlmExperience
         )
         #expect(result.quality.passed)
         #expect(result.answer.localizedCaseInsensitiveContains("newer"))
-        #expect(result.answer.localizedCaseInsensitiveContains("NLP"))
-        #expect(!result.answer.localizedCaseInsensitiveContains("years of VLM"))
+        #expect(result.answer.localizedCaseInsensitiveContains("foundation"))
+        #expect(!result.answer.localizedCaseInsensitiveContains("years of production"))
     }
 
     @Test
-    func publicationPlanAnswerIsCautious() async throws {
+    func releasePlanAnswerIsCautious() async throws {
         let result = try await makeHarness().replayQuestion(
-            PhDReplayTurn(40, "Panel B", .interviewer, .interviewerQuestions, "Is there a plan to publish the work you have been doing during the MSc?"),
-            expectedQuestionNeedle: "publish",
+            PhDReplayTurn(40, "Panel B", .interviewer, .interviewerQuestions, "Is there a plan to release the work after the current evaluation?"),
+            expectedQuestionNeedle: "release",
             expectedIntent: .publicationPlan
         )
         #expect(result.quality.passed)
         #expect(result.answer.localizedCaseInsensitiveContains("possible"))
-        #expect(!result.answer.localizedCaseInsensitiveContains("will definitely publish"))
+        #expect(result.answer.localizedCaseInsensitiveContains("stakeholder review"))
+        #expect(!result.answer.localizedCaseInsensitiveContains("will definitely release"))
     }
 
     @Test
@@ -317,62 +319,62 @@ struct PhDDialogueReplayTests {
             expectedIntent: .skillFit
         )
         #expect(result.quality.passed)
-        #expect(result.answer.localizedCaseInsensitiveContains("perception"))
-        #expect(result.answer.localizedCaseInsensitiveContains("ROS2"))
+        #expect(result.answer.localizedCaseInsensitiveContains("event-intake"))
+        #expect(result.answer.localizedCaseInsensitiveContains("validation"))
         #expect(!result.answer.localizedCaseInsensitiveContains("hardworking"))
     }
 
     @Test
-    func tactileRoleAnswerExplainsClosedLoopFeedback() async throws {
+    func schemaValidationRoleAnswerExplainsFeedbackAndLimits() async throws {
         let result = try await makeHarness().replayQuestion(
-            PhDReplayTurn(60, "Panel A", .interviewer, .interviewerQuestions, "What role does tactile sensing play in robot tool manipulation?"),
-            expectedQuestionNeedle: "tactile sensing",
+            PhDReplayTurn(60, "Panel A", .interviewer, .interviewerQuestions, "What role does schema validation play in event ingestion?"),
+            expectedQuestionNeedle: "schema validation",
             expectedIntent: .tactileRole
         )
         #expect(result.quality.passed)
-        #expect(result.answer.localizedCaseInsensitiveContains("slip"))
-        #expect(result.answer.localizedCaseInsensitiveContains("vision alone"))
+        #expect(result.answer.localizedCaseInsensitiveContains("feedback"))
+        #expect(result.answer.localizedCaseInsensitiveContains("insufficient alone"))
     }
 
     @Test
-    func tactileExperienceAnswerDoesNotInventHandsOnWork() async throws {
+    func eventStreamingExperienceAnswerDoesNotInventProductionWork() async throws {
         let result = try await makeHarness().replayQuestion(
-            PhDReplayTurn(70, "Panel A", .interviewer, .interviewerQuestions, "Have you had any experience with tactile sensing, or is this just from your reading?"),
-            expectedQuestionNeedle: "experience with tactile",
+            PhDReplayTurn(70, "Panel A", .interviewer, .interviewerQuestions, "Have you had experience with event streaming, or is that knowledge from reading?"),
+            expectedQuestionNeedle: "experience with event streaming",
             expectedIntent: .tactileExperience
         )
         #expect(result.quality.passed)
         #expect(result.answer.localizedCaseInsensitiveContains("reading"))
         #expect(result.answer.localizedCaseInsensitiveContains("hands-on"))
-        #expect(!result.answer.localizedCaseInsensitiveContains("extensive hands-on"))
+        #expect(!result.answer.localizedCaseInsensitiveContains("production cluster"))
     }
 
     @Test
-    func robotControlFollowUpsKeepRos2DistinctFromPythonApi() async throws {
+    func systemFrameworkFollowUpsKeepFrameworkDistinctFromHTTPAPI() async throws {
         let harness = try makeHarness()
-        let realRobot = try await harness.replayQuestion(
-            PhDReplayTurn(80, "Panel B", .interviewer, .interviewerQuestions, "You have controlled a real robot before, right?"),
-            expectedQuestionNeedle: "real robot",
+        let production = try await harness.replayQuestion(
+            PhDReplayTurn(80, "Panel B", .interviewer, .interviewerQuestions, "Have you operated a production system before?"),
+            expectedQuestionNeedle: "production system",
             expectedIntent: .realRobotExperience
         )
-        let platform = try await harness.replayQuestion(
-            PhDReplayTurn(81, "Panel B", .interviewer, .interviewerQuestions, "Which robots have you controlled, and what architectures did you use?"),
-            expectedQuestionNeedle: "Which robots",
+        let architecture = try await harness.replayQuestion(
+            PhDReplayTurn(81, "Panel B", .interviewer, .interviewerQuestions, "Describe the system architecture you used for the event service, from ingestion through storage."),
+            expectedQuestionNeedle: "system architecture",
             expectedIntent: .robotArchitecture
         )
-        let ros = try await harness.replayQuestion(
-            PhDReplayTurn(82, "Panel B", .interviewer, .interviewerQuestions, "Were you using ROS, or were you directly talking to the Python library?"),
-            expectedQuestionNeedle: "using ROS",
+        let framework = try await harness.replayQuestion(
+            PhDReplayTurn(82, "Panel B", .interviewer, .interviewerQuestions, "Were you using the service framework, or were you talking directly to the HTTP library?"),
+            expectedQuestionNeedle: "service framework",
             expectedIntent: .rosControl
         )
 
-        #expect(realRobot.quality.passed)
-        #expect(platform.quality.passed)
-        #expect(ros.quality.passed)
-        #expect(platform.answer.localizedCaseInsensitiveContains("ROS2"))
-        #expect(!platform.answer.localizedCaseInsensitiveContains("Raspberry"))
-        #expect(ros.answer.localizedCaseInsensitiveContains("ROS2"))
-        #expect(ros.answer.localizedCaseInsensitiveContains("Python API"))
+        #expect(production.quality.passed)
+        #expect(architecture.quality.passed)
+        #expect(framework.quality.passed)
+        #expect(architecture.answer.localizedCaseInsensitiveContains("modular system architecture"))
+        #expect(!architecture.answer.localizedCaseInsensitiveContains("customer deployment"))
+        #expect(framework.answer.localizedCaseInsensitiveContains("service framework"))
+        #expect(framework.answer.localizedCaseInsensitiveContains("HTTP API"))
     }
 
     @Test
@@ -396,12 +398,12 @@ struct PhDDialogueReplayTests {
         )
         #expect(harness.appState.resolvedInterviewSessionPhase == .candidateQuestions)
         let candidateQuestions = [
-            "What is the first stage I should focus on in the first year?",
-            "What robot platform and tactile sensors will be used in this project?",
-            "Will I work directly with the hardware?",
+            "What is the first stage I should focus on in the first month?",
+            "Which service framework and test environments will be used in this project?",
+            "Will I work directly with the release pipeline?",
             "Based on my background, where could I make a strong contribution?",
-            "What do you think will be the biggest technical challenge in this PhD project?",
-            "What will success look like at the end of the PhD?",
+            "What do you think will be the biggest technical challenge in this project?",
+            "What will success look like at the end of the initial delivery phase?",
         ]
 
         for (offset, text) in candidateQuestions.enumerated() {
@@ -420,19 +422,19 @@ struct PhDDialogueReplayTests {
     func fullDialogueReplayOutputsStableReportAndSourceMetrics() async throws {
         let harness = try makeHarness()
         await harness.replay(PhDReplayTurn(200, "Panel A", .interviewer, .logistics, "You can start when ready."))
-        await harness.replay(PhDReplayTurn(201, "Candidate", .candidate, .candidatePresentation, "I will present the perception and manipulation approach."))
+        await harness.replay(PhDReplayTurn(201, "Candidate", .candidate, .candidatePresentation, "I will present the ingestion and validation approach."))
 
         let cases: [(PhDReplayTurn, String, PhDQuestionIntent)] = [
-            (PhDReplayTurn(210, "Panel B", .interviewer, .interviewerQuestions, "What did you do before Manchester, and what was your background?"), "before Manchester", .preMScBackground),
-            (PhDReplayTurn(211, "Panel B", .interviewer, .interviewerQuestions, "Prior to your MSc in Manchester, what is your background and engineering experience?"), "Prior to your MSc", .preMScBackground),
-            (PhDReplayTurn(212, "Panel B", .interviewer, .interviewerQuestions, "Did you do any projects with LLMs or VLMs, or is this new to you from this year?"), "LLMs or VLMs", .llmVlmExperience),
-            (PhDReplayTurn(213, "Panel B", .interviewer, .interviewerQuestions, "Is there a plan to publish the work you have been doing during the MSc?"), "publish", .publicationPlan),
+            (PhDReplayTurn(210, "Panel B", .interviewer, .interviewerQuestions, "What did you do before the current project, and what was your background?"), "before the current project", .preMScBackground),
+            (PhDReplayTurn(211, "Panel B", .interviewer, .interviewerQuestions, "What technical background did you have prior to this project, and what engineering experience prepared you?"), "prior to this project", .preMScBackground),
+            (PhDReplayTurn(212, "Panel B", .interviewer, .interviewerQuestions, "Did you do any projects with event streaming, or is that capability new to you?"), "event streaming", .llmVlmExperience),
+            (PhDReplayTurn(213, "Panel B", .interviewer, .interviewerQuestions, "Is there a plan to release the work after the current evaluation?"), "release", .publicationPlan),
             (PhDReplayTurn(214, "Panel A", .interviewer, .interviewerQuestions, "How does your skill set and experience fit this project?"), "fit this project", .skillFit),
-            (PhDReplayTurn(215, "Panel A", .interviewer, .interviewerQuestions, "What role does tactile sensing play in robot tool manipulation?"), "tactile sensing", .tactileRole),
-            (PhDReplayTurn(216, "Panel A", .interviewer, .interviewerQuestions, "Have you had any experience with tactile sensing, or is this just from your reading?"), "experience with tactile", .tactileExperience),
-            (PhDReplayTurn(217, "Panel B", .interviewer, .interviewerQuestions, "You have controlled a real robot before, right?"), "real robot", .realRobotExperience),
-            (PhDReplayTurn(218, "Panel B", .interviewer, .interviewerQuestions, "Which robots have you controlled, and what architectures did you use?"), "Which robots", .robotArchitecture),
-            (PhDReplayTurn(219, "Panel B", .interviewer, .interviewerQuestions, "Were you using ROS, or were you directly talking to the Python library?"), "using ROS", .rosControl),
+            (PhDReplayTurn(215, "Panel A", .interviewer, .interviewerQuestions, "What role does schema validation play in event ingestion?"), "schema validation", .tactileRole),
+            (PhDReplayTurn(216, "Panel A", .interviewer, .interviewerQuestions, "Have you had experience with event streaming, or is that knowledge from reading?"), "experience with event streaming", .tactileExperience),
+            (PhDReplayTurn(217, "Panel B", .interviewer, .interviewerQuestions, "Have you operated a production system before?"), "production system", .realRobotExperience),
+            (PhDReplayTurn(218, "Panel B", .interviewer, .interviewerQuestions, "Describe the system architecture you used for the event service, from ingestion through storage."), "system architecture", .robotArchitecture),
+            (PhDReplayTurn(219, "Panel B", .interviewer, .interviewerQuestions, "Were you using the service framework, or were you talking directly to the HTTP library?"), "service framework", .rosControl),
         ]
 
         print("| Turn | Speaker Role | Text Excerpt | Should Trigger | Detected Question | Answer Source | Result |")
@@ -452,9 +454,9 @@ struct PhDDialogueReplayTests {
             )
         )
         let candidateQuestions = [
-            "What should I focus on in the first year?",
-            "What robot and tactile sensors will be used?",
-            "Will I work directly with the hardware?",
+            "What should I focus on in the first month?",
+            "Which framework and test environments will be used?",
+            "Will I work directly with the release pipeline?",
             "Where could I contribute most strongly?",
             "What is the largest technical challenge?",
             "What will success look like at the end?",
@@ -501,13 +503,13 @@ struct PhDDialogueReplayTests {
         appState.answerProviderModeOverride = .localQwenPrimary
         appState.localLLMProviderOverride = PhDReplayLocalQwenProvider()
         let fixtureStatements = [
-            "Before my MSc, I completed a bachelor's in computer science and built transferable programming, deep-learning, and NLP skills",
-            "I am newer to LLM and VLM robotics this year; my earlier deep-learning and NLP work gave me a foundation, and my MSc provided current VLM and robotics exposure",
-            "I bring robot perception, language-guided manipulation, visual grounding, grasp selection, and ROS2 integration experience",
-            "I know tactile sensing mostly from reading rather than hands-on hardware work",
-            "I used ROS2 as the system framework and used Python APIs for lower-level commands where appropriate",
-            "I have controlled a small real robot arm using a ROS2 perception and manipulation architecture",
-            "I have controlled a real robot arm, while keeping that work distinct from my current dissertation"
+            "Before the current project, I completed a software engineering programme and built transferable programming, database, and API skills",
+            "I am newer to event streaming; earlier service work gave me a foundation, and the current synthetic project provides limited hands-on practice",
+            "I bring event ingestion, schema validation, deterministic replay, SQLite persistence, and failure-recovery experience",
+            "I know enterprise event streaming mostly from reading rather than hands-on production work",
+            "I used a service framework for coordination and used HTTP APIs for lower-level requests where appropriate",
+            "I operated an isolated staging service with a modular ingestion, validation, storage, and notification architecture",
+            "I have staging-system experience while keeping that evidence distinct from unsupported production operation"
         ]
         let fixtureEvidence = fixtureStatements.enumerated().map { index, statement in
             ProfileEvidence(
@@ -523,7 +525,7 @@ struct PhDDialogueReplayTests {
         }
         try appState.interviewContextRepository.saveCandidateProfile(CandidateProfile(
             id: "phd-replay-profile",
-            displayName: "Synthetic Robotics PhD Candidate",
+            displayName: "Synthetic Systems Candidate",
             sourceDocumentIDs: ["phd-replay-fixture"],
             education: [fixtureEvidence[0]],
             experience: Array(fixtureEvidence.dropFirst()),
@@ -532,11 +534,11 @@ struct PhDDialogueReplayTests {
             publications: [],
             achievements: [],
             declaredGaps: [ProfileEvidence(
-                id: "phd-replay-tactile-gap",
-                statement: "Tactile hardware is a declared learning area rather than completed hands-on experience",
+                id: "phd-replay-framework-gap",
+                statement: "Enterprise event streaming is a declared learning area rather than completed production experience",
                 sourceDocumentID: "phd-replay-fixture",
                 sourceChunkID: "phd-replay-gap-chunk",
-                sourceSpan: "Tactile hardware is a declared learning area rather than completed hands-on experience",
+                sourceSpan: "Enterprise event streaming is a declared learning area rather than completed production experience",
                 confidence: 1,
                 evidenceType: .declaredGap,
                 explicitness: .userConfirmed
@@ -548,7 +550,7 @@ struct PhDDialogueReplayTests {
         ))
         appState.refreshAll()
         appState.selectCandidateProfile("phd-replay-profile")
-        appState.selectInterviewDomain(.roboticsResearch)
+        appState.selectInterviewDomain(.general)
         appState.detectionDebounceSeconds = 0.01
         appState.delayProvider = MockDelayProvider()
 
@@ -723,7 +725,7 @@ private final class PhDReplayHarness {
 
 private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
     let id = "phd_replay_qwen"
-    let displayName = "PhD Replay Qwen"
+    let displayName = "Synthetic Replay Qwen"
 
     func healthCheck(modelName: String) async -> LocalLLMHealth {
         LocalLLMHealth(ollamaRunning: true, selectedModel: modelName, modelInstalled: true, providerSource: .ollamaQwen, lastError: nil)
@@ -746,34 +748,34 @@ private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
 
     private func answer(for prompt: String) -> String {
         let lower = currentQuestion(in: prompt).lowercased()
-        if lower.contains("prior to your msc") {
-            return "Before my MSc, I completed a bachelor's in computer science and built transferable programming, deep-learning, and NLP skills; I did not have extensive robotics experience before that degree."
+        if lower.contains("prior to this project") || lower.contains("before the current project") {
+            return "Before the current project, I completed a software engineering programme and built programming, database, and API skills; that earlier background led me into event-processing work."
         }
-        if lower.contains("llms or vlms") {
-            return "I am newer to LLM and VLM robotics this year; my earlier deep-learning and NLP work gave me a foundation, and my MSc provided current VLM and robotics exposure."
+        if lower.contains("event streaming") && lower.contains("new") {
+            return "I am newer to event streaming; my earlier service work gave me a foundation, and the current synthetic project provides limited hands-on experience without implying production expertise."
         }
-        if lower.contains("plan to publish") || lower.contains("publish the work") {
-            return "I am currently focused on the dissertation and benchmarking; publication is possible if the results are strong and align with my supervisor's research, but I would not promise it before that evaluation."
+        if lower.contains("plan to release") || lower.contains("release the work") {
+            return "A release is possible if the evaluation results meet documented criteria and stakeholder review approves the scope, but I would not present that future outcome as guaranteed."
         }
         if lower.contains("skill set") && lower.contains("fit this project") {
-            return "I bring robot perception, language-guided manipulation, visual grounding, grasp selection, and ROS2 integration experience; tactile sensing and world-action models are growth areas I would develop during the PhD."
+            return "My project evidence covers event-intake integration, schema validation, deterministic replay, and recovery testing, which are relevant to this work; enterprise event streaming remains a gap I would develop deliberately."
         }
-        if lower.contains("what role does tactile") {
-            return "I see tactile sensing as closed-loop feedback after contact: location, force, slip, pressure distribution, and material properties let the robot adapt tool manipulation in real time when vision alone is insufficient."
+        if lower.contains("what role does schema validation") {
+            return "I use schema validation as feedback on incoming data: it checks each input signal before the service makes a storage decision, adapts the processing path for invalid records, and is insufficient alone without semantic and recovery checks."
         }
-        if lower.contains("experience with tactile") {
-            return "I know tactile sensing mostly from reading rather than hands-on hardware work; I would transfer my perception, manipulation, and ROS2 experience while learning the sensors experimentally during the PhD."
+        if lower.contains("experience with event streaming") {
+            return "My documented project evidence includes limited hands-on synthetic event replay, while enterprise event streaming is mostly from reading; I would state that scope and gap rather than invent production experience."
         }
-        if lower.contains("using ros") || lower.contains("python library") {
-            return "I used ROS2 as the system framework and used Python APIs for lower-level commands where appropriate, so the Python library sat inside the ROS2 control pipeline rather than replacing it."
+        if lower.contains("service framework") || lower.contains("http library") {
+            return "I used the service framework to coordinate the processing pipeline and an HTTP API library for individual requests; explicit interfaces, trace logging, and tests kept the library boundary observable."
         }
-        if lower.contains("which robots") {
-            return "I have controlled a small real robot arm using a ROS2 perception and manipulation architecture; I would verify the exact platform label rather than repeat an uncertain ASR name."
+        if lower.contains("which systems") || lower.contains("system architecture") {
+            return "I used a modular system architecture with ingestion, validation, storage, and notification components connected by explicit interfaces; trace-based validation and recovery tests covered each execution handoff."
         }
-        if lower.contains("controlled a real robot") {
-            return "I have controlled a real robot arm, while keeping that work distinct from my current dissertation; my role covered the perception-to-manipulation pipeline and physical testing."
+        if lower.contains("operated a production system") {
+            return "I have not operated a customer production system; I operated an isolated staging service, where my role covered validation and failure testing within that limited scope."
         }
-        return "Before my MSc, I completed a bachelor's in computer science and worked with deep learning and NLP; my robotics experience developed later through the MSc, so I would not overclaim earlier robotics work."
+        return "Before the current project, I completed a software engineering programme and built programming, database, and API skills; that earlier background led me into event-processing work."
     }
 
     private func currentQuestion(in prompt: String) -> String {
