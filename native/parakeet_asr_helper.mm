@@ -89,8 +89,7 @@ void WriteJSON(NSDictionary *object, FILE *stream = stdout) {
   NSError *error = nil;
   NSData *data = [NSJSONSerialization dataWithJSONObject:object options:0 error:&error];
   if (data == nil) {
-    std::fprintf(stderr, "failed to encode JSON: %s\n",
-                 error.localizedDescription.UTF8String);
+    std::fprintf(stderr, "fatal code=json_encoding_failure\n");
     return;
   }
   std::fwrite(data.bytes, 1, data.length, stream);
@@ -98,13 +97,12 @@ void WriteJSON(NSDictionary *object, FILE *stream = stdout) {
   std::fflush(stream);
 }
 
-[[noreturn]] void Fail(const std::string &code, const std::string &message) {
+[[noreturn]] void Fail(const std::string &code, const std::string &) {
   WriteJSON(@{
     @"type" : @"error",
-    @"code" : [NSString stringWithUTF8String:code.c_str()],
-    @"message" : [NSString stringWithUTF8String:message.c_str()]
+    @"code" : [NSString stringWithUTF8String:code.c_str()]
   });
-  std::fprintf(stderr, "fatal: %s\n", message.c_str());
+  std::fprintf(stderr, "fatal code=%s\n", code.c_str());
   std::exit(1);
 }
 
@@ -502,8 +500,7 @@ int RunJSONL(const Options &options) {
     }
   };
 
-  std::fprintf(stderr, "native Parakeet ready session=%s capture_mode=%s\n",
-               options.sessionID.c_str(), options.captureMode.c_str());
+  std::fprintf(stderr, "native Parakeet ready\n");
   std::string line;
   while (std::getline(std::cin, line)) {
     if (line.empty()) {

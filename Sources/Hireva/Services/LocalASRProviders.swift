@@ -243,24 +243,24 @@ enum ParakeetHelperFailureCode: String, Codable, Equatable {
 
 enum ParakeetSidecarError: LocalizedError, Equatable {
     case executableNotConfigured
-    case launchFailed(String)
+    case launchFailed(code: Int)
     case invalidEvent(byteCount: Int)
     case exited(Int32)
-    case healthCheckFailed(String)
+    case healthCheckFailed
     case helperFailure(ParakeetHelperFailureCode)
 
     var errorDescription: String? {
         switch self {
         case .executableNotConfigured:
             return "Parakeet sidecar executable is not configured."
-        case .launchFailed(let message):
-            return "Parakeet sidecar failed to launch: \(message)"
+        case .launchFailed(let code):
+            return "Parakeet sidecar failed to launch (code \(code))."
         case .invalidEvent(let byteCount):
             return "Parakeet sidecar emitted invalid transcript JSON (\(byteCount) bytes)."
         case .exited(let code):
             return "Parakeet sidecar exited with code \(code)."
-        case .healthCheckFailed(let message):
-            return "Parakeet runtime health check failed: \(message)"
+        case .healthCheckFailed:
+            return "Parakeet runtime health check failed."
         case .helperFailure(let code):
             return "Parakeet native helper failed (\(code.rawValue))."
         }
@@ -319,6 +319,8 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
     private let continuation: AsyncThrowingStream<ParakeetTranscriptEvent, Error>.Continuation
     private let process: Process
     private var finished = false
+    private var sawEndOfOutput = false
+    private var processTerminationStatus: Int32?
 
     init(
         continuation: AsyncThrowingStream<ParakeetTranscriptEvent, Error>.Continuation,
@@ -332,15 +334,29 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
         guard !data.isEmpty else {
             handle.readabilityHandler = nil
             buffer.finish().forEach(emit)
-            // Never wait for a child process from a FileHandle readability
-            // callback. Finishing the stream triggers the bounded stop path.
-            let error: Error? = process.isRunning || process.terminationStatus == 0
-                ? nil
-                : ParakeetSidecarError.exited(process.terminationStatus)
-            finish(error)
+            lock.lock()
+            sawEndOfOutput = true
+            if processTerminationStatus == nil, !process.isRunning {
+                processTerminationStatus = process.terminationStatus
+            }
+            let status = processTerminationStatus
+            lock.unlock()
+            if let status {
+                finishForTermination(status)
+            }
             return
         }
         buffer.append(data).forEach(emit)
+    }
+
+    func processDidTerminate(status: Int32) {
+        lock.lock()
+        processTerminationStatus = status
+        let shouldFinish = sawEndOfOutput
+        lock.unlock()
+        if shouldFinish {
+            finishForTermination(status)
+        }
     }
 
     private func emit(_ line: String) {
@@ -376,11 +392,16 @@ private final class ParakeetOutputStreamState: @unchecked Sendable {
         }
         finished = true
         lock.unlock()
+        process.terminationHandler = nil
         if let error {
             continuation.finish(throwing: error)
         } else {
             continuation.finish()
         }
+    }
+
+    private func finishForTermination(_ status: Int32) {
+        finish(status == 0 ? nil : ParakeetSidecarError.exited(status))
     }
 }
 
@@ -468,7 +489,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         }
         let executable = FileManager.default.isExecutableFile(atPath: executableURL.path)
         guard executable else {
-            return .unavailable(path: executableURL.path, error: "Helper is not executable")
+            return .unavailable(path: Self.helperLocationLabel(executableURL), error: "Helper is not executable")
         }
         return Self.runHealthCheck(executableURL: executableURL, arguments: ["--health"], timeout: 3)
     }
@@ -513,7 +534,9 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         do {
             try process.run()
         } catch {
-            throw ParakeetSidecarError.launchFailed(error.localizedDescription)
+            let code = (error as NSError).code
+            PrivacySafeLogger.audioFailure(operation: .parakeetHelperLaunch, code: code)
+            throw ParakeetSidecarError.launchFailed(code: code)
         }
         _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         let generation = withInputStateLock {
@@ -533,6 +556,12 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
                 continuation: continuation,
                 process: process
             )
+            process.terminationHandler = { terminatedProcess in
+                outputState.processDidTerminate(status: terminatedProcess.terminationStatus)
+            }
+            if !process.isRunning {
+                outputState.processDidTerminate(status: process.terminationStatus)
+            }
             let stderrBuffer = ParakeetLineBuffer()
             stdoutHandle.readabilityHandler = { handle in
                 outputState.receive(handle.availableData, from: handle)
@@ -743,7 +772,9 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         do {
             try process.run()
         } catch {
-            return .unavailable(path: executableURL.path, error: error.localizedDescription)
+            let code = (error as NSError).code
+            PrivacySafeLogger.audioFailure(operation: .parakeetHelperHealth, code: code)
+            return .unavailable(path: helperLocationLabel(executableURL), error: "Helper launch failed (code \(code))")
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -766,28 +797,33 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             if !process.isRunning {
                 process.waitUntilExit()
             }
-            return .unavailable(path: executableURL.path, error: "Health check timed out")
+            return .unavailable(path: helperLocationLabel(executableURL), error: "Health check timed out")
         }
         let output = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorOutput = stderr.fileHandleForReading.readDataToEndOfFile()
+        _ = stderr.fileHandleForReading.readDataToEndOfFile()
         guard process.terminationStatus == 0 else {
-            let message = String(data: errorOutput, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let frame = try? JSONDecoder().decode(HelperFailureFrame.self, from: output)
+            let code = frame?.type == "error"
+                ? frame.flatMap { ParakeetHelperFailureCode(rawValue: $0.code) } ?? .runtimeFailure
+                : .runtimeFailure
             return .unavailable(
-                path: executableURL.path,
-                error: message?.isEmpty == false ? message : "Helper exited with \(process.terminationStatus)"
+                path: helperLocationLabel(executableURL),
+                error: "Helper failed (\(code.rawValue))"
             )
         }
         guard let health = try? JSONDecoder().decode(HelperHealth.self, from: output),
               health.status == "ok",
               health.source == ASRSource.localParakeetASR.rawValue,
-              health.runtimeMode == "bundled_native" else {
-            return .unavailable(path: executableURL.path, error: "Invalid helper health response")
+              health.runtimeMode == "bundled_native",
+              [health.runtimeVersion, health.sherpaVersion, health.onnxRuntimeVersion]
+                .allSatisfy(isSafeRuntimeToken),
+              ["not_probed", "ready"].contains(health.modelStatus) else {
+            return .unavailable(path: helperLocationLabel(executableURL), error: "Invalid helper health response")
         }
         guard health.architecture == currentArchitecture else {
             return .unavailable(
-                path: executableURL.path,
-                error: "Helper architecture \(health.architecture) does not match \(currentArchitecture)"
+                path: helperLocationLabel(executableURL),
+                error: "Helper architecture does not match this Mac"
             )
         }
         let bundlePath = Bundle.main.bundleURL.standardizedFileURL.path
@@ -795,7 +831,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         let bundled = helperPath.hasPrefix(bundlePath + "/Contents/Helpers/")
         return ParakeetRuntimeDiagnostics(
             runtimeMode: health.runtimeMode,
-            helperPath: helperPath,
+            helperPath: bundled ? "Bundled helper" : "Development helper",
             helperBundled: bundled,
             helperExecutable: true,
             helperArchitecture: health.architecture,
@@ -808,10 +844,27 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         )
     }
 
+    private struct HelperFailureFrame: Decodable {
+        let type: String
+        let code: String
+    }
+
+    private static func helperLocationLabel(_ executableURL: URL) -> String {
+        let bundlePath = Bundle.main.bundleURL.standardizedFileURL.path
+        let helperPath = executableURL.standardizedFileURL.path
+        return helperPath.hasPrefix(bundlePath + "/Contents/Helpers/")
+            ? "Bundled helper"
+            : "Development helper"
+    }
+
+    private static func isSafeRuntimeToken(_ value: String) -> Bool {
+        value.range(of: #"^[A-Za-z0-9._-]{1,32}$"#, options: .regularExpression) != nil
+    }
+
     private static func minimalRuntimeEnvironment() -> [String: String] {
         let environment = ProcessInfo.processInfo.environment
         var result = [
-            "HOME": environment["HOME"] ?? NSHomeDirectory(),
+            "HOME": "/var/empty",
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "LC_CTYPE": "UTF-8"
         ]

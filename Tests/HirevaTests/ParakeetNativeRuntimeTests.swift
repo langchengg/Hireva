@@ -173,6 +173,28 @@ struct ParakeetNativeRuntimeTests {
         #expect(source.contains("queue_limit_exceeded"))
         #expect(source.contains("audio_file_unavailable"))
         #expect(source.contains("runtime_conflict"))
+        #expect(!source.contains("@\"message\""))
+        #expect(!source.contains("fatal: %s"))
+    }
+
+    @Test
+    func healthFailureUsesStructuredCodeWithoutStderrOrHelperPath() async throws {
+        let privateDiagnosticToken = "fixture-private-\(UUID().uuidString)"
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        printf '%s\n' '{"type":"error","code":"model_file_unavailable"}'
+        printf '%s\n' '\(privateDiagnosticToken)' >&2
+        exit 1
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+
+        let diagnostics = await runtime.runtimeDiagnostics()
+
+        #expect(diagnostics.healthStatus == "failed")
+        #expect(diagnostics.helperPath == "Development helper")
+        #expect(diagnostics.lastHealthError == "Helper failed (model_file_unavailable)")
+        #expect(diagnostics.lastHealthError?.contains(privateDiagnosticToken) == false)
+        #expect(diagnostics.lastHealthError?.contains(helper.path) == false)
     }
 
     @Test
@@ -197,6 +219,30 @@ struct ParakeetNativeRuntimeTests {
         }
 
         #expect(events.map(\.segmentId) == ["line-1", "line-2", "line-3"])
+    }
+
+    @Test
+    func stdoutEOFWaitsForNonzeroProcessTermination() async throws {
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        exec 1>&-
+        sleep 0.2
+        exit 7
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "eof-before-exit", captureMode: .systemAudioOnly)
+        )
+
+        var receivedError: Error?
+        do {
+            for try await _ in stream {}
+        } catch {
+            receivedError = error
+        }
+
+        #expect(receivedError as? ParakeetSidecarError == .exited(7))
     }
 
     @Test
