@@ -85,10 +85,8 @@ build cache, DB, trace, Keychain, and transcript data.
 
 This is a controlled local-use handoff/archive package, not a portable public
 release.
-The current build identity embeds the source workspace's absolute `dist` path,
-so launching the copied app elsewhere can display the existing stale-build
-warning. Run and verify the canonical `dist/Hireva.app` when an
-unambiguous build-identity check is required.
+Release build identity omits source-workspace and expected-bundle absolute
+paths. Debug development builds may include them only through explicit opt-in.
 
 ## Configure the DeepSeek Key
 

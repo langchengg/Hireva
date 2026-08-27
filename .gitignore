@@ -2,6 +2,7 @@
 .swiftpm/
 dist/
 release/
+graphify-out/
 !script/release/
 !script/release/**
 DerivedData/

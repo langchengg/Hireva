@@ -9,11 +9,11 @@ The code, deterministic runtime harness, real local providers, persistence tests
 
 ## Scope and Environment
 
-- Original checkout: `/Users/delaynomore/Library/CloudStorage/GoogleDrive-langcheng.cn@gmail.com/My Drive/Hireva`
-- Isolated worktree: `/Users/delaynomore/Developer/Hireva-full-release-validation`
+- Original checkout: `$HIREVA_REPOSITORY`
+- Isolated worktree: `$HIREVA_VALIDATION_WORKTREE`
 - Base branch/commit: `fix/release-hardening` / `578e95c`
 - Validation branch: `codex/hireva-full-release-validation-20260804`
-- Verification evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260807-191024`
+- Verification evidence: `$HIREVA_VERIFICATION_ROOT/20260807-191024`
 - Host: macOS 26.3.2 (25D2150), arm64
 - Swift: Apple Swift 6.1 (`swiftlang-6.1.0.110.21`)
 - Developer tools: Command Line Tools selected; full Xcode is not selected
@@ -151,7 +151,7 @@ Baseline evidence is retained as `baseline_*.log` in the verification root and w
 
 ### Application bundle
 
-- Path: `/Users/delaynomore/Developer/Hireva-full-release-validation/dist/Hireva.app`
+- Path: `$HIREVA_VALIDATION_WORKTREE/dist/Hireva.app`
 - Bundle ID: `com.langcheng.Hireva`
 - Executable: `Contents/MacOS/Hireva`, arm64.
 - Native Parakeet helper and both bundled dylibs validate under deep code-signature verification.
@@ -173,8 +173,8 @@ The real native ASR decode and real Qwen checks were provider-level validations.
 
 ## Release Artifact
 
-- Directory: `/Users/delaynomore/Developer/Hireva-full-release-validation/release/Hireva-local-20260807-203346`
-- ZIP: `/Users/delaynomore/Developer/Hireva-full-release-validation/release/Hireva-local-20260807-203346.zip`
+- Directory: `$HIREVA_VALIDATION_WORKTREE/release/Hireva-local-20260807-203346`
+- ZIP: `$HIREVA_VALIDATION_WORKTREE/release/Hireva-local-20260807-203346.zip`
 - SHA-256: `e6e55109d835f8550a641f54dab842e3a9d2be58825525e6a4cfc66d3f90a1b3`
 - ZIP entries: 35 allowlisted app/documentation paths.
 - `Info.plist`: valid.

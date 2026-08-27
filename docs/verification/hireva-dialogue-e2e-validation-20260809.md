@@ -12,7 +12,7 @@
 ## Git Safety
 
 - Immutable recovery references were created before integration: branch `backup/dialogue-e2e-base-20260809` and annotated tag `backup-dialogue-e2e-base-20260809`.
-- The preflight status, complete diff, diff stat, untracked-file list, patch, and untracked-file copy are under `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e-preflight`.
+- The preflight status, complete diff, diff stat, untracked-file list, patch, and untracked-file copy are under `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e-preflight`.
 - Existing release-hardening work was preserved. Codex changes were integrated as separate commits rather than replacing the starting worktree.
 - Concurrent writer activity was stopped before integration. Potential duplicate or overlapping edits were resolved from tests, invariants, and implementation behavior rather than modification time.
 - No reset, clean, destructive checkout, main merge, main push, force push, or backup-ref modification was performed.
@@ -32,8 +32,8 @@
 - Debug fallback prompts retain project evidence instead of losing grounded context.
 - Speaker-attribution tests wait for Stage B registration and terminal lifecycle completion; sanitizer scheduling headroom is 90 seconds without relaxing production deadlines.
 - Local Qwen recovery prompts now require a grounded prospective support preference for support questions and a grounded development area for weakness questions. Unsafe or unaligned output is still rejected.
-- Final TSan: 753/753 tests, exit 0, no ThreadSanitizer diagnostic. Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_full_tsan.log`.
-- Final ASan: 753/753 tests, exit 0, no AddressSanitizer diagnostic. Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/full_asan_after_speaker_registration_90s.log`.
+- Final TSan: 753/753 tests, exit 0, no ThreadSanitizer diagnostic. Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_full_tsan.log`.
+- Final ASan: 753/753 tests, exit 0, no AddressSanitizer diagnostic. Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/full_asan_after_speaker_registration_90s.log`.
 
 ## Dialogue Test Matrix
 
@@ -41,7 +41,7 @@
 - It covers question detection, negative/non-question turns, context ownership, RAG evidence, alignment, intentional repeats, rapid follow-up supersession, stop/start, profile switching, failure recovery, and persistence identity.
 - Focused scenario matrix: 4/4 passed.
 - Related existing dialogue suites: 98/98 passed.
-- Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/dialogue_scenarios_focused_round4.log` and `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/dialogue_related_tests.log`.
+- Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/dialogue_scenarios_focused_round4.log` and `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/dialogue_related_tests.log`.
 
 ## Automated Dialogue Results
 
@@ -57,7 +57,7 @@
 - Apple Speech run: 9 app sessions, 9 first ScreenCaptureKit buffers, and 9 real utterance transcripts.
 - The observed chain was ScreenCaptureKit -> ASR -> transcript -> accepted question -> context/RAG -> local Qwen -> alignment -> visible suggestion -> SQLite.
 - Deep `codesign --strict` verification passed for the app, helper, and embedded dylibs. The app is ad-hoc signed, has no TeamIdentifier, and is correctly rejected by Gatekeeper as a public distribution artifact.
-- Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_app_build_verify.log`.
+- Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_app_build_verify.log`.
 
 ## Real Interview Conversation Results
 
@@ -66,7 +66,7 @@
 - Intentional repeat: three repeated real utterances produced three visible answers with three distinct question IDs and three distinct generation IDs.
 - Actual-overlap rapid follow-up: three strict qualifying groups passed. Each had two transcripts/questions/generations, zero visible output from the older generation, one visible output from the newest generation, and one rapid cancellation. One additional attempt did not qualify because the required visible needle was absent and was not counted as a pass.
 - The earlier sequential-audio scenario was not counted as rapid supersession because its first generation could finish before the second transcript. The final gate separates ordinary 8x40 visibility from a dedicated overlap test.
-- Evidence roots: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final-4212186-parakeet-8x40-v15`, `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final-4212186-apple-speech-9x9`, `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final-4212186-intentional-repeat-3x`, and `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final-4212186-rapid-growth-3x`.
+- Evidence roots: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final-4212186-parakeet-8x40-v15`, `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final-4212186-apple-speech-9x9`, `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final-4212186-intentional-repeat-3x`, and `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final-4212186-rapid-growth-3x`.
 
 ## Voice And ASR Results
 
@@ -84,7 +84,7 @@
 - Apple Speech first token p50/p95/max: 1539/1585/1585 ms.
 - Apple Speech first visible p50/p95/max: 2948/3680/3680 ms.
 - Apple Speech SQLite persistence p50/p95/max: 2986/3732/3732 ms.
-- Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_db_latency_summary.txt`.
+- Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_db_latency_summary.txt`.
 
 ## Restart And Failure Recovery
 
@@ -93,7 +93,7 @@
 - ASR hardening regressions passed 7/7; native Parakeet runtime tests passed 11/11; Ollama streaming transport regressions passed 8/8.
 - Profile switch cancellation, cross-profile late-callback rejection, active Stage B cancellation without provider persistence, and intentional repeat behavior passed focused tests.
 - Ollama cancellation and HTTP failure recovery were validated in deterministic transport tests. Stop while Qwen was active and immediate start after stop were covered by focused runtime lifecycle tests.
-- Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_restart_loop.log` and the `final_recovery_*.log` files in the verification root.
+- Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_restart_loop.log` and the `final_recovery_*.log` files in the verification root.
 
 ## Database And Privacy
 
@@ -105,7 +105,7 @@
 - Package inspection found 0 databases, traces, audio files, runtime logs, model directories, build/Git directories, common API-key patterns, or privacy UUID leaks.
 - The final ZIP contains 35 allowlisted entries and passed extracted-app deep signature verification. SHA-256: `ff48e178ca8ba6c88b470f9a19bf5441ba36853cee2e92aa99a0d975ca95a936`.
 - All generated dialogue databases and privacy data are under the dedicated verification root. One initial read-only `release_status.sh` invocation followed its default HOME and summarized five non-text metadata rows from the existing Hireva database; it did not modify data or print transcript/answer text. The final recorded invocation was immediately rerun with the dedicated validation HOME and overwrote that log.
-- Evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_privacy_summary.log`, `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_package_scan_summary.log`, and `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_db_diagnostics.log`.
+- Evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_privacy_summary.log`, `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_package_scan_summary.log`, and `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_db_diagnostics.log`.
 
 ## Automated Tests
 
@@ -113,8 +113,8 @@
 - Final RuntimeSmoke passed 12/12.
 - Final Runtime Stability Gate passed Swift build, full Swift test, RuntimeSmoke, deep signature verification, and real app launch. The packaging command repeated the release gate and returned 0.
 - Final TSan and ASan each passed the full 753-test suite with no sanitizer diagnostic.
-- Full suite evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_full_suite_round1.log`, `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_full_suite_round2.log`, and `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_full_suite_round3.log`.
-- Gate evidence: `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_runtime_smoke.log`, `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_runtime_stability.log`, and `/Users/delaynomore/Developer/HirevaVerificationArtifacts/20260809-225914-dialogue-e2e/final_4212186_package_local_release.log`.
+- Full suite evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_full_suite_round1.log`, `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_full_suite_round2.log`, and `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_full_suite_round3.log`.
+- Gate evidence: `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_runtime_smoke.log`, `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_runtime_stability.log`, and `$HIREVA_VERIFICATION_ROOT/20260809-225914-dialogue-e2e/final_4212186_package_local_release.log`.
 
 ## Remaining Risks
 

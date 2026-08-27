@@ -66,9 +66,8 @@ over. Record command output rather than relying on an earlier run.
 
 - Ad-hoc rebuilds change CDHash and can cause Keychain/TCC prompts.
 - The current local bundle is not automatically a notarized public distribution.
-- A packaged copy launched outside the source workspace's canonical `dist` path
-  can show the existing stale-build warning because the expected bundle path is
-  embedded as an absolute build-identity value.
+- Release builds omit source-workspace and expected-bundle absolute paths.
+  Debug development builds may include them only through explicit opt-in.
 - Google Drive/Finder can recreate xattrs, `.DS_Store`, and AppleDouble `._*` files.
 - Terminal runtime smoke does not exercise real TCC, ScreenCaptureKit, hardware,
   or Apple Speech callbacks.
@@ -87,8 +86,8 @@ over. Record command output rather than relying on an earlier run.
 - [ ] `./scripts/package_local_release.sh` passes without `--skip-verify`.
 - [ ] `RELEASE_INFO.txt` records branch, commit, dirty state, bundle ID,
       verification results, signing mode, and local-path warnings.
-- [ ] Recipients understand that the copied app is a local handoff artifact and
-      may show the existing stale-build warning outside the canonical `dist` path.
+- [ ] Recipients understand the signing and Gatekeeper limitations of the exact
+      local handoff artifact.
 - [ ] The release directory and ZIP contain only the app and named operator docs.
 - [ ] Archive listing contains no `.git`, `.build`, DB, trace, `.DS_Store`,
       AppleDouble `._*`, Keychain, or transcript data.
