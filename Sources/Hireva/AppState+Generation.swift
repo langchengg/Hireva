@@ -499,7 +499,6 @@ private func runManualAnswer(session: InterviewSession, transcript: String) asyn
         self.lastQuestionDetectionModel = detection.response.modelName
         saveDetectedQuestionInBackground(detection.question)
         updateDiagnostics {
-            $0.lastDetectedQuestionJSON = detection.question.rawJSON
             $0.lastAPILatencyMS = detection.response.latencyMS
             $0.lastProviderName = detection.response.providerName
             $0.lastProviderModel = detection.response.modelName
@@ -1638,7 +1637,7 @@ private func makeSemanticFallbackCard(
         providerBaseURL: "",
         latencyMS: card.latencyMS,
         isLocal: true,
-        rawJSON: card.rawJSON,
+        rawJSON: nil,
         createdAt: Date(),
         questionText: question.questionText,
         transcriptSegmentID: question.transcriptSegmentID,
@@ -1657,7 +1656,7 @@ private func makeSemanticFallbackCard(
         ragChunkIntents: card.ragChunkIntents,
         firstQuestionSuppressedReason: card.firstQuestionSuppressedReason,
         promptTokenEstimate: card.promptTokenEstimate,
-        promptContextPreview: card.promptContextPreview,
+        promptContextPreview: nil,
         mismatchReason: mismatchReason,
         sayFirstSource: "semantic_intent_fallback",
         stageATimedOut: card.stageATimedOut,
@@ -2834,7 +2833,7 @@ func finishGenerationWithVisibleCard(
         fallback.ragChunkIDs = finalCard.ragChunkIDs
         fallback.ragChunkIntents = finalCard.ragChunkIntents
         fallback.promptTokenEstimate = finalCard.promptTokenEstimate
-        fallback.promptContextPreview = finalCard.promptContextPreview
+        fallback.promptContextPreview = nil
         fallback.stageATimedOut = finalCard.stageATimedOut ?? false
         fallback.stageBCompleted = false
         fallback.stageBStatus = "timed_out"
@@ -3638,7 +3637,7 @@ private func localTimeoutFallbackForRejectedPersistence(
     fallback.ragChunkIDs = sourceCard.ragChunkIDs
     fallback.ragChunkIntents = sourceCard.ragChunkIntents
     fallback.promptTokenEstimate = sourceCard.promptTokenEstimate
-    fallback.promptContextPreview = sourceCard.promptContextPreview
+    fallback.promptContextPreview = nil
     fallback.stageATimedOut = sourceCard.stageATimedOut ?? true
     fallback.stageBCompleted = false
     fallback.stageBStatus = "timed_out"

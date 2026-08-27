@@ -194,7 +194,6 @@ final class AppState: ObservableObject {
     @Published public var lastQuestionConfidence: Double = 0.0
     @Published public var lastDetectionShouldTrigger: Bool = false
     @Published public var lastDetectionReason: String = ""
-    @Published public var lastDetectionRawJSON: String = ""
     @Published public var lastDetectionSkipReason: String = ""
     @Published public var ignoredCandidateQuestionCount: Int = 0
     @Published public var ignoredSmallTalkCount: Int = 0
@@ -1954,7 +1953,7 @@ final class AppState: ObservableObject {
                 ragChunkIDs: promptSnapshot.ragChunkIDs,
                 ragChunkIntents: promptSnapshot.ragChunkIntents,
                 promptTokenEstimate: promptSnapshot.promptTokenEstimate,
-                promptContextPreview: promptSnapshot.ragChunkPreviews.joined(separator: "\n"),
+                promptContextPreview: nil,
                 sayFirstSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback",
                 stageATimedOut: !isSoft,
                 stageBCompleted: false,
@@ -2680,7 +2679,7 @@ final class AppState: ObservableObject {
 	                    ragChunkIDs: promptSnapshot.ragChunkIDs,
 	                    ragChunkIntents: promptSnapshot.ragChunkIntents,
 	                    promptTokenEstimate: promptSnapshot.promptTokenEstimate,
-	                    promptContextPreview: promptSnapshot.ragChunkPreviews.joined(separator: "\n"),
+	                    promptContextPreview: nil,
 	                    sayFirstSource: "deepseek_stream",
                     stageATimedOut: false,
                     stageBCompleted: false,

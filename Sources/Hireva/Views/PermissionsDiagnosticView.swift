@@ -1053,22 +1053,6 @@ struct PermissionsDiagnosticView: View {
                 .padding(10)
                 .background(Color.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
                 
-                if !appState.lastDetectionRawJSON.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Raw JSON Response")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ScrollView {
-                            Text(appState.lastDetectionRawJSON)
-                                .font(.system(size: 9, design: .monospaced))
-                                .padding(8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.black.opacity(0.15))
-                        }
-                        .frame(height: 80)
-                        .cornerRadius(4)
-                    }
-                }
             }
             
             Divider()

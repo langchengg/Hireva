@@ -499,6 +499,21 @@ final class AppDatabase {
             try DynamicContextMigration.migrate(db)
         }
 
+        migrator.registerMigration("v17_discard_raw_provider_context") { db in
+            try db.execute(sql: """
+                UPDATE detected_questions
+                SET raw_json = NULL
+                WHERE raw_json IS NOT NULL
+                """)
+            try db.execute(sql: """
+                UPDATE suggestion_cards
+                SET raw_json = NULL,
+                    prompt_context_preview = NULL
+                WHERE raw_json IS NOT NULL
+                   OR prompt_context_preview IS NOT NULL
+                """)
+        }
+
         return migrator
     }
 }

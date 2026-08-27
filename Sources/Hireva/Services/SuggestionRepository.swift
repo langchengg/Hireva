@@ -38,7 +38,7 @@ final class SuggestionRepository {
                     question.providerBaseURL,
                     question.latencyMS,
                     question.isLocal,
-                    question.rawJSON,
+                    nil as String?, // Raw provider payloads are never durable.
                     DateCoding.string(from: question.createdAt)
                 ]
             )
@@ -195,7 +195,7 @@ final class SuggestionRepository {
                     card.answerIntent?.rawValue,
                     card.promptQuestionText,
                     card.promptTokenEstimate,
-                    card.promptContextPreview,
+                    nil as String?, // Prompt evidence previews are never durable.
                     card.mismatchReason,
                     card.strategy,
                     card.sayFirst,
@@ -212,7 +212,7 @@ final class SuggestionRepository {
                     card.providerBaseURL,
                     card.latencyMS,
                     card.isLocal,
-                    card.rawJSON,
+                    nil as String?, // Raw provider payloads are never durable.
                     incomingCreatedAt,
                     card.sayFirstSource,
                     card.stageATimedOut == true ? 1 : 0,
@@ -452,7 +452,7 @@ final class SuggestionRepository {
             providerBaseURL: row["provider_base_url"],
             latencyMS: row["latency_ms"],
             isLocal: row["is_local"],
-            rawJSON: row["raw_json"],
+            rawJSON: nil,
             createdAt: DateCoding.date(from: row["created_at"])
         )
     }
@@ -486,7 +486,7 @@ final class SuggestionRepository {
             providerBaseURL: row["provider_base_url"],
             latencyMS: row["latency_ms"],
             isLocal: row["is_local"],
-            rawJSON: row["raw_json"],
+            rawJSON: nil,
             createdAt: DateCoding.date(from: row["created_at"]),
             questionText: row["question_text"],
             transcriptSegmentID: row["transcript_segment_id"],
@@ -508,7 +508,7 @@ final class SuggestionRepository {
             ragChunkIntents: ragChunkIntentRawValues.compactMap(AnswerRelevanceIntent.init(rawValue:)),
             firstQuestionSuppressedReason: row["first_question_suppressed_reason"],
             promptTokenEstimate: row["prompt_token_estimate"],
-            promptContextPreview: row["prompt_context_preview"],
+            promptContextPreview: nil,
             mismatchReason: row["mismatch_reason"],
             sayFirstSource: row["say_first_source"],
             stageATimedOut: stageATimedOutInt == 1,

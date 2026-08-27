@@ -140,7 +140,7 @@ final class QuestionDetectionService {
                 providerBaseURL: response.baseURL,
                 latencyMS: response.latencyMS,
                 isLocal: response.isLocal,
-                rawJSON: response.content,
+                rawJSON: nil,
                 createdAt: Date()
             )
             return (question, response)
@@ -258,9 +258,14 @@ final class QuestionDetectionService {
         let shouldTrigger = candidate.isComplete && acceptedCandidate != nil
         let questionText = acceptedCandidate?.text ?? candidate.text
         let confidence = shouldTrigger ? heuristic.confidence : min(heuristic.confidence, 0.5)
-        let reason = "Local fallback used after question detector failed: \(error.localizedDescription). \(heuristic.reason)"
-        let rawJSON = """
-        {"should_trigger":\(shouldTrigger),"question_complete":\(shouldTrigger),"question_text":\(jsonString(questionText)),"intent":"\(classified.intent.rawValue)","answer_strategy":"\(shouldTrigger ? classified.strategy.rawValue : AnswerStrategy.wait.rawValue)","confidence":\(confidence),"reason":\(jsonString(shouldTrigger ? reason : "\(reason) Runtime question guard rejected fallback question: \(guardResult.reason?.rawValue ?? "unknown"). \(guardResult.diagnostic)"))}
+        let failureCode = (error as? LLMProviderError)?.code.rawValue ?? "question_detector_failure"
+        let heuristicOutcome = heuristic.shouldTrigger ? "local_heuristic_match" : "local_heuristic_no_match"
+        let reason = "Local fallback used after question detector failure (\(failureCode), \(heuristicOutcome))."
+        let persistedReason = shouldTrigger
+            ? reason
+            : "\(reason) Runtime question guard rejected fallback question (\(guardResult.reason?.rawValue ?? "unknown"))."
+        let responseJSON = """
+        {"should_trigger":\(shouldTrigger),"question_complete":\(shouldTrigger),"question_text":\(jsonString(questionText)),"intent":"\(classified.intent.rawValue)","answer_strategy":"\(shouldTrigger ? classified.strategy.rawValue : AnswerStrategy.wait.rawValue)","confidence":\(confidence),"reason":\(jsonString(persistedReason))}
         """
         let question = DetectedQuestion(
             id: UUID().uuidString,
@@ -270,7 +275,7 @@ final class QuestionDetectionService {
             intent: classified.intent,
             answerStrategy: shouldTrigger ? classified.strategy : .wait,
             confidence: confidence,
-            reason: shouldTrigger ? reason : "\(reason) Runtime question guard rejected fallback question: \(guardResult.reason?.rawValue ?? "unknown"). \(guardResult.diagnostic)",
+            reason: persistedReason,
             shouldTrigger: shouldTrigger,
             questionComplete: shouldTrigger,
             modelName: "local-question-fallback",
@@ -280,18 +285,18 @@ final class QuestionDetectionService {
             providerBaseURL: "",
             latencyMS: 0,
             isLocal: true,
-            rawJSON: rawJSON,
+            rawJSON: nil,
             createdAt: Date()
         )
         let response = LLMChatResult(
-            content: rawJSON,
+            content: responseJSON,
             modelName: "local-question-fallback",
             providerKind: .openAICompatible,
             providerName: "Local Question Fallback",
             baseURL: "",
             latencyMS: 0,
             isLocal: true,
-            rawResponse: rawJSON
+            rawResponse: nil
         )
         return (question, response)
     }

@@ -439,7 +439,6 @@ extension AppState {
         lastQuestionConfidence = 0.0
         lastDetectionShouldTrigger = false
         lastDetectionReason = ""
-        lastDetectionRawJSON = ""
         lastDetectionSkipReason = ""
         ignoredCandidateQuestionCount = 0
         ignoredSmallTalkCount = 0
@@ -575,7 +574,6 @@ extension AppState {
         lastQuestionConfidence = 0.0
         lastDetectionShouldTrigger = false
         lastDetectionReason = ""
-        lastDetectionRawJSON = ""
         lastDetectionSkipReason = ""
         ignoredCandidateQuestionCount = 0
         ignoredSmallTalkCount = 0

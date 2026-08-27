@@ -206,13 +206,11 @@ extension AppState {
         lastQuestionConfidence = latestQuestion.confidence
         lastDetectionShouldTrigger = true
         lastDetectionReason = latestQuestion.intent.displayName
-        lastDetectionRawJSON = latestQuestion.rawJSON ?? ""
         lastDetectionQuestionComplete = true
         lastDetectionAnswerStrategy = latestQuestion.answerStrategy.displayName
         lastQuestionDetectionResult = "Extracted \(freshQuestions.count) new question(s) from one transcript. Latest: \"\(latestQuestion.questionText)\""
 
         updateDiagnostics {
-            $0.lastDetectedQuestionJSON = latestQuestion.rawJSON
             $0.lastProviderName = "Local Question Extractor"
             $0.lastProviderModel = "system-audio-question-extractor"
         }
@@ -334,9 +332,6 @@ extension AppState {
         segment: TranscriptSegment,
         createdAt: Date
     ) -> DetectedQuestion {
-        let rawJSON = """
-        {"should_trigger":true,"question_complete":true,"question_text":\(JSONParsing.jsonString(extracted.text)),"intent":"\(extracted.intent.rawValue)","answer_strategy":"\(extracted.answerStrategy.rawValue)","confidence":\(extracted.confidence),"reason":"Extracted from multi-question system audio transcript."}
-        """
         return DetectedQuestion(
             id: UUID().uuidString,
             sessionID: sessionID,
@@ -355,7 +350,7 @@ extension AppState {
             providerBaseURL: "",
             latencyMS: 0,
             isLocal: true,
-            rawJSON: rawJSON,
+            rawJSON: nil,
             createdAt: createdAt,
             ingressIdentity: TranscriptQuestionIngressIdentity(
                 recognitionTaskID: segment.recognitionTaskID ?? "segment:\(segment.id)",
@@ -536,7 +531,6 @@ extension AppState {
             self.lastQuestionDetectionProvider = detection.response.providerName
             self.lastQuestionDetectionModel = detection.response.modelName
             updateDiagnostics {
-                $0.lastDetectedQuestionJSON = detection.question.rawJSON
                 $0.lastAPILatencyMS = detection.response.latencyMS
                 $0.lastProviderName = detection.response.providerName
                 $0.lastProviderModel = detection.response.modelName
@@ -583,7 +577,6 @@ extension AppState {
             self.lastQuestionConfidence = question.confidence
             self.lastDetectionShouldTrigger = question.shouldTrigger
             self.lastDetectionReason = question.intent.displayName
-            self.lastDetectionRawJSON = question.rawJSON ?? ""
             self.lastDetectionSkipReason = ""
             self.lastDetectionQuestionComplete = question.questionComplete
             self.lastDetectionAnswerStrategy = question.answerStrategy.displayName
@@ -1035,7 +1028,7 @@ extension AppState {
             providerBaseURL: current.providerBaseURL,
             latencyMS: current.latencyMS,
             isLocal: current.isLocal,
-            rawJSON: current.rawJSON,
+            rawJSON: nil,
             createdAt: current.createdAt
         )
         _ = finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
@@ -1198,9 +1191,6 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.detectedQuestionID = question.id
             lastTranscriptQuestionGenerationTrace.questionConfidence = min(question.confidence, 0.5)
             lastTranscriptQuestionGenerationTrace.questionIntent = question.intent.rawValue
-        }
-        updateDiagnostics {
-            $0.lastDetectedQuestionJSON = question.rawJSON
         }
     }
 

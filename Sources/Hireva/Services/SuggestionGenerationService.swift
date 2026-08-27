@@ -87,7 +87,7 @@ final class SuggestionGenerationService {
             providerBaseURL: response.baseURL,
             latencyMS: response.latencyMS,
             isLocal: response.isLocal,
-            rawJSON: response.content,
+            rawJSON: nil,
             createdAt: Date(),
             questionIntent: snapshot.questionIntent,
             promptQuestionText: snapshot.questionTextSnapshot,
@@ -99,7 +99,7 @@ final class SuggestionGenerationService {
             ragChunkIDs: snapshot.ragChunkIDs,
             ragChunkIntents: snapshot.ragChunkIntents,
             promptTokenEstimate: snapshot.promptTokenEstimate,
-            promptContextPreview: snapshot.ragChunkPreviews.joined(separator: "\n")
+            promptContextPreview: nil
         )
         return (card, response)
     }
@@ -226,7 +226,7 @@ final class SuggestionGenerationService {
             providerBaseURL: response.baseURL,
             latencyMS: response.latencyMS,
             isLocal: response.isLocal,
-            rawJSON: response.content,
+            rawJSON: nil,
             createdAt: Date(),
             questionIntent: snapshot.questionIntent,
             promptQuestionText: snapshot.questionTextSnapshot,
@@ -238,7 +238,7 @@ final class SuggestionGenerationService {
             ragChunkIDs: snapshot.ragChunkIDs,
             ragChunkIntents: snapshot.ragChunkIntents,
             promptTokenEstimate: snapshot.promptTokenEstimate,
-            promptContextPreview: snapshot.ragChunkPreviews.joined(separator: "\n")
+            promptContextPreview: nil
         )
         
         return (card, response)
