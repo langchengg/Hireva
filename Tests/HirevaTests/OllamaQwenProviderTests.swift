@@ -93,6 +93,36 @@ struct OllamaQwenProviderTests {
     }
 
     @Test
+    func ollamaProviderErrorPayloadDoesNotCrossThePresentationBoundary() throws {
+        let privateCanary = "CANDIDATE-CV-CANARY-/Users/synthetic-private/cv.txt?token=synthetic-secret"
+        var accumulator = OllamaResponseAccumulator(schema: .chatMessageContent)
+
+        do {
+            _ = try accumulator.ingest(#"{"error":"\#(privateCanary)"}"#)
+            Issue.record("Expected the provider error event to fail")
+        } catch let error as OllamaQwenProviderError {
+            #expect(error.category == .providerHTTPError)
+            #expect(error.errorDescription == "Local Ollama request failed (provider_http_error).")
+            #expect(error.localizedDescription.contains(privateCanary) == false)
+            #expect(String(describing: error).contains(privateCanary) == false)
+        }
+    }
+
+    @Test
+    func ollamaErrorsCarryOnlyClosedCategoriesAndFixedCopy() {
+        let cases: [(OllamaQwenProviderError, String)] = [
+            (.modelNotReady, "The selected Ollama model is not installed."),
+            (.invalidResponse, "Ollama returned an invalid response (response_schema_mismatch)."),
+            (.categorized(.providerHTTPError), "Local Ollama request failed (provider_http_error).")
+        ]
+
+        for (error, expectedCopy) in cases {
+            #expect(error.localizedDescription == expectedCopy)
+            #expect(error.description == expectedCopy)
+        }
+    }
+
+    @Test
     func ollamaCancellationAndTimeoutAreDistinct() {
         #expect(OllamaFailureCategory.classify(CancellationError()) == .requestCancelled)
         #expect(OllamaFailureCategory.classify(URLError(.cancelled)) == .requestCancelled)

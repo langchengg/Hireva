@@ -182,7 +182,7 @@ struct OllamaResponseAccumulator {
         if let providerError = envelope.error?.trimmingCharacters(in: .whitespacesAndNewlines),
            !providerError.isEmpty {
             diagnostics.finalErrorCategory = .providerHTTPError
-            throw OllamaQwenProviderError.categorized(.providerHTTPError, providerError)
+            throw OllamaQwenProviderError.categorized(.providerHTTPError)
         }
 
         let expectedContent: String?
@@ -223,19 +223,19 @@ struct OllamaResponseAccumulator {
 
     mutating func finish(requireDone: Bool) throws -> OllamaParsedResponse {
         if schemaMismatchObserved {
-            return try fail(.responseSchemaMismatch, "Ollama response did not match the selected endpoint schema.")
+            return try fail(.responseSchemaMismatch)
         }
         if content.isEmpty {
             if diagnostics.reasoningCharacters > 0 {
-                return try fail(.reasoningReceivedWithoutFinalAnswer, "Ollama returned reasoning metadata without a final answer.")
+                return try fail(.reasoningReceivedWithoutFinalAnswer)
             }
             if diagnostics.malformedEvents > 0 && diagnostics.malformedEvents == diagnostics.chunksReceived {
-                return try fail(.malformedStreamEvent, "Ollama returned no decodable response events.")
+                return try fail(.malformedStreamEvent)
             }
-            return try fail(.providerReturnedNoContent, "Ollama returned no final answer content.")
+            return try fail(.providerReturnedNoContent)
         }
         if requireDone && !diagnostics.streamCompleted {
-            return try fail(.streamParserDroppedContent, "Ollama response ended before a done event.")
+            return try fail(.streamParserDroppedContent)
         }
         diagnostics.rawContentCharacters = content.count
         diagnostics.parsedContentCharacters = content.count
@@ -243,9 +243,9 @@ struct OllamaResponseAccumulator {
         return OllamaParsedResponse(content: content, diagnostics: diagnostics)
     }
 
-    private mutating func fail(_ category: OllamaFailureCategory, _ message: String) throws -> OllamaParsedResponse {
+    private mutating func fail(_ category: OllamaFailureCategory) throws -> OllamaParsedResponse {
         diagnostics.finalErrorCategory = category
-        throw OllamaQwenProviderError.categorized(category, message)
+        throw OllamaQwenProviderError.categorized(category)
     }
 }
 

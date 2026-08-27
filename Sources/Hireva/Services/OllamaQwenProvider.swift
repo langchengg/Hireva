@@ -61,11 +61,11 @@ protocol LocalLLMDiagnosticsProviding {
     var lastGenerationDiagnostics: OllamaProviderDiagnostics { get }
 }
 
-enum OllamaQwenProviderError: LocalizedError, Equatable {
+enum OllamaQwenProviderError: LocalizedError, Equatable, CustomStringConvertible {
     case ollamaNotRunning
-    case modelNotReady(String)
-    case invalidResponse(String)
-    case categorized(OllamaFailureCategory, String)
+    case modelNotReady
+    case invalidResponse
+    case categorized(OllamaFailureCategory)
 
     var category: OllamaFailureCategory {
         switch self {
@@ -73,7 +73,7 @@ enum OllamaQwenProviderError: LocalizedError, Equatable {
             return .providerHTTPError
         case .invalidResponse:
             return .responseSchemaMismatch
-        case .categorized(let category, _):
+        case .categorized(let category):
             return category
         }
     }
@@ -82,13 +82,17 @@ enum OllamaQwenProviderError: LocalizedError, Equatable {
         switch self {
         case .ollamaNotRunning:
             return "Ollama is not running on localhost."
-        case .modelNotReady(let model):
-            return "Ollama model '\(model)' is not installed."
-        case .invalidResponse(let message):
-            return message
-        case .categorized(_, let message):
-            return message
+        case .modelNotReady:
+            return "The selected Ollama model is not installed."
+        case .invalidResponse:
+            return "Ollama returned an invalid response (\(category.rawValue))."
+        case .categorized:
+            return "Local Ollama request failed (\(category.rawValue))."
         }
+    }
+
+    var description: String {
+        errorDescription ?? "Local Ollama request failed."
     }
 }
 
@@ -138,12 +142,13 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
                 lastError: nil
             )
         } catch {
+            let category = OllamaFailureCategory.classify(error)
             return LocalLLMHealth(
                 ollamaRunning: false,
                 selectedModel: modelName,
                 modelInstalled: false,
                 providerSource: .ollamaQwen,
-                lastError: error.localizedDescription
+                lastError: "Local Ollama health check failed (\(category.rawValue))."
             )
         }
     }
@@ -198,7 +203,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         let models = try await modelNamesUsingCache()
         try Task.checkCancellation()
         guard models.contains(localRequest.modelName) else {
-            throw OllamaQwenProviderError.modelNotReady(localRequest.modelName)
+            throw OllamaQwenProviderError.modelNotReady
         }
         let diagnosticsGeneration = beginDiagnosticsGeneration(modelName: localRequest.modelName)
 
@@ -378,7 +383,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         guard !trimmed.isEmpty else { return false }
         let event = try decoder.decode(OllamaGenerateResponse.self, from: Data(trimmed.utf8))
         if let error = event.error, !error.isEmpty {
-            throw OllamaQwenProviderError.invalidResponse(error)
+            throw OllamaQwenProviderError.invalidResponse
         }
         let text = event.response ?? ""
         if !text.isEmpty {
@@ -391,10 +396,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
     private static func validate(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200...299).contains(http.statusCode) else {
-            throw OllamaQwenProviderError.categorized(
-                .providerHTTPError,
-                "Ollama returned HTTP \(http.statusCode)."
-            )
+            throw OllamaQwenProviderError.categorized(.providerHTTPError)
         }
     }
 }
