@@ -12,9 +12,9 @@ struct GenerationContextIsolationTests {
         let snapshot = AnswerRelevancePolicy.promptSnapshot(
             question: current,
             context: mixedContext(),
-            transcriptContext: "Interviewer: Which part of the LeoRover pipeline was most fragile when moving from a clean demo to real robot execution?",
-            cvSummary: "Candidate has robotics, LeoRover, and VLA experience.",
-            jdSummary: "Robotics role.",
+            transcriptContext: "Interviewer: Which part of the synthetic event-processing pipeline was most fragile when moving from a clean demo to production deployment?",
+            cvSummary: "Synthetic candidate has event-processing and sequence-model evaluation experience.",
+            jdSummary: "Synthetic software reliability role.",
             stage: .firstAnswer
         )
 
@@ -30,14 +30,14 @@ struct GenerationContextIsolationTests {
             #expect(questionRange.lowerBound < backgroundRange.lowerBound)
         }
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("Previous transcript is background only and must not change the question."))
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("Which part of the LeoRover pipeline was most fragile") == false)
+        #expect(snapshot.prompt.localizedCaseInsensitiveContains("Which part of the synthetic event-processing pipeline was most fragile") == false)
     }
 
     @Test
     func firstAnswerWorthyQuestionIsNotSuppressedByStaleDuplicateMemory() async throws {
         let client = ContextIsolationLLMClient()
         let (appState, _, session) = try makeAppState(client: client)
-        let questionText = "First, could you tell me a little bit about yourself and what brought you into robotics?"
+        let questionText = "First, could you tell me a little bit about yourself and what brought you into software systems?"
 
         #expect(appState.isDuplicateAutoQuestion(questionText) == false)
 
@@ -64,7 +64,7 @@ struct GenerationContextIsolationTests {
         let retrieval = ContextIsolationRetrievalService()
         let (appState, _, session) = try makeAppState(client: client, retrievalService: retrieval)
         let first = try saveQuestion(
-            "Which part of the pipeline was most fragile when moving from a clean demo to real robot execution?",
+            "Which part of the synthetic event-processing pipeline was most fragile when moving from a clean demo to production deployment?",
             sessionID: session.id,
             repository: appState.suggestionRepository,
             suffix: "fragility"
@@ -243,10 +243,10 @@ struct GenerationContextIsolationTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(database: database, llmRouter: router, contextRetrievalService: retrievalService)
         let fixtureStatements = [
-            "I am studying MSc Robotics at the University of Manchester, and my computer science background led me toward robotics because it combines software, perception, control, and real-world systems",
-            "The diffusion policy performed better because it produced smoother continuous actions, handled the action distribution more robustly than the autoregressive and flow-matching variants, and reached seven out of ten successful grasps",
-            "The most fragile part was the real robot integration, where noisy perception, localisation instability, and timing between navigation and manipulation made the pipeline less predictable",
-            "I want this role because it connects with my robotics, perception, AI, and real robot deployment interests while helping me grow as an engineer"
+            "The synthetic candidate completed a software systems certificate at Example Technical Institute, and a computing background led to an interest in distributed services and reliability",
+            "The diffusion-based policy performed better than the autoregressive policy because it produced smoother forecasts, handled uncertainty more robustly than the autoregressive and flow-matching variants, and succeeded in seven out of ten synthetic trials",
+            "The most fragile part was the production service integration, where noisy events, routing instability, and timing between ingestion and persistence made the pipeline less predictable",
+            "The synthetic candidate wants this opportunity because it connects with event processing, reliability, and production service deployment while supporting continued engineering growth"
         ]
         let evidence = fixtureStatements.enumerated().map { index, statement in
             ProfileEvidence(
@@ -478,16 +478,16 @@ private final class ContextIsolationLLMClient: LLMClientProtocol, @unchecked Sen
     private func sayFirst(for question: String) -> String {
         let lower = question.lowercased()
         if lower.contains("diffusion") || lower.contains("autoregressive") {
-            return "The diffusion policy performed better because it produced smoother continuous actions, handled the action distribution more robustly than the autoregressive and flow-matching variants, and reached seven out of ten successful grasps."
+            return "The diffusion-based policy performed better than the autoregressive policy because it produced smoother forecasts, handled uncertainty more robustly than the autoregressive and flow-matching variants, and succeeded in seven out of ten synthetic trials."
         }
-        if lower.contains("fragile") || lower.contains("real robot execution") {
-            return "The most fragile part was the real robot integration, where noisy perception, localisation instability, and timing between navigation and manipulation made the pipeline less predictable."
+        if lower.contains("fragile") || lower.contains("production deployment") {
+            return "The most fragile part was the production service integration, where noisy events, routing instability, and timing between ingestion and persistence made the pipeline less predictable."
         }
-        if lower.contains("about yourself") || lower.contains("robotics") {
-            return "I am studying MSc Robotics at the University of Manchester, and my computer science background led me toward robotics because it combines software, perception, control, and real-world systems."
+        if lower.contains("about yourself") || lower.contains("software systems") {
+            return "The synthetic candidate completed a software systems certificate at Example Technical Institute, and a computing background led to an interest in distributed services and reliability."
         }
         if lower.contains("join our team") || lower.contains("this role") {
-            return "I want this role because it connects with my robotics, perception, AI, and real robot deployment interests while helping me grow as an engineer."
+            return "The synthetic candidate wants this opportunity because it connects with event processing, reliability, and production service deployment while supporting continued engineering growth."
         }
         return "I would answer this current question directly and keep it specific to the interviewer prompt."
     }
@@ -538,11 +538,11 @@ private final class ContextIsolationRetrievalService: ContextRetrievalService, @
 
     static let context = RetrievedContext(
         cvChunks: [
-            chunk("fragility", "LeoRover pipeline fragility: noisy perception, localisation instability, timing mismatch, and real robot execution made the ROS2 navigation/manipulation pipeline less predictable.", .cv),
-            chunk("diffusion", "VLA MuJoCo policy comparison: diffusion outperformed autoregressive and flow-matching decoders with smoother continuous actions, better robustness, and seven out of ten successful grasps.", .cv)
+            chunk("fragility", "Synthetic event-processing pipeline fragility: noisy events, routing instability, timing mismatch, and production deployment made the ingestion/persistence pipeline less predictable.", .cv),
+            chunk("diffusion", "Synthetic policy comparison: the diffusion-based policy outperformed the autoregressive policy and flow-matching decoder with smoother forecasts, better robustness, and seven out of ten successful trials.", .cv)
         ],
         jobDescriptionChunks: [
-            chunk("jd", "Robotics software role involving perception, deployment, reliability, and evaluation.", .jobDescription)
+            chunk("jd", "Synthetic software opportunity involving event processing, deployment, reliability, and evaluation.", .jobDescription)
         ]
     )
 

@@ -6,15 +6,15 @@ import Testing
 struct GenerationExecutionContextTests {
     @Test
     func contextPreservesQuestionAndGenerationIdentity() {
-        let question = makeQuestion("Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?")
+        let question = makeQuestion("Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?")
         let session = makeSession()
         let acceptedAt = Date(timeIntervalSince1970: 1_717_171_719)
         let promptSnapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: mixedContext(),
-            transcriptContext: "Interviewer: Could you walk me through LeoRover?",
-            cvSummary: "Candidate has robotics policy experience.",
-            jdSummary: "Robotics team.",
+            transcriptContext: "Interviewer: Could you walk me through the event ingestion service?",
+            cvSummary: "Candidate has time-series model evaluation experience.",
+            jdSummary: "Data platform team.",
             stage: .firstAnswer
         )
 
@@ -27,7 +27,7 @@ struct GenerationExecutionContextTests {
             providerModel: "deepseek-chat",
             retrievedContext: promptSnapshot.ragContextSnapshot,
             promptSnapshot: promptSnapshot,
-            transcriptSnapshot: "Interviewer: Could you walk me through LeoRover?",
+            transcriptSnapshot: "Interviewer: Could you walk me through the event ingestion service?",
             startedAt: acceptedAt,
             source: .systemAudio,
             speaker: .interviewer
@@ -51,7 +51,7 @@ struct GenerationExecutionContextTests {
     func providerRequestPreservesPromptPrimaryQuestionAndRedactsSecrets() {
         let rawKey = "sk-abcdefghijklmnopqrstuvwxyz1234567890"
         let context = makeExecutionContext(
-            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            questionText: "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?",
             transcript: "Interviewer: Previous background contained \(rawKey)",
             cvSummary: "Candidate summary \(rawKey)",
             jdSummary: "Role summary \(rawKey)",
@@ -107,15 +107,15 @@ struct GenerationExecutionContextTests {
     @Test
     func previousTranscriptStaysBackgroundOnly() {
         let context = makeExecutionContext(
-            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
-            transcript: "Interviewer: Which part of the LeoRover pipeline was most fragile when moving from a clean demo to real robot execution?"
+            questionText: "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?",
+            transcript: "Interviewer: Which part of the ingestion pipeline was most fragile when moving from a replay test to production traffic?"
         )
         let request = GenerationProviderRequest(context: context, streamingEnabled: true)
 
         #expect(context.promptSnapshot.previousQuestionIncluded == false)
         #expect(context.promptSnapshot.promptContainsPreviousQuestion == false)
         #expect(request.prompt.localizedCaseInsensitiveContains("Previous transcript is background only and must not change the question."))
-        #expect(request.prompt.localizedCaseInsensitiveContains("Which part of the LeoRover pipeline was most fragile") == false)
+        #expect(request.prompt.localizedCaseInsensitiveContains("Which part of the ingestion pipeline was most fragile") == false)
     }
 
     @MainActor
@@ -219,9 +219,9 @@ struct GenerationExecutionContextTests {
 
     private func makeExecutionContext(
         questionText: String,
-        transcript: String = "Interviewer: Could you walk me through LeoRover?",
-        cvSummary: String = "Candidate has robotics, VLA, diffusion, autoregressive, and MuJoCo experience.",
-        jdSummary: String = "Robotics team focused on reliable deployed systems.",
+        transcript: String = "Interviewer: Could you walk me through the event ingestion service?",
+        cvSummary: String = "Candidate has time-series, diffusion, autoregressive, and replay-evaluation experience.",
+        jdSummary: String = "Data platform team focused on reliable deployed systems.",
         providerID: String = "deepseek",
         providerModel: String = "deepseek-chat"
     ) -> GenerationExecutionContext {
@@ -284,12 +284,12 @@ struct GenerationExecutionContextTests {
     private func mixedContext() -> RetrievedContext {
         RetrievedContext(
             cvChunks: [
-                chunk("diffusion", "VLA MuJoCo evaluation compared diffusion, autoregressive, and flow-matching decoders; diffusion produced smoother continuous actions and seven out of ten successful grasps.", .cv),
-                chunk("fragility", "The pipeline was most fragile when moving from a clean demo to real robot execution because noisy perception and timing mismatch caused failures.", .cv),
-                chunk("role", "Robotics perception, manipulation, deployment, and engineering systems experience.", .cv)
+                chunk("diffusion", "Time-series replay evaluation compared diffusion, autoregressive, and transformer decoders; diffusion produced smoother forecasts across seven out of ten anomaly windows.", .cv),
+                chunk("fragility", "The ingestion pipeline was most fragile when moving from replay tests to production traffic because schema variation and timing mismatch caused failures.", .cv),
+                chunk("role", "Data ingestion, model evaluation, deployment, and engineering systems experience.", .cv)
             ],
             jobDescriptionChunks: [
-                chunk("jd-role", "Robotics software team focused on perception, real-world deployment, evaluation, reliability, and success criteria.", .jobDescription)
+                chunk("jd-role", "Data platform team focused on event processing, production deployment, evaluation, reliability, and success criteria.", .jobDescription)
             ],
             additionalNotesChunks: []
         )

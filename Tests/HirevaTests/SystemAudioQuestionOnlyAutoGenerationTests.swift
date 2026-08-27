@@ -9,20 +9,20 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
     func interviewerOnlySystemAudioUnknownSpeakerAutoGeneratesEveryQuestionWithoutQuestionMarks() async throws {
         let (appState, session, client) = try makeAppState()
         let questions = [
-            "First, could you tell me a little bit about yourself and what brought you into robotics",
-            "Great, thanks. Could you walk me through your LeoRover project",
+            "First, could you tell me a little bit about yourself and what brought you into software systems",
+            "Great, thanks. Could you walk me through your synthetic event-processing project",
             "What was the hardest technical challenge you faced",
-            "How did you handle noisy detections or localisation errors",
-            "Why did the diffusion decoder perform better in your MuJoCo evaluation",
+            "How did you handle noisy events or routing errors",
+            "Why did the diffusion decoder perform better in your synthetic sequence-model evaluation",
             "What would you change first if you had another month",
             "Why do you want to join our team",
-            "How comfortable are you with Python, C plus plus, and ROS two"
+            "How comfortable are you with Python, C plus plus, and SQL"
         ]
 
         await appState.handleTranscriptSegment(systemAudioUnknownSegment(
             id: "question-only-greeting",
             sessionID: session.id,
-            text: "Hi Lang, thanks for joining today"
+            text: "Welcome, Synthetic Candidate, to this fictional interview"
         ))
         try await Task.sleep(nanoseconds: 120_000_000)
         #expect(appState.detectedQuestionsInSessionCount == 0)
@@ -312,33 +312,33 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
     private func answerText(for prompt: String) -> String {
         let lower = prompt.lowercased()
         if lower.contains("do you have any questions for us") {
-            return "I would ask how the engineering team defines success for reliable deployed robotics and how debugging ownership is shared."
+            return "I would ask how the synthetic engineering team defines success for dependable deployed services and how debugging ownership is shared."
         }
         if lower.contains("how comfortable are you with python") {
-            return "I am comfortable with Python, C++, and ROS2 because I have used them to build and debug perception, navigation, and manipulation pipelines."
+            return "The synthetic candidate is comfortable with Python, C++, and SQL after using them to build and debug ingestion, routing, and persistence pipelines."
         }
         if lower.contains("why do you want to join our team") {
-            return "I want to join the team because the role matches my experience building reliable deployed robotics systems and my goal to deepen that work."
+            return "For this synthetic candidate, I want to join this team because the role matches sample experience building dependable deployed services and aligns with my goal to deepen production reliability work."
         }
         if lower.contains("what would you change first") || lower.contains("another month") {
-            return "With another month, I would first strengthen real-world evaluation and recovery tests around perception, localization, and manipulation failures."
+            return "With another month, I would first strengthen production-like evaluation and recovery tests around ingestion, routing, and persistence failures."
         }
         if lower.contains("diffusion decoder") {
-            return "Compared with the autoregressive decoder, the diffusion decoder performed better in the MuJoCo evaluation because it represented continuous action distributions smoothly and tolerated trajectory uncertainty better."
+            return "Compared with the autoregressive decoder, the diffusion decoder performed better in the synthetic sequence-model evaluation because it represented forecast distributions smoothly and tolerated input uncertainty better."
         }
-        if lower.contains("noisy detections") || lower.contains("localisation errors") || lower.contains("localization errors") {
-            return "I diagnosed noisy detections and localization errors by inspecting logs, confidence values, timestamps, calibration drift, lighting, and occlusion. Repeated observations, validation guards, and safe stop-and-retry recovery reduced risk before allowing motion."
+        if lower.contains("noisy events") || lower.contains("routing errors") {
+            return "The synthetic candidate diagnosed noisy events and routing errors by inspecting logs, confidence values, timestamps, schema drift, and retry state. Repeated observations, validation guards, and safe retry recovery reduced risk before committing work."
         }
         if lower.contains("hardest technical challenge") {
-            return "The hardest technical challenge was making perception, localization, navigation, and manipulation behave reliably together on the real robot. I debugged each handoff with timestamp logs, isolated frame errors, and validated recovery tests."
+            return "The hardest technical challenge was making ingestion, validation, routing, and persistence behave reliably together in production. The synthetic candidate debugged each handoff with timestamp logs, isolated schema errors, and validated recovery tests."
         }
-        if lower.contains("walk me through") || lower.contains("leorover project") {
-            return "I built a LeoRover object-retrieval pipeline that connected YOLOv8 perception to localization, navigation, manipulation, and recovery behavior. The result was repeatable end-to-end retrieval, and I learned that timestamp and frame validation were essential at every handoff."
+        if lower.contains("walk me through") || lower.contains("event-processing project") {
+            return "The synthetic candidate built an event-processing pipeline that connected ingestion, validation, routing, persistence, and recovery behaviour. The result was repeatable end-to-end processing, and timestamp and schema validation proved essential at every handoff."
         }
         if lower.contains("tell me a little bit about yourself") {
-            return "I built a LeoRover ROS2 system connecting YOLOv8 perception, localization, navigation, manipulation, and recovery behavior, and that robotics work is the core of my technical background."
+            return "The synthetic candidate built a message-driven service connecting ingestion, validation, routing, persistence, and recovery behaviour, and that sample work anchors the technical background."
         }
-        return "I would answer the interviewer directly with a specific, evidence-grounded robotics example."
+        return "The synthetic candidate would answer the interviewer directly with a specific, evidence-grounded software example."
     }
 
     private func detectionResult(for prompt: String) -> LLMChatResult {
@@ -346,21 +346,21 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
         let lower = latestLine.lowercased()
         let question: String?
         if lower.contains("could you tell me a little bit about yourself") {
-            question = "Could you tell me a little bit about yourself and what brought you into robotics?"
-        } else if lower.contains("could you walk me through your leorover project") || lower.contains("could you walk me through your leo rover project") {
-            question = "Could you walk me through your LeoRover project?"
+            question = "Could you tell me a little bit about yourself and what brought you into software systems?"
+        } else if lower.contains("could you walk me through your synthetic event-processing project") {
+            question = "Could you walk me through your synthetic event-processing project?"
         } else if lower.contains("what was the hardest technical challenge") {
             question = "What was the hardest technical challenge you faced?"
-        } else if lower.contains("how did you handle noisy detections") {
-            question = "How did you handle noisy detections or localisation errors?"
+        } else if lower.contains("how did you handle noisy events") {
+            question = "How did you handle noisy events or routing errors?"
         } else if lower.contains("why did the diffusion decoder perform better") {
-            question = "Why did the diffusion decoder perform better in your MuJoCo evaluation?"
+            question = "Why did the diffusion decoder perform better in your synthetic sequence-model evaluation?"
         } else if lower.contains("what would you change first") {
             question = "What would you change first if you had another month?"
         } else if lower.contains("why do you want to join our team") {
             question = "Why do you want to join our team?"
         } else if lower.contains("how comfortable are you with python") {
-            question = "How comfortable are you with Python, C++, and ROS2?"
+            question = "How comfortable are you with Python, C++, and SQL?"
         } else if lower.contains("do you have any questions for us") {
             question = "Do you have any questions for us?"
         } else {

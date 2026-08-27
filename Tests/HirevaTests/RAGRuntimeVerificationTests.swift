@@ -19,29 +19,29 @@ struct RAGRuntimeVerificationTests {
         // 2. Save CV with multiple sections, bullets, decimals, abbreviations, URLs, and filenames
         let cvContent = """
         # EXPERIENCE
-        - Implemented a language-conditioned robotic grasping pipeline in ROS2 and C++.
-        - Utilized a custom VLM for object re-ranking.
-        - Latency was 3.14 ms, e.g. for grasping. URL: https://mujoco.org/grasps. File: main.swift.
+        - Implemented a schema-aware event ingestion pipeline in Swift and SQL.
+        - Used a transformer classifier to rerank malformed events.
+        - Latency was 3.14 ms, e.g. for ingestion. URL: https://example.invalid/events. File: main.swift.
 
         # EDUCATION
-        - Master of Science in Robotics and Intelligent Systems.
+        - Certificate in Distributed Systems Engineering.
         """
         _ = try documentsRepo.saveDocument(type: .cv, title: "Resume", content: cvContent)
         
         // 3. Save JD with multiple sections and requirements
         let jdContent = """
         # REQUIREMENTS
-        - Seeking a Robotics Developer proficient in C++ and ROS2.
-        - Deep understanding of VLM architectures and physical simulation.
+        - Seeking a Platform Developer proficient in Swift and SQL.
+        - Deep understanding of transformer architectures and deterministic replay.
         
         # COMPANY INFO
-        - We are an advanced robotics laboratory working on autonomous systems.
+        - We are a software platform team working on reliable data services.
         """
-        _ = try documentsRepo.saveDocument(type: .jobDescription, title: "Robotics JD", content: jdContent)
+        _ = try documentsRepo.saveDocument(type: .jobDescription, title: "Platform Engineer Role", content: jdContent)
 
         // 4. Retrieve context using the exact query from the verification list
         let retrievalService = SimpleContextRetrievalService(documentRepository: documentsRepo)
-        let query = "Can you tell me about your robotics project?"
+        let query = "Can you tell me about your event-ingestion project?"
         let (_, trace) = try await retrievalService.retrieveContextWithTrace(
             question: query,
             intent: .technical,
@@ -74,12 +74,12 @@ struct RAGRuntimeVerificationTests {
             sessionID: sessionID,
             questionID: questionID,
             strategy: "Project Deep Dive",
-            sayFirst: "I built a robotic grasping system using ROS2 and C++.",
-            keyPoints: ["Added physical action tokens to a custom VLM.", "Tested latency within a MuJoCo simulator."],
-            followUpReady: ["What was the precision of your grasping simulator?"],
+            sayFirst: "I built a schema-aware event ingestion service using Swift and SQL.",
+            keyPoints: ["Added versioned validation before event routing.", "Tested latency with deterministic traffic replay."],
+            followUpReady: ["How did you measure malformed-event classification precision?"],
             confidence: 0.96,
             caution: "None",
-            evidenceUsed: ["language-conditioned robotic grasping pipeline in ROS2 and C++"],
+            evidenceUsed: ["schema-aware event ingestion pipeline in Swift and SQL"],
             riskLevel: .low,
             modelName: "gpt-4",
             promptVersion: "v2.0",

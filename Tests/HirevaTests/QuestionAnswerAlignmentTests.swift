@@ -89,8 +89,8 @@ struct QuestionAnswerAlignmentTests {
     @Test
     func reliabilityQuestionAcceptsMonitoringCalibrationAndFeedbackActions() {
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "How would you improve the reliability of tactile manipulation on a real robot?",
-            answerText: "For tactile manipulation, I would add force feedback, calibrate contact thresholds, monitor slip signals, and adjust grip control before each robot deployment so recovery remains predictable.",
+            questionText: "How would you improve the reliability of queue processing under production load?",
+            answerText: "For queue processing, I would add backlog feedback, calibrate retry thresholds, monitor saturation signals, and adjust concurrency before each synthetic load test so recovery remains predictable.",
             stageBCompleted: true
         )
 
@@ -114,8 +114,8 @@ struct QuestionAnswerAlignmentTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "Role motivation",
-            sayFirst: "I want to join because this role connects with my robotics, AI, and perception experience, and it aligns with my interest in real robot deployment.",
-            keyPoints: ["Robotics and AI fit", "Real-world deployment", "Engineering growth"],
+            sayFirst: "For this synthetic candidate, I want to join this team because the role connects with distributed systems and reliability experience, and it aligns with my interest in dependable production services.",
+            keyPoints: ["Distributed systems fit", "Dependable deployment", "Engineering growth"],
             followUpReady: [],
             confidence: 0.9,
             caution: nil,
@@ -142,7 +142,7 @@ struct QuestionAnswerAlignmentTests {
         #expect(card.questionText == question.questionText)
         #expect(card.generationID == "generation-one-question")
         #expect(card.triggerPath == .autoDetect)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("robotics"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("distributed systems"))
 
         try appState.suggestionRepository.saveSuggestionCard(card)
         let stored = try suggestionAlignmentRows(database: database)
@@ -162,7 +162,7 @@ struct QuestionAnswerAlignmentTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         let first = try saveQuestion("Could you tell me about yourself?", sessionID: session.id, repository: appState.suggestionRepository, suffix: "self")
-        let second = try saveQuestion("What was the hardest technical challenge in your LeoRover project?", sessionID: session.id, repository: appState.suggestionRepository, suffix: "challenge")
+        let second = try saveQuestion("What was the hardest technical challenge in your synthetic event-processing project?", sessionID: session.id, repository: appState.suggestionRepository, suffix: "challenge")
 
         defer {
             client.releaseBlockedStageB()
@@ -209,8 +209,8 @@ struct QuestionAnswerAlignmentTests {
         let visible = try #require(appState.currentSuggestion)
         #expect(visible.detectedQuestionID == second.id)
         #expect(visible.questionText == second.questionText)
-        #expect(!visible.sayFirst.localizedCaseInsensitiveContains("MSc Robotics"))
-        #expect(!visible.sayFirst.localizedCaseInsensitiveContains("University of Manchester"))
+        #expect(!visible.sayFirst.localizedCaseInsensitiveContains("software systems certificate"))
+        #expect(!visible.sayFirst.localizedCaseInsensitiveContains("Example Technical Institute"))
         #expect(appState.staleAnswerDiscardCount >= 1 || appState.cancelledGenerationCount >= 1)
 
         try await Task.sleep(nanoseconds: 120_000_000)
@@ -230,14 +230,14 @@ struct QuestionAnswerAlignmentTests {
         let client = AlignmentLLMClient()
         client.stageADelayByQuestionKeyword = [
             "about yourself": 700_000_000,
-            "LeoRover": 700_000_000
+            "event-processing": 700_000_000
         ]
         let (appState, _, session) = try makeAppState(client: client)
         appState.delayProvider = MockDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 800_000_000
 
         let first = try saveQuestion("Tell me about yourself", sessionID: session.id, repository: appState.suggestionRepository, suffix: "self")
-        let second = try saveQuestion("Walk me through your LeoRover project", sessionID: session.id, repository: appState.suggestionRepository, suffix: "project")
+        let second = try saveQuestion("Walk me through your synthetic event-processing project", sessionID: session.id, repository: appState.suggestionRepository, suffix: "project")
         let third = try saveQuestion("Why do you want this role?", sessionID: session.id, repository: appState.suggestionRepository, suffix: "role")
 
         let firstTask = Task { try await appState.generateSuggestion(for: first, session: session, transcript: first.questionText, autoGenerated: true) }
@@ -258,8 +258,8 @@ struct QuestionAnswerAlignmentTests {
         }
 
         #expect(appState.currentSuggestion?.questionText == third.questionText)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("MSc Robotics") != true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("LeoRover") != true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("software systems certificate") != true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("event-processing project") != true)
         #expect(appState.currentQABinding.bindingStatus == .matched)
         #expect(appState.staleAnswerDiscardCount >= 1 || appState.cancelledGenerationCount >= 1)
     }
@@ -305,7 +305,7 @@ struct QuestionAnswerAlignmentTests {
         let suggestions = SuggestionRepository(database: database)
         let session = try sessions.createSession(mode: .mock, title: "Alignment DB")
         let question = try saveQuestion(
-            "How did you handle noisy detections or localisation errors?",
+            "How did you handle noisy events or routing errors?",
             sessionID: session.id,
             repository: suggestions,
             suffix: "noise"
@@ -352,8 +352,8 @@ struct QuestionAnswerAlignmentTests {
             sessionID: session.id,
             questionID: first.id,
             strategy: "Self introduction",
-            sayFirst: "I am currently studying MSc Robotics at the University of Manchester.",
-            keyPoints: ["MSc Robotics"],
+            sayFirst: "The synthetic candidate completed a software systems certificate at Example Technical Institute.",
+            keyPoints: ["Synthetic software systems certificate"],
             followUpReady: [],
             confidence: 0.8,
             caution: nil,
@@ -379,19 +379,19 @@ struct QuestionAnswerAlignmentTests {
     func contentRelevanceEvaluatorFlagsAlignedAndMismatchedAnswers() {
         let roleAligned = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "Why do you want to join our team?",
-            answerText: "I want to join because the role connects robotics, AI, perception, real robot deployment, and engineering growth."
+            answerText: "For this synthetic candidate, I want to join this team because the role connects distributed systems, reliability, production deployment, and engineering growth."
         )
         #expect(roleAligned.verdict == .aligned)
 
         let roleMismatched = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "Why do you want this role?",
-            answerText: "The hardest technical challenge was noisy localisation and timing mismatch on the robot."
+            answerText: "The hardest technical challenge was noisy event input and timing mismatch in the ingestion pipeline."
         )
         #expect(roleMismatched.verdict == .mismatched)
 
         let candidateQuestionMismatched = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "Do you have any questions for us?",
-            answerText: "I am currently studying MSc Robotics at the University of Manchester, with a computer science background."
+            answerText: "The synthetic candidate completed a software systems certificate at Example Technical Institute, with a computing background."
         )
         #expect(candidateQuestionMismatched.verdict == .mismatched)
     }
@@ -411,48 +411,48 @@ struct QuestionAnswerAlignmentTests {
     @Test
     func newRuntimeQuestionAnswersAlignWithSpecificIntents() {
         let decoder = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            answerText: "In the MuJoCo VLA Franka simulation, I learned that diffusion performed best at about 7/10 successful grasps, while autoregressive and flow-matching were weaker at around 1/10. The lesson was that architecture choice matters for continuous action trajectory generation because diffusion was smoother and autoregressive errors accumulated."
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your synthetic sequence-model project?",
+            answerText: "In the synthetic sequence-model evaluation, diffusion succeeded in seven out of ten sample trials, while autoregressive and flow-matching variants succeeded in one out of ten. The lesson was that architecture choice matters for continuous forecast generation because diffusion outputs were smoother and autoregressive errors accumulated."
         )
         #expect(decoder.verdict == .aligned)
         #expect(decoder.questionIntent == .decoderComparison)
         #expect(decoder.answerIntent == .decoderComparison)
 
         let perception = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "If your YOLOv8 detector gives a confident but wrong prediction on the LeoRover, how would you debug it?",
-            answerText: "I would reproduce the exact LeoRover frames from the YOLOv8 detector, inspect logs, bounding boxes, classes and confidence for the confident but wrong prediction, then check calibration, lighting, occlusion, motion blur, and spatial or temporal consistency before adding recovery validation or retraining."
+            questionText: "If your synthetic anomaly detector gives a confident but wrong classification in the sample event pipeline, how would you debug it?",
+            answerText: "I would reproduce the exact synthetic events from the anomaly detector, inspect logs, classes, features, and confidence for the wrong classification, then check calibration, schema drift, missing values, input skew, and temporal consistency before adding recovery validation or retraining."
         )
         #expect(perception.verdict == .aligned)
         #expect(perception.questionIntent == .perceptionDebugging)
         #expect(perception.answerIntent == .perceptionDebugging)
 
         let tradeoff = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "What was the biggest technical trade-off you made in your robotics projects?",
-            answerText: "The biggest trade-off was robustness versus latency and complexity. In LeoRover I chose practical filtering, recovery, and ROS2 coordination first, because reliable real robot execution mattered more than a simpler demo, and I learned to prioritize dependable system behaviour."
+            questionText: "What was the biggest technical trade-off you made in your synthetic event-processing project?",
+            answerText: "The biggest trade-off was robustness versus latency and complexity. In the synthetic service, I chose practical filtering, recovery, and message-bus coordination first because dependable production execution mattered more than a simpler demo, and I learned to prioritize reliable system behaviour."
         )
         #expect(tradeoff.verdict == .aligned)
         #expect(tradeoff.questionIntent == .technicalTradeoff)
         #expect(tradeoff.answerIntent == .technicalTradeoff)
 
         let dataset = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "How did you adapt DROID real-robot trajectories into your MuJoCo Franka simulation?",
-            answerText: "I treated the DROID real-robot trajectories as demonstrations, mapped the actions and observations into the MuJoCo Franka simulator format, checked coordinate frames and timing consistency, and validated the simulated behavior before training or evaluation."
+            questionText: "How did you adapt archived event records into your deterministic staging simulator?",
+            answerText: "I treated the archived event records as synthetic demonstrations, mapped fields and outcomes into the staging simulator format, checked schema and timing consistency, and validated the simulated behaviour before model training or evaluation."
         )
         #expect(dataset.verdict == .aligned)
         #expect(dataset.questionIntent == .datasetAdaptation)
         #expect(dataset.answerIntent == .datasetAdaptation)
 
         let simToReal = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "How would you diagnose a sim-to-real gap if your policy works in MuJoCo but fails on a real robot?",
-            answerText: "I would compare simulator and real robot observations, action scaling, timing, calibration, and contact dynamics, inspect failure videos and logs, then isolate whether the root cause is perception, control, dynamics mismatch, or distribution shift before retraining."
+            questionText: "How would you diagnose a simulation to production gap if your routing policy works in a deterministic simulator but fails in staging?",
+            answerText: "For this synthetic scenario, I would compare simulation and production inputs, output scaling, timing, configuration, and workload dynamics, inspect failure traces and logs, then isolate whether the root cause is input processing, routing, environment mismatch, or distribution shift before retraining."
         )
         #expect(simToReal.verdict == .aligned)
         #expect(simToReal.questionIntent == .simToRealDebugging)
         #expect(simToReal.answerIntent == .simToRealDebugging)
 
         let projectComparison = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "Can you explain the difference between your VLA project and your LeoRover project?",
-            answerText: "The VLA project was a MuJoCo Franka learning-policy evaluation around action decoders, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The main difference was policy evaluation versus deployed system integration."
+            questionText: "Can you explain the difference between your synthetic sequence-model project and your synthetic event-processing project?",
+            answerText: "The synthetic sequence-model project evaluated decoder architectures, while the synthetic event-processing project integrated ingestion, validation, routing, persistence, and recovery in a deployed service. The main difference was model evaluation versus production system integration."
         )
         #expect(projectComparison.verdict == .aligned)
         #expect(projectComparison.questionIntent == .projectComparison)
@@ -462,21 +462,21 @@ struct QuestionAnswerAlignmentTests {
     @Test
     func wrongAnswerRejectionCatchesSpecificRuntimeConfusions() {
         let tradeoffWrong = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "What was the biggest technical trade-off you made in your robotics projects?",
-            answerText: "I built a data pipeline that processed 10,000 records and optimized ETL throughput for a database workload."
+            questionText: "What was the biggest technical trade-off you made in your synthetic event-processing project?",
+            answerText: "For a fictional brochure, I balanced typography against colour contrast and selected the larger type."
         )
         #expect(tradeoffWrong.verdict == .mismatched)
         #expect(tradeoffWrong.missingThemes.contains("question topic"))
 
         let decoderGeneric = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            answerText: "Diffusion is generally smoother than autoregressive methods for robotics because it can be robust."
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your synthetic sequence-model project?",
+            answerText: "Diffusion is generally smoother than autoregressive methods for sequence prediction because it can be robust."
         )
         #expect(decoderGeneric.verdict == .aligned)
 
         let incompleteQuestion = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "what did you learn",
-            answerText: "I learned that diffusion performed best in the MuJoCo VLA setup."
+            answerText: "I learned that diffusion performed best in the synthetic sequence-model setup."
         )
         #expect(incompleteQuestion.verdict == .mismatched)
         #expect(incompleteQuestion.reason.localizedCaseInsensitiveContains("incomplete question"))
@@ -485,8 +485,8 @@ struct QuestionAnswerAlignmentTests {
     @Test
     func decoderComparisonAlignmentLeavesFactualSupportToGroundingValidator() {
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your MuJoCo VLA project?",
-            answerText: "In my MuJoCo VLA project, I compared autoregressive, diffusion, and flow-matching decoders and found that diffusion models provided the best trade-off between trajectory diversity and smoothness, while flow-matching offered faster sampling with comparable quality."
+            questionText: "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders in your synthetic sequence-model project?",
+            answerText: "In the synthetic sequence-model project, I compared autoregressive, diffusion, and flow-matching decoders and found that diffusion models provided the best trade-off between forecast diversity and smoothness, while flow-matching offered faster sampling with comparable quality."
         )
 
         #expect(alignment.questionIntent == .decoderComparison)
@@ -497,7 +497,7 @@ struct QuestionAnswerAlignmentTests {
     func systemIntegrationDebuggingAnswerAlignsWithOwnIntent() {
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "Tell me about a time you had to debug a system integration problem.",
-            answerText: "One system integration issue was on LeoRover, where the ROS2 perception, navigation, and manipulation modules had timing mismatches. I reproduced the failure, checked logs and timestamps, isolated the handoff, added recovery behaviour, and learned that integration reliability matters as much as model accuracy."
+            answerText: "One synthetic system integration issue joined ingestion, validation, routing, and persistence modules that had timing mismatches. I reproduced the failure, checked logs and timestamps, isolated the handoff, added recovery behaviour, and learned that integration reliability matters as much as component accuracy."
         )
 
         #expect(alignment.verdict == .aligned)
@@ -536,12 +536,12 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
-    func localizationManipulationHandoffRequiresSnapshotBoundFallback() {
-        let question = "How did localization influence manipulation, and why was that handoff difficult to make reliable?"
+    func inputValidationOutputHandoffRequiresSnapshotBoundFallback() {
+        let question = "How did input validation influence pipeline output, and why was that handoff difficult to make reliable?"
         #expect(IntentRouter.answerIntent(for: question) == .systemIntegrationDebugging)
 
         let detectedQuestion = DetectedQuestion(
-            id: "localization-manipulation-handoff",
+            id: "input-validation-output-handoff",
             sessionID: "alignment-test-session",
             transcriptSegmentID: nil,
             questionText: question,
@@ -565,7 +565,7 @@ struct QuestionAnswerAlignmentTests {
     func interviewerQuestionsRequireActualUsefulQuestions() {
         let aligned = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "What questions would you ask us about the team or the role before accepting an offer?",
-            answerText: "I would ask what would success look like in the first three months, what deployment challenges the team is facing, how the team is structured across perception and autonomy, what data or simulation infrastructure is used, and how much ownership I would have over production workflows."
+            answerText: "I would ask what success would look like in the first three months, what deployment challenges the synthetic team is facing, how the team is structured across service and platform groups, what data or staging infrastructure is used, and how much ownership I would have over production workflows."
         )
         #expect(aligned.verdict == .aligned)
         #expect(aligned.questionIntent == .interviewerQuestions)
@@ -579,10 +579,10 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
-    func leoRoverImprovementRejectsWrongProjectRerankerGrounding() {
+    func eventProcessingImprovementRejectsWrongProjectRerankerGrounding() {
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: "If you had one more month to improve your LeoRover system, what would you improve first?",
-            answerText: "I would improve the target-conditioned semantic-geometric re-ranker from my VLM grasping thesis, because the grasp scorer could better rerank candidates before policy execution."
+            questionText: "If you had one more month to improve your synthetic event-processing service, what would you improve first?",
+            answerText: "My first priority would be to validate colour contrast and document the results for a fictional brochure layout."
         )
 
         #expect(alignment.questionIntent == .improvementPlan)
@@ -606,9 +606,9 @@ struct QuestionAnswerAlignmentTests {
     }
 
     @Test
-    func villaProjectQuestionCanonicalizesAndAlignsAsProjectComparison() {
-        let question = "Can you explain the difference between your VLA project and your LeoRover project"
-        let answer = "The VLA project was a MuJoCo Franka learning-policy evaluation using DROID trajectories and decoder comparisons, while LeoRover was a real robot ROS2 integration project with YOLOv8 perception, navigation, localisation, and manipulation. The difference is learned policy research in simulation versus deployed robotic system integration."
+    func syntheticProjectQuestionCanonicalizesAndAlignsAsProjectComparison() {
+        let question = "Can you explain the difference between your synthetic sequence-model project and your synthetic event-processing project"
+        let answer = "The synthetic sequence-model project evaluated decoder architectures using generated records, while the synthetic event-processing project integrated ingestion, validation, routing, persistence, and recovery. The difference is model research in a simulator versus deployed software system integration."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: question,
             answerText: answer,
@@ -637,20 +637,20 @@ struct QuestionAnswerAlignmentTests {
         )
         let fixtureStatements = [
             "Studied a synthetic technical degree with a software and applied systems background",
-            "Built a synthetic autonomous system project using perception, planning, and execution components",
-            "Debugged a difficult integration issue involving noisy inputs, state estimation, and timing",
+            "Built a synthetic event-processing project using ingestion, routing, and persistence components",
+            "Debugged a synthetic integration issue involving noisy events, routing state, and timing",
             "Compared autoregressive, diffusion, and flow-matching approaches in a simulation evaluation",
-            "Used Python and a robot middleware framework in synthetic coursework",
+            "Used Python and a message-bus framework in synthetic coursework",
             "Improved evaluation by testing more failure cases and recovery behavior"
-            ,"I am studying MSc Robotics at the University of Manchester, with a computer science background and a focus on perception, manipulation, and AI"
-            ,"The hardest technical challenge was integrating modules on the real robot, where noisy perception, localisation instability, and timing mismatch made execution unpredictable"
-            ,"My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8, navigation, target localisation, and manipulation"
-            ,"I handled noisy detections by filtering repeated observations, using stability thresholds, and adding recovery behaviour such as retrying or repositioning"
-            ,"The diffusion decoder performed better because it produced smoother actions for continuous action distributions and was more robust, reaching seven out of ten successful grasps"
-            ,"I am comfortable with Python and ROS2 from robotics projects, and I am improving C++ for performance-critical robotics systems"
+            ,"The synthetic candidate completed a software systems certificate at Example Technical Institute, with a computing background and a focus on distributed services and reliability"
+            ,"The hardest technical challenge was integrating modules in a production-like service, where noisy events, routing instability, and timing mismatch made execution unpredictable"
+            ,"The synthetic event-processing project used a message bus, validation, routing, persistence, and recovery"
+            ,"The synthetic candidate handled noisy events by filtering repeated observations, using stability thresholds, and adding recovery behaviour such as retrying or quarantining records"
+            ,"The diffusion decoder performed better because it produced smoother forecasts for continuous distributions and was more robust, succeeding in seven out of ten synthetic trials"
+            ,"The synthetic candidate is comfortable with Python and SQL from service projects and is improving C++ for performance-critical systems"
             ,"I built a platform project that connected API processing, data storage, and recovery, then validated latency and failure handling"
-            ,"In the LeoRover fixture project, the hardest technical challenge was integrating modules on the real robot, where noisy perception, localisation instability, and timing mismatch made execution unpredictable"
-            ,"In the LeoRover fixture project, the hardest technical challenge was integrating modules on the real robot. I isolated timing mismatches with logs, then added validation checks at each handoff"
+            ,"In the synthetic event-processing project, the hardest technical challenge was integrating modules in a production-like service, where noisy events, routing instability, and timing mismatch made execution unpredictable"
+            ,"In the synthetic event-processing project, the hardest technical challenge was integrating modules in a production-like service. The candidate isolated timing mismatches with logs, then added validation checks at each handoff"
         ]
         let fixtureEvidence = fixtureStatements.enumerated().map { index, statement in
             ProfileEvidence(
@@ -717,7 +717,7 @@ struct QuestionAnswerAlignmentTests {
 
     private func intent(for text: String) -> QuestionIntent {
         let lower = text.lowercased()
-        if lower.contains("project") || lower.contains("leorover") {
+        if lower.contains("project") || lower.contains("event-processing") {
             return .projectDeepDive
         }
         if lower.contains("technical") || lower.contains("detections") || lower.contains("diffusion") || lower.contains("python") {
@@ -1015,34 +1015,34 @@ private final class AlignmentLLMClient: LLMClientProtocol, @unchecked Sendable {
     private func sayFirst(for question: String) -> String {
         let lower = question.lowercased()
         if lower.contains("about yourself") || lower.contains("tell me about yourself") {
-            return "I am studying MSc Robotics at the University of Manchester, with a computer science background and a focus on perception, manipulation, and AI."
+            return "The synthetic candidate completed a software systems certificate at Example Technical Institute, with a computing background and a focus on distributed services and reliability."
         }
         if lower.contains("hardest technical challenge") {
-            return "In the LeoRover fixture project, the hardest technical challenge was integrating modules on the real robot. I isolated timing mismatches with logs, then added validation checks at each handoff."
+            return "In the synthetic event-processing project, the hardest technical challenge was integrating modules in a production-like service. The candidate isolated timing mismatches with logs, then added validation checks at each handoff."
         }
         if lower.contains("platform project") {
             return "I built a platform project that connected API processing, data storage, and recovery, then validated latency and failure handling."
         }
-        if lower.contains("leorover") || lower.contains("walk me through") {
-            return "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8, navigation, target localisation, and manipulation."
+        if lower.contains("event-processing") || lower.contains("walk me through") {
+            return "The synthetic event-processing project used a message bus, validation, routing, persistence, and recovery."
         }
-        if lower.contains("noisy detections") || lower.contains("localisation") || lower.contains("localization") {
-            return "I handled noisy detections by filtering repeated observations, using stability thresholds, and adding recovery behaviour such as retrying or repositioning."
+        if lower.contains("noisy events") || lower.contains("routing errors") {
+            return "The synthetic candidate handled noisy events by filtering repeated observations, using stability thresholds, and adding recovery behaviour such as retrying or quarantining records."
         }
         if lower.contains("diffusion") {
-            return "The diffusion decoder performed better because it produced smoother actions for continuous action distributions and was more robust, reaching seven out of ten successful grasps."
+            return "The diffusion decoder performed better because it produced smoother forecasts for continuous distributions and was more robust, succeeding in seven out of ten synthetic trials."
         }
         if lower.contains("another month") || lower.contains("change first") {
-            return "I would improve the evaluation pipeline first, testing more objects, initial positions, failure cases, perception robustness, visual grounding, and grasp reranking."
+            return "The synthetic candidate would improve the evaluation pipeline first, testing more event types, initial states, failure cases, input robustness, schema validation, and recovery prioritisation."
         }
         if lower.contains("join our team") || lower.contains("want this role") || lower.contains("want to join") {
-            return "I want this role because it connects robotics, AI, perception, real robot deployment, engineering growth, and deployed systems."
+            return "For this synthetic candidate, I want this role because it connects distributed systems and reliability experience with this team's production deployment responsibilities and my engineering growth goals."
         }
-        if lower.contains("python") || lower.contains("ros2") || lower.contains("c++") {
-            return "I am comfortable with Python and ROS2 from robotics projects, and I am improving C++ for performance-critical robotics systems."
+        if lower.contains("python") || lower.contains("sql") || lower.contains("c++") {
+            return "The synthetic candidate is comfortable with Python and SQL from service projects and is improving C++ for performance-critical systems."
         }
         if lower.contains("questions for us") || lower.contains("questions for you") {
-            return "I would ask what success looks like in the first three months, what deployment challenges the robotics team is facing, how the team is structured across perception and autonomy, and how much ownership I would have over production workflows."
+            return "The synthetic candidate would ask what success looks like in the first three months, what deployment challenges the team is facing, how the team is structured across service and platform groups, and how much ownership the role has over production workflows."
         }
         return "I would answer this question directly and keep the response specific to the interviewer prompt."
     }

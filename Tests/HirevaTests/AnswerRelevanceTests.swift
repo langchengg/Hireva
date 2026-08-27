@@ -246,7 +246,7 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func realWorldExecutionQuestionRejectsSimulationOnlyAnswerWithoutRealRobotGrounding() {
+    func productionExecutionQuestionRejectsTestOnlyAnswerWithoutProductionGrounding() {
         let questionText = "What made production deployment harder than a clean test environment?"
         let providerAnswer = """
         The test harness was deterministic, so I changed its mock configuration and reran the isolated unit checks successfully.
@@ -651,8 +651,8 @@ struct AnswerRelevanceTests {
 
     @Test
     func genericCoachingTemplateIsRejectedForVisualActionQuestions() {
-        let questionText = "Can you explain how your robot transformed visual detections into physical actions in the real world"
-        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+        let questionText = "Can you explain how your processing pipeline transformed validated events into downstream billing actions in production"
+        let generic = "I’d answer this directly, connect it to a concrete engineering example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
@@ -677,9 +677,9 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func genericCoachingTemplateIsRejectedForPerceptionControlReliabilityQuestion() {
-        let questionText = "How did you combine perception and control, and why was that connection difficult to make reliable"
-        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+    func genericCoachingTemplateIsRejectedForIngestionProcessingReliabilityQuestion() {
+        let questionText = "How did you combine input and output, and why was that handoff difficult to make reliable"
+        let generic = "I’d answer this directly, connect it to a concrete engineering example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
@@ -688,9 +688,9 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func genericCoachingTemplateIsRejectedForRealRobotDebuggingLessonQuestion() {
+    func genericCoachingTemplateIsRejectedForProductionDebuggingLessonQuestion() {
         let questionText = "What was the most important lesson you learned from debugging the production system?"
-        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+        let generic = "I’d answer this directly, connect it to a concrete engineering example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(questionText: questionText, answerText: generic, sayFirst: generic)
 
         #expect(AnswerRelevancePolicy.intent(for: questionText) == .technicalChallenge)
@@ -701,13 +701,13 @@ struct AnswerRelevanceTests {
     @Test
     func genericCoachingTemplateIsRejectedAcrossIntentFamilies() {
         let questions = [
-            "How did the perception module influence the robot's next physical action?",
-            "Before the robot moved, what state did it need to estimate?",
-            "Why was deployment on physical hardware less predictable than simulation?",
-            "What did debugging the robot teach you about assumptions in simulation?",
+            "How did the validation module influence the processing pipeline's downstream billing action?",
+            "Before the service routed the event, what state did it need to estimate?",
+            "Why was production deployment harder to debug than deterministic replay?",
+            "What did debugging the service teach you about assumptions in staging?",
             "Can you describe your approach to collaboration in projects?"
         ]
-        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
+        let generic = "I’d answer this directly, connect it to a concrete engineering example, and keep the focus on what I did, why it mattered, and what I learned. Direct answer first. Concrete example from experience. Outcome or lesson learned."
 
         for questionText in questions {
             let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
@@ -725,7 +725,7 @@ struct AnswerRelevanceTests {
     func emptyThemeProfileUsesGenericQualitySafeguardsInsteadOfFailingZeroOfZero() {
         let questionText = "What principles guide your engineering decisions?"
         let concreteAnswer = "I prioritize measurable user impact, reversible decisions, and explicit validation before broad rollout."
-        let generic = "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned."
+        let generic = "I’d answer this directly, connect it to a concrete engineering example, and keep the focus on what I did, why it mattered, and what I learned."
 
         let concreteAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: questionText,
@@ -763,7 +763,7 @@ struct AnswerRelevanceTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "DeepSeek",
-            sayFirst: "I’d answer this directly, connect it to a concrete robotics example, and keep the focus on what I did, why it mattered, and what I learned.",
+            sayFirst: "I’d answer this directly, connect it to a concrete engineering example, and keep the focus on what I did, why it mattered, and what I learned.",
             keyPoints: ["Direct answer first.", "Concrete example from experience.", "Outcome or lesson learned."],
             followUpReady: [],
             confidence: 0.7,
@@ -898,7 +898,7 @@ struct AnswerRelevanceTests {
         #expect(combined.localizedCaseInsensitiveContains("semantic-geometric") == false)
         #expect(combined.localizedCaseInsensitiveContains("re-ranker") == false)
         #expect(combined.localizedCaseInsensitiveContains("target-conditioned") == false)
-        #expect(combined.localizedCaseInsensitiveContains("VLM grasping") == false)
+        #expect(combined.localizedCaseInsensitiveContains("image classifier") == false)
         #expect(alignment.verdict == .aligned)
     }
 
@@ -926,7 +926,7 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func projectComparisonRejectsVagueSimulationVersusRobotAnswer() {
+    func projectComparisonRejectsVagueHistoricalVersusStreamingAnswer() {
         let question = "Can you explain the difference between the Atlas project and the Beacon project?"
         let answer = "The Atlas project and the Beacon project were useful engineering efforts."
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
@@ -992,7 +992,7 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func runtimeLeoRoverProjectAnswerAlignsWithProjectWalkthroughQuestion() {
+    func runtimeMigrationProjectAnswerAlignsWithProjectWalkthroughQuestion() {
         let question = "could you walk me through your Atlas migration project end-to-end"
         let answer = "In the Atlas migration project, I designed the mapping pipeline, implemented validation checks, and delivered a staged rollout that reduced failed records."
 
@@ -1044,7 +1044,7 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func runtimeDexoryWhyRoleAnswerAlignsWithJoinTeamQuestion() {
+    func runtimePlatformWhyRoleAnswerAlignsWithJoinTeamQuestion() {
         let question = "why do you want to join our team"
         let answer = "I want to join the team because this platform role aligns with my experience building reliable services, and the organisation owns measurable production outcomes."
 

@@ -16,9 +16,9 @@ struct PromptContextBuilderTests {
             speaker: .interviewer,
             acceptedAt: Date(timeIntervalSince1970: 1_717_171_717),
             context: mixedContext(),
-            transcriptContext: "Interviewer: Could you walk me through your LeoRover project?",
-            cvSummary: "Candidate has robotics, LeoRover, and VLA policy experience.",
-            jdSummary: "Robotics team focused on reliable deployed systems.",
+            transcriptContext: "Interviewer: Could you walk me through your synthetic event-processing project?",
+            cvSummary: "Synthetic candidate has distributed-systems, event-processing, and model-evaluation experience.",
+            jdSummary: "Synthetic reliability opportunity focused on dependable deployed services.",
             stage: .firstAnswer
         )
 
@@ -57,18 +57,18 @@ struct PromptContextBuilderTests {
         let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: mixedContext(),
-            transcriptContext: "Interviewer: Which part of the LeoRover pipeline was most fragile when moving from a clean demo to real robot execution?",
-            cvSummary: "Candidate has robotics project experience.",
-            jdSummary: "Robotics role.",
+            transcriptContext: "Interviewer: Which part of the synthetic event-processing pipeline was most fragile when moving from a clean demo to production deployment?",
+            cvSummary: "Synthetic candidate has event-processing project experience.",
+            jdSummary: "Synthetic software reliability role.",
             stage: .firstAnswer
         )
 
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("Previous transcript is background only and must not change the question."))
-        #expect(snapshot.previousQuestionText?.localizedCaseInsensitiveContains("LeoRover pipeline") == true)
+        #expect(snapshot.previousQuestionText?.localizedCaseInsensitiveContains("synthetic event-processing pipeline") == true)
         #expect(snapshot.previousQuestionIncluded == false)
         #expect(snapshot.promptContainsPreviousQuestion == false)
         #expect(snapshot.contextBleedRisk == .low)
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("Which part of the LeoRover pipeline was most fragile") == false)
+        #expect(snapshot.prompt.localizedCaseInsensitiveContains("Which part of the synthetic event-processing pipeline was most fragile") == false)
         #expect(snapshot.prompt.localizedCaseInsensitiveContains(question.questionText))
     }
 
@@ -79,9 +79,9 @@ struct PromptContextBuilderTests {
         let snapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: mixedContext(),
-            transcriptContext: "Interviewer: Could you walk me through LeoRover?",
-            cvSummary: "Candidate has robotics experience.",
-            jdSummary: "Robotics role.",
+            transcriptContext: "Interviewer: Could you walk me through the synthetic event-processing project?",
+            cvSummary: "Synthetic candidate has software reliability experience.",
+            jdSummary: "Synthetic software reliability role.",
             stage: .fullAnswer
         )
 
@@ -106,8 +106,8 @@ struct PromptContextBuilderTests {
             acceptedAt: Date(timeIntervalSince1970: 1_717_171_718),
             context: mixedContext(),
             transcriptContext: "Interviewer: Tell me about yourself.",
-            cvSummary: "Candidate works on robotics perception and manipulation.",
-            jdSummary: "Team builds deployed robotics systems.",
+            cvSummary: "Synthetic candidate works on event processing and service recovery.",
+            jdSummary: "Synthetic team builds dependable deployed services.",
             stage: .firstAnswer
         )
 
@@ -127,8 +127,8 @@ struct PromptContextBuilderTests {
             question: question,
             context: mixedContext(),
             transcriptContext: "",
-            cvSummary: "Candidate has MSc Robotics and a computer science background.",
-            jdSummary: "Team evaluates robotics deployment success.",
+            cvSummary: "Synthetic candidate has a software systems certificate and a computing background.",
+            jdSummary: "Synthetic team evaluates service deployment success.",
             stage: .firstAnswer
         )
 
@@ -136,7 +136,7 @@ struct PromptContextBuilderTests {
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("concise questions about success, constraints, team, and evaluation"))
         #expect(snapshot.ragContextSnapshot.cvChunks.count == 3)
         #expect(snapshot.ragContextSnapshot.jobDescriptionChunks.map(\.id) == ["jd-role"])
-        #expect(snapshot.prompt.localizedCaseInsensitiveContains("MSc Robotics") == true)
+        #expect(snapshot.prompt.localizedCaseInsensitiveContains("software systems certificate") == true)
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("generic self-introduction") == true)
     }
 
@@ -188,17 +188,17 @@ struct PromptContextBuilderTests {
     private func mixedContext() -> RetrievedContext {
         RetrievedContext(
             cvChunks: [
-                chunk("self", "Education: MSc Robotics at the University of Manchester with a computer science background and robotics interest.", .cv),
-                chunk("leorover", "LeoRover autonomous object retrieval robot using ROS2, YOLOv8, target localisation, navigation, and manipulation.", .cv),
-                chunk("fragility", "The pipeline was most fragile when moving from a clean demo to real robot execution because noisy perception and timing mismatch caused failures.", .cv),
-                chunk("diffusion", "VLA MuJoCo evaluation compared diffusion, autoregressive, and flow-matching decoders; diffusion produced smoother continuous actions and seven out of ten successful grasps.", .cv),
-                chunk("skills", "Skills: Python, ROS2, C++, robotics projects, control coordination, experiment scripting, and performance-critical robotics systems.", .cv)
+                chunk("self", "Synthetic candidate education: software systems certificate at Example Technical Institute with a computing background and reliability interest.", .cv),
+                chunk("event-pipeline", "Synthetic event-processing service using a message bus, anomaly classifier, routing, and retry orchestration.", .cv),
+                chunk("fragility", "The synthetic pipeline was most fragile when moving from a clean demo to production deployment because noisy events and timing mismatches caused failures.", .cv),
+                chunk("diffusion", "Synthetic sequence-model evaluation compared diffusion, autoregressive, and flow-matching decoders; diffusion produced smoother forecasts and seven out of ten successful trial runs.", .cv),
+                chunk("skills", "Synthetic skills: Python, Swift, SQL, distributed systems, incident response, experiment scripting, and performance-critical services.", .cv)
             ],
             jobDescriptionChunks: [
-                chunk("jd-role", "Robotics software team focused on perception, real-world deployment, evaluation, reliability, and success criteria.", .jobDescription)
+                chunk("jd-role", "Synthetic software opportunity focused on event processing, production deployment, evaluation, reliability, and success criteria.", .jobDescription)
             ],
             additionalNotesChunks: [
-                chunk("note", "Ask thoughtful questions about team success criteria and deployed robotics reliability.", .additionalNotes)
+                chunk("note", "Synthetic note: ask thoughtful questions about team success criteria and deployed service reliability.", .additionalNotes)
             ]
         )
     }

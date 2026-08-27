@@ -10,17 +10,17 @@ struct SystemAudioMixedDialogueTests {
         let (appState, session, client, _) = try makeAppState()
         try await settleStartup(appState)
         let dialogue: [(String, String?)] = [
-            ("Hi Lang, thanks for joining today. We’ll keep this quite conversational.", nil),
-            ("First, could you tell me a little bit about yourself and what brought you into robotics?", "Could you tell me a little bit about yourself and what brought you into robotics?"),
-            ("Sure. I’m currently studying MSc Robotics at the University of Manchester. My background is in computer science, and I became interested in robotics because it combines software, perception, control, and real-world systems.", nil),
-            ("Great, thanks. I saw your LeoRover project on your CV. Could you walk me through that project, especially your role in the perception and navigation pipeline?", "Could you walk me through that project, especially your role in the perception and navigation pipeline?"),
-            ("Yes. The LeoRover project was an autonomous object retrieval robot. The goal was to search for a target object, localise it, navigate toward it, and pick it up using a manipulator.", nil),
+            ("Welcome, Synthetic Candidate. We’ll keep this fictional interview conversational.", nil),
+            ("First, could you tell me a little bit about yourself and what brought you into software systems?", "Could you tell me a little bit about yourself and what brought you into software systems?"),
+            ("This synthetic candidate completed a software systems certificate at Example Technical Institute. A computing background led to an interest in distributed services because they combine application logic, data flow, operations, and real-world reliability.", nil),
+            ("Great, thanks. I saw the synthetic event-processing project in your sample profile. Could you walk me through that project, especially your role in the ingestion and routing pipeline?", "Could you walk me through that project, especially your role in the ingestion and routing pipeline?"),
+            ("The synthetic project was an event-processing service. The goal was to receive sample events, validate them, route them to the right worker, and recover safely from transient failures.", nil),
             ("Okay, interesting. What was the hardest technical challenge you faced in that project?", "What was the hardest technical challenge you faced in that project?"),
-            ("The hardest challenge was making different modules work reliably together on the real robot. Perception results were noisy, robot localisation was not always stable, and timing between detection, navigation, and manipulation could create failures.", nil),
-            ("Right. You mentioned ROS2 and YOLOv8. How did you handle noisy detections or localisation errors?", "How did you handle noisy detections or localisation errors?"),
-            ("I handled this by adding filtering and recovery behaviour. Instead of trusting a single detection, the system used repeated observations and only acted when the target was stable enough.", nil),
+            ("The hardest challenge was making different modules work reliably together in production. Incoming events were noisy, routing state was not always stable, and timing between ingestion, validation, and persistence could create failures.", nil),
+            ("Right. You mentioned the message bus and classifier. How did you handle noisy events or routing errors?", "How did you handle noisy events or routing errors?"),
+            ("The synthetic implementation added filtering and recovery behaviour. Instead of trusting a single event, the service used repeated observations and only committed work when the state was stable enough.", nil),
             ("Good. Now thinking about this role, why do you want to join our team?", "Why do you want to join our team?"),
-            ("I’m interested in this role because it connects closely with the kind of robotics work I want to do.", nil)
+            ("The synthetic candidate is interested because the opportunity connects with dependable service engineering and incident response.", nil)
         ]
 
         var detectedQuestions: [String] = []
@@ -57,7 +57,7 @@ struct SystemAudioMixedDialogueTests {
     func longCandidateAnswerFromSystemAudioDoesNotRunDetectionOrRAG() async throws {
         let (appState, session, client, retrievalService) = try makeAppState()
         try await settleStartup(appState)
-        let longAnswer = "Sure. I’m currently studying MSc Robotics at the University of Manchester. My background is in computer science, and I became interested in robotics because it combines software, perception, control, and real-world systems. Recently, most of my work has focused on robot perception, manipulation, and AI-based decision making."
+        let longAnswer = "This synthetic candidate completed a software systems certificate at Example Technical Institute. A computing background led to an interest in distributed services because they combine application logic, data flow, operations, and real-world reliability. Recent sample work focused on event processing, service recovery, and deterministic incident analysis."
 
         await appState.handleTranscriptSegment(systemSegment(id: "long-answer", sessionID: session.id, text: longAnswer))
         try await Task.sleep(nanoseconds: 650_000_000)
@@ -76,11 +76,11 @@ struct SystemAudioMixedDialogueTests {
         try await settleStartup(appState)
         let prefixes = [
             "Sure.",
-            "Sure. I’m currently studying",
-            "Sure. I’m currently studying MSc Robotics",
-            "Sure. I’m currently studying MSc Robotics at the University of Manchester",
-            "Sure. I’m currently studying MSc Robotics at the University of Manchester. My background is in computer science",
-            "Sure. I’m currently studying MSc Robotics at the University of Manchester. My background is in computer science, and I became interested in robotics because it combines software, perception, control, and real-world systems."
+            "This synthetic candidate completed",
+            "This synthetic candidate completed a software systems certificate",
+            "This synthetic candidate completed a software systems certificate at Example Technical Institute",
+            "This synthetic candidate completed a software systems certificate at Example Technical Institute. The background is in computing",
+            "This synthetic candidate completed a software systems certificate at Example Technical Institute. A computing background led to an interest in distributed services because they combine application logic, data flow, operations, and real-world reliability."
         ]
 
         for index in 0..<20 {
@@ -106,7 +106,7 @@ struct SystemAudioMixedDialogueTests {
     func questionAfterLongSystemAudioAnswerStillStartsGeneration() async throws {
         let (appState, session, client, _) = try makeAppState()
         try await settleStartup(appState)
-        let longAnswer = "The hardest challenge was making different modules work reliably together on the real robot. Perception results were noisy, robot localisation was not always stable, and timing between detection, navigation, and manipulation could create failures."
+        let longAnswer = "The hardest challenge was making different modules work reliably together in production. Incoming events were noisy, routing state was not always stable, and timing between ingestion, validation, and persistence could create failures."
 
         await appState.handleTranscriptSegment(systemSegment(id: "ignored-answer", sessionID: session.id, text: longAnswer))
         try await Task.sleep(nanoseconds: 160_000_000)
@@ -135,11 +135,11 @@ struct SystemAudioMixedDialogueTests {
         let (appState, session, _, _) = try makeAppState()
         try await settleStartup(appState)
         let dialogue: [(String, Bool)] = [
-            ("Hi Lang, thanks for joining today.", false),
-            ("First, could you tell me a little bit about yourself and what brought you into robotics?", true),
-            ("Sure. I’m currently studying MSc Robotics at the University of Manchester and recently focused on perception and manipulation.", false),
-            ("Great. Could you walk me through that project, especially your role in the perception and navigation pipeline?", true),
-            ("Yes. The LeoRover project was an autonomous object retrieval robot and my role focused on ROS2 perception and navigation coordination.", false)
+            ("Welcome, Synthetic Candidate, to this fictional interview.", false),
+            ("First, could you tell me a little bit about yourself and what brought you into software systems?", true),
+            ("This synthetic candidate completed a software systems certificate at Example Technical Institute and recently focused on event processing and service recovery.", false),
+            ("Great. Could you walk me through that project, especially your role in the ingestion and routing pipeline?", true),
+            ("The synthetic event-processing project used a message bus, validation, routing, persistence, and recovery coordination.", false)
         ]
 
         for (index, item) in dialogue.enumerated() {
@@ -158,7 +158,7 @@ struct SystemAudioMixedDialogueTests {
         }
 
         #expect(appState.detectedQuestionsInSessionCount == 2)
-        #expect(appState.lastDetectedQuestion?.questionText == "Could you walk me through that project, especially your role in the perception and navigation pipeline?")
+        #expect(appState.lastDetectedQuestion?.questionText == "Could you walk me through that project, especially your role in the ingestion and routing pipeline?")
         #expect(appState.currentGenerationTelemetry.questionID == appState.activeQuestionID)
         #expect(!appState.shouldShowBlockingAnswerSpinner)
     }
@@ -310,13 +310,13 @@ private final class SystemAudioMixedDialogueLLMClient: LLMClientProtocol, @unche
         let lower = latestLine.lowercased()
         let question: String?
         if lower.contains("could you tell me a little bit about yourself") {
-            question = "Could you tell me a little bit about yourself and what brought you into robotics?"
+            question = "Could you tell me a little bit about yourself and what brought you into software systems?"
         } else if lower.contains("could you walk me through") {
-            question = "Could you walk me through that project, especially your role in the perception and navigation pipeline?"
+            question = "Could you walk me through that project, especially your role in the ingestion and routing pipeline?"
         } else if lower.contains("what was the hardest technical challenge") {
             question = "What was the hardest technical challenge you faced in that project?"
-        } else if lower.contains("how did you handle noisy detections") {
-            question = "How did you handle noisy detections or localisation errors?"
+        } else if lower.contains("how did you handle noisy events") {
+            question = "How did you handle noisy events or routing errors?"
         } else if lower.contains("why do you want to join our team") {
             question = "Why do you want to join our team?"
         } else {

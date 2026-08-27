@@ -15,7 +15,7 @@ struct FirstAnswerFallbackTests {
         {
           "should_trigger": false,
           "question_complete": false,
-          "question_text": "Could you walk me through your LeoRover project",
+          "question_text": "Could you walk me through your event-ingestion project",
           "intent": "project_deep_dive",
           "answer_strategy": "wait",
           "confidence": 0.6,
@@ -48,7 +48,7 @@ struct FirstAnswerFallbackTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Could you walk me through your LeoRover project",
+            text: "Could you walk me through your event-ingestion project",
             recognitionIsFinal: true
         )
 
@@ -61,7 +61,7 @@ struct FirstAnswerFallbackTests {
         let card = try #require(appState.currentSuggestion)
         #expect(question.shouldTrigger)
         #expect(question.questionComplete)
-        #expect(question.questionText == "Could you walk me through your LeoRover project")
+        #expect(question.questionText == "Could you walk me through your event-ingestion project")
         #expect(question.answerStrategy == .projectWalkthrough)
         #expect(card.sayFirstSource == "local_first_answer_fallback")
         #expect(card.contextIsolationStatus == "matched")
@@ -125,7 +125,7 @@ struct FirstAnswerFallbackTests {
         #expect(appState.lastDetectedQuestion?.questionText == "Why do you want this role?")
         #expect(card.sayFirstSource == "local_first_answer_fallback")
         #expect(card.sayFirst.localizedCaseInsensitiveContains("role"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("robotics"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("platform"))
         #expect(card.contextIsolationStatus == "matched")
         #expect(!card.candidateEvidenceIDs.isEmpty)
         #expect(!appState.isStreamingSayFirst)
@@ -183,7 +183,7 @@ struct FirstAnswerFallbackTests {
 
         let card = try #require(appState.currentSuggestion)
         #expect(card.sayFirst.localizedCaseInsensitiveContains("role"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("robotics"))
+        #expect(card.sayFirst.localizedCaseInsensitiveContains("platform"))
         #expect(card.sayFirstSource == "local_first_answer_fallback")
         #expect(card.providerName == "Local First Answer Fallback")
         #expect(!card.keyPoints.isEmpty)
@@ -223,22 +223,22 @@ struct FirstAnswerFallbackTests {
         let evidence = [
             makeEvidence(
                 id: "\(suffix)-project",
-                statement: "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
+                statement: "My event ingestion service processed versioned records using Swift, schema validation, queue backpressure, and idempotent persistence in production.",
                 type: .project
             ),
             makeEvidence(
                 id: "\(suffix)-role",
-                statement: "I want this role because it connects my robotics, AI, perception, and real-world deployment experience with the team's product direction.",
+                statement: "I want this role because it connects my platform, data processing, reliability, and production delivery experience with the team's product direction.",
                 type: .goal
             ),
             makeEvidence(
                 id: "\(suffix)-integration",
-                statement: "I integrated robot perception, localisation, navigation, and manipulation through ROS2.",
+                statement: "I integrated ingestion, validation, queueing, and persistence through explicit service interfaces.",
                 type: .experience
             ),
             makeEvidence(
                 id: "\(suffix)-result",
-                statement: "The LeoRover project result was a complete perception-to-action pipeline on a real robot, and I learned that localisation and timing made integration the main reliability challenge.",
+                statement: "The event ingestion project produced an end-to-end processing pipeline, and I learned that schema drift and timing made integration the main reliability challenge.",
                 type: .project
             )
         ]
@@ -261,7 +261,7 @@ struct FirstAnswerFallbackTests {
         try appState.interviewContextRepository.saveCandidateProfile(profile)
         appState.refreshAll()
         appState.selectCandidateProfile(profileID)
-        appState.selectInterviewDomain(.roboticsResearch)
+        appState.selectInterviewDomain(.general)
         return try appState.createContextBoundSession(mode: .microphone, title: "First Answer Fallback")
     }
 

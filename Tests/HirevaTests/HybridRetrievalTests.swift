@@ -41,14 +41,14 @@ struct HybridRetrievalTests {
         let database = try makeTemporaryDatabase()
         let documents = DocumentRepository(database: database)
         
-        // Save CV document
+        // Save a synthetic CV document with independent platform examples.
         _ = try documents.saveDocument(
             type: .cv,
-            title: "Robotics and Software Resume",
+            title: "Platform and Data Resume",
             content: """
-            Robotics grasping: built a language-conditioned grasping pipeline using MuJoCo and VLA models.
+            Event ingestion: built a schema-aware processing pipeline using deterministic replay and transformer models.
             
-            ROS2 software engineer specializing in navigation and rover autonomy.
+            Distributed systems engineer specializing in queue processing and service reliability.
             
             Database engineer focusing on SQLite and indexing tables.
             """
@@ -91,28 +91,28 @@ struct HybridRetrievalTests {
             embeddingProviderResolver: { provider }
         )
         
-        // Test query A: "embodied experience" -> Should pull the robotics chunk first semantically
+        // Query A should pull the schema-processing chunk first semantically.
         let (_, traceA) = try await service.retrieveContextWithTrace(
-            question: "embodied experience VLA",
+            question: "schema processing transformer",
             intent: .technical,
             maxCVWords: 100,
             maxJDWords: 100
         )
         
         #expect(traceA.retrievalMode == "hybrid")
-        #expect(traceA.rankedCVChunks.first?.contentPreview.contains("grasping") == true)
+        #expect(traceA.rankedCVChunks.first?.contentPreview.contains("schema-aware") == true)
         #expect(traceA.rankedCVChunks.first?.semanticScore != nil)
         
-        // Test query B: "navigation" -> Should pull the ROS2 chunk first semantically
+        // Query B should pull the distributed-systems chunk first semantically.
         let (_, traceB) = try await service.retrieveContextWithTrace(
-            question: "navigation rover C++ autonomy",
+            question: "queue processing service reliability",
             intent: .technical,
             maxCVWords: 100,
             maxJDWords: 100
         )
         
         #expect(traceB.retrievalMode == "hybrid")
-        #expect(traceB.rankedCVChunks.first?.contentPreview.contains("ROS2") == true)
+        #expect(traceB.rankedCVChunks.first?.contentPreview.contains("Distributed systems") == true)
     }
     
     // --- 4. 80% Coverage Check Fallbacks ---
@@ -126,13 +126,13 @@ struct HybridRetrievalTests {
             type: .cv,
             title: "Resume",
             content: """
-            Chunk 1: Robotics.
+            Chunk 1: Platform.
             
-            Chunk 2: ROS2.
+            Chunk 2: Queueing.
             
             Chunk 3: Database.
             
-            Chunk 4: Autonomy.
+            Chunk 4: Reliability.
             
             Chunk 5: Embeddings.
             """
@@ -176,7 +176,7 @@ struct HybridRetrievalTests {
         
         // Query should trigger fallback due to low coverage (< 80%)
         let (_, traceLowCov) = try await service.retrieveContextWithTrace(
-            question: "Robotics",
+            question: "Platform",
             intent: .technical,
             maxCVWords: 100,
             maxJDWords: 100
@@ -188,7 +188,7 @@ struct HybridRetrievalTests {
         // Now force hybrid RAG -> should succeed despite coverage
         settings.forceHybridRAG = true
         let (_, traceForced) = try await service.retrieveContextWithTrace(
-            question: "Robotics",
+            question: "Platform",
             intent: .technical,
             maxCVWords: 100,
             maxJDWords: 100
@@ -205,7 +205,7 @@ struct HybridRetrievalTests {
         _ = try documents.saveDocument(
             type: .cv,
             title: "Resume",
-            content: "Robotics project."
+            content: "Platform project."
         )
         
         var settings = AppSettings.default
@@ -222,7 +222,7 @@ struct HybridRetrievalTests {
         )
         
         let (_, trace) = try await service.retrieveContextWithTrace(
-            question: "Robotics",
+            question: "Platform",
             intent: .technical,
             maxCVWords: 100,
             maxJDWords: 100

@@ -12,28 +12,28 @@ struct ContextRetrievalTests {
             type: .cv,
             title: "Resume",
             content: """
-            Robotics project: built a language-conditioned grasping pipeline with MuJoCo evaluation and VLM reranking.
+            Event ingestion project: built a schema-aware processing pipeline with deterministic replay evaluation and transformer reranking.
 
             Web project: created a billing dashboard and support tooling.
             """
         )
         _ = try documents.saveDocument(
             type: .jobDescription,
-            title: "Robotics JD",
+            title: "Platform Engineer Role",
             content: """
-            Requirements include robot learning, simulation evaluation, vision-language model reasoning, and production communication.
+            Requirements include event processing, replay evaluation, transformer reasoning, and production communication.
             """
         )
 
         let service = SimpleContextRetrievalService(documentRepository: documents)
         let context = try await service.retrieveContext(
-            question: "Walk me through your language-conditioned robotic grasping work",
+            question: "Walk me through your schema-aware event-processing pipeline",
             intent: .projectDeepDive,
             maxCVWords: 20,
             maxJDWords: 20
         )
 
-        #expect(context.cvChunks.first?.content.lowercased().contains("robotics") == true)
+        #expect(context.cvChunks.first?.content.lowercased().contains("event ingestion") == true)
         #expect(context.cvChunks.map(\.content).joined(separator: " ").split(separator: " ").count <= 20)
         #expect(context.jobDescriptionChunks.map(\.content).joined(separator: " ").split(separator: " ").count <= 20)
     }
@@ -47,9 +47,9 @@ struct ContextRetrievalTests {
             type: .cv,
             title: "Resume",
             content: """
-            Robotics engineer with deep experience in C++, ROS2, and vision-language models (VLM).
+            Data platform engineer with deep experience in Swift, SQL, and transformer models.
 
-            Robotics grasping simulator in MuJoCo.
+            Event classification service with deterministic replay evaluation.
 
             Embedded systems programmer using C and microcontrollers.
             """
@@ -59,7 +59,7 @@ struct ContextRetrievalTests {
 
         // 1. Test query with match and budget exclusion
         let (_, trace) = try await service.retrieveContextWithTrace(
-            question: "robotics ROS2 VLM",
+            question: "data platform Swift transformer service",
             intent: .technical,
             maxCVWords: 12, // tight budget!
             maxJDWords: 15
@@ -73,7 +73,7 @@ struct ContextRetrievalTests {
         // Verify that included chunks were flagged correctly and matches the context
         #expect(trace.includedCVChunks.count > 0)
         #expect(trace.includedCVChunks.allSatisfy { $0.isIncludedInPrompt == true })
-        #expect(trace.includedCVChunks.first?.fullContent.contains("Robotics") == true)
+        #expect(trace.includedCVChunks.first?.fullContent.contains("Data platform") == true)
 
         // Verify that budget-excluded chunks were identified and not included in prompt
         #expect(trace.excludedCVChunks.count > 0)

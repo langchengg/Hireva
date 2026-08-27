@@ -6,14 +6,14 @@ struct TextChunkerTests {
     @Test
     func chunksSplitLongParagraphsAndExtractMeaningfulKeywords() {
         let text = """
-        Robotics perception project using MuJoCo simulation, visual language model reranking, grasp candidate generation, and failure analysis for language-conditioned grasping.
+        Synthetic service reliability project using a deterministic simulator, event reranking, recovery candidate generation, and failure analysis for workload-aware scheduling.
         """
 
         let chunks = TextChunker.chunks(from: text, maxWords: 8)
 
         #expect(chunks.count > 1)
-        #expect(chunks.flatMap(\.keywords).contains("robotics"))
-        #expect(chunks.flatMap(\.keywords).contains("mujoco"))
+        #expect(chunks.flatMap(\.keywords).contains("service"))
+        #expect(chunks.flatMap(\.keywords).contains("simulator"))
         #expect(!chunks.flatMap(\.keywords).contains("and"))
     }
 
@@ -41,21 +41,21 @@ struct TextChunkerTests {
         let text = """
         ## Work Experience
         
-        Senior Software Engineer at Google DeepMind working on advanced agentic coding systems.
+        Senior Software Engineer at Example Systems Laboratory working on synthetic agentic coding systems.
         
         EDUCATION:
         
-        Master of Science in Robotics and Artificial Intelligence.
+        Master of Science in Software Systems and Reliability.
         
         PROJECTS
         
-        Developed a VLM pipeline for autonomous robot manipulation.
+        Developed a ranking pipeline for synthetic incident triage.
         """
         
         let chunks = TextChunker.chunks(from: text, maxWords: 100)
         
-        // Find chunk with Google DeepMind
-        let workChunk = chunks.first { $0.content.contains("DeepMind") }
+        // Find the explicitly fictional employer chunk.
+        let workChunk = chunks.first { $0.content.contains("Example Systems Laboratory") }
         #expect(workChunk != nil)
         #expect(workChunk?.sectionTitle == "Work Experience")
         
@@ -64,39 +64,39 @@ struct TextChunkerTests {
         #expect(workChunk != nil)
         #expect(eduChunk?.sectionTitle == "EDUCATION")
         
-        // Find chunk with VLM pipeline
-        let projChunk = chunks.first { $0.content.contains("VLM pipeline") }
+        // Find chunk with the synthetic ranking pipeline.
+        let projChunk = chunks.first { $0.content.contains("ranking pipeline") }
         #expect(projChunk != nil)
         #expect(projChunk?.sectionTitle == "PROJECTS")
     }
 
     @Test
     func sentenceBoundarySplittingExceptions() {
-        let text = "We developed a system in C++ using ROS2.0. The version was 3.14. " +
-                   "Please check the url https://google.com for info. " +
-                   "Dr. Langcheng created main.swift, e.g. for testing. " +
+        let text = "We developed a system in C++ using ExampleProtocol2.0. The version was 3.14. " +
+                   "Please check the url https://docs.example.com for info. " +
+                   "Dr. Example created main.swift, e.g. for testing. " +
                    "This is the end."
         
         let sentences = TextChunker.splitIntoSentences(text)
         
         // Should split into exactly 4 sentences:
-        // 1. We developed a system in C++ using ROS2.0.
+        // 1. We developed a system in C++ using ExampleProtocol2.0.
         // 2. The version was 3.14.
-        // 3. Please check the url https://google.com for info.
-        // 4. Dr. Langcheng created main.swift, e.g. for testing. This is the end. (Wait, let's see if e.g. splits or not. It shouldn't split!)
+        // 3. Please check the url https://docs.example.com for info.
+        // 4. Dr. Example created main.swift, e.g. for testing. This is the end. (Wait, let's see if e.g. splits or not. It shouldn't split!)
         
-        #expect(sentences.contains { $0.contains("ROS2.0.") }) // preserved decimal-like dot in ROS2.0.
+        #expect(sentences.contains { $0.contains("ExampleProtocol2.0.") }) // preserved decimal-like dot in the synthetic protocol version.
         #expect(sentences.contains { $0.contains("version was 3.14.") }) // preserved decimal 3.14
-        #expect(sentences.contains { $0.contains("https://google.com for info.") }) // preserved URL dot
-        #expect(sentences.contains { $0.contains("Dr. Langcheng created main.swift, e.g. for testing.") }) // preserved abbreviation Dr., e.g., and filename dot
+        #expect(sentences.contains { $0.contains("https://docs.example.com for info.") }) // preserved URL dot on the reserved example.com domain
+        #expect(sentences.contains { $0.contains("Dr. Example created main.swift, e.g. for testing.") }) // preserved abbreviation Dr., e.g., and filename dot
     }
 
     @Test
     func bulletListsArePreservedIntact() {
         let text = """
         My key achievements:
-        - Implemented a robot learning simulator in ROS2.
-        - Designed a complex vision-language model.
+        - Implemented a deterministic event simulator in Swift.
+        - Designed a synthetic incident-ranking model.
         - Built an advanced agentic coding assistant in Swift.
         """
         
@@ -109,7 +109,7 @@ struct TextChunkerTests {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix("-") {
                     // Each bullet line should be preserved whole
-                    #expect(trimmed.contains("ROS2") || trimmed.contains("vision-language") || trimmed.contains("Swift"))
+                    #expect(trimmed.contains("event simulator") || trimmed.contains("incident-ranking") || trimmed.contains("coding assistant"))
                 }
             }
         }

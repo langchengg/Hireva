@@ -17,7 +17,7 @@ struct RepositoryTests {
             sessionID: session.id,
             source: .systemAudio,
             speaker: .interviewer,
-            text: "Could you explain your LeoRover project?",
+            text: "Could you explain your event ingestion service?",
             createdAt: Date(),
             asrFinalizationReason: "partial"
         )
@@ -38,7 +38,7 @@ struct RepositoryTests {
         )
         try suggestions.saveDetectedQuestion(question)
         var final = first
-        final.text = "Could you explain your LeoRover project from end to end?"
+        final.text = "Could you explain your event ingestion service from end to end?"
         final.asrFinalizationReason = "stable_partial"
         try transcripts.saveSegment(final)
 
@@ -93,7 +93,7 @@ struct RepositoryTests {
         _ = try repository.saveDocument(
             type: .cv,
             title: "Resume",
-            content: String(repeating: "Swift robotics machine learning leadership ", count: 10)
+            content: String(repeating: "Swift distributed systems data platform leadership ", count: 10)
         )
         #expect(try !repository.isOnboardingComplete())
 
@@ -121,7 +121,7 @@ struct RepositoryTests {
             id: UUID().uuidString,
             sessionID: session.id,
             speaker: .unknown,
-            text: "Can you walk me through your robotics project?",
+            text: "Can you walk me through your event-processing project?",
             startTime: nil,
             endTime: nil,
             createdAt: Date()
@@ -151,12 +151,12 @@ struct RepositoryTests {
             sessionID: session.id,
             questionID: question.id,
             strategy: "Project walkthrough",
-            sayFirst: "I worked on a grounded robotics project.",
+            sayFirst: "I worked on a grounded event-processing project.",
             keyPoints: ["Problem", "Method", "Contribution"],
             followUpReady: ["How did you evaluate it?"],
             confidence: 0.9,
             caution: "Avoid overclaiming.",
-            evidenceUsed: ["robotics project"],
+            evidenceUsed: ["event-processing project"],
             riskLevel: .low,
             modelName: "deepseek-v4-flash",
             promptVersion: PromptLibrary.suggestionGenerator.versionTag,
@@ -177,7 +177,7 @@ struct RepositoryTests {
 
         #expect(try transcripts.segments(sessionID: session.id).count == 1)
         #expect(try suggestions.questions(sessionID: session.id).first?.modelName == "deepseek-v4-flash")
-        #expect(try suggestions.suggestions(sessionID: session.id).first?.evidenceUsed == ["robotics project"])
+        #expect(try suggestions.suggestions(sessionID: session.id).first?.evidenceUsed == ["event-processing project"])
         #expect(try recaps.recap(sessionID: session.id)?.markdown == "# Interview Recap")
 
         try sessions.deleteSession(id: session.id)
@@ -202,7 +202,7 @@ struct RepositoryTests {
 
         var stageB = fallback
         stageB.strategy = "Project walkthrough"
-        stageB.sayFirst = "I worked on a robotics project where I connected perception to action."
+        stageB.sayFirst = "I worked on an event-processing project where I connected validation to downstream persistence."
         stageB.keyPoints = ["Problem", "Method", "Impact"]
         stageB.sayFirstSource = "deepseek_stream"
         stageB.stageBCompleted = true
@@ -266,7 +266,7 @@ struct RepositoryTests {
         try suggestions.saveSuggestionCard(fallback, retrievedChunks: [makeChunk(id: "fallback-source")])
 
         var replacement = fallback
-        replacement.sayFirst = "I worked on a robotics project that connected language-conditioned goals to grasp selection."
+        replacement.sayFirst = "I worked on a data pipeline that connected schema classification to deterministic event routing."
         replacement.sayFirstSource = "deepseek_stream"
         replacement.finalVisibleSource = "deepseek_stream"
         try suggestions.saveSuggestionCard(replacement, retrievedChunks: [makeChunk(id: "deepseek-source")])
@@ -291,7 +291,7 @@ struct RepositoryTests {
         \usepackage[left=0.4in]{geometry}
         \begin{document}
         \section{Projects}
-        \textbf{Robotics Project} Built a language-conditioned robotic grasping pipeline.
+        \textbf{Event Processing Project} Built a schema-aware ingestion and validation pipeline.
         \end{document}
         """#
 
@@ -319,7 +319,7 @@ struct RepositoryTests {
         #expect(result.documentsRebuilt == 1)
         #expect(result.chunksRebuilt > 0)
         #expect(pollutedCount == 0)
-        #expect(chunks.contains { $0.content.contains("Robotics Project") })
+        #expect(chunks.contains { $0.content.contains("Event Processing Project") })
         #expect(chunks.allSatisfy { !$0.content.contains("documentclass") && !$0.content.contains("usepackage") && !$0.content.contains("geometry") })
         #expect(try repository.document(type: .cv)?.content == legacyLatex.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -330,7 +330,7 @@ struct RepositoryTests {
         let repository = DocumentRepository(database: database)
         let documentID = UUID().uuidString
         let now = DateCoding.string(from: Date())
-        let cleanTechnicalChunk = "Converted target bbox and mask outputs into 3D object geometry for downstream grasp planning."
+        let cleanTechnicalChunk = "Converted viewport bounding boxes and masks into 3D scene geometry for downstream layout planning."
 
         try database.dbQueue.write { db in
             try db.execute(
@@ -345,7 +345,7 @@ struct RepositoryTests {
                 INSERT INTO document_chunks (id, document_id, document_type, chunk_index, content, keywords, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                arguments: [UUID().uuidString, documentID, DocumentType.cv.rawValue, 0, cleanTechnicalChunk, "geometry,grasp", now]
+                arguments: [UUID().uuidString, documentID, DocumentType.cv.rawValue, 0, cleanTechnicalChunk, "geometry,layout", now]
             )
         }
 
@@ -364,7 +364,7 @@ struct RepositoryTests {
             id: UUID().uuidString,
             sessionID: sessionID,
             transcriptSegmentID: nil,
-            questionText: "Can you walk me through your robotics project?",
+            questionText: "Can you walk me through your event-processing project?",
             intent: .projectDeepDive,
             answerStrategy: .projectWalkthrough,
             confidence: 0.91,
@@ -423,9 +423,9 @@ struct RepositoryTests {
             documentID: "document-\(id)",
             documentType: .cv,
             chunkIndex: 0,
-            contentPreview: "Robotics project evidence",
-            fullContent: "Robotics project evidence without formatting commands.",
-            keywords: ["robotics", "project"],
+            contentPreview: "Event-processing project evidence",
+            fullContent: "Event-processing project evidence without formatting commands.",
+            keywords: ["event-processing", "project"],
             score: 1.0,
             keywordOverlapCount: 1,
             contentOverlapCount: 1,

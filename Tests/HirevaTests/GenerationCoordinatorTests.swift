@@ -53,7 +53,7 @@ struct GenerationCoordinatorTests {
     func specificAnswerCheckMatchesExistingCompletenessRules() {
         #expect(GenerationCoordinator.isSpecificAnswer("short answer") == false)
         #expect(GenerationCoordinator.isSpecificAnswer("Based on my experience") == false)
-        #expect(GenerationCoordinator.isSpecificAnswer("The diffusion policy was more stable because it produced smoother continuous actions and recovered better from small trajectory errors.") == true)
+        #expect(GenerationCoordinator.isSpecificAnswer("The diffusion forecaster was more stable because it produced smoother trajectories and recovered better when observations were missing.") == true)
     }
 
     @Test
@@ -66,7 +66,7 @@ struct GenerationCoordinatorTests {
         )
         let coordinator = try makeProviderCoordinator(client: client)
         let input = makeProviderInput(
-            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            questionText: "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?",
             providerModel: "deepseek-v4-\(rawKey)"
         )
 
@@ -86,10 +86,10 @@ struct GenerationCoordinatorTests {
         #expect(result.sayFirst.localizedCaseInsensitiveContains("diffusion"))
         #expect(result.sayFirst.localizedCaseInsensitiveContains("autoregressive"))
         #expect(result.keyPoints == [
-            "Diffusion models smooth continuous actions.",
+            "Diffusion models smooth forecast trajectories.",
             "Autoregressive models can accumulate sequential errors."
         ])
-        #expect(result.followUp == ["I would validate this across more object starts."])
+        #expect(result.followUp == ["I would validate this across more traffic windows."])
         #expect(result.providerModel == "mock-model-[REDACTED_API_KEY]")
         #expect(result.providerName == "DeepSeek [REDACTED_API_KEY]")
         #expect(result.safeDiagnostics.values.contains { $0.contains(rawKey) } == false)
@@ -157,7 +157,7 @@ struct GenerationCoordinatorTests {
     @Test
     func stageBFullCardResultReturnsApplyFullCardWithoutAppState() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let sections = makeAlignedStageBSections()
         let providerResult = makeStageBProviderResult(status: .completed, sections: sections)
 
@@ -182,7 +182,7 @@ struct GenerationCoordinatorTests {
     @Test
     func fullCardStageBResultCreatesApplyFullCardApplicationPlan() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let sections = makeAlignedStageBSections()
         let identity = GenerationIdentity(
             acceptedQuestionID: "question-apply",
@@ -222,8 +222,8 @@ struct GenerationCoordinatorTests {
     @Test
     func stageBTimeoutWithAlignedVisibleAnswerKeepsFirstVisibleAnswer() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
-        let visibleAnswer = "I would say diffusion is more stable because it denoises a continuous action trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust in manipulation."
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
+        let visibleAnswer = "I would say diffusion is more stable because it denoises a complete forecast trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust when observations are missing."
         let providerResult = makeStageBProviderResult(
             status: .timedOut,
             sections: nil,
@@ -251,8 +251,8 @@ struct GenerationCoordinatorTests {
     @Test
     func timeoutWithAlignedVisibleAnswerCreatesKeepVisibleApplicationPlan() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
-        let visibleAnswer = "I would say diffusion is more stable because it denoises a continuous action trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust in manipulation."
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
+        let visibleAnswer = "I would say diffusion is more stable because it denoises a complete forecast trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust when observations are missing."
         let providerResult = makeStageBProviderResult(
             status: .timedOut,
             sections: nil,
@@ -287,7 +287,7 @@ struct GenerationCoordinatorTests {
     @Test
     func timeoutWithoutValidVisibleAnswerCreatesSemanticFallbackApplicationPlan() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let providerResult = makeStageBProviderResult(
             status: .timedOut,
             sections: nil,
@@ -322,7 +322,7 @@ struct GenerationCoordinatorTests {
     @Test
     func stageBProviderFailureReturnsFallbackDecisionWithoutAppState() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let providerResult = makeStageBProviderResult(
             status: .failed,
             sections: nil,
@@ -350,7 +350,7 @@ struct GenerationCoordinatorTests {
     @Test
     func providerFailureCreatesFallbackApplicationPlanWithoutAppState() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let providerResult = makeStageBProviderResult(
             status: .failed,
             sections: nil,
@@ -392,7 +392,7 @@ struct GenerationCoordinatorTests {
             generationID: "old-generation",
             detectedQuestionID: "old-question",
             activeGenerationID: "new-generation",
-            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            questionText: "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?",
             providerResult: providerResult,
             sections: sections,
             sawStreamingSections: true,
@@ -414,7 +414,7 @@ struct GenerationCoordinatorTests {
             generationID: "old-generation",
             detectedQuestionID: "old-question",
             activeGenerationID: "new-generation",
-            questionText: "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?",
+            questionText: "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?",
             providerResult: providerResult,
             sections: sections,
             sawStreamingSections: true,
@@ -437,12 +437,12 @@ struct GenerationCoordinatorTests {
     @Test
     func modelComparisonGenericVisibleAnswerRequiresFallbackDecision() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let sections = StreamingSuggestionSections(
             strategy: "General response",
             sayFirst: "I would focus on explaining the project clearly and connect it to my background.",
             keyPoints: [
-                "I can describe my experience in robotics.",
+                "I can describe my experience with predictive systems.",
                 "I would keep the answer concise and practical."
             ],
             followUpReady: [],
@@ -470,12 +470,12 @@ struct GenerationCoordinatorTests {
     @Test
     func genericModelComparisonVisibleAnswerCreatesFallbackApplicationPlan() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
         let sections = StreamingSuggestionSections(
             strategy: "General response",
             sayFirst: "I would focus on explaining the project clearly and connect it to my background.",
             keyPoints: [
-                "I can describe my experience in robotics.",
+                "I can describe my experience with predictive systems.",
                 "I would keep the answer concise and practical."
             ],
             followUpReady: [],
@@ -567,8 +567,8 @@ struct GenerationCoordinatorTests {
     @Test
     func stageBNoSectionsKeepsAlignedVisibleAnswer() {
         let coordinator = GenerationCoordinator()
-        let question = "Why might a diffusion-based policy be more stable for robotic manipulation than an autoregressive policy?"
-        let visibleAnswer = "I would say diffusion is more stable because it denoises a continuous action trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust in manipulation."
+        let question = "Why might a diffusion-based forecaster be more stable for noisy time-series prediction than an autoregressive forecaster?"
+        let visibleAnswer = "I would say diffusion is more stable because it denoises a complete forecast trajectory, while autoregressive step-by-step prediction can accumulate errors and become less robust when observations are missing."
         let providerResult = makeStageBProviderResult(status: .completed, sections: nil)
 
         let result = coordinator.interpretStageBResult(
@@ -590,13 +590,13 @@ struct GenerationCoordinatorTests {
     private static let successfulProviderJSON = """
     {
       "strategy": "Direct comparison",
-      "say_first": "I would say diffusion is more stable because it denoises a whole continuous action trajectory, while autoregressive prediction can accumulate errors step by step.",
+      "say_first": "I would say diffusion is more stable because it denoises a complete forecast trajectory, while autoregressive prediction can accumulate errors step by step.",
       "key_points": [
-        "Diffusion models smooth continuous actions.",
+        "Diffusion models smooth forecast trajectories.",
         "Autoregressive models can accumulate sequential errors."
       ],
       "follow_up_ready": [
-        "I would validate this across more object starts."
+        "I would validate this across more traffic windows."
       ],
       "confidence": 0.86,
       "caution": "",
@@ -662,9 +662,9 @@ struct GenerationCoordinatorTests {
                     documentID: "cv-doc",
                     documentType: .cv,
                     chunkIndex: 0,
-                    content: "Diffusion policies produced smoother continuous actions than autoregressive policies and were more robust during MuJoCo manipulation.",
+                    content: "Diffusion forecasters produced smoother trajectories than autoregressive forecasters and were more robust when replay windows contained missing observations.",
                     keywords: ["diffusion", "autoregressive", "continuous", "robust"],
-                    sectionTitle: "VLA Project",
+                    sectionTitle: "Forecast Evaluation",
                     wordCount: 15,
                     metadataJSON: nil,
                     createdAt: Date()
@@ -674,8 +674,8 @@ struct GenerationCoordinatorTests {
             additionalNotesChunks: []
         )
         let transcript = "Interviewer: Earlier background only."
-        let cvSummary = "Candidate compared diffusion and autoregressive robot policies."
-        let jdSummary = "Robotics role."
+        let cvSummary = "Candidate compared diffusion and autoregressive time-series forecasters."
+        let jdSummary = "Data platform role."
         var providerConfiguration = LLMProviderConfiguration.deepSeekDefault(model: providerModel)
         providerConfiguration.name = "DeepSeek"
         let executionContext = GenerationExecutionContext.make(
@@ -708,13 +708,13 @@ struct GenerationCoordinatorTests {
     private func makeAlignedStageBSections() -> StreamingSuggestionSections {
         StreamingSuggestionSections(
             strategy: "Direct comparison",
-            sayFirst: "I would say diffusion is more stable because it denoises a whole continuous action trajectory, while autoregressive prediction can accumulate errors step by step.",
+            sayFirst: "I would say diffusion is more stable because it denoises a complete forecast trajectory, while autoregressive prediction can accumulate errors step by step.",
             keyPoints: [
-                "Diffusion models smooth continuous actions.",
+                "Diffusion models smooth forecast trajectories.",
                 "Autoregressive models can accumulate sequential errors.",
-                "That makes diffusion more robust during robotic manipulation."
+                "That makes diffusion more robust when observations are missing."
             ],
-            followUpReady: ["I would validate this across more object starts."],
+            followUpReady: ["I would validate this across more traffic windows."],
             caution: ""
         )
     }
