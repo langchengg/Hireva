@@ -506,7 +506,7 @@ extension AppState {
     /// prompt.
     func stopListening(
         reason: StopReason = .userRequested,
-        file: String = #file,
+        file: String = #fileID,
         line: Int = #line,
         function: String = #function
     ) {
@@ -778,7 +778,7 @@ extension AppState {
     // internal for AppState extension access only
     func stopAllContinuousPipelines(
         reason: StopReason,
-        file: String = #file,
+        file: String = #fileID,
         line: Int = #line,
         function: String = #function
     ) {
