@@ -41,6 +41,13 @@ final class ManualCaptureBufferStore: @unchecked Sendable {
     var snapshot: [AVAudioPCMBuffer] { queue.sync { buffers } }
 }
 
+protocol ManualMicrophoneCaptureBackend: AnyObject {
+    func registerForCapture(_ delegate: any AudioEngineBufferDelegate) throws
+    func unregister(_ delegate: any AudioEngineBufferDelegate)
+}
+
+extension AudioEngineManager: ManualMicrophoneCaptureBackend {}
+
 public final class ManualQuestionCaptureService: NSObject, ObservableObject, SystemAudioBufferDelegate, AudioEngineBufferDelegate {
     public static let shared = ManualQuestionCaptureService()
     
@@ -57,11 +64,18 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     private var maxSeconds: Int = 60
     private var onTimeoutTriggered: (() -> Void)?
     private var onFatalCaptureError: ((Error) -> Void)?
-    private var activeSource: ManualCaptureSource = .systemAudio
+    private var activeSource: ManualCaptureSource?
     
     private let bufferStore = ManualCaptureBufferStore()
+    private let microphoneCaptureBackend: any ManualMicrophoneCaptureBackend
     
     private override init() {
+        self.microphoneCaptureBackend = AudioEngineManager.shared
+        super.init()
+    }
+
+    init(microphoneCaptureBackend: any ManualMicrophoneCaptureBackend) {
+        self.microphoneCaptureBackend = microphoneCaptureBackend
         super.init()
     }
     
@@ -104,7 +118,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
                 ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
                 try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
             } else {
-                try AudioEngineManager.shared.registerForCapture(self)
+                try microphoneCaptureBackend.registerForCapture(self)
             }
 
             self.isRecording = true
@@ -122,13 +136,14 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         isRecording = false
         onTimeoutTriggered = nil
         onFatalCaptureError = nil
+        activeSource = nil
         bufferStore.removeAll()
 
         if source == .systemAudio {
             ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
             ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
         } else {
-            AudioEngineManager.shared.unregister(self)
+            microphoneCaptureBackend.unregister(self)
         }
     }
 
@@ -169,12 +184,14 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         
         let buffers = bufferStore.drain()
         onFatalCaptureError = nil
+        let source = activeSource
+        activeSource = nil
         
-        if activeSource == .systemAudio {
+        if source == .systemAudio {
             ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
             ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
-        } else {
-            AudioEngineManager.shared.unregister(self)
+        } else if source == .microphone {
+            microphoneCaptureBackend.unregister(self)
         }
         
         return buffers
@@ -192,13 +209,15 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         isRecording = false
         onTimeoutTriggered = nil
         onFatalCaptureError = nil
+        let source = activeSource
+        activeSource = nil
         bufferStore.removeAll()
         
-        if activeSource == .systemAudio {
+        if source == .systemAudio {
             ScreenCaptureKitSystemAudioCaptureService.shared.unregister(self)
             ScreenCaptureKitSystemAudioCaptureService.shared.stopSystemAudioCapture()
-        } else {
-            AudioEngineManager.shared.unregister(self)
+        } else if source == .microphone {
+            microphoneCaptureBackend.unregister(self)
         }
     }
     
@@ -279,10 +298,4 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         callback(error)
     }
 
-    @MainActor
-    func installFatalCaptureErrorHandlerForTesting(_ callback: @escaping (Error) -> Void) {
-        onFatalCaptureError = callback
-        activeSource = .microphone
-        isRecording = true
-    }
 }

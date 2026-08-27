@@ -3,6 +3,19 @@ import Testing
 import AVFoundation
 @testable import Hireva
 
+private final class RecordingManualMicrophoneCaptureBackend: ManualMicrophoneCaptureBackend {
+    private(set) var registerCount = 0
+    private(set) var unregisterCount = 0
+
+    func registerForCapture(_ delegate: any AudioEngineBufferDelegate) throws {
+        registerCount += 1
+    }
+
+    func unregister(_ delegate: any AudioEngineBufferDelegate) {
+        unregisterCount += 1
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct ManualCaptureTests {
@@ -1362,13 +1375,33 @@ struct ManualCaptureTests {
     func backendFatalErrorCleansServiceAndCoordinatorState() async throws {
         resetMockHooks()
         defer { resetMockHooks() }
-        let service = ManualQuestionCaptureService.shared
+        let microphoneBackend = RecordingManualMicrophoneCaptureBackend()
+        let service = ManualQuestionCaptureService(microphoneCaptureBackend: microphoneBackend)
         var serviceCallbackCount = 0
-        service.installFatalCaptureErrorHandlerForTesting { _ in serviceCallbackCount += 1 }
         let failure = InjectedStartFailure(errorDescription: "Backend stopped")
+        var serviceErrorDescription: String?
+        try await service.startCapture(
+            source: .microphone,
+            onTimeout: {},
+            onFatalCaptureError: { error in
+                serviceCallbackCount += 1
+                serviceErrorDescription = error.localizedDescription
+            }
+        )
+        #expect(service.isRecording)
+        #expect(microphoneBackend.registerCount == 1)
+        #expect(microphoneBackend.unregisterCount == 0)
+
         service.audioEngineManager(AudioEngineManager.shared, didFailWith: failure)
         try await waitUntil("service fatal cleanup") { serviceCallbackCount == 1 }
         #expect(!service.isRecording)
+        #expect(serviceErrorDescription == "Backend stopped")
+        #expect(microphoneBackend.unregisterCount == 1)
+
+        service.audioEngineManager(AudioEngineManager.shared, didFailWith: failure)
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(serviceCallbackCount == 1)
+        #expect(microphoneBackend.unregisterCount == 1)
 
         let database = try makeTemporaryDatabase()
         try await setupOnboardingData(database: database)
