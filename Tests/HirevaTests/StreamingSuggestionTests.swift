@@ -4,15 +4,7 @@ import Foundation
 
 @Suite
 struct StreamingSuggestionTests {
-    
-    // Helper to create an in-memory or temp SQLite database for settings
-    private func makeTemporaryDatabase() throws -> AppDatabase {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("HirevaTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
-    }
-    
+
     // 1. SSE Parser handles split chunks, keep-alives, role-only deltas, and usage-only chunks
     @Test
     func testSSEParserResilience() throws {
@@ -61,7 +53,8 @@ struct StreamingSuggestionTests {
     // 2. Local heuristic detects professional prompts and questions
     @Test
     func testLocalHeuristicPrompts() throws {
-        let db = try makeTemporaryDatabase()
+        let db = try AppDatabase(inMemory: true)
+        defer { try? db.close() }
         let settings = SettingsRepository(database: db)
         let router = LLMRouter(settingsRepository: settings, apiKeyStore: InMemoryAPIKeyStore())
         let detector = QuestionDetectionService(llmRouter: router)
@@ -72,7 +65,7 @@ struct StreamingSuggestionTests {
         #expect(res1.confidence >= 0.9)
         
         // Interview prompts
-        let res2 = detector.isLikelyQuestion("walk me through your CV")
+        let res2 = detector.isLikelyQuestion("walk me through your technical background")
         #expect(res2.shouldTrigger == true)
         #expect(res2.reason.contains("walk me through"))
         
@@ -179,92 +172,97 @@ struct StreamingSuggestionTests {
         #expect(!systemPromptB.contains("UUID"))
     }
 
-    // 5. E2E suggestion pipeline test on real DeepSeek
+    // 5. E2E suggestion pipeline contract with an injected synthetic provider
     @MainActor
     @Test
-    func testRealDeepSeekStreamingSuggetionE2E() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping testRealDeepSeekStreamingSuggetionE2E: set REAL_APP_DB_TESTS=1 to allow real app database access.")
-            return
+    func deepSeekStreamingSuggestionPipelineCompletesWithSyntheticProvider() async throws {
+        try await withStreamingAppTestFixture(prefix: "StreamingSuggestionPipeline") { fixture in
+            try await verifyDeepSeekStreamingSuggestionPipeline(fixture: fixture)
         }
+    }
 
-        // Find DeepSeek API Key strictly from Environment (No real Keychain in unit tests)
-        let apiKey: String? = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]
-        
-        guard let finalKey = apiKey, !finalKey.isEmpty else {
-            print("⚠️ Skipping testRealDeepSeekStreamingSuggetionE2E: DeepSeek API Key not configured in Environment")
-            return
-        }
-        
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dbPath = appSupport.appendingPathComponent("Hireva/hireva.sqlite")
-        
-        guard FileManager.default.fileExists(atPath: dbPath.path) else {
-            print("⚠️ Real SQLite database does not exist at: \(dbPath.path)")
-            return
-        }
-        
-        print("\n================================================================================")
-        print("🚀 RUNNING E2E REAL DEEPSEEK STREAMING SUGGESTION GENERATION PIPELINE")
-        print("================================================================================")
-        
-        // 1. Initialize real AppState
-        let database = try AppDatabase(path: dbPath)
-        
-        // Re-inject key store with finalKey to make sure LLMRouter uses the correct key
-        final class CustomEnvKeyStore: APIKeyStore {
-            let key: String
-            init(key: String) { self.key = key }
-            func loadAPIKey(account: String) throws -> String? { return key }
-            func saveAPIKey(_ apiKey: String, account: String) throws {}
-            func deleteAPIKey(account: String) throws {}
-        }
-        
-        let customKeyStore = CustomEnvKeyStore(key: finalKey)
-        let customLLMClient = DeepSeekLLMClient(apiKeyStore: customKeyStore)
-        let router = LLMRouter(settingsRepository: SettingsRepository(database: database), clients: [
-            .deepSeek: customLLMClient
-        ])
-        
-        let appState = AppState(database: database, llmRouter: router)
-        
-        // Ensure DeepSeek is selected as active provider
-        if let deepseekProvider = appState.providerConfigurations.first(where: { $0.kind == .deepSeek }) {
-            appState.updateActiveRealtimeProvider(provider: deepseekProvider, model: "deepseek-v4-flash")
-        }
-        
-        // 2. Create an E2E Session in real database
-        let session = InterviewSession(
-            id: UUID().uuidString,
-            title: "Real DeepSeek Streaming E2E Verification",
-            company: "Autonomous Robotics",
-            role: "Robotics Engineer",
-            startedAt: Date(),
-            endedAt: nil,
-            mode: .microphone,
-            createdAt: Date()
-        )
-        try await database.dbQueue.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO interview_sessions (id, title, company, role, started_at, ended_at, mode, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                arguments: [
-                    session.id,
-                    session.title,
-                    session.company,
-                    session.role,
-                    DateCoding.string(from: session.startedAt),
-                    nil,
-                    session.mode.rawValue,
-                    DateCoding.string(from: session.createdAt)
-                ]
+    @MainActor
+    private func verifyDeepSeekStreamingSuggestionPipeline(
+        fixture: StreamingAppTestFixture
+    ) async throws {
+        let database = fixture.database
+        let settingsRepository = SettingsRepository(database: database)
+        try settingsRepository.ensureDefaultProviderConfigurations()
+        guard var provider = try settingsRepository.providerConfigurations().first(where: { $0.kind == .deepSeek }) else {
+            throw NSError(
+                domain: "StreamingSuggestionTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "DeepSeek provider fixture is missing."]
             )
         }
-        
-        // 3. Create DetectedQuestion
-        let query = "Can you tell me about your robotics project?"
+        provider.model = "deepseek-v4-flash"
+        provider.isDefaultForRealtime = true
+        try settingsRepository.saveProviderConfiguration(provider)
+        try settingsRepository.setActiveRealtimeProvider(id: provider.id)
+
+        let mockClient = StreamingMockLLMClient()
+        mockClient.streamTokenBatches = [
+            ["I traced the synthetic service failure with logs and metrics, isolated the faulty handoff, and verified the repair with repeatable tests."],
+            ["""
+            STRATEGY: Evidence-based debugging
+            SAY_FIRST: I traced the synthetic service failure with logs and metrics, isolated the faulty handoff, and verified the repair with repeatable tests.
+            KEY_POINTS:
+            - I used observable evidence to isolate the failure.
+            - I verified the repair with repeatable tests.
+            FOLLOW_UP:
+            - I can explain the validation sequence.
+            CAUTION:
+            Keep the answer bound to the synthetic fixture.
+            """]
+        ]
+        let router = LLMRouter(
+            settingsRepository: settingsRepository,
+            clients: [.deepSeek: mockClient]
+        )
+        let appState = AppState(
+            database: database,
+            llmRouter: router,
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            dialogueDefaults: nil
+        )
+        fixture.register(appState)
+        appState.answerProviderModeOverride = .deepSeekPrimary
+        #expect(appState.activeRealtimeProvider?.id == provider.id)
+        #expect(appState.activeRealtimeProvider?.model == provider.model)
+        appState.stageATimeoutSeconds = 60.0
+        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let delayProvider = MockDelayProvider()
+        delayProvider.sleepDuration = 60_000_000_000
+        appState.delayProvider = delayProvider
+
+        let sourceDocumentID = "streaming-synthetic-document"
+        let profile = TestSupport.makeCandidateProfile(
+            id: "streaming-synthetic-candidate",
+            documentID: sourceDocumentID,
+            statements: [
+                "The synthetic candidate traced a service failure with logs and metrics, isolated a faulty handoff, and verified the repair with repeatable tests."
+            ]
+        )
+        let opportunity = TestSupport.makeOpportunityContext(
+            id: "streaming-synthetic-opportunity",
+            documentID: sourceDocumentID,
+            statements: [
+                "The synthetic role requires evidence-based debugging and repeatable validation."
+            ]
+        )
+        try appState.interviewContextRepository.saveCandidateProfile(profile)
+        try appState.interviewContextRepository.saveOpportunityContext(opportunity)
+        appState.refreshAll()
+        appState.selectCandidateProfile(profile.id)
+        appState.selectOpportunityContext(opportunity.id)
+        appState.selectInterviewDomain(.general)
+        let session = try appState.createContextBoundSession(
+            mode: .mock,
+            title: "Synthetic streaming suggestion pipeline"
+        )
+        appState.currentSession = session
+
+        let query = "How did you debug the synthetic service failure?"
         let detectedQuestion = DetectedQuestion(
             id: UUID().uuidString,
             sessionID: session.id,
@@ -273,54 +271,172 @@ struct StreamingSuggestionTests {
             intent: .technical,
             answerStrategy: .wait,
             confidence: 0.98,
-            reason: "Practice / Manual Capture Trigger",
+            reason: "Synthetic pipeline contract",
             shouldTrigger: true,
             questionComplete: true,
-            modelName: "deepseek-v4-flash",
+            modelName: provider.model,
             promptVersion: "v1.0",
             createdAt: Date()
         )
-        
         let suggestionRepo = SuggestionRepository(database: database)
         try suggestionRepo.saveDetectedQuestion(detectedQuestion)
-        
-        // Trigger live suggestion E2E generation pipeline
+
         try await appState.generateSuggestion(
             for: detectedQuestion,
             session: session,
             transcript: query,
             autoGenerated: false
         )
-        
-        // Stage A should have finished immediately or timed out.
-        // Now poll until Stage B finishes (max 15 seconds)
-        let startPoll = Date()
-        while appState.isExpandingSuggestionCard && Date().timeIntervalSince(startPoll) < 15.0 {
-            try? await Task.sleep(nanoseconds: 100_000_000) // Sleep 100ms
+
+        try await waitUntil(timeout: 5.0, label: "synthetic Stage B completion") {
+            appState.currentSuggestion?.stageBCompleted == true &&
+                appState.currentSuggestion?.stageBStatus == "completed"
         }
-        
-        let finalCard = appState.currentSuggestion
-        #expect(finalCard != nil)
-        
-        if let card = finalCard {
-            print("\nE2E Pipeline suggestion generation completed factually:")
-            print("  First Token Latency: \(card.latencyFirstTokenMS ?? -1) ms")
-            print("  First Visible Latency: \(card.latencyFirstVisibleMS ?? -1) ms")
-            print("  Full Card Latency: \(card.latencyFullCardMS ?? -1) ms")
-            print("  Stage A Source: \(card.sayFirstSource ?? "nil")")
-            print("  Stage B Status: \(card.stageBStatus ?? "nil")")
-            print("  Stage A Timed Out: \(card.stageATimedOut ?? false)")
-            print("  Stage B Completed: \(card.stageBCompleted ?? false)")
-            print("  Opener (Say First): \"\(card.sayFirst)\"")
-            print("  Key Points: \(card.keyPoints)")
-            
-            #expect(card.providerName == "DeepSeek")
-            #expect(card.modelName == "deepseek-v4-flash")
-            #expect(card.stageBCompleted == true)
-            #expect(card.stageBStatus == "completed")
+
+        let card = try #require(appState.currentSuggestion)
+        let expectedSayFirst = "I traced the synthetic service failure with logs and metrics, isolated the faulty handoff, and verified the repair with repeatable tests."
+        let expectedKeyPoints = [
+            "I used observable evidence to isolate the failure.",
+            "I verified the repair with repeatable tests."
+        ]
+        #expect(card.providerKind == .deepSeek)
+        #expect(card.providerName == "DeepSeek")
+        #expect(card.modelName == "deepseek-v4-flash")
+        #expect(card.providerBaseURL == provider.baseURL)
+        #expect(card.isLocal == false)
+        #expect(card.stageBCompleted == true)
+        #expect(card.stageBStatus == "completed")
+        #expect(card.sayFirst == expectedSayFirst)
+        #expect(card.keyPoints == expectedKeyPoints)
+        #expect(card.strategy == "Evidence-based debugging")
+        #expect(card.followUpReady == ["I can explain the validation sequence."])
+        #expect(card.caution == "Keep the answer bound to the synthetic fixture.")
+        #expect(card.sayFirstSource == "deepseek_stream")
+        #expect(card.finalVisibleSource == "deepseek_stream")
+        #expect(card.softFallbackUsed == false)
+        #expect(appState.softFallbackUsed == false)
+        #expect(card.detectedQuestionID == detectedQuestion.id)
+
+        let streamRequests = mockClient.capturedStreamRequests
+        #expect(streamRequests.count == 2)
+        #expect(mockClient.capturedCompletionRequests.isEmpty)
+        let firstAnswerRequest = try #require(streamRequests.first { request in
+            request.userPrompt.hasSuffix("Generate the single opening answer now:")
+        })
+        let sectionRequest = try #require(streamRequests.first { request in
+            request.userPrompt.hasSuffix("Stream the section response now.")
+        })
+        for request in [firstAnswerRequest, sectionRequest] {
+            #expect(request.configuration.id == provider.id)
+            #expect(request.configuration.name == provider.name)
+            #expect(request.configuration.kind == provider.kind)
+            #expect(request.configuration.baseURL == provider.baseURL)
+            #expect(request.configuration.model == provider.model)
+            #expect(request.configuration.apiKeyAccount == provider.apiKeyAccount)
+            #expect(request.configuration.isDefaultForRealtime == true)
+            #expect(request.configuration.supportsStreaming == true)
         }
-        
-        print("================================================================================")
+        #expect(firstAnswerRequest.responseFormat == .text)
+        #expect(sectionRequest.responseFormat == .text)
+        #expect(firstAnswerRequest.options.stream == true)
+        #expect(sectionRequest.options.stream == true)
+        #expect(firstAnswerRequest.options.temperature == 0.1)
+        #expect(sectionRequest.options.temperature == 0.2)
+        #expect(firstAnswerRequest.userPrompt.contains("CURRENT QUESTION TO ANSWER:\n\"\(query)\""))
+        #expect(sectionRequest.userPrompt.contains("CURRENT QUESTION TO ANSWER:\n\"\(query)\""))
+        #expect(firstAnswerRequest.userPrompt.contains("service failure with logs and metrics"))
+        #expect(sectionRequest.userPrompt.contains("repeatable tests"))
+
+        try await waitUntil(timeout: 5.0, label: "synthetic suggestion persistence") {
+            ((try? suggestionRepo.suggestions(sessionID: session.id)) ?? [])
+                .filter { $0.detectedQuestionID == detectedQuestion.id }
+                .count == 1
+        }
+        let rows = try suggestionRepo.suggestions(sessionID: session.id)
+        let persisted = try #require(rows.first { $0.detectedQuestionID == detectedQuestion.id })
+        #expect(rows.filter { $0.detectedQuestionID == detectedQuestion.id }.count == 1)
+        #expect(persisted.sayFirst == expectedSayFirst)
+        #expect(persisted.keyPoints == expectedKeyPoints)
+        #expect(persisted.stageBCompleted == true)
+        #expect(persisted.stageBStatus == "completed")
+        #expect(persisted.sayFirstSource == "deepseek_stream")
+        #expect(persisted.finalVisibleSource == "deepseek_stream")
+        #expect(persisted.softFallbackUsed == false)
+        #expect(persisted.providerKind == .deepSeek)
+        #expect(persisted.providerName == "DeepSeek")
+        #expect(persisted.providerBaseURL == provider.baseURL)
+        #expect(persisted.modelName == provider.model)
+        #expect(persisted.isLocal == false)
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: TimeInterval,
+        label: String,
+        predicate: @escaping @MainActor () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw NSError(
+            domain: "StreamingSuggestionTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(label)."]
+        )
+    }
+}
+
+@MainActor
+private final class StreamingAppTestFixture {
+    let database: AppDatabase
+    private let rootDirectory: URL
+    private var appState: AppState?
+    private var isShutdown = false
+
+    init(prefix: String) throws {
+        rootDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        do {
+            database = try AppDatabase(path: rootDirectory.appendingPathComponent("test.sqlite"))
+        } catch {
+            try? FileManager.default.removeItem(at: rootDirectory)
+            throw error
+        }
+    }
+
+    func register(_ appState: AppState) {
+        precondition(self.appState == nil, "Streaming app test fixture already owns an AppState.")
+        self.appState = appState
+    }
+
+    func shutdown() async throws {
+        guard !isShutdown else { return }
+        await appState?.shutdownForTesting()
+        try database.close()
+        if FileManager.default.fileExists(atPath: rootDirectory.path) {
+            try FileManager.default.removeItem(at: rootDirectory)
+        }
+        isShutdown = true
+    }
+}
+
+@MainActor
+private func withStreamingAppTestFixture(
+    prefix: String,
+    operation: @MainActor (StreamingAppTestFixture) async throws -> Void
+) async throws {
+    let fixture = try StreamingAppTestFixture(prefix: prefix)
+    do {
+        try await operation(fixture)
+        try await fixture.shutdown()
+    } catch {
+        try? await fixture.shutdown()
+        throw error
     }
 }
 
@@ -367,9 +483,19 @@ final class StreamingMockLLMClient: LLMClientProtocol {
     private let lock = NSLock()
     private var streamCallCount = 0
     private var completedStreamCountStorage = 0
+    private var capturedStreamRequestsStorage: [StreamingMockRequest] = []
+    private var capturedCompletionRequestsStorage: [StreamingMockRequest] = []
 
     var completedStreamCount: Int {
         lock.withLock { completedStreamCountStorage }
+    }
+
+    var capturedStreamRequests: [StreamingMockRequest] {
+        lock.withLock { capturedStreamRequestsStorage }
+    }
+
+    var capturedCompletionRequests: [StreamingMockRequest] {
+        lock.withLock { capturedCompletionRequestsStorage }
     }
     
     var chatResultContent: String = "{}"
@@ -385,6 +511,16 @@ final class StreamingMockLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
+        lock.withLock {
+            capturedCompletionRequestsStorage.append(
+                StreamingMockRequest(
+                    configuration: configuration,
+                    messages: messages,
+                    responseFormat: responseFormat,
+                    options: options
+                )
+            )
+        }
         if chatResultDelayNS > 0 {
             try? await Task.sleep(nanoseconds: chatResultDelayNS)
         }
@@ -410,6 +546,16 @@ final class StreamingMockLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
+        lock.withLock {
+            capturedStreamRequestsStorage.append(
+                StreamingMockRequest(
+                    configuration: configuration,
+                    messages: messages,
+                    responseFormat: responseFormat,
+                    options: options
+                )
+            )
+        }
         let tokens = selectTokens(for: messages)
         let delay = streamDelayNS
         return AsyncThrowingStream { continuation in
@@ -474,22 +620,35 @@ final class StreamingMockLLMClient: LLMClientProtocol {
     }
 }
 
+struct StreamingMockRequest {
+    let configuration: LLMProviderConfiguration
+    let messages: [LLMChatMessage]
+    let responseFormat: LLMResponseFormat?
+    let options: LLMRequestOptions
+
+    var userPrompt: String {
+        messages.last(where: { $0.role == "user" })?.content ?? ""
+    }
+}
+
 // MARK: - Soft Fallback & Provenance Suite
 
 @Suite(.serialized)
 struct StreamingSoftFallbackTests {
-    
-    private func makeTemporaryDatabase() throws -> AppDatabase {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("StreamingSoftFallbackTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
-    }
-    
+
     @MainActor
     @Test
     func providerStageBSuccessOverridesSoftFallbackOwnership() async throws {
-        let database = try makeTemporaryDatabase()
+        try await withStreamingAppTestFixture(prefix: "StreamingSoftFallback-StageB") { fixture in
+            try await verifyProviderStageBSuccessOverridesSoftFallbackOwnership(fixture: fixture)
+        }
+    }
+
+    @MainActor
+    private func verifyProviderStageBSuccessOverridesSoftFallbackOwnership(
+        fixture: StreamingAppTestFixture
+    ) async throws {
+        let database = fixture.database
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
         
@@ -497,7 +656,7 @@ struct StreamingSoftFallbackTests {
         // Keep Stage A and Stage B streams distinct so the assertion verifies
         // late Stage A replacement, not scheduler-dependent section streaming.
         mockClient.streamTokenBatches = [
-            ["My ", "LeoRover ", "project ", "was ", "an ", "autonomous ", "object ", "retrieval ", "robot ", "using ", "ROS2, ", "YOLOv8, ", "navigation, ", "localisation, ", "and ", "manipulation ", "on ", "a ", "real ", "robot. ", "The ", "result ", "was ", "a ", "complete ", "perception-to-action ", "pipeline, ", "and ", "I ", "learned ", "that ", "localisation ", "and ", "handoff ", "timing ", "determined ", "reliability."],
+            ["My ", "event notification ", "service ", "used ", "an ", "idempotency ", "ledger, ", "queue ", "retries, ", "delivery ", "tracing, ", "and ", "reconciliation ", "jobs. ", "The ", "result ", "was ", "reliable ", "duplicate ", "suppression, ", "and ", "I ", "learned ", "that ", "retry ", "ownership ", "and ", "handoff ", "timing ", "determined ", "delivery ", "consistency."],
             []
         ]
         mockClient.streamDelayNS = 0
@@ -507,8 +666,8 @@ struct StreamingSoftFallbackTests {
         mockClient.chatResultContent = """
         {
             "strategy": "Detailed Strategy",
-            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot. The result was a complete perception-to-action pipeline, and I learned that localisation and handoff timing determined reliability.",
-            "key_points": ["ROS2, YOLOv8, navigation and localisation", "Manipulation on a real robot", "Result and learning: handoff timing determined reliability"],
+            "say_first": "My event notification service used an idempotency ledger, queue retries, delivery tracing, and reconciliation jobs. The result was reliable duplicate suppression, and I learned that retry ownership and handoff timing determined delivery consistency.",
+            "key_points": ["Idempotency ledger, queue retries, and delivery tracing", "Reconciliation jobs for delivery gaps", "Result and learning: retry ownership determined consistency"],
             "follow_up_ready": ["What is next?"],
             "confidence": 0.9,
             "caution": "None",
@@ -534,6 +693,7 @@ struct StreamingSoftFallbackTests {
             llmRouter: router,
             contextRetrievalService: SlowStreamingContextRetrievalService(delayNanoseconds: 30_000_000)
         )
+        fixture.register(appState)
         appState.answerProviderModeOverride = .deepSeekPrimary
         // Regression: a rebuilt app can stream through the router while the
         // published provider cache is not hydrated yet. Provider success must
@@ -557,7 +717,7 @@ struct StreamingSoftFallbackTests {
         
         let question = DetectedQuestion(
             id: "q-1", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "Could you walk me through your LeoRover project?", intent: .projectDeepDive,
+            questionText: "Could you walk me through your event notification service?", intent: .projectDeepDive,
             answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
             questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
         )
@@ -570,7 +730,7 @@ struct StreamingSoftFallbackTests {
         
         try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
             appState.currentSuggestion?.stageBCompleted == true &&
-            appState.currentSuggestion?.keyPoints.contains("ROS2, YOLOv8, navigation and localisation") == true
+            appState.currentSuggestion?.keyPoints.contains("Idempotency ledger, queue retries, and delivery tracing") == true
         }
         
         // Assertions
@@ -582,8 +742,8 @@ struct StreamingSoftFallbackTests {
         #expect(finalCard.softFallbackUsed == false)
         #expect(finalCard.stageBCompleted == true)
         #expect(finalCard.stageBStatus == "completed")
-        #expect(finalCard.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(finalCard.keyPoints.contains("ROS2, YOLOv8, navigation and localisation"))
+        #expect(finalCard.sayFirst.localizedCaseInsensitiveContains("event notification service"))
+        #expect(finalCard.keyPoints.contains("Idempotency ledger, queue retries, and delivery tracing"))
         #expect(finalCard.providerName == "DeepSeek")
         #expect(finalCard.modelName.localizedCaseInsensitiveContains("deepseek"))
         #expect(finalCard.sayFirstSource == "deepseek_stream")
@@ -605,7 +765,16 @@ struct StreamingSoftFallbackTests {
     @MainActor
     @Test
     func testSkipFallbackWhenDeepSeekIsFast() async throws {
-        let database = try makeTemporaryDatabase()
+        try await withStreamingAppTestFixture(prefix: "StreamingSoftFallback-FastProvider") { fixture in
+            try await verifySkipFallbackWhenDeepSeekIsFast(fixture: fixture)
+        }
+    }
+
+    @MainActor
+    private func verifySkipFallbackWhenDeepSeekIsFast(
+        fixture: StreamingAppTestFixture
+    ) async throws {
+        let database = fixture.database
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
         
@@ -613,27 +782,23 @@ struct StreamingSoftFallbackTests {
         // DeepSeek streams fast
 
         mockClient.streamTokens = [
-            "My LeoRover ",
-            "project was ",
-            "an autonomous ",
-            "object retrieval ",
-            "robot using ",
-            "ROS2, YOLOv8 ",
-            "perception, navigation, ",
-            "localisation, and ",
-            "manipulation on ",
-            "a real robot. ",
-            "The result was a complete ",
-            "perception-to-action pipeline, ",
-            "and I learned that localisation ",
-            "and handoff timing determined reliability."
+            "My event notification ",
+            "service used an ",
+            "idempotency ledger, ",
+            "queue retries, ",
+            "delivery tracing, and ",
+            "reconciliation jobs. ",
+            "The result was reliable ",
+            "duplicate suppression, ",
+            "and I learned that retry ownership ",
+            "and handoff timing determined delivery consistency."
         ]
         mockClient.streamDelayNS = 0
         mockClient.chatResultContent = """
         {
             "strategy": "Project walkthrough",
-            "say_first": "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot. The result was a complete perception-to-action pipeline, and I learned that localisation and handoff timing determined reliability.",
-            "key_points": ["Autonomous object retrieval robot", "ROS2, YOLOv8, navigation, localisation, and manipulation", "Result and learning: handoff timing determined reliability"],
+            "say_first": "My event notification service used an idempotency ledger, queue retries, delivery tracing, and reconciliation jobs. The result was reliable duplicate suppression, and I learned that retry ownership and handoff timing determined delivery consistency.",
+            "key_points": ["Idempotency ledger and queue retries", "Delivery tracing and reconciliation jobs", "Result and learning: retry ownership determined consistency"],
             "follow_up_ready": ["I can describe how the modules handed off to each other."],
             "confidence": 0.9,
             "caution": "None",
@@ -654,6 +819,7 @@ struct StreamingSoftFallbackTests {
         }
         
         let appState = AppState(database: database, llmRouter: router)
+        fixture.register(appState)
         appState.answerProviderModeOverride = .deepSeekPrimary
         
         // Keep the fallback timer far outside full-suite scheduler delays so
@@ -671,7 +837,7 @@ struct StreamingSoftFallbackTests {
         
         let question = DetectedQuestion(
             id: "q-2", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "Could you walk me through your LeoRover project?", intent: .technical,
+            questionText: "Could you walk me through your event notification service?", intent: .technical,
             answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
             questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
         )
@@ -696,7 +862,16 @@ struct StreamingSoftFallbackTests {
     @MainActor
     @Test
     func testConservativeLateReplacementPreservesFallbackWhenInteractedOrGeneric() async throws {
-        let database = try makeTemporaryDatabase()
+        try await withStreamingAppTestFixture(prefix: "StreamingSoftFallback-LateProvider") { fixture in
+            try await verifyConservativeLateReplacementPreservesFallback(fixture: fixture)
+        }
+    }
+
+    @MainActor
+    private func verifyConservativeLateReplacementPreservesFallback(
+        fixture: StreamingAppTestFixture
+    ) async throws {
+        let database = fixture.database
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
         
@@ -717,6 +892,7 @@ struct StreamingSoftFallbackTests {
         }
         
         let appState = AppState(database: database, llmRouter: router)
+        fixture.register(appState)
         appState.answerProviderModeOverride = .deepSeekPrimary
         
         let mockDelay = MockDelayProvider()
@@ -729,7 +905,7 @@ struct StreamingSoftFallbackTests {
         
         let question = DetectedQuestion(
             id: "q-3", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "Could you walk me through your LeoRover project?", intent: .technical,
+            questionText: "Could you walk me through your event notification service?", intent: .technical,
             answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
             questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
         )
@@ -753,7 +929,7 @@ struct StreamingSoftFallbackTests {
         #expect(cardGeneric.finalVisibleSource == "rag_template_soft_fallback")
         
         // Reset and test user interaction path
-        mockClient.streamTokens = ["Highly ", "specific ", "robotics ", "engineering ", "neural ", "network ", "answer ", "about ", "autonomous ", "navigation."] // highly specific
+        mockClient.streamTokens = ["I ", "used ", "idempotency ", "keys, ", "queue ", "retry ", "ownership, ", "and ", "delivery ", "traces ", "to ", "prevent ", "duplicate ", "notifications."] // highly specific
         let interactedQuestion = DetectedQuestion(
             id: "q-3-interacted", sessionID: session.id, transcriptSegmentID: nil,
             questionText: question.questionText, intent: .technical,
@@ -830,11 +1006,11 @@ struct StreamingSoftFallbackTests {
     private func makeContextBoundSession(_ appState: AppState, suffix: String) throws -> InterviewSession {
         let profileID = "streaming-profile-\(suffix)"
         let statements = [
-            "My LeoRover project was an autonomous object retrieval robot using ROS2, YOLOv8 perception, navigation, target localisation, and manipulation on a real robot.",
-            "I used ROS2, YOLOv8, navigation, localisation, and manipulation for autonomous object retrieval.",
-            "I developed a highly specific robotics engineering neural network approach for autonomous navigation.",
-            "I have software engineering experience supporting robotics integration.",
-            "The result was a complete perception-to-action pipeline on a real robot, and I learned that localisation and handoff timing were the main reliability challenges."
+            "My event notification service used an idempotency ledger, queue retries, delivery tracing, and reconciliation jobs.",
+            "I used idempotency keys and queue retry ownership to prevent duplicate notifications.",
+            "I developed a specific trace-correlation workflow for diagnosing delayed deliveries.",
+            "I have software engineering experience supporting reliable service integration.",
+            "The result was reliable duplicate suppression, and I learned that retry ownership and handoff timing were the main delivery consistency challenges."
         ]
         let evidence = statements.enumerated().map { index, statement in
             ProfileEvidence(
@@ -867,7 +1043,7 @@ struct StreamingSoftFallbackTests {
         try appState.interviewContextRepository.saveCandidateProfile(profile)
         appState.refreshAll()
         appState.selectCandidateProfile(profileID)
-        appState.selectInterviewDomain(.roboticsResearch)
+        appState.selectInterviewDomain(.general)
         return try appState.createContextBoundSession(mode: .microphone, title: "Streaming Soft Fallback")
     }
 }
