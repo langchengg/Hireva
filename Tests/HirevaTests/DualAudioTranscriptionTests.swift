@@ -325,10 +325,18 @@ struct DualAudioTranscriptionTests {
         appState.saveSettings(settings)
 
         appState.startListening(mode: .microphone)
-        try await waitUntil("AppState capture startup rollback") {
-            if case .error = appState.currentCaptureRuntimeState { return true }
-            return false
+        let startupTask = try #require(appState.captureStartupTask)
+        await startupTask.value
+
+        let startupFailed: Bool
+        if case .error = appState.currentCaptureRuntimeState {
+            startupFailed = true
+        } else {
+            startupFailed = false
         }
+        #expect(startupFailed)
+        #expect(appState.captureStartupTask == nil)
+        #expect(appState.captureStartupID == nil)
 
         #expect(microphoneStartCount == 1)
         #expect(microphoneStopCount == 1)
