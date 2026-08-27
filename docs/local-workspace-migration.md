@@ -20,42 +20,62 @@ then copy only source and operator files:
 export HIREVA_SOURCE_ROOT="/path/to/your/Hireva"
 export HIREVA_DESTINATION_ROOT="$HOME/Developer/Hireva"
 test -d "$HIREVA_SOURCE_ROOT/.git"
-test "$HIREVA_SOURCE_ROOT" != "$HIREVA_DESTINATION_ROOT"
-mkdir -p "$HIREVA_DESTINATION_ROOT"
-rsync -an --delete \
+test ! -L "$HIREVA_SOURCE_ROOT"
+test ! -e "$HIREVA_DESTINATION_ROOT"
+HIREVA_SOURCE_REAL="$(cd -P "$HIREVA_SOURCE_ROOT" && pwd)"
+HIREVA_DESTINATION_PARENT="$(cd -P "$(dirname "$HIREVA_DESTINATION_ROOT")" && pwd)"
+HIREVA_DESTINATION_REAL="$HIREVA_DESTINATION_PARENT/$(basename "$HIREVA_DESTINATION_ROOT")"
+test "$HIREVA_SOURCE_REAL" != "$HIREVA_DESTINATION_REAL"
+case "$HIREVA_DESTINATION_REAL/" in "$HIREVA_SOURCE_REAL/"*) exit 1;; esac
+case "$HIREVA_SOURCE_REAL/" in "$HIREVA_DESTINATION_REAL/"*) exit 1;; esac
+rsync -an \
   --exclude '.git' \
   --exclude '.build' \
   --exclude 'dist' \
   --exclude 'release' \
-  "$HIREVA_SOURCE_ROOT/" \
-  "$HIREVA_DESTINATION_ROOT/"
-# Review the preview, then repeat with -a instead of -an.
+  "$HIREVA_SOURCE_REAL/" \
+  "$HIREVA_DESTINATION_REAL/"
 ```
 
-`--delete` removes destination files that are absent from the source. Confirm
-the destination path before running it. This method intentionally omits Git
-history, caches, existing app bundles, and generated release packages.
+This method intentionally requires a new destination and omits Git history,
+caches, existing app bundles, and generated release packages. It never uses
+`--delete`.
 
 The command above is intentionally a dry run. After reviewing every deletion,
-repeat it with `-a` instead of `-an`. If the source currently contains
-`.DS_Store` or AppleDouble files, add
+run the corresponding copy command:
+
+```bash
+test ! -e "$HIREVA_DESTINATION_REAL"
+mkdir -m 700 "$HIREVA_DESTINATION_REAL"
+rsync -a \
+  --exclude '.git' \
+  --exclude '.build' \
+  --exclude 'dist' \
+  --exclude 'release' \
+  "$HIREVA_SOURCE_REAL/" \
+  "$HIREVA_DESTINATION_REAL/"
+```
+
+If the source currently contains `.DS_Store` or AppleDouble files, add
 `--exclude '.DS_Store' --exclude '._*'` to both the preview and final command.
 
 ## Alternative: Move the Full Git Repository
 
-To preserve `.git`, omit only the `.git` exclusion while retaining the build
-artifact exclusions:
+To preserve `.git`, start with a different new destination, repeat the same
+canonical-path and non-nesting checks above, and omit only the `.git` exclusion
+while retaining the build artifact exclusions:
 
 ```bash
-test -d "$HIREVA_SOURCE_ROOT/.git"
-test "$HIREVA_SOURCE_ROOT" != "$HIREVA_DESTINATION_ROOT"
-rsync -an --delete \
+test -d "$HIREVA_SOURCE_REAL/.git"
+test ! -e "$HIREVA_DESTINATION_REAL"
+rsync -an \
   --exclude '.build' \
   --exclude 'dist' \
   --exclude 'release' \
-  "$HIREVA_SOURCE_ROOT/" \
-  "$HIREVA_DESTINATION_ROOT/"
-# Review the preview, then repeat with -a instead of -an.
+  "$HIREVA_SOURCE_REAL/" \
+  "$HIREVA_DESTINATION_REAL/"
+# Review the preview, create the destination with mkdir -m 700, then repeat
+# with -a instead of -an. Do not add --delete.
 ```
 
 Before the full-repository copy, make sure no Git operation is running. After
