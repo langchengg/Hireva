@@ -40,6 +40,9 @@ struct DiagnosticsView: View {
             }
             .tabItem { Label("Audio", systemImage: "waveform") }
 
+            PermissionsDiagnosticView(appState: appState)
+                .tabItem { Label("Permissions", systemImage: "lock.shield") }
+
             diagnosticsPage(title: "Capture Events") {
                 captureEventsTab
             }

@@ -105,11 +105,21 @@ struct PermissionsDiagnosticView: View {
                 )
                 permissionCard(
                     title: "System Audio Capture Status",
-                    status: appState.permissionSnapshot.systemAudioCapture.displayName,
+                    status: appState.isVerifyingSystemAudioPermission
+                        ? "Verifying…"
+                        : appState.systemAudioPermissionState.displayName,
                     icon: "speaker.wave.2",
-                    tint: appState.permissionSnapshot.systemAudioCapture == .granted ? .green : .orange,
-                    actionTitle: "Open Settings",
-                    action: { appState.openSystemPrivacySettings() }
+                    tint: appState.isVerifyingSystemAudioPermission
+                        ? .blue
+                        : (appState.systemAudioPermissionState == .granted ? .green : .orange),
+                    actionTitle: appState.isVerifyingSystemAudioPermission ? "Cancel" : "Verify",
+                    action: {
+                        if appState.isVerifyingSystemAudioPermission {
+                            appState.cancelSystemAudioPermissionVerification()
+                        } else {
+                            appState.verifySystemAudioPermission()
+                        }
+                    }
                 )
             }
         }
@@ -1135,7 +1145,11 @@ struct PermissionsDiagnosticView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Screen & System Audio Recording")
                         .font(.headline)
-                    Text("Permission granted. System audio capture and SCK probes are completely operational.")
+                    Text(
+                        appState.systemAudioProbeResult == nil
+                            ? "Screen recording preflight is granted. Use Verify for an active system-audio check."
+                            : "Permission granted. The explicit system-audio verification succeeded."
+                    )
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

@@ -99,6 +99,7 @@ final class AppState: ObservableObject {
     @Published var microphonePermissionState: MicrophonePermissionState = .unknown
     @Published public var systemAudioPermissionState: ScreenSystemAudioPermissionState = .permissionMissing
     @Published public var systemAudioProbeResult: ScreenSystemAudioPermissionProbeResult? = nil
+    @Published public internal(set) var isVerifyingSystemAudioPermission = false
     @Published var diagnostics = DeveloperDiagnostics.empty
     @Published var lastRetrievalTrace: RetrievalTrace?
     @Published var currentSuggestionRetrievedChunks: [RetrievedChunk] = []
@@ -655,6 +656,8 @@ final class AppState: ObservableObject {
     let settingsRepository: SettingsRepository
     let keychainService: KeychainService
     let permissionService: PermissionService
+    let screenSystemAudioPermissionProbe: any ScreenSystemAudioPermissionProbing
+    let systemAudioPermissionVerificationTimeout: Duration
     let systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService
     let microphoneDiagnostics: MicrophoneDiagnosticsService
     let mockTranscriptionService: MockTranscriptionService
@@ -685,6 +688,8 @@ final class AppState: ObservableObject {
     var captureStartupTask: Task<Void, Never>?
     var captureStartupID: UUID?
     var captureTeardownTask: Task<Void, Never>?
+    var systemAudioPermissionVerificationTask: Task<Void, Never>?
+    var systemAudioPermissionVerificationGeneration: UInt64 = 0
     // internal for AppState extension access only
     var ownsSystemAudioCaptureRuntime = false
     // internal for AppState extension access only
@@ -794,6 +799,8 @@ final class AppState: ObservableObject {
         keychainService: KeychainService? = nil,
         contextRetrievalService: ContextRetrievalService? = nil,
         systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil,
+        screenSystemAudioPermissionProbe: (any ScreenSystemAudioPermissionProbing)? = nil,
+        systemAudioPermissionVerificationTimeout: Duration = .seconds(8),
         verificationMocksEnabled: Bool? = nil,
         defaultAppSection: AppSection? = nil,
         dialogueDefaults: UserDefaults? = nil
@@ -842,6 +849,8 @@ final class AppState: ObservableObject {
         self.settingsRepository = settings
         self.keychainService = keychain
         self.permissionService = permissionService ?? PermissionService()
+        self.screenSystemAudioPermissionProbe = screenSystemAudioPermissionProbe ?? ScreenSystemAudioPermissionProbe.shared
+        self.systemAudioPermissionVerificationTimeout = systemAudioPermissionVerificationTimeout
         self.systemAudioCaptureService = systemAudioCaptureService ?? (
             testProcess ? ScreenCaptureKitSystemAudioCaptureService() : .shared
         )
@@ -1056,6 +1065,7 @@ final class AppState: ObservableObject {
         activeAITask?.cancel()
         transcriptionTask?.cancel()
         captureStartupTask?.cancel()
+        systemAudioPermissionVerificationTask?.cancel()
         stageBTask?.cancel()
         softFallbackTask?.cancel()
         fullCardWatchdogTask?.cancel()
@@ -1116,6 +1126,10 @@ final class AppState: ObservableObject {
         activeAITask = nil
         captureStartupID = nil
         captureStartupTask?.cancel()
+        systemAudioPermissionVerificationGeneration &+= 1
+        systemAudioPermissionVerificationTask?.cancel()
+        systemAudioPermissionVerificationTask = nil
+        isVerifyingSystemAudioPermission = false
         transcriptionTask?.cancel()
         transcriptionTask = nil
         stageBTask?.cancel()
