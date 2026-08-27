@@ -9,10 +9,17 @@ channel have been reviewed.
 1. Create the release bundle with a stable Developer ID Application identity.
 2. Review the actual required entitlements and hardened-runtime configuration.
 3. Sign the app and nested code with the reviewed configuration.
-4. Validate:
+4. Package the DMG with an explicit identity, expected Team ID, and distribution
+   authorization. The script signs and strictly verifies the completed DMG in
+   Developer ID mode; it never re-signs the app.
+5. Validate the app and signed DMG:
    - `codesign -dvvv --entitlements :- dist/Hireva.app`
    - `codesign --verify --deep --strict dist/Hireva.app`
-   - `spctl -a -vv dist/Hireva.app`
-5. Submit the signed archive for notarization with Apple notary tooling.
+   - `codesign --verify --strict Hireva-<version>-<build>-arm64.dmg`
+6. Submit the exact manifest-checksummed DMG through
+   `script/release/notarize_release.sh` only with separate explicit upload
+   authorization.
+7. After `Accepted`, validate the stapled final DMG with `stapler`, `hdiutil`,
+   `codesign`, and `spctl -a -t open --context context:primary-signature`.
 
 No private APIs, stealth behavior, process disguise, screen-share bypass, or anti-detection mechanisms are part of this app.

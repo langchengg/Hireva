@@ -18,12 +18,17 @@
 ## Artifact Integrity And Trust
 
 - [ ] Release archive SHA-256 matches the independently published value.
+- [ ] `codesign --verify --strict --verbose=4 <final>.dmg` passes and reports
+      the intended Developer ID Application class and secure timestamp.
+- [ ] `xcrun stapler validate <final>.dmg` confirms the DMG ticket.
+- [ ] `hdiutil verify <final>.dmg` passes.
+- [ ] `spctl -a -t open --context context:primary-signature -v <final>.dmg`
+      accepts the disk image without an override.
 - [ ] `codesign --verify --deep --strict --verbose=4 Hireva.app` passes.
 - [ ] All nested executables and dylibs are signed with the intended Developer
       ID Application identity.
 - [ ] `spctl --assess --type execute --verbose=4 Hireva.app` passes without a
       user security override.
-- [ ] `xcrun stapler validate Hireva.app` confirms the notarization ticket.
 - [ ] App, helper, sherpa-onnx dylib, and ONNX Runtime dylib report `arm64`.
 - [ ] Bundle contains no Python executable, Python sidecar, Python package,
       `numpy`, model weights, SQLite database, trace, or user data.

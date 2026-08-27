@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 RUNTIME_CONTRACT="$ROOT_DIR/script/runtime/runtime_contract.sh"
 MACHO_PAYLOAD_SHA256="$ROOT_DIR/script/runtime/macho_payload_sha256.sh"
 EXCLUSIVE_RENAME="$ROOT_DIR/script/release/exclusive_rename.rb"
+RELEASE_COMMON="$ROOT_DIR/script/release/release_common.sh"
 PARAKEET_DESCRIPTOR_ID="parakeet-tdt-0.6b-v3-int8"
 PARAKEET_MODEL_VERSION="asr-models-5793d0fd397c5778"
 PARAKEET_ARCHIVE_SHA256="5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf"
@@ -19,25 +20,32 @@ fail() {
 }
 
 [[ -f "$RUNTIME_CONTRACT" ]] || fail "runtime source contract is missing: $RUNTIME_CONTRACT"
+[[ -f "$RELEASE_COMMON" ]] || fail "release validation helpers are missing: $RELEASE_COMMON"
 [[ -x "$MACHO_PAYLOAD_SHA256" ]] || \
     fail "Mach-O payload hashing tool is missing or not executable: $MACHO_PAYLOAD_SHA256"
 # shellcheck source=../script/runtime/runtime_contract.sh
 source "$RUNTIME_CONTRACT"
+# shellcheck source=../script/release/release_common.sh
+source "$RELEASE_COMMON"
 
 usage() {
     cat <<'USAGE'
 Usage: package_dmg.sh [--validate-only] /path/to/signed/Hireva.app /path/to/new-output-directory
 
 The app must already be assembled and signed. The output directory must not
-exist. This command never builds, launches the app, installs, signs, notarizes,
-or overwrites an app or artifact. Validation does execute the bundled Parakeet
-helper's bounded --health probe. --validate-only runs every pre-DMG gate
-without creating the output directory or invoking hdiutil.
+exist. This command never builds, launches, installs, re-signs the app,
+notarizes, staples, or overwrites an app or artifact. In developer-id mode it
+signs the completed DMG with the explicitly selected Developer ID Application
+identity. Validation executes the bundled Parakeet helper's bounded --health
+probe. --validate-only runs every pre-DMG gate without creating the output
+directory or invoking hdiutil.
 
 A Developer ID input is accepted only when HIREVA_ALLOW_DISTRIBUTION_DMG=1 is
-set explicitly. Developer ID validation also requires an explicit 10-character
-HIREVA_EXPECTED_TEAM_IDENTIFIER. This script still does not notarize, staple,
-or publish it.
+set explicitly. Developer ID validation also requires
+HIREVA_SIGNING_MODE=developer-id, an explicit HIREVA_SIGNING_IDENTITY, and an
+explicit 10-character HIREVA_EXPECTED_TEAM_IDENTIFIER. Identity, Team ID, and
+authorization values are never written to the manifest. This script still does
+not notarize, staple, or publish the image.
 USAGE
 }
 
@@ -68,6 +76,28 @@ app_content_sha256() {
             fail "unable to write app content hash index"
     done < "$file_list"
     sha256 "$index_file" || fail "unable to hash app content index"
+}
+
+validate_developer_id_dmg_signature() {
+    local dmg="$1"
+    local details
+    local authority
+    local team
+
+    /usr/bin/codesign --verify --strict --verbose=4 "$dmg" || \
+        fail "Developer ID DMG signature verification failed"
+    details="$(/usr/bin/codesign -dv --verbose=4 "$dmg" 2>&1)" || \
+        fail "unable to inspect Developer ID DMG signature"
+    authority="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^Authority=//p' | /usr/bin/head -1)"
+    team="$(printf '%s\n' "$details" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -1)"
+    [[ "$authority" == "${RELEASE_IDENTITY_LABEL:-}" ]] || \
+        fail "DMG signing authority differs from the explicitly selected Developer ID identity"
+    [[ "$authority" == "Developer ID Application:"* ]] || \
+        fail "DMG signature is not Developer ID Application"
+    [[ "$team" == "${RELEASE_EXPECTED_TEAM_IDENTIFIER:-}" ]] || \
+        fail "DMG TeamIdentifier differs from HIREVA_EXPECTED_TEAM_IDENTIFIER"
+    printf '%s\n' "$details" | /usr/bin/grep -q '^Timestamp=' || \
+        fail "Developer ID DMG signature is missing a secure timestamp"
 }
 
 VALIDATE_ONLY=0
@@ -190,6 +220,12 @@ if [[ "$SIGNING_MODE" == "developer-id" ]] && \
    [[ "${HIREVA_ALLOW_DISTRIBUTION_DMG:-0}" != "1" ]]; then
     fail "Developer ID DMG creation requires explicit HIREVA_ALLOW_DISTRIBUTION_DMG=1 authorization"
 fi
+if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+    [[ "${HIREVA_SIGNING_MODE:-}" == "developer-id" ]] || \
+        fail "Developer ID DMG creation requires explicit HIREVA_SIGNING_MODE=developer-id"
+    RELEASE_SIGNING_MODE="developer-id"
+    release_validate_identity_for_signing
+fi
 
 printf '[verify] Running the shared release app contract\n'
 HIREVA_SIGNING_MODE="$SIGNING_MODE" HIREVA_BUILD_ARCHS="arm64" \
@@ -260,6 +296,11 @@ printf '[package] Creating %s\n' "$(basename "$FINAL_DMG")"
     -srcfolder "$STAGING_DIR" \
     -format UDZO \
     "$FINAL_DMG"
+if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+    printf '[sign] Signing final DMG with the explicitly validated Developer ID identity\n'
+    /usr/bin/codesign --force --sign "$RELEASE_SIGNING_VALUE" --timestamp "$FINAL_DMG"
+    validate_developer_id_dmg_signature "$FINAL_DMG"
+fi
 /usr/bin/hdiutil verify "$FINAL_DMG"
 
 printf '[verify] Mounting the completed image read-only for payload verification\n'
@@ -309,6 +350,10 @@ MOUNTED_APP_CONTENT_SHA256="$(app_content_sha256 "$MOUNTED_APP" "$MOUNTED_APP_HA
 MOUNT_DEVICE=""
 MOUNT_ATTACHED=0
 MOUNT_ATTACH_ATTEMPTED=0
+
+if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+    validate_developer_id_dmg_signature "$FINAL_DMG"
+fi
 
 DMG_SHA256="$(sha256 "$FINAL_DMG")"
 DMG_SIZE="$(/usr/bin/stat -f '%z' "$FINAL_DMG")"
@@ -397,9 +442,15 @@ fi
 /usr/bin/plutil -p "$FINAL_MANIFEST" >/dev/null || fail "generated DMG manifest is invalid"
 
 if LC_ALL=C /usr/bin/grep -a -Eq \
-    '/Users/|signing_identity|team_identifier|certificate|notary_profile|provisioning_profile' \
+    '/Users/|signing_identity|team_identifier|certificate|notary_profile|provisioning_profile|credential' \
     "$FINAL_MANIFEST"; then
     fail "DMG manifest contains forbidden source-path or signing identity metadata"
+fi
+if [[ "$SIGNING_MODE" == "developer-id" ]] && \
+   { LC_ALL=C /usr/bin/grep -a -F "$HIREVA_SIGNING_IDENTITY" "$FINAL_MANIFEST" >/dev/null || \
+     LC_ALL=C /usr/bin/grep -a -F "$RELEASE_IDENTITY_LABEL" "$FINAL_MANIFEST" >/dev/null || \
+     LC_ALL=C /usr/bin/grep -a -F "$HIREVA_EXPECTED_TEAM_IDENTIFIER" "$FINAL_MANIFEST" >/dev/null; }; then
+    fail "DMG manifest contains the selected signing identity or Team ID"
 fi
 [[ "$(/usr/bin/find "$RESULT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$(basename "$FINAL_DMG")" ! -name "$(basename "$FINAL_MANIFEST")" \

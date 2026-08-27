@@ -95,6 +95,14 @@ over. Record command output rather than relying on an earlier run.
       `docs/local-workspace-migration.md` is acknowledged.
 - [ ] Public distribution is blocked until `docs/notarization-prep.md` is
       completed with a Developer ID Application identity and accepted ticket.
+- [ ] The signed upload DMG hash matches its package manifest; the notarization
+      response and Apple log are retained and hashed.
+- [ ] The immutable upload DMG and separately stapled distribution DMG have
+      distinct recorded filenames, byte sizes, and SHA-256 values.
+- [ ] The final DMG passes `stapler validate`, `hdiutil verify`, strict
+      `codesign`, and Gatekeeper's disk-image primary-signature assessment.
+- [ ] Neither package manifest contains identity, Team ID, notary profile,
+      certificate, provisioning-profile, or credential values.
 - [ ] Rollback source and procedure are recorded using
       `docs/rollback-known-good.md`.
 

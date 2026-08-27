@@ -323,12 +323,17 @@ mkdir -p release-candidates
 `script/build_and_run.sh` is the canonical build/sign/launch entrypoint for the SwiftPM GUI application. It creates `dist/Hireva.app`, bundles the native Parakeet runtime and required notices, signs nested code according to the explicit signing mode, launches the bundle, and verifies the running process.
 `scripts/package_dmg.sh` consumes that existing signed app, reuses the strict
 release validator before and after a read-only image mount, refuses existing
-output directories, and does not build, launch, sign, notarize, staple, or
-publish the application. Developer ID input additionally requires an explicit
-10-character `HIREVA_EXPECTED_TEAM_IDENTIFIER` and
-`HIREVA_ALLOW_DISTRIBUTION_DMG=1` operator authorization. Never place a real
-Team ID, signing identity, notary profile, or credential in repository files or
-artifact metadata.
+output directories, and does not build, launch, re-sign the app, notarize,
+staple, or publish. Ad-hoc DMG behavior is unchanged. Developer ID input
+additionally requires an explicit signing identity, 10-character
+`HIREVA_EXPECTED_TEAM_IDENTIFIER`, and
+`HIREVA_ALLOW_DISTRIBUTION_DMG=1` operator authorization; only that mode signs
+and strictly verifies the completed DMG. `script/release/notarize_release.sh`
+submits the checksummed signed DMG only after separate explicit authorization,
+preserves Apple's response and log, and emits a separately checksummed stapled
+DMG after ticket and Gatekeeper validation. Never place a real Team ID, signing
+identity, notary profile, or credential in repository files or artifact
+metadata.
 
 Useful engineering references:
 

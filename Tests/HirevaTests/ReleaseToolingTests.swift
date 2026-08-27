@@ -52,14 +52,22 @@ struct ReleaseToolingTests {
         #expect(common.contains("signed entitlements differ from reviewed release entitlements"))
 
         for requiredText in [
-            "notarytool submit",
+            "notarytool submit \"$UPLOAD_DMG\"",
             "--keychain-profile \"$HIREVA_NOTARY_PROFILE\"",
             "--wait",
             "notarytool log",
-            "stapler staple",
-            "stapler validate",
-            "spctl --assess",
-            "submitted ZIP changed during notarization"
+            "stapler staple \"$STAGED_FINAL_DMG\"",
+            "stapler validate \"$STAGED_FINAL_DMG\"",
+            "hdiutil verify \"$STAGED_FINAL_DMG\"",
+            "spctl -a -t open --context context:primary-signature",
+            "submitted DMG changed during notarization",
+            "HIREVA_ALLOW_NOTARIZATION_SUBMIT",
+            "upload_dmg_sha256",
+            "upload_manifest_sha256",
+            "distribution_dmg_sha256",
+            "distribution_dmg_checksum_artifact",
+            "notarization_response_sha256",
+            "notarization_log_sha256"
         ] {
             #expect(notarization.contains(requiredText), "Missing notarization contract: \(requiredText)")
         }
@@ -89,6 +97,10 @@ struct ReleaseToolingTests {
         #expect(dmgPackaging.contains("-readonly"))
         #expect(dmgPackaging.contains("MOUNTED_APP_CONTENT_SHA256"))
         #expect(dmgPackaging.contains("HIREVA_ALLOW_DISTRIBUTION_DMG"))
+        #expect(dmgPackaging.contains("HIREVA_SIGNING_IDENTITY"))
+        #expect(dmgPackaging.contains("release_validate_identity_for_signing"))
+        #expect(dmgPackaging.contains("codesign --force --sign \"$RELEASE_SIGNING_VALUE\" --timestamp \"$FINAL_DMG\""))
+        #expect(dmgPackaging.contains("validate_developer_id_dmg_signature"))
         #expect(dmgPackaging.contains("dmg_sha256"))
         #expect(dmgPackaging.contains("source_archive_sha256"))
         #expect(dmgPackaging.contains("signed_artifact_sha256"))
@@ -98,8 +110,10 @@ struct ReleaseToolingTests {
         #expect(!dmgPackaging.contains(".hireva-packaging-incomplete"))
         #expect(dmgPackaging.contains("parakeet_model.archive_sha256"))
         #expect(dmgPackaging.contains("source-path or signing identity metadata"))
+        #expect(dmgPackaging.contains("DMG manifest contains the selected signing identity or Team ID"))
         #expect(!dmgPackaging.contains("notarytool"))
-        #expect(!dmgPackaging.contains("codesign --sign"))
+        #expect(!notarization.contains("upload_zip_sha256"))
+        #expect(!notarization.contains("distribution_zip_sha256"))
 
         let entitlementsURL = releaseDirectory.appendingPathComponent("HirevaRelease.entitlements")
         let entitlementsData = try Data(contentsOf: entitlementsURL)
@@ -162,6 +176,60 @@ struct ReleaseToolingTests {
         )
         #expect(explicitAdhoc.status == 0)
         #expect(explicitAdhoc.output.contains("ad-hoc mode explicitly selected"))
+    }
+
+    @Test
+    func developerIDDMGRequiresExplicitAuthorizationAndInstalledIdentityBeforeCreation() throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hireva developer id dmg preflight \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        let app = try makeMachOAppFixture(in: sandbox)
+        try updateInfoPlist(app) {
+            $0["HirevaSigningMode"] = "developer-id"
+            $0["HirevaGitTreeState"] = "clean"
+            $0["HirevaDistributionBuild"] = true
+        }
+        try adHocSignFixture(app)
+        let output = sandbox.appendingPathComponent("must-not-create-dmg", isDirectory: true)
+        let baseEnvironment = [
+            "HIREVA_SIGNING_MODE": "developer-id",
+            "HIREVA_EXPECTED_TEAM_IDENTIFIER": "ABCDE12345"
+        ]
+
+        var unauthorizedEnvironment = baseEnvironment
+        unauthorizedEnvironment["HIREVA_SIGNING_IDENTITY"] = "synthetic Developer ID identity"
+        let unauthorized = try runScript(
+            repositoryRoot.appendingPathComponent("scripts/package_dmg.sh"),
+            arguments: [app.path, output.path],
+            environment: unauthorizedEnvironment
+        )
+        #expect(unauthorized.status != 0)
+        #expect(unauthorized.output.contains("HIREVA_ALLOW_DISTRIBUTION_DMG=1 authorization"))
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+
+        var missingIdentityEnvironment = baseEnvironment
+        missingIdentityEnvironment["HIREVA_ALLOW_DISTRIBUTION_DMG"] = "1"
+        let missingIdentity = try runScript(
+            repositoryRoot.appendingPathComponent("scripts/package_dmg.sh"),
+            arguments: [app.path, output.path],
+            environment: missingIdentityEnvironment
+        )
+        #expect(missingIdentity.status != 0)
+        #expect(missingIdentity.output.contains("HIREVA_SIGNING_IDENTITY must be set explicitly"))
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+
+        var unavailableIdentityEnvironment = missingIdentityEnvironment
+        unavailableIdentityEnvironment["HIREVA_SIGNING_IDENTITY"] = "synthetic Developer ID identity"
+        let unavailableIdentity = try runScript(
+            repositoryRoot.appendingPathComponent("scripts/package_dmg.sh"),
+            arguments: [app.path, output.path],
+            environment: unavailableIdentityEnvironment
+        )
+        #expect(unavailableIdentity.status != 0)
+        #expect(unavailableIdentity.output.contains("not a valid installed code-signing identity"))
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+        #expect(!unavailableIdentity.output.contains("Creating Hireva-"))
     }
 
     @Test
@@ -319,25 +387,59 @@ struct ReleaseToolingTests {
         #expect(wrongMode.output.contains("requires HIREVA_SIGNING_MODE=developer-id"))
         #expect(!FileManager.default.fileExists(atPath: releaseDirectory.appendingPathComponent("notarization-submit.plist").path))
 
-        var tamperedManifest = manifest
-        tamperedManifest["signing_mode"] = "developer-id"
-        let tamperedManifestData = try JSONSerialization.data(withJSONObject: tamperedManifest, options: [.sortedKeys])
-        try tamperedManifestData.write(to: manifestURL, options: .atomic)
-        let zipHandle = try FileHandle(forWritingTo: zipURL)
-        try zipHandle.seekToEnd()
-        try zipHandle.write(contentsOf: Data("tampered".utf8))
-        try zipHandle.close()
+    }
 
-        var notaryEnvironment = packageEnvironment
-        notaryEnvironment["HIREVA_SIGNING_MODE"] = "developer-id"
-        let tampered = try runScript(
+    @Test
+    func dmgNotarizationRejectsChecksumMismatchBeforeSubmit() throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hireva notarization checksum \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let releaseDirectory = sandbox.appendingPathComponent("candidate", isDirectory: true)
+        try FileManager.default.createDirectory(at: releaseDirectory, withIntermediateDirectories: true)
+        let dmgName = "Hireva-9.8.7-42-arm64.dmg"
+        let dmg = releaseDirectory.appendingPathComponent(dmgName)
+        try Data("synthetic signed DMG fixture".utf8).write(to: dmg)
+        let originalHash = try sha256(of: dmg)
+        let originalSize = try Data(contentsOf: dmg).count
+        let manifest: [String: Any] = [
+            "schema_version": 2,
+            "dmg_artifact": dmgName,
+            "dmg_sha256": originalHash,
+            "dmg_size_bytes": originalSize,
+            "signing_mode": "developer-id",
+            "artifact_scope": "distribution_candidate_not_notarized",
+            "source_tree_state": "clean",
+            "architecture": "arm64"
+        ]
+        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+        try manifestData.write(
+            to: releaseDirectory.appendingPathComponent("Hireva-9.8.7-42-arm64.manifest.json"),
+            options: .atomic
+        )
+        let handle = try FileHandle(forWritingTo: dmg)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("tampered".utf8))
+        try handle.close()
+
+        let result = try runScript(
             repositoryRoot.appendingPathComponent("script/release/notarize_release.sh"),
             arguments: [releaseDirectory.path],
-            environment: notaryEnvironment
+            environment: [
+                "HIREVA_SIGNING_MODE": "developer-id",
+                "HIREVA_BUILD_ARCHS": "arm64",
+                "HIREVA_EXPECTED_TEAM_IDENTIFIER": "ABCDE12345",
+                "HIREVA_NOTARY_PROFILE": "synthetic-notary-profile",
+                "HIREVA_ALLOW_NOTARIZATION_SUBMIT": "1",
+                "HIREVA_RELEASE_OUTPUT_DIR": sandbox.path
+            ]
         )
-        #expect(tampered.status != 0)
-        #expect(tampered.output.contains("ZIP checksum differs from version manifest"))
-        #expect(!FileManager.default.fileExists(atPath: releaseDirectory.appendingPathComponent("notarization-submit.plist").path))
+
+        #expect(result.status != 0)
+        #expect(result.output.contains("DMG checksum differs from package manifest"))
+        #expect(!result.output.contains("notarytool submit"))
+        #expect(!FileManager.default.fileExists(
+            atPath: releaseDirectory.appendingPathComponent("notarization-submit.plist").path
+        ))
     }
 
     @Test
@@ -961,12 +1063,33 @@ struct ReleaseToolingTests {
             environment: [
                 "HIREVA_SIGNING_MODE": "developer-id",
                 "HIREVA_BUILD_ARCHS": "arm64",
+                "HIREVA_EXPECTED_TEAM_IDENTIFIER": "ABCDE12345",
                 "HIREVA_RELEASE_OUTPUT_DIR": FileManager.default.temporaryDirectory.path
             ]
         )
 
         #expect(result.status != 0)
         #expect(result.output.contains("HIREVA_NOTARY_PROFILE must be set explicitly"))
+        #expect(!result.output.contains("notarytool submit"))
+    }
+
+    @Test
+    func notarizationRequiresExplicitSubmitAuthorizationBeforeArtifactAccess() throws {
+        let missing = repositoryRoot.appendingPathComponent("does-not-exist")
+        let result = try runScript(
+            repositoryRoot.appendingPathComponent("script/release/notarize_release.sh"),
+            arguments: [missing.path],
+            environment: [
+                "HIREVA_SIGNING_MODE": "developer-id",
+                "HIREVA_BUILD_ARCHS": "arm64",
+                "HIREVA_EXPECTED_TEAM_IDENTIFIER": "ABCDE12345",
+                "HIREVA_NOTARY_PROFILE": "synthetic-notary-profile",
+                "HIREVA_RELEASE_OUTPUT_DIR": FileManager.default.temporaryDirectory.path
+            ]
+        )
+
+        #expect(result.status != 0)
+        #expect(result.output.contains("HIREVA_ALLOW_NOTARIZATION_SUBMIT=1 authorization"))
         #expect(!result.output.contains("notarytool submit"))
     }
 
@@ -992,6 +1115,7 @@ struct ReleaseToolingTests {
         for key in [
             "HIREVA_BUILD_ARCHS",
             "HIREVA_ALLOW_DISTRIBUTION_DMG",
+            "HIREVA_ALLOW_NOTARIZATION_SUBMIT",
             "HIREVA_EXPECTED_TEAM_IDENTIFIER",
             "HIREVA_NOTARY_PROFILE",
             "HIREVA_RELEASE_OUTPUT_DIR",

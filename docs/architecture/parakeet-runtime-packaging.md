@@ -134,8 +134,22 @@ Mach-O load commands outside the reviewed system and bundled-runtime allowlist.
 The completed image is mounted read-only and non-browsing, the mounted app is
 revalidated, and its deterministic content hash must match the staged app before
 the image is accepted. Developer ID input requires an explicit expected
-10-character Team ID and explicit distribution-DMG authorization; this script
-itself never notarizes, staples, or publishes.
+10-character Team ID, an explicitly installed Developer ID Application identity,
+and explicit distribution-DMG authorization. In that mode only, the completed
+DMG is signed with the selected identity and its strict signature, authority,
+TeamIdentifier, and secure timestamp are verified before hashing. The packaging
+script itself never notarizes, staples, or publishes.
+
+`script/release/notarize_release.sh` consumes the resulting immutable DMG and
+manifest. It verifies the upload hash, size, UDIF integrity, Developer ID
+signature, TeamIdentifier, and timestamp before `notarytool` access. A Keychain
+profile is insufficient by itself: the operator must also set the separate
+notarization-submit authorization. After an `Accepted` result, the original
+upload remains unchanged while a private copy is stapled, validated, assessed
+by Gatekeeper as a disk image, and published as a separate `.notarized.dmg` with
+its checksum and schema-3 manifest. The response, Apple log, and upload/final
+hashes are retained without serializing identity, Team ID, profile, or
+credential values into either manifest.
 
 ## Unresolved Release Gates
 

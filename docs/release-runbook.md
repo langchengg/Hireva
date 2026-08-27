@@ -199,7 +199,13 @@ local release workflow.
 
 Every Developer ID build, verification, package, and notarization command must
 receive `HIREVA_EXPECTED_TEAM_IDENTIFIER` as an explicit 10-character Team ID;
-the release tools never infer it from the artifact. DMG creation additionally
-requires `HIREVA_ALLOW_DISTRIBUTION_DMG=1`, and notarization separately requires
-the operator-selected Keychain profile. Use placeholders in runbooks and logs;
-do not commit real identity, profile, certificate, or credential values.
+the release tools never infer it from the artifact. Developer ID DMG creation
+additionally requires the explicitly installed `HIREVA_SIGNING_IDENTITY` and
+`HIREVA_ALLOW_DISTRIBUTION_DMG=1`. Notarization separately requires both the
+operator-selected Keychain profile and
+`HIREVA_ALLOW_NOTARIZATION_SUBMIT=1`; possessing a profile is not authorization.
+Use placeholders in runbooks and logs; do not commit real identity, Team ID,
+profile, certificate, or credential values. Submit the manifest-checksummed
+signed DMG, preserve it unchanged, and distribute only the separately
+checksummed stapled DMG after ticket, disk-image, signature, and Gatekeeper
+validation.

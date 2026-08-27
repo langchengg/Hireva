@@ -37,26 +37,46 @@ selected.
 3. Sign the complete app and nested code with **Developer ID Application** and
    the reviewed hardened-runtime options/entitlements.
 4. Validate with `codesign --verify --deep --strict --verbose=4`.
-5. Create the final ZIP or DMG artifact.
-6. Submit with `xcrun notarytool` and wait for an accepted result.
-7. Staple the ticket with `xcrun stapler staple`.
-8. Validate the stapled artifact and Gatekeeper assessment on a clean system.
+5. Create and Developer-ID sign the final DMG container.
+6. Verify the package manifest checksum against that exact signed DMG.
+7. Submit that DMG with `xcrun notarytool` and wait for an accepted result.
+8. Save the submission response and retrieve Apple's notarization log even when
+   the status is accepted.
+9. Preserve the upload DMG unchanged; staple a private copy of it.
+10. Validate the stapled DMG ticket, UDIF integrity, signature, and Gatekeeper
+    primary-signature assessment before publishing its final checksum.
 
-Representative future commands, after credentials and artifact naming are
-defined:
+The repository scripts implement that contract. The following uses placeholders
+only; do not commit resolved identity, Team ID, or profile values:
 
 ```bash
-xcrun notarytool submit "Hireva.zip" \
-  --keychain-profile "HirevaNotary" \
-  --wait
+HIREVA_SIGNING_MODE=developer-id \
+HIREVA_SIGNING_IDENTITY="<Developer ID Application common name or SHA-1>" \
+HIREVA_EXPECTED_TEAM_IDENTIFIER=XXXXXXXXXX \
+HIREVA_ALLOW_DISTRIBUTION_DMG=1 \
+  ./scripts/package_dmg.sh \
+  dist/Hireva.app release-candidates/0.1.0-1-developer-id
 
-xcrun stapler staple "Hireva.app"
-xcrun stapler validate "Hireva.app"
-spctl --assess --type execute --verbose=4 "Hireva.app"
+HIREVA_SIGNING_MODE=developer-id \
+HIREVA_BUILD_ARCHS=arm64 \
+HIREVA_EXPECTED_TEAM_IDENTIFIER=XXXXXXXXXX \
+HIREVA_NOTARY_PROFILE="<local-notarytool-profile>" \
+HIREVA_ALLOW_NOTARIZATION_SUBMIT=1 \
+HIREVA_RELEASE_OUTPUT_DIR="$(pwd)/release-candidates" \
+  ./script/release/notarize_release.sh \
+  release-candidates/0.1.0-1-developer-id
 ```
 
-Do not implement or run submission merely because `notarytool` is installed.
-The current local package workflow must remain usable without Apple credentials.
+The second command has an external side effect and must run only with explicit
+release-owner approval. A configured profile or installed `notarytool` is not
+authorization. The ad-hoc local package workflow remains usable without Apple
+credentials and never signs its DMG container.
+
+On success the directory retains the original signed upload DMG and manifest,
+`notarization-submit.plist`, `notarization-log.json`, a separately stapled
+`.notarized.dmg`, its `.sha256` file, and its notarized manifest. The final
+manifest records response/log hashes plus upload and distribution DMG hashes,
+but never the identity, Team ID, profile name, or credential.
 
 ## Credential Handling
 
