@@ -73,7 +73,13 @@ public final class AudioEngineManager {
             do {
                 try ensureTapInstalled()
             } catch {
-                print("[AudioEngineManager] Failed to install audio tap: \(error.localizedDescription)")
+                self.audioRecoveryState = "Failed"
+                let errorCode = (error as NSError).code
+                PrivacySafeLogger.audioFailure(
+                    operation: .audioTapInstall,
+                    code: errorCode
+                )
+                notifyRouteFailed(error: Self.userFacingCaptureError(code: errorCode))
             }
         }
     }
@@ -130,8 +136,6 @@ public final class AudioEngineManager {
 
     /// Performs the safe, safe teardown and dynamic tap rebuild.
     private func rebuildInputTap(reason: String) {
-        print("[AudioEngineManager] Rebuilding input tap due to: \(reason)")
-        
         // 1. Stop engine safely
         audioEngine.stop()
         
@@ -164,9 +168,13 @@ public final class AudioEngineManager {
                 // 6. Notify delegates that the audio route changed successfully
                 notifyRouteRestarted()
             } catch {
-                print("[AudioEngineManager] Recovery failed: \(error.localizedDescription)")
+                let errorCode = (error as NSError).code
+                PrivacySafeLogger.audioFailure(
+                    operation: .audioTapRecovery,
+                    code: errorCode
+                )
                 self.audioRecoveryState = "Failed"
-                notifyRouteFailed(error: error)
+                notifyRouteFailed(error: Self.userFacingCaptureError(code: errorCode))
             }
         } else {
             self.audioRecoveryState = "Idle"
@@ -235,5 +243,15 @@ public final class AudioEngineManager {
         for delegate in activeDelegates {
             delegate.audioEngineManager(self, didFailWith: error)
         }
+    }
+
+    private static func userFacingCaptureError(code: Int) -> NSError {
+        NSError(
+            domain: "AudioEngineManager",
+            code: code,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Microphone audio input could not start. Stop and restart listening."
+            ]
+        )
     }
 }

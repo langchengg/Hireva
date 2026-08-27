@@ -308,7 +308,6 @@ func showImmediateFallbackForActiveGenerationIfNeeded(reason: String) -> Bool {
         message: "Kept the current answer visible while ignoring non-question system audio.",
         autoDismissAfter: 3.0
     )
-    print("[SystemAudioClassifier] Immediate fallback shown for active generation after ignoring system audio: \(reason)")
     return true
 }
 
@@ -531,10 +530,6 @@ private func runManualAnswer(session: InterviewSession, transcript: String) asyn
 }
 
 func cancelStageBTask() {
-    let hadActiveStageB = stageBTaskActive || stageBTask != nil
-    if hadActiveStageB {
-        print("[StageB] Cancelled active background Stage B suggestion task.")
-    }
     cancelActiveGenerationForStop()
 }
 
@@ -648,8 +643,6 @@ func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) as
         return updated
     }
     
-    print("[QualityValidator] Card fields are invalid. Triggering background provider rewrite. Original say_first length: \(card.sayFirst.count)")
-    
     Task { [weak self] in
         guard let self = self else { return }
         let rewritten = await self.providerRewriteAnswer(locallyCleaned)
@@ -672,7 +665,6 @@ func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) as
             current.sayFirst = rewritten
             self.currentSuggestion = current
             self.saveSuggestionSnapshotInBackground(current, chunks: self.currentSuggestionRetrievedChunks)
-            print("[QualityValidator] Background provider rewrite complete. Rewritten say_first length: \(rewritten.count)")
         }
     }
     
@@ -708,7 +700,10 @@ private func providerRewriteAnswer(_ sayFirst: String) async -> String {
             }
         }
     } catch {
-        print("[AppState] Provider answer rewrite failed: \(error.localizedDescription)")
+        PrivacySafeLogger.generationFailure(
+            operation: .answerRewrite,
+            code: (error as NSError).code
+        )
     }
     
     return AnswerQualityValidator.localCleanupAnswer(sayFirst)
@@ -3325,13 +3320,10 @@ func applyStageBApplicationPlan(
     } else if currentGenerationID == generationID && !anyCaptureRunning {
         liveState = .ready
         currentCaptureRuntimeState = .stopped(reason: stopReason)
-    } else {
-        print("[CaptureState] Bypassed restoring listening: sessionID=\(currentSession?.id ?? "nil"), state=\(currentCaptureRuntimeState), stopReason=\(String(describing: stopReason)), generationID=\(String(describing: currentGenerationID)), anyCaptureRunning=\(anyCaptureRunning)")
     }
 
     refreshLatencyAverages()
 
-    print("[StreamingASR] Stage B Full SuggestionCard completed and merged successfully!")
     processNextQueuedAutoQuestionIfIdle()
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 final class RuntimeTranscriptTraceStore: @unchecked Sendable {
     static let shared = RuntimeTranscriptTraceStore()
@@ -22,7 +23,8 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
             do {
                 try self.append(data: data, to: url)
             } catch {
-                print("[RuntimeTranscriptTraceStore] Write failed: \(error.localizedDescription)")
+                let nsError = error as NSError
+                PrivacySafeLogger.traceFailure(operation: .write, code: nsError.code)
             }
         }
     }
@@ -34,7 +36,8 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
                 do {
                     try clearTraceFilesImmediately(at: url)
                 } catch {
-                    print("[RuntimeTranscriptTraceStore] Cleanup failed: \(error.localizedDescription)")
+                    let nsError = error as NSError
+                    PrivacySafeLogger.traceFailure(operation: .cleanup, code: nsError.code)
                 }
             }
             preparedModes[url.path] = mode

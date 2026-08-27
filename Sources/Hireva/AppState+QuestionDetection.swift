@@ -516,7 +516,6 @@ extension AppState {
         triggeringSegmentID: String?
     ) async {
         do {
-            print("[AppState] Automatic question detection running | transcriptLength = \(detectionTranscript.count) | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
             liveState = .detectingQuestion
 
             // Set input segment submitted to question detection

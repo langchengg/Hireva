@@ -1686,7 +1686,6 @@ final class AppState: ObservableObject {
                 self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
                 self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
                 self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Local first answer is visible while the full answer expands.", autoDismissAfter: 3.0)
-                print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
                 if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
                     generationID: generationID,
                     question: localQuestion,
@@ -1720,10 +1719,8 @@ final class AppState: ObservableObject {
                     retrievalTrace = cached.trace
                     hitCache = true
                     lastRAGOperation = "Relevant context cache hit"
-                    print("[PrecomputeRAG] Exact cache hit for key: \(exactCacheKey)")
                 } else {
                     lastRAGOperation = "Relevant context cache miss"
-                    print("[PrecomputeRAG] Cache miss due to question/intent mismatch for key: \(exactCacheKey). Rerunning retrieval.")
                 }
                 precomputedRAGCache.removeValue(forKey: exactCacheKey)
             } else {
@@ -1731,7 +1728,6 @@ final class AppState: ObservableObject {
                 staleKeys.forEach { precomputedRAGCache.removeValue(forKey: $0) }
                 if !staleKeys.isEmpty {
                     lastRAGOperation = "Relevant context cache miss"
-                    print("[PrecomputeRAG] Removed \(staleKeys.count) stale cache item(s) for segmentID: \(segmentID).")
                 }
             }
         }
@@ -2018,7 +2014,6 @@ final class AppState: ObservableObject {
                     self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
                     self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
                     self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Fast local answer is visible while DeepSeek continues.", autoDismissAfter: 3.0)
-                    print("[StreamingASR] Soft fallback triggered at \(elapsed)ms because no DeepSeek text was visible yet.")
                     if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
                         generationID: generationID,
                         question: localQuestion,
@@ -2046,7 +2041,6 @@ final class AppState: ObservableObject {
                 return
             }
                 guard !Task.isCancelled else {
-                    print("[StageB] Task was cancelled in-flight.")
                     self.clearStageBTask(generationID: generationID)
                     return
                 }
@@ -2079,7 +2073,6 @@ final class AppState: ObservableObject {
                         return
                     }
                     guard !Task.isCancelled else {
-                        print("[StageB] Task was cancelled in-flight.")
                         self.clearStageBTask(generationID: generationID)
                         return
                     }
@@ -2110,7 +2103,6 @@ final class AppState: ObservableObject {
                     return
                 }
                 guard !Task.isCancelled else {
-                    print("[StageB] Task was cancelled in-flight.")
                     self.clearStageBTask(generationID: generationID)
                     return
                 }
@@ -2236,7 +2228,10 @@ final class AppState: ObservableObject {
                     self.recordStaleGenerationDiscard()
                     return
                 }
-                print("[StreamingASR] Stage B Full SuggestionCard failed or timed out: \(error.localizedDescription)")
+                PrivacySafeLogger.generationFailure(
+                    operation: .stageBFullCard,
+                    code: (error as NSError).code
+                )
                 let errorMessage = error.localizedDescription
                 let timedOut = errorMessage.lowercased().contains("timed out") || errorMessage.lowercased().contains("timeout")
                 let jsonParseError = errorMessage.lowercased().contains("json") ? errorMessage : nil
@@ -2258,8 +2253,6 @@ final class AppState: ObservableObject {
                     self.liveState = .listening
                     self.currentCaptureRuntimeState = .listening
                     self.addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: "generationFailed")
-                } else {
-                    print("[CaptureState] Bypassed restoring listening on error: sessionID=\(self.currentSession?.id ?? "nil"), state=\(self.currentCaptureRuntimeState), stopReason=\(String(describing: self.stopReason)), generationID=\(String(describing: self.currentGenerationID)), anyCaptureRunning=\(self.anyCaptureRunning)")
                 }
                 
                 if let current = self.currentSuggestion {
@@ -2643,9 +2636,7 @@ final class AppState: ObservableObject {
                             return
                         }
                     }
-                    print("[StreamingASR] Soft fallback replaced with late DeepSeek text at \(Int(elapsed * 1000))ms.")
                 } else {
-                    print("[StreamingASR] Soft fallback preserved. Late DeepSeek text rejected (elapsed: \(Int(elapsed * 1000))ms, interacted: \(self.userInteractedWithCard)).")
                     if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
                         generationID: generationID,
                         question: localQuestion,
@@ -2744,7 +2735,10 @@ final class AppState: ObservableObject {
             guard !self.generationUIState.isTerminal else {
                 return
             }
-            print("[StreamingASR] Stage A Fast Say-First timed out or failed: \(error.localizedDescription)")
+            PrivacySafeLogger.generationFailure(
+                operation: .stageAFastAnswer,
+                code: (error as NSError).code
+            )
             self.isStreamingSayFirst = false
             clearFallbackWatchdogTask(generationID: generationID)
 
@@ -2781,7 +2775,10 @@ final class AppState: ObservableObject {
                     }
                 } catch {
                     self.currentGenerationTelemetry.providerError = error.localizedDescription
-                    print("[LocalQwen] Fallback failed: \(error.localizedDescription)")
+                    PrivacySafeLogger.generationFailure(
+                        operation: .localFallback,
+                        code: (error as NSError).code
+                    )
                 }
             }
 
@@ -3182,7 +3179,10 @@ final class AppState: ObservableObject {
                 self.showFloatingAssistant()
             }
         } catch {
-            print("Failed to save mock database elements: \(error)")
+            PrivacySafeLogger.dataFailure(
+                operation: .mockDataSeed,
+                code: (error as NSError).code
+            )
         }
     }
 

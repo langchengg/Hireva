@@ -285,7 +285,10 @@ struct ProviderDiagnosticsView: View {
         do {
             self.latencyAverages = try appState.suggestionRepository.fetchLatencyAverages(last: 10, provider: provParam, mode: modeParam)
         } catch {
-            print("Failed to fetch filtered averages: \(error)")
+            PrivacySafeLogger.dataFailure(
+                operation: .filteredLatencyAverages,
+                code: (error as NSError).code
+            )
             self.latencyAverages = .empty
         }
     }

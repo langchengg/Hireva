@@ -342,7 +342,6 @@ final class KeychainService {
         if migratedAccounts > 0 {
             lastReadStatus = "Success (legacy credentials migrated)"
             lastWriteStatus = "Success (migrated \(migratedAccounts) account(s))"
-            print("[KeychainService] Legacy credentials copied to the Hireva service. Legacy items were retained.")
         } else if let firstFailure {
             lastReadStatus = KeychainService.keychainReadStatusMessage(for: firstFailure)
             lastWriteStatus = "Migration unavailable: \(firstFailure.localizedDescription)"

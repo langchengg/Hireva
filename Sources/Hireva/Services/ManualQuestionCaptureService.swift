@@ -55,8 +55,6 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         self.onTimeoutTriggered = onTimeout
         self.activeSource = source
         
-        print("[ManualQuestionCapture] Starting capture using source = \(source.rawValue), maxDuration = \(maxDuration)")
-        
         if source == .systemAudio {
             ScreenCaptureKitSystemAudioCaptureService.shared.register(self)
             try await ScreenCaptureKitSystemAudioCaptureService.shared.startSystemAudioCapture()
@@ -83,7 +81,6 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     @objc private func recordingTimerDidFire(_ timer: Timer) {
         recordingDuration += timer.timeInterval
         if recordingDuration >= Double(maxSeconds) {
-            print("[ManualQuestionCapture] Hard timeout of \(maxSeconds)s reached!")
             timer.invalidate()
             if self.timer === timer {
                 self.timer = nil
@@ -112,7 +109,6 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
             AudioEngineManager.shared.unregister(self)
         }
         
-        print("[ManualQuestionCapture] Stopped capture. Compiled \(buffers.count) buffers.")
         return buffers
     }
     
@@ -134,7 +130,6 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         } else {
             AudioEngineManager.shared.unregister(self)
         }
-        print("[ManualQuestionCapture] Cancelled capture.")
     }
     
     // MARK: - Metering helper
@@ -179,7 +174,15 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didFailWithError error: Error
     ) {
-        print("[ManualQuestionCapture] ScreenCaptureKit stream error: \(error.localizedDescription)")
+        PrivacySafeLogger.audioFailure(
+            operation: .manualQuestionCapture,
+            code: (error as NSError).code
+        )
+        Task { @MainActor in
+            self.timer?.invalidate()
+            self.timer = nil
+            self.isRecording = false
+        }
     }
     
     // MARK: - AudioEngineBufferDelegate conformance
@@ -189,5 +192,20 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         at time: AVAudioTime
     ) {
         processBuffer(buffer)
+    }
+
+    public func audioEngineManager(
+        _ manager: AudioEngineManager,
+        didFailWith error: Error
+    ) {
+        PrivacySafeLogger.audioFailure(
+            operation: .manualQuestionCapture,
+            code: (error as NSError).code
+        )
+        Task { @MainActor in
+            self.timer?.invalidate()
+            self.timer = nil
+            self.isRecording = false
+        }
     }
 }

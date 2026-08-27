@@ -32,7 +32,7 @@ extension AppState {
                 if delay > 2_000 {
                     self.lastLongOperationName = "Main thread appears blocked"
                     self.lastLongOperationStartedAt = previous
-                    print("[AppState] Main thread appears blocked: \(delay) ms")
+                    PrivacySafeLogger.mainThreadStall(delayMS: delay)
                 }
             }
         }

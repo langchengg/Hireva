@@ -46,7 +46,6 @@ extension AppState {
         defer {
             lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)
         }
-        print("[AppState] Received segment: id = \(segment.id) | source = \(segment.source.rawValue) | asrSource = \(segment.asrSource?.rawValue ?? "unknown") | speaker = \(segment.speaker.rawValue) | textLength = \(segment.text.count) | finalization = \(segment.asrFinalizationReason ?? "unknown")")
         liveState = .transcribing
         recordASRTranscriptRuntimeEvent(for: segment)
         if segment.asrFinalizationReason != "partial" {
@@ -201,10 +200,12 @@ extension AppState {
                                 normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(for: segment.text),
                                 questionIntent: precomputeIntent
                             )
-                            print("[PrecomputeRAG] Cached RAG context for segmentID: \(segment.id) | key: \(key)")
                         }
                     } catch {
-                        print("[PrecomputeRAG] Background RAG precompute failed: \(error)")
+                        PrivacySafeLogger.dataFailure(
+                            operation: .ragPrecompute,
+                            code: (error as NSError).code
+                        )
                     }
                 }
             }
@@ -234,7 +235,6 @@ extension AppState {
                         let similarity = Double(intersection.count) / Double(union.count)
                         if similarity >= 0.5 { // 50% Jaccard word overlap indicates interviewer echo leak
                             isEchoLeakage = true
-                            print("[EchoProtection] Detected interviewer leakage in mic stream: segmentID = \(segment.id) | micTextLength = \(segment.text.count) | systemTextLength = \(record.text.count) | similarity = \(String(format: "%.2f", similarity)). Question detection bypassed.")
                             break
                         }
                     }
@@ -264,9 +264,6 @@ extension AppState {
             // the old per-turn switching requirement.
             shouldTriggerDetection = true
         }
-
-        // Output verbose gating logs
-        print("[GatingLog] segmentSource: \(segment.source.rawValue) | segmentSpeaker: \(segment.speaker.rawValue) | eligibleForAutoDetection: \(shouldTriggerDetection)\(shouldTriggerDetection ? "" : " | skipReason: \(skipReason)")")
 
         // Capture attribution diagnostics
         let diag = SegmentAttributionDiagnostic(
@@ -310,7 +307,6 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.generationTriggered = false
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
             lastQuestionDetectionResult = "Waiting for final interviewer transcript before generating an answer."
-            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | textLength = \(segment.text.count)")
             liveState = .listening
             return
         }
@@ -343,7 +339,6 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.generationTriggered = false
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = false
             lastQuestionDetectionResult = "Waiting for a complete interviewer question before generating an answer."
-            print("[GatingLog] Auto detection deferred: \(reason) | segmentID: \(segment.id) | textLength = \(segment.text.count)")
             liveState = .listening
             return
         }
@@ -617,7 +612,6 @@ extension AppState {
 
     func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
         guard !card.isPartial else {
-            print("[Transcript] Skipping saveSuggestionSnapshotInBackground for partial card.")
             recordTranscriptRuntimeEvent(.persistenceRejected(
                 sessionID: card.sessionID,
                 questionID: card.detectedQuestionID ?? card.questionID,

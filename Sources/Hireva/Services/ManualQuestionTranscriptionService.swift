@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import Speech
 
 public final class ManualQuestionTranscriptionService: NSObject {
@@ -65,14 +66,15 @@ public final class ManualQuestionTranscriptionService: NSObject {
                 self.onPartialCallback?(text)
                 
                 if result.isFinal {
-                    print("[ManualTranscriptionService] ASR Final result: \"\(text)\"")
+                    PrivacySafeLogger.manualAppleSpeechFinal(characters: text.utf16.count)
                     self.isFinalized = true
                     self.onFinalCallback?(text)
                     self.completionContinuation?.resume(returning: text)
                     self.completionContinuation = nil
                 }
             } else if let error = error {
-                print("[ManualTranscriptionService] Task error: \(error.localizedDescription)")
+                let nsError = error as NSError
+                PrivacySafeLogger.audioFailure(operation: .manualAppleSpeech, code: nsError.code)
                 // If it was cancelled by us, do not treat as failure
                 let nsErr = error as NSError
                 if nsErr.domain == "kAFAssistantErrorDomain" && nsErr.code == 4 { // User cancelled
@@ -100,7 +102,7 @@ public final class ManualQuestionTranscriptionService: NSObject {
             return latestPartialResult
         }
         
-        print("[ManualQuestionTranscriptionService] Audio ended. Waiting up to \(timeoutSeconds)s for final transcription...")
+        PrivacySafeLogger.manualAppleSpeechAudioEnded(timeoutSeconds: timeoutSeconds)
         
         return try await withCheckedThrowingContinuation { continuation in
             self.completionContinuation = continuation
@@ -111,7 +113,9 @@ public final class ManualQuestionTranscriptionService: NSObject {
                 guard let activeContinuation = self.completionContinuation else { return }
                 self.completionContinuation = nil
                 
-                print("[ManualQuestionTranscriptionService] Timeout watchdog triggered. Using best available partial result: \"\(self.latestPartialResult)\"")
+                PrivacySafeLogger.manualAppleSpeechTimedOut(
+                    partialCharacters: self.latestPartialResult.utf16.count
+                )
                 
                 // Cancel existing task to stop listening
                 self.recognitionTask?.cancel()

@@ -168,12 +168,12 @@ class PermissionService {
         case .authorized:
             return .authorized
         case .denied, .restricted:
-            print("[Permission] Microphone request bypassed (already \(current.rawValue))")
+            PrivacySafeLogger.permissionEvent(.microphoneRequestNotEligible)
             return current
         case .notDetermined:
             return await withCheckedContinuation { continuation in
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
-                    print("[Permission] Microphone request returned granted = \(granted)")
+                    PrivacySafeLogger.microphonePermissionRequestCompleted(granted: granted)
                     if granted {
                         continuation.resume(returning: .authorized)
                     } else {
@@ -212,7 +212,7 @@ class PermissionService {
 
     func requestScreenRecording() {
         if isRunningUnderTestOrAutomation() {
-            print("[Permission] requestScreenRecording skipped (running under test/automation)")
+            PrivacySafeLogger.permissionEvent(.screenRequestSuppressedForAutomation)
             return
         }
         _ = CGRequestScreenCaptureAccess()

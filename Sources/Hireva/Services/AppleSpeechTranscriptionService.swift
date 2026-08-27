@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import Speech
 
 enum TranscriptionServiceState: String, Codable {
@@ -148,7 +149,10 @@ final class AppleSpeechTranscriptionSession: NSObject {
             self.simulatedTaskActive = true
             self.request = SFSpeechAudioBufferRecognitionRequest()
             self.onRuntimeEvent?(.audioStarted(sessionID: parentSessionID, timestamp: Date()))
-            print("[DualAudio] [TestMock] \(sessionID.source == .microphone ? "mic" : "system") ASR session created successfully.")
+            PrivacySafeLogger.appleSpeechSessionStarted(
+                source: self.sessionID.source,
+                simulated: true
+            )
             return
         }
         #endif
@@ -181,7 +185,7 @@ final class AppleSpeechTranscriptionSession: NSObject {
         request.shouldReportPartialResults = true
         self.request = request
         
-        print("[DualAudio] \(sessionID.source == .microphone ? "mic" : "system") ASR session created: \(sessionID.source.rawValue)")
+        PrivacySafeLogger.appleSpeechSessionStarted(source: self.sessionID.source, simulated: false)
         
         self.serviceState = .running
         self.onRuntimeEvent?(.audioStarted(sessionID: parentSessionID, timestamp: Date()))
@@ -207,11 +211,14 @@ final class AppleSpeechTranscriptionSession: NSObject {
                             self.currentUtteranceLatency?.firstPartialAt = Date()
                         }
                         
-                        if self.sessionID.source == .microphone {
-                            print("[DualAudio] mic partial = \(text)")
-                        } else {
-                            print("[DualAudio] system partial = \(text)")
-                        }
+                        let partialCharacters = text.utf16.count
+                        let partialWords = self.getWordCount(text)
+                        PrivacySafeLogger.appleSpeechTranscriptMetrics(
+                            stage: .partial,
+                            source: self.sessionID.source,
+                            characters: partialCharacters,
+                            words: partialWords
+                        )
                         
                         // Emit partial using current utteranceID to overwrite in place
                         self.emit(text: text, id: self.utteranceID)
@@ -231,11 +238,14 @@ final class AppleSpeechTranscriptionSession: NSObject {
                             self.currentUtteranceLatency?.firstFinalAt = finalReceivedAt
                         }
                         
-                        if self.sessionID.source == .microphone {
-                            print("[DualAudio] mic final segment source=microphone speaker=candidate: \"\(text)\"")
-                        } else {
-                            print("[DualAudio] system final segment source=systemAudio speaker=interviewer: \"\(text)\"")
-                        }
+                        let finalCharacters = text.utf16.count
+                        let finalWords = self.getWordCount(text)
+                        PrivacySafeLogger.appleSpeechTranscriptMetrics(
+                            stage: .final,
+                            source: self.sessionID.source,
+                            characters: finalCharacters,
+                            words: finalWords
+                        )
                         
                         // Finalization Quality Logic
                         let bestTranscript: String
@@ -243,18 +253,22 @@ final class AppleSpeechTranscriptionSession: NSObject {
                         let wordCountPartial = self.getWordCount(self.lastPartialTranscript)
                         let timeSincePartialUpdate = self.lastPartialTranscriptUpdatedAt.map { Date().timeIntervalSince($0) } ?? Double.greatestFiniteMagnitude
                         
+                        let finalizationDecision: PrivacySafeLogger.FinalizationDecision
                         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !self.lastPartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             bestTranscript = self.lastPartialTranscript
                             self.bestTranscriptUsed = self.lastPartialTranscript
                             self.finalizationReason = "final empty but partial meaningful"
+                            finalizationDecision = .emptyFinalUsedPartial
                         } else if wordCountFinal < (wordCountPartial + 1) / 2 && timeSincePartialUpdate <= 5.0 && !self.lastPartialTranscript.isEmpty {
                             bestTranscript = self.lastPartialTranscript
                             self.bestTranscriptUsed = self.lastPartialTranscript
                             self.finalizationReason = "final much shorter than recent partial"
+                            finalizationDecision = .shorterFinalUsedPartial
                         } else {
                             bestTranscript = text
                             self.bestTranscriptUsed = text
                             self.finalizationReason = "final is longer or similar"
+                            finalizationDecision = .acceptedFinal
                         }
                         
                         // Record best-transcript-selected timestamp and finalization reason
@@ -262,7 +276,16 @@ final class AppleSpeechTranscriptionSession: NSObject {
                         self.currentUtteranceLatency?.bestTranscriptSelectedAt = bestSelectedAt
                         self.currentUtteranceLatency?.finalizationReason = self.finalizationReason
                         
-                        print("[DualAudio] finalization resolved. reason: \"\(self.finalizationReason)\" | best: \"\(bestTranscript)\" | asrFirstPartialMS=\(self.currentUtteranceLatency?.asrFirstPartialMS ?? -1) asrFinalMS=\(self.currentUtteranceLatency?.asrFinalMS ?? -1) asrBestSelectedMS=\(self.currentUtteranceLatency?.asrBestSelectedMS ?? -1)")
+                        let bestCharacters = bestTranscript.utf16.count
+                        let bestWords = self.getWordCount(bestTranscript)
+                        PrivacySafeLogger.appleSpeechFinalization(
+                            decision: finalizationDecision,
+                            characters: bestCharacters,
+                            words: bestWords,
+                            firstPartialMS: self.currentUtteranceLatency?.asrFirstPartialMS ?? -1,
+                            finalMS: self.currentUtteranceLatency?.asrFinalMS ?? -1,
+                            bestSelectedMS: self.currentUtteranceLatency?.asrBestSelectedMS ?? -1
+                        )
                         
                         // Complete utterance latency and archive it
                         self.lastCompletedUtteranceLatency = self.currentUtteranceLatency
@@ -277,7 +300,8 @@ final class AppleSpeechTranscriptionSession: NSObject {
                     }
                 }
             } else if let error = error {
-                print("[DualAudio] \(self.sessionID.source.rawValue) recognition task error: \(error.localizedDescription)")
+                let nsError = error as NSError
+                PrivacySafeLogger.audioFailure(operation: .appleSpeechRecognition, code: nsError.code)
                 Task { @MainActor in
                     self.lastError = error
                     self.serviceState = .failed
@@ -332,7 +356,10 @@ final class AppleSpeechTranscriptionSession: NSObject {
         lastBufferReceivedAt = now
         onRuntimeEvent?(.audioBufferReceived(sessionID: parentSessionID, frameCount: Int(buffer.frameLength), timestamp: now))
         if totalBuffersAppended % 100 == 0 || totalBuffersAppended == 1 {
-            print("[DualAudio] \(sessionID.source == .microphone ? "mic" : "system") buffer appended count = \(totalBuffersAppended)")
+            PrivacySafeLogger.appleSpeechBufferCount(
+                source: self.sessionID.source,
+                count: self.totalBuffersAppended
+            )
         }
         onStateChange()
     }
@@ -526,7 +553,7 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         self.captureMode = captureMode
         self.isRecording = true
         
-        print("[DualAudio] mode = \(captureMode.rawValue)")
+        PrivacySafeLogger.appleSpeechCaptureStarted(mode: captureMode)
         
         #if DEBUG
         let isTesting = ProcessInfo.processInfo.processName.localizedCaseInsensitiveContains("test") ||
@@ -540,7 +567,7 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         let systemRequired = (captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem)
         
         if micRequired {
-            print("[DualAudio] starting mic capture")
+            PrivacySafeLogger.appleSpeechMicrophoneCaptureStarted()
             let micSessionID = AudioTranscriptionSessionID(source: .microphone)
             let session = AppleSpeechTranscriptionSession(
                 sessionID: micSessionID,
@@ -565,7 +592,7 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         }
         
         if systemRequired {
-            print("[DualAudio] starting system capture")
+            PrivacySafeLogger.appleSpeechSystemAudioCaptureStarted()
             let systemSessionID = AudioTranscriptionSessionID(source: .systemAudio)
             let session = AppleSpeechTranscriptionSession(
                 sessionID: systemSessionID,
@@ -596,7 +623,10 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
             let sysActive = systemAudioSession?.simulatedTaskActive == true || systemAudioSession?.recognitionTask != nil
             if !micActive || !sysActive {
                 let errorMsg = "Apple Speech could not run two concurrent transcription streams. Use System Audio Only / Manual Capture or configure an alternate ASR provider."
-                print("[DualAudio] Concurrent session guard failed! micActive: \(micActive), sysActive: \(sysActive)")
+                PrivacySafeLogger.appleSpeechConcurrentSessionGuard(
+                    microphoneActive: micActive,
+                    systemActive: sysActive
+                )
                 throw TranscriptionError.unavailable(errorMsg)
             }
         }
@@ -662,7 +692,7 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         _ manager: AudioEngineManager
     ) {
         guard let currentParentSessionID, microphoneSession != nil else { return }
-        print("[DualAudio] Re-initializing microphone speech capture request after route change...")
+        PrivacySafeLogger.appleSpeechMicrophoneRouteChanged()
         
         // Recover route safely by spinning up a new microphone ASR session
         microphoneSession?.stop()
@@ -687,7 +717,11 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
             do {
                 try await session.start()
             } catch {
-                print("[DualAudio] Failed to recover microphone speech session after route change: \(error.localizedDescription)")
+                let nsError = error as NSError
+                PrivacySafeLogger.audioFailure(
+                    operation: .appleSpeechMicrophoneRecovery,
+                    code: nsError.code
+                )
             }
         }
     }
@@ -696,7 +730,8 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         _ manager: AudioEngineManager,
         didFailWith error: Error
     ) {
-        print("[DualAudio] Microphone input failed with error: \(error.localizedDescription)")
+        let nsError = error as NSError
+        PrivacySafeLogger.audioFailure(operation: .appleSpeechMicrophoneInput, code: nsError.code)
         microphoneSession?.stop()
     }
     
@@ -714,7 +749,8 @@ final class AppleSpeechTranscriptionService: NSObject, TranscriptionProvider, Au
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didFailWithError error: Error
     ) {
-        print("[DualAudio] System audio capture failed with error: \(error.localizedDescription)")
+        let nsError = error as NSError
+        PrivacySafeLogger.audioFailure(operation: .appleSpeechSystemAudioCapture, code: nsError.code)
         systemAudioSession?.stop()
     }
 }

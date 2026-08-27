@@ -87,14 +87,7 @@ extension AppState {
                 let speechRecognitionRequired = permissionRequirements.speechRecognition
                 let systemAudioRequired = permissionRequirements.screenAndSystemAudio
 
-                print("[StartListening] captureMode = \(captureMode.rawValue)")
-                print("[StartListening] selectedASRProvider = \(requestedASRProvider.rawValue)")
-                print("[StartListening] microphoneRequired = \(microphoneRequired)")
-                print("[StartListening] speechRecognitionRequired = \(speechRecognitionRequired)")
-                print("[StartListening] systemAudioRequired = \(systemAudioRequired)")
-
                 let micStatusBefore = permissionService.checkMicrophonePermission()
-                print("[Permission] microphone status before request = \(micStatusBefore.rawValue)")
 
                 if microphoneRequired {
                     var microphone = micStatusBefore
@@ -104,12 +97,9 @@ extension AppState {
                         refreshPermissions()
                     } else if microphone == .authorized {
                         // Success immediately, do not prompt/error
-                    } else {
-                        print("[Permission] Microphone request bypassed (already \(microphone.rawValue))")
                     }
 
                     let micStatusAfter = permissionService.checkMicrophonePermission()
-                    print("[Permission] microphone request result = \(micStatusAfter.rawValue)")
 
                     guard micStatusAfter == .authorized else {
                         liveState = .permissionDenied
@@ -120,9 +110,6 @@ extension AppState {
                         showError(message)
                         return
                     }
-
-                } else {
-                    print("[Permission] microphone request result = notRequired")
                 }
 
                 if speechRecognitionRequired {
@@ -268,8 +255,6 @@ extension AppState {
             } else {
                 let captureMode = settings.audioCaptureMode
                 let requestedASRProvider = selectedASRProviderID
-                print("[DualAudio] mode = \(captureMode.rawValue)")
-                print("[DualAudio] selectedASRProvider = \(requestedASRProvider.rawValue)")
 
                 if captureMode == .systemAudioOnly {
                     // Keep System Audio Only isolated from microphone metering.
@@ -277,7 +262,6 @@ extension AppState {
                     // microphone permission or capture is required.
                     self.lastSystemAudioASRPartialTranscript = ""
                     self.microphoneDiagnostics.stopMicTest()
-                    print("[DualAudio] Cleaned up buffers & diagnostics for System Audio Only mode")
                 }
 
                 if requestedASRProvider == .localParakeet {
@@ -539,10 +523,6 @@ extension AppState {
         self.stopReason = reason
         let stoppedAt = Date()
         self.lastCaptureStoppedAt = stoppedAt
-
-        print("[CaptureState] stopListening reason = \(reason)")
-        print("[CaptureState] systemCaptureRunning before stop = \(systemCaptureRunning)")
-        print("[CaptureState] called from = \(file.split(separator: "/").last ?? ""):\(line) - \(function)")
 
         addCaptureEvent(
             name: "stopListening",
@@ -809,10 +789,6 @@ extension AppState {
         currentCaptureRuntimeState = .stopping
         self.stopReason = reason
         self.lastCaptureStoppedAt = Date()
-
-        print("[CaptureState] stopListening reason = \(reason)")
-        print("[CaptureState] systemCaptureRunning before stop = \(systemCaptureRunning)")
-        print("[CaptureState] called from = \(file.split(separator: "/").last ?? ""):\(line) - \(function)")
 
         addCaptureEvent(
             name: "stopAllContinuousPipelines",

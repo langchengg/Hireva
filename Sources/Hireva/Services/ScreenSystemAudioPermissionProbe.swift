@@ -2,7 +2,6 @@ import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import AVFoundation
-import OSLog
 
 struct ScreenSystemAudioPermissionProbeResult: Hashable {
     let preflightGranted: Bool
@@ -15,10 +14,6 @@ struct ScreenSystemAudioPermissionProbeResult: Hashable {
 final class ScreenSystemAudioPermissionProbe {
     static let shared = ScreenSystemAudioPermissionProbe()
     static var mockProbe: (() async -> ScreenSystemAudioPermissionProbeResult)?
-    private let logger = Logger(
-        subsystem: HirevaProductIdentity.bundleIdentifier,
-        category: "ScreenSystemAudioPermissionProbe"
-    )
 
     private init() {}
 
@@ -62,7 +57,7 @@ final class ScreenSystemAudioPermissionProbe {
             shareableContent = content
             shareableSucceeded = true
         } catch {
-            errorDescription = error.localizedDescription
+            errorDescription = "Screen & System Audio Recording permission check failed."
             shareableContent = nil
             
             // If preflight says true but SCShareableContent fails with typical access denied, it indicates mismatch!
@@ -88,7 +83,12 @@ final class ScreenSystemAudioPermissionProbe {
             errorDescription: errorDescription,
             likelyIdentityMismatch: likelyIdentityMismatch
         )
-        logger.info("probe preflight=\(result.preflightGranted) shareable=\(result.shareableContentProbeSucceeded) stream=\(result.streamAudioProbeSucceeded) identityMismatch=\(result.likelyIdentityMismatch) error=\(result.errorDescription ?? "nil", privacy: .public)")
+        PrivacySafeLogger.screenSystemAudioPermissionProbe(
+            preflightGranted: result.preflightGranted,
+            shareableContentSucceeded: result.shareableContentProbeSucceeded,
+            streamAudioSucceeded: result.streamAudioProbeSucceeded,
+            identityMismatch: result.likelyIdentityMismatch
+        )
         return result
     }
 }

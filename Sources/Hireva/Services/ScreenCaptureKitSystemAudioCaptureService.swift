@@ -37,7 +37,6 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     
     private let converter = SampleBufferAudioConverter()
     private var lastUpdateTimestamp = Date.distantPast
-    private var lastLogTimestamp = Date.distantPast
     
     private var sampleWatchdogTask: Task<Void, Never>?
     private var hasReceivedSamplesSinceStart = false
@@ -72,7 +71,6 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         stopSystemAudioCapture()
 
         if isRunningUnderTestOrAutomation() {
-            print("[ScreenCaptureKitSystemAudioCaptureService] Skipping real capture startup (running under test/automation)")
             self.isCapturing = true
             return
         }
@@ -87,11 +85,11 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             hasAccess = true
         } catch {
             if !hasAccess {
-                let errorMsg = "Enable Screen & System Audio Recording in System Settings. (\(error.localizedDescription))"
+                let errorMsg = "Enable Screen & System Audio Recording in System Settings."
                 lastError = errorMsg
                 throw NSError(domain: "ScreenCaptureKitSystemAudioCaptureService", code: -1, userInfo: [NSLocalizedDescriptionKey: errorMsg])
             } else {
-                let errorMsg = "No shareable display/window content: \(error.localizedDescription)"
+                let errorMsg = "System audio capture could not access shareable screen content."
                 lastError = errorMsg
                 throw NSError(domain: "ScreenCaptureKitSystemAudioCaptureService", code: -2, userInfo: [NSLocalizedDescriptionKey: errorMsg])
             }
@@ -127,21 +125,36 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
             try await stream.startCapture()
             streamInstance = stream
-            print("[ScreenCaptureKitSystemAudioCaptureService] ScreenCaptureKit audio stream started with 16x16 resolution.")
         } catch {
-            print("[ScreenCaptureKitSystemAudioCaptureService] Tiny 16x16 video stream configuration failed: \(error.localizedDescription). Falling back to native display stream configuration.")
+            PrivacySafeLogger.audioFailure(
+                operation: .screenCaptureCompactStream,
+                code: (error as NSError).code
+            )
             
             // Fallback to display's native width/height to avoid resolution rejection, but ignore video frames
             config.width = display.width
             config.height = display.height
             config.minimumFrameInterval = CMTime(value: 1, timescale: 2) // Ultra slow video frames
-            
-            let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-            try await stream.startCapture()
-            streamInstance = stream
-            print("[ScreenCaptureKitSystemAudioCaptureService] ScreenCaptureKit audio stream started with native fallback resolution.")
+
+            do {
+                let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+                try await stream.startCapture()
+                streamInstance = stream
+            } catch {
+                PrivacySafeLogger.audioFailure(
+                    operation: .screenCaptureFallbackStream,
+                    code: (error as NSError).code
+                )
+                let errorMessage = "System audio capture could not start. Check Screen & System Audio Recording permission."
+                lastError = errorMessage
+                throw NSError(
+                    domain: "ScreenCaptureKitSystemAudioCaptureService",
+                    code: -4,
+                    userInfo: [NSLocalizedDescriptionKey: errorMessage]
+                )
+            }
         }
 
         self.stream = streamInstance
@@ -159,7 +172,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             guard let self = self else { return }
             guard !Task.isCancelled else { return }
             if self.isCapturing && !self.hasReceivedSamplesSinceStart {
-                print("[ScreenCaptureKitSystemAudioCaptureService] Watchdog: Started capture but no audio samples received.")
+                PrivacySafeLogger.audioFailure(operation: .screenCaptureNoSamples, code: -3)
                 Task { @MainActor in
                     self.lastError = "System audio stream started but no samples received. Open a browser tab and play some audio (YouTube/music)."
                     self.notifyFailure(error: NSError(
@@ -186,7 +199,6 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         Task {
             try? await streamToStop.stopCapture()
         }
-        print("[ScreenCaptureKitSystemAudioCaptureService] System audio capture stopped.")
     }
 
     // MARK: - SCStreamOutput conformance
@@ -218,9 +230,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
                 self.lastBufferFrameCapacity = Int(pcmBuffer.frameLength)
             }
             
-            let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let seconds = CMTimeGetSeconds(presentationTime)
-            calculateMetrics(from: pcmBuffer, timestamp: seconds)
+            calculateMetrics(from: pcmBuffer)
             
             let time = AVAudioTime(hostTime: mach_absolute_time())
             
@@ -233,15 +243,23 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
                 delegate.systemAudioCaptureService(self, didReceive: pcmBuffer, at: time)
             }
         } catch {
-            print("[ScreenCaptureKitSystemAudioCaptureService] Audio conversion error: \(error.localizedDescription)")
+            PrivacySafeLogger.audioFailure(
+                operation: .screenCaptureConversion,
+                code: (error as NSError).code
+            )
             Task { @MainActor in
-                self.lastError = "Audio conversion failed: \(error.localizedDescription)"
-                self.notifyFailure(error: error)
+                let errorMessage = "System audio conversion failed. Stop and restart listening."
+                self.lastError = errorMessage
+                self.notifyFailure(error: NSError(
+                    domain: "ScreenCaptureKitSystemAudioCaptureService",
+                    code: -5,
+                    userInfo: [NSLocalizedDescriptionKey: errorMessage]
+                ))
             }
         }
     }
 
-    private func calculateMetrics(from buffer: AVAudioPCMBuffer, timestamp: Double) {
+    private func calculateMetrics(from buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
         let channelCount = Int(buffer.format.channelCount)
         let frameLength = Int(buffer.frameLength)
@@ -260,18 +278,6 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
         let db = 20 * log10(max(Double(rms), 0.000_001))
 
         let now = Date()
-        if now.timeIntervalSince(self.lastLogTimestamp) >= 1.0 {
-            self.lastLogTimestamp = now
-            print(String(format: "[ScreenCaptureKitSystemAudioCaptureService] Real CMSampleBuffer received: timestamp = %.3f s | Converted format = %@ | sampleRate = %.1f Hz | channelCount = %d | frameLength = %d | system audio dBFS = %.1f dB | totalBuffers = %d",
-                timestamp,
-                buffer.format.description,
-                buffer.format.sampleRate,
-                channelCount,
-                frameLength,
-                db,
-                self.totalBuffersReceived
-            ))
-        }
 
         Task { @MainActor in
             // Throttle level meter updates to 25 FPS (0.04s)

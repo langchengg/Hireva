@@ -113,7 +113,10 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
                             case .token(let token):
                                 continuation.yield(token)
                             case .usage(let prompt, _, _, let cached):
-                                print("[DeepSeekUsage] Stream total: \(prompt) | Cached: \(cached) | Missed: \(prompt - cached)")
+                                PrivacySafeLogger.providerTokenUsage(
+                                    promptTokens: prompt,
+                                    cachedPromptTokens: cached
+                                )
                             }
                         }
                     }
