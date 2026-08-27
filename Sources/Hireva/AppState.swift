@@ -858,7 +858,6 @@ final class AppState: ObservableObject {
             transcripts: transcripts,
             suggestions: suggestions,
             recaps: recaps,
-            settings: settings,
             keychainService: keychain
         )
         self.llmRouter = router
