@@ -171,6 +171,10 @@ final class DocumentRepository {
 
     func deleteDocument(id: String) throws {
         try database.dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM suggestion_card_retrieved_chunks WHERE document_id = ?",
+                arguments: [id]
+            )
             try db.execute(sql: "DELETE FROM documents WHERE id = ?", arguments: [id])
         }
     }
@@ -191,6 +195,7 @@ final class DocumentRepository {
 
     func deleteAllDocuments() throws {
         try database.dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM suggestion_card_retrieved_chunks")
             try db.execute(sql: "DELETE FROM documents")
         }
     }

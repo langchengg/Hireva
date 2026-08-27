@@ -102,7 +102,10 @@ struct RAGAttributionTests {
         #expect(cvChunk?.score == 4.5)
         #expect(cvChunk?.rank == 1)
         #expect(cvChunk?.isIncludedInPrompt == true)
-        #expect(cvChunk?.sectionTitle == "Work Experience")
+        #expect(cvChunk?.contentPreview == "")
+        #expect(cvChunk?.fullContent == "")
+        #expect(cvChunk?.keywords == [])
+        #expect(cvChunk?.sectionTitle == nil)
         #expect(cvChunk?.wordCount == 5)
 
         let jdChunk = loadedChunks.first { $0.documentType == .jobDescription }
@@ -111,7 +114,10 @@ struct RAGAttributionTests {
         #expect(jdChunk?.score == 1.5)
         #expect(jdChunk?.rank == 2)
         #expect(jdChunk?.isIncludedInPrompt == false)
-        #expect(jdChunk?.sectionTitle == "Requirements")
+        #expect(jdChunk?.contentPreview == "")
+        #expect(jdChunk?.fullContent == "")
+        #expect(jdChunk?.keywords == [])
+        #expect(jdChunk?.sectionTitle == nil)
         #expect(jdChunk?.wordCount == 5)
 
         // 3. Test cascade delete: deleting the session/card should cascade delete the retrieved chunks

@@ -325,15 +325,15 @@ final class SuggestionRepository {
                         chunk.documentID,
                         chunk.documentType.rawValue,
                         chunk.chunkIndex,
-                        chunk.contentPreview,
-                        chunk.fullContent,
-                        JSONParsing.jsonString(chunk.keywords),
+                        "",
+                        "",
+                        "[]",
                         chunk.score,
                         chunk.keywordOverlapCount,
                         chunk.contentOverlapCount,
                         chunk.rank,
                         chunk.isIncludedInPrompt ? 1 : 0,
-                        chunk.sectionTitle,
+                        nil as String?,
                         chunk.wordCount,
                         chunk.semanticScore,
                         chunk.keywordScoreNormalized,
@@ -354,8 +354,6 @@ final class SuggestionRepository {
                 arguments: [suggestionCardID]
             ).map { row in
                 let typeString: String = row["document_type"]
-                let keywordsString: String = row["keywords_json"]
-                let keywords = JSONParsing.decodeArray(String.self, from: keywordsString)
                 
                 let semanticScore: Double? = row["semantic_score"]
                 let keywordScoreNormalized: Double? = row["keyword_score_normalized"]
@@ -367,15 +365,15 @@ final class SuggestionRepository {
                     documentID: row["document_id"],
                     documentType: DocumentType(rawValue: typeString) ?? .cv,
                     chunkIndex: row["chunk_index"],
-                    contentPreview: row["content_preview"],
-                    fullContent: row["full_content"],
-                    keywords: keywords,
+                    contentPreview: "",
+                    fullContent: "",
+                    keywords: [],
                     score: row["score"],
                     keywordOverlapCount: row["keyword_overlap_count"] ?? 0,
                     contentOverlapCount: row["content_overlap_count"] ?? 0,
                     rank: row["rank"],
                     isIncludedInPrompt: (row["is_included"] as Int) != 0,
-                    sectionTitle: row["section_title"],
+                    sectionTitle: nil,
                     wordCount: row["word_count"],
                     semanticScore: semanticScore,
                     keywordScoreNormalized: keywordScoreNormalized,

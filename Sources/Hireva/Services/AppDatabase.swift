@@ -46,6 +46,10 @@ final class AppDatabase {
         configuration.defaultTransactionKind = .immediate
         configuration.busyMode = .timeout(5.0)
         configuration.prepareDatabase { db in
+            // Overwrite deleted SQLite payload bytes so privacy migrations do
+            // not leave recoverable CV/JD or provider-response fragments in
+            // free database pages.
+            try db.execute(sql: "PRAGMA secure_delete = ON")
             try db.execute(sql: "PRAGMA foreign_keys = ON")
         }
         return configuration
@@ -511,6 +515,24 @@ final class AppDatabase {
                     prompt_context_preview = NULL
                 WHERE raw_json IS NOT NULL
                    OR prompt_context_preview IS NOT NULL
+                """)
+        }
+
+        migrator.registerMigration("v18_discard_retrieved_chunk_content") { db in
+            // Historical attribution rows keep stable identifiers and numeric
+            // retrieval metrics, but not duplicated user-authored CV/JD text.
+            // The first three columns are NOT NULL in the v4 schema, so use
+            // canonical empty representations rather than rebuilding the table.
+            try db.execute(sql: """
+                UPDATE suggestion_card_retrieved_chunks
+                SET content_preview = '',
+                    full_content = '',
+                    keywords_json = '[]',
+                    section_title = NULL
+                WHERE content_preview != ''
+                   OR full_content != ''
+                   OR keywords_json != '[]'
+                   OR section_title IS NOT NULL
                 """)
         }
 
