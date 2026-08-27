@@ -258,12 +258,17 @@ public enum HirevaMaintenance {
         switch settings.embeddingProviderKind {
         case .openAICompatibleCloud:
             let keychain = KeychainService()
-            guard keychain.hasAPIKey(account: settings.embeddingApiKeyAccount) else { return nil }
+            guard let endpoint = try? ProviderEndpoint(settings.embeddingBaseURL, policy: .cloudEmbedding) else { return nil }
+            let account = ProviderCredentialAccount.embeddingAccount(
+                kind: settings.embeddingProviderKind,
+                endpoint: endpoint
+            )
+            guard keychain.hasAPIKey(account: account) else { return nil }
             return CloudEmbeddingProvider(
                 providerID: "cloudOpenAICompatible",
                 displayName: "Cloud Embeddings",
-                baseURL: settings.embeddingBaseURL,
-                apiKeyAccount: settings.embeddingApiKeyAccount,
+                endpoint: endpoint,
+                apiKeyAccount: account,
                 modelName: settings.embeddingModelName,
                 dimensions: settings.embeddingDimension > 0 ? settings.embeddingDimension : nil,
                 requestFormat: .openAICompatible,
@@ -272,12 +277,17 @@ public enum HirevaMaintenance {
             )
         case .customCloud:
             let keychain = KeychainService()
-            guard keychain.hasAPIKey(account: settings.embeddingApiKeyAccount) else { return nil }
+            guard let endpoint = try? ProviderEndpoint(settings.embeddingBaseURL, policy: .cloudEmbedding) else { return nil }
+            let account = ProviderCredentialAccount.embeddingAccount(
+                kind: settings.embeddingProviderKind,
+                endpoint: endpoint
+            )
+            guard keychain.hasAPIKey(account: account) else { return nil }
             return CloudEmbeddingProvider(
                 providerID: "cloudCustom",
                 displayName: "Custom Cloud Embeddings",
-                baseURL: settings.embeddingBaseURL,
-                apiKeyAccount: settings.embeddingApiKeyAccount,
+                endpoint: endpoint,
+                apiKeyAccount: account,
                 modelName: settings.embeddingModelName,
                 dimensions: settings.embeddingDimension > 0 ? settings.embeddingDimension : nil,
                 requestFormat: .openAICompatible,

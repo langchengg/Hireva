@@ -144,9 +144,10 @@ struct SettingsView: View {
                         systemImage: "key.fill",
                         disabled: embeddingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
-                        appState.saveSettings(settings)
-                        appState.saveEmbeddingAPIKey(embeddingAPIKey, account: settings.embeddingApiKeyAccount)
-                        embeddingAPIKey = ""
+                        if appState.saveSettings(settings) {
+                            appState.saveEmbeddingAPIKey(embeddingAPIKey)
+                            embeddingAPIKey = ""
+                        }
                     }
                 }
 
@@ -479,7 +480,11 @@ struct SettingsView: View {
             provider.createdAt = now
             provider.updatedAt = now
             provider.isDefaultForRecap = false
-            provider.apiKeyAccount = "deepseek.\(provider.id.uuidString)"
+            provider.apiKeyAccount = ProviderCredentialAccount.providerAccount(
+                id: provider.id,
+                kind: provider.kind,
+                endpoint: .deepSeekDefault
+            )
             return provider
         case .openAICompatible:
             var provider = LLMProviderConfiguration.openAICompatibleDefault()
@@ -487,16 +492,26 @@ struct SettingsView: View {
             provider.name = "Custom OpenAI-compatible"
             provider.createdAt = now
             provider.updatedAt = now
-            provider.apiKeyAccount = "custom.\(provider.id.uuidString)"
+            let endpoint = try? ProviderEndpoint(provider.baseURL, policy: .openAICompatible)
+            provider.apiKeyAccount = ProviderCredentialAccount.providerAccount(
+                id: provider.id,
+                kind: provider.kind,
+                endpoint: endpoint
+            )
             return provider
         case .openAI, .anthropic, .gemini:
+            let id = UUID()
             return LLMProviderConfiguration(
-                id: UUID(),
+                id: id,
                 name: kind.displayName,
                 kind: kind,
                 baseURL: "",
                 model: "",
-                apiKeyAccount: "\(kind.rawValue).\(UUID().uuidString)",
+                apiKeyAccount: ProviderCredentialAccount.providerAccount(
+                    id: id,
+                    kind: kind,
+                    endpoint: nil
+                ),
                 isDefaultForRealtime: false,
                 isDefaultForRecap: false,
                 supportsJSONMode: false,

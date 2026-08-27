@@ -91,13 +91,13 @@ enum DeepSeekError: LocalizedError {
 }
 
 final class DeepSeekClient {
-    private let baseURL: URL
+    private let endpoint: ProviderEndpoint
     private let session: URLSession
     private let encoder: JSONEncoder
 
-    init(baseURL: URL = URL(string: "https://api.deepseek.com")!, session: URLSession = .shared) {
-        self.baseURL = baseURL
-        self.session = session
+    init(session: URLSession = .shared) {
+        self.endpoint = .deepSeekDefault
+        self.session = ProviderNetworkSession.sameOriginProtected(copying: session)
         self.encoder = JSONEncoder()
     }
 
@@ -105,7 +105,7 @@ final class DeepSeekClient {
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw DeepSeekError.missingAPIKey
         }
-        let url = baseURL.appendingPathComponent("chat/completions")
+        let url = endpoint.appendingPathComponent("chat/completions")
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")

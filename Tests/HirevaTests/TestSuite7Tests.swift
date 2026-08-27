@@ -51,9 +51,10 @@ struct TestSuite7Tests {
         settings.embeddingApiKeyAccount = KeychainConstants.defaultEmbeddingAccount
         settings.embeddingDimension = 1536
         appState.saveSettings(settings)
-        appState.saveEmbeddingAPIKey("embed-suite7-key", account: KeychainConstants.defaultEmbeddingAccount)
+        let embeddingAccount = appState.settings.embeddingApiKeyAccount
+        appState.saveEmbeddingAPIKey("embed-suite7-key")
 
-        #expect(appState.embeddingKeyStatus(account: KeychainConstants.defaultEmbeddingAccount) == "****-key")
+        #expect(appState.embeddingKeyStatus(account: embeddingAccount) == "****-key")
         #expect(appState.settings.embeddingProviderKind == .openAICompatibleCloud)
         #expect(appState.settings.embeddingBaseURL != "http://localhost:11434")
     }

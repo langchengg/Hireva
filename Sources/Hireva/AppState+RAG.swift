@@ -62,15 +62,20 @@ extension AppState {
         let timeout = TimeInterval(settings.embeddingTimeoutSeconds)
         switch kind {
         case .openAICompatibleCloud:
-            guard keychainService.hasAPIKey(account: settings.embeddingApiKeyAccount) else {
+            guard let endpoint = try? ProviderEndpoint(settings.embeddingBaseURL, policy: .cloudEmbedding) else {
+                recordEmbeddingResolutionError("Keyword RAG ready; the embedding endpoint is invalid.")
+                return nil
+            }
+            let account = ProviderCredentialAccount.embeddingAccount(kind: kind, endpoint: endpoint)
+            guard keychainService.hasAPIKey(account: account) else {
                 recordEmbeddingResolutionError("Keyword RAG ready; vector embeddings not configured.")
                 return nil
             }
             return CloudEmbeddingProvider(
                 providerID: currentEmbeddingProviderID(for: settings),
                 displayName: "Cloud Embeddings",
-                baseURL: settings.embeddingBaseURL,
-                apiKeyAccount: settings.embeddingApiKeyAccount,
+                endpoint: endpoint,
+                apiKeyAccount: account,
                 modelName: model,
                 dimensions: settings.embeddingDimension > 0 ? settings.embeddingDimension : nil,
                 requestFormat: .openAICompatible,
@@ -78,15 +83,20 @@ extension AppState {
                 timeoutInterval: timeout
             )
         case .customCloud:
-            guard keychainService.hasAPIKey(account: settings.embeddingApiKeyAccount) else {
+            guard let endpoint = try? ProviderEndpoint(settings.embeddingBaseURL, policy: .cloudEmbedding) else {
+                recordEmbeddingResolutionError("Keyword RAG ready; the embedding endpoint is invalid.")
+                return nil
+            }
+            let account = ProviderCredentialAccount.embeddingAccount(kind: kind, endpoint: endpoint)
+            guard keychainService.hasAPIKey(account: account) else {
                 recordEmbeddingResolutionError("Keyword RAG ready; vector embeddings not configured.")
                 return nil
             }
             return CloudEmbeddingProvider(
                 providerID: currentEmbeddingProviderID(for: settings),
                 displayName: "Custom Cloud Embeddings",
-                baseURL: settings.embeddingBaseURL,
-                apiKeyAccount: settings.embeddingApiKeyAccount,
+                endpoint: endpoint,
+                apiKeyAccount: account,
                 modelName: model,
                 dimensions: settings.embeddingDimension > 0 ? settings.embeddingDimension : nil,
                 requestFormat: .openAICompatible,

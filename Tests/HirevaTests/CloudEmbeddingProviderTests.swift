@@ -7,7 +7,9 @@ struct CloudEmbeddingProviderTests {
     @Test
     func cloudEmbeddingProviderUsesOpenAICompatibleEmbeddingsEndpoint() async throws {
         let keyStore = InMemoryAPIKeyStore()
-        try keyStore.saveAPIKey("embed-secret-1234", account: KeychainConstants.defaultEmbeddingAccount)
+        let endpoint = try ProviderEndpoint("https://embeddings.example.test", policy: .cloudEmbedding)
+        let account = ProviderCredentialAccount.embeddingAccount(kind: .openAICompatibleCloud, endpoint: endpoint)
+        try keyStore.saveAPIKey("embed-secret-1234", account: account)
 
         MockURLProtocol.handlers["https://embeddings.example.test"] = { request in
             #expect(request.url?.absoluteString == "https://embeddings.example.test/embeddings")
@@ -36,8 +38,8 @@ struct CloudEmbeddingProviderTests {
         let provider = CloudEmbeddingProvider(
             providerID: "cloudOpenAICompatible",
             displayName: "Cloud Embeddings",
-            baseURL: "https://embeddings.example.test",
-            apiKeyAccount: KeychainConstants.defaultEmbeddingAccount,
+            endpoint: endpoint,
+            apiKeyAccount: account,
             modelName: "cloud-embedding-model",
             dimensions: 3,
             requestFormat: .openAICompatible,
@@ -54,11 +56,13 @@ struct CloudEmbeddingProviderTests {
     @Test
     func cloudEmbeddingProviderMissingKeyThrowsCleanError() async throws {
         let keyStore = InMemoryAPIKeyStore()
+        let endpoint = try ProviderEndpoint("https://embeddings.example.test", policy: .cloudEmbedding)
+        let account = ProviderCredentialAccount.embeddingAccount(kind: .openAICompatibleCloud, endpoint: endpoint)
         let provider = CloudEmbeddingProvider(
             providerID: "cloudOpenAICompatible",
             displayName: "Cloud Embeddings",
-            baseURL: "https://embeddings.example.test",
-            apiKeyAccount: KeychainConstants.defaultEmbeddingAccount,
+            endpoint: endpoint,
+            apiKeyAccount: account,
             modelName: "cloud-embedding-model",
             dimensions: 3,
             requestFormat: .openAICompatible,

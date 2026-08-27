@@ -25,7 +25,19 @@ final class SettingsRepository {
             return .default
         }
 
-        let settings = (try? JSONDecoder().decode(AppSettings.self, from: data)) ?? .default
+        let decoded = (try? JSONDecoder().decode(AppSettings.self, from: data)) ?? .default
+        let settings: AppSettings
+        if let validated = try? decoded.validatedForLiveUse() {
+            settings = validated
+        } else {
+            var safe = decoded
+            safe.enableVectorRAG = false
+            safe.forceHybridRAG = false
+            safe.embeddingProviderKind = .disabled
+            safe.embeddingBaseURL = AppSettings.default.embeddingBaseURL
+            safe.embeddingApiKeyAccount = AppSettings.default.embeddingApiKeyAccount
+            settings = safe
+        }
         if Self.containsLegacyAppSettingsMarkers(value) {
             try saveSettings(settings)
         }
@@ -33,7 +45,7 @@ final class SettingsRepository {
     }
 
     func saveSettings(_ settings: AppSettings) throws {
-        let data = try JSONEncoder().encode(settings)
+        let data = try JSONEncoder().encode(settings.validatedForLiveUse())
         let value = String(data: data, encoding: .utf8) ?? "{}"
         try setValue(value, forKey: settingsKey)
     }
@@ -67,12 +79,14 @@ final class SettingsRepository {
     func ensureDefaultProviderConfigurations() throws -> [LLMProviderConfiguration] {
         try disableLegacyLocalProviderRows()
         var existing = try providerConfigurations()
-        if !existing.isEmpty {
-            if !existing.contains(where: { $0.kind == .deepSeek }) {
+        if try hasStoredProviderRows() {
+            if !existing.contains(where: { $0.kind == .deepSeek }),
+               try !hasStoredProviderRow(kind: .deepSeek) {
                 try saveProviderConfiguration(.deepSeekDefault())
                 existing = try providerConfigurations()
             }
-            if !existing.contains(where: { $0.kind == .openAICompatible }) {
+            if !existing.contains(where: { $0.kind == .openAICompatible }),
+               try !hasStoredProviderRow(kind: .openAICompatible) {
                 try saveProviderConfiguration(.openAICompatibleDefault())
                 existing = try providerConfigurations()
             }
@@ -107,6 +121,22 @@ final class SettingsRepository {
         return defaults
     }
 
+    private func hasStoredProviderRows() throws -> Bool {
+        try database.dbQueue.read { db in
+            (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM llm_provider_configurations") ?? 0) > 0
+        }
+    }
+
+    private func hasStoredProviderRow(kind: LLMProviderKind) throws -> Bool {
+        try database.dbQueue.read { db in
+            (try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM llm_provider_configurations WHERE kind = ?",
+                arguments: [kind.rawValue]
+            ) ?? 0) > 0
+        }
+    }
+
     private func disableLegacyLocalProviderRows() throws {
         try database.dbQueue.write { db in
             try db.execute(
@@ -128,6 +158,7 @@ final class SettingsRepository {
             try Row.fetchAll(db, sql: "SELECT * FROM llm_provider_configurations ORDER BY created_at ASC")
                 .map(Self.makeProviderConfiguration)
                 .filter { !Self.isLegacyLocalProvider($0) }
+                .compactMap { try? $0.validatedForLiveUse() }
         }
     }
 
@@ -138,8 +169,9 @@ final class SettingsRepository {
                 sql: "SELECT * FROM llm_provider_configurations WHERE id = ?",
                 arguments: [id.uuidString]
             )
-            guard let provider = row.map(Self.makeProviderConfiguration),
-                  !Self.isLegacyLocalProvider(provider) else {
+            guard let rawProvider = row.map(Self.makeProviderConfiguration),
+                  !Self.isLegacyLocalProvider(rawProvider),
+                  let provider = try? rawProvider.validatedForLiveUse() else {
                 return nil
             }
             return provider
@@ -147,7 +179,7 @@ final class SettingsRepository {
     }
 
     func saveProviderConfiguration(_ provider: LLMProviderConfiguration) throws {
-        var provider = provider
+        var provider = try provider.validatedForLiveUse()
         provider.updatedAt = Date()
         try database.dbQueue.write { db in
             try db.execute(

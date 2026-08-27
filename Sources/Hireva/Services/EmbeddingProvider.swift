@@ -90,6 +90,7 @@ final class CloudEmbeddingProvider: EmbeddingProvider {
     let dimensions: Int?
     let requestFormat: EmbeddingRequestFormatType
 
+    private let endpoint: ProviderEndpoint
     private let apiKeyStore: APIKeyStore
     private let session: URLSession
     private let timeoutInterval: TimeInterval
@@ -97,7 +98,7 @@ final class CloudEmbeddingProvider: EmbeddingProvider {
     init(
         providerID: String = "cloudOpenAICompatible",
         displayName: String = "Cloud Embeddings",
-        baseURL: String,
+        endpoint: ProviderEndpoint,
         apiKeyAccount: String,
         modelName: String,
         dimensions: Int?,
@@ -108,13 +109,14 @@ final class CloudEmbeddingProvider: EmbeddingProvider {
     ) {
         self.providerID = providerID
         self.displayName = displayName
-        self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.endpoint = endpoint
+        self.baseURL = endpoint.absoluteString
         self.apiKeyAccount = apiKeyAccount
         self.modelName = modelName
         self.dimensions = dimensions
         self.requestFormat = requestFormat
         self.apiKeyStore = apiKeyStore
-        self.session = session
+        self.session = ProviderNetworkSession.sameOriginProtected(copying: session)
         self.timeoutInterval = timeoutInterval
     }
 
@@ -184,15 +186,12 @@ final class CloudEmbeddingProvider: EmbeddingProvider {
         guard requestFormat == .openAICompatible else {
             throw EmbeddingProviderError.disabled("Custom embedding request format is not implemented yet.")
         }
-        guard let url = URL(string: baseURL)?.appendingPathComponent("embeddings") else {
-            throw EmbeddingProviderError.networkError("Invalid embedding base URL.")
-        }
         guard let apiKey = try apiKeyStore.loadAPIKey(account: apiKeyAccount),
               !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw EmbeddingProviderError.missingAPIKey(providerName: displayName)
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: endpoint.appendingPathComponent("embeddings"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")

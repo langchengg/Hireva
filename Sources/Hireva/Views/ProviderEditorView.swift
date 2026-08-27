@@ -32,6 +32,7 @@ struct ProviderEditorView: View {
 
             TextField("Base URL", text: $draft.baseURL)
                 .textFieldStyle(.roundedBorder)
+                .disabled(draft.kind == .deepSeek)
             TextField("Model", text: $draft.model)
                 .textFieldStyle(.roundedBorder)
 
@@ -140,12 +141,15 @@ struct ProviderEditorView: View {
         .onChange(of: draft.kind) { _, newKind in
             if newKind == .ollamaLocal {
                 draft.kind = .deepSeek
-                draft.baseURL = "https://api.deepseek.com"
+                draft.baseURL = ProviderEndpoint.deepSeekDefault.absoluteString
                 draft.model = "deepseek-v4-flash"
-                draft.apiKeyAccount = KeychainConstants.deepSeekAccount
-            } else if draft.apiKeyAccount == nil {
-                draft.apiKeyAccount = "custom.\(draft.id.uuidString)"
+            } else if newKind == .deepSeek {
+                draft.baseURL = ProviderEndpoint.deepSeekDefault.absoluteString
             }
+            refreshDraftCredentialAccount()
+        }
+        .onChange(of: draft.baseURL) { _, _ in
+            refreshDraftCredentialAccount()
         }
         .confirmationDialog("Delete provider?", isPresented: $confirmDeleteProvider) {
             Button("Delete Provider", role: .destructive) {
@@ -187,5 +191,15 @@ struct ProviderEditorView: View {
             deleteActionID,
             ActionID.providerSwitch
         ])
+    }
+
+    private func refreshDraftCredentialAccount() {
+        let endpoint = ProviderEndpoint.policy(for: draft.kind)
+            .flatMap { try? ProviderEndpoint(draft.baseURL, policy: $0) }
+        draft.apiKeyAccount = ProviderCredentialAccount.providerAccount(
+            id: draft.id,
+            kind: draft.kind,
+            endpoint: endpoint
+        )
     }
 }

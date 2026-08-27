@@ -207,7 +207,7 @@ struct LocalModelsSetupTests {
     @Test
     func ollamaHealthDetectsMissingServerAndInstalledModel() async throws {
         MockURLProtocol.handlers = [
-            "http://localhost:11434/api/tags": { request in
+            "http://127.0.0.1:11434/api/tags": { request in
                 let data = Data(#"{"models":[{"name":"qwen3.5:4b"}]}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             }
@@ -225,11 +225,11 @@ struct LocalModelsSetupTests {
     @Test
     func ollamaGenerateUsesOllamaQwenSource() async throws {
         MockURLProtocol.handlers = [
-            "http://localhost:11434/api/tags": { request in
+            "http://127.0.0.1:11434/api/tags": { request in
                 let data = Data(#"{"models":[{"name":"qwen3.5:4b"}]}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             },
-            "http://localhost:11434/api/chat": { request in
+            "http://127.0.0.1:11434/api/chat": { request in
                 let body = try requestBodyData(for: request)
                 let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(json["think"] as? Bool == false)
@@ -262,11 +262,11 @@ struct LocalModelsSetupTests {
     func ollamaChatUsesThinkFalseAndReadsMessageContent() async throws {
         var chatCallCount = 0
         MockURLProtocol.handlers = [
-            "http://localhost:11434/api/tags": { request in
+            "http://127.0.0.1:11434/api/tags": { request in
                 let data = Data(#"{"models":[{"name":"qwen3.5:4b"}]}"#.utf8)
                 return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
             },
-            "http://localhost:11434/api/chat": { request in
+            "http://127.0.0.1:11434/api/chat": { request in
                 chatCallCount += 1
                 let body = try requestBodyData(for: request)
                 let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -341,7 +341,7 @@ struct LocalModelsSetupTests {
     @Test
     func ollamaPullReportsProgress() async throws {
         MockURLProtocol.handlers = [
-            "http://localhost:11434/api/pull": { request in
+            "http://127.0.0.1:11434/api/pull": { request in
                 let data = Data("""
                 {"status":"pulling manifest"}
                 {"status":"downloading","completed":50,"total":100}

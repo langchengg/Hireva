@@ -9,7 +9,10 @@ enum LLMProviderKind: String, Codable, CaseIterable, Identifiable, Hashable {
     case gemini
 
     static var allCases: [LLMProviderKind] {
-        [.deepSeek, .openAICompatible, .openAI, .anthropic, .gemini]
+        // The remaining enum cases are retained only for decoding historical
+        // rows. Their clients are placeholders that always return
+        // `notConfigured`, so they must not be offered as release UI choices.
+        [.deepSeek, .openAICompatible]
     }
 
     var id: String { rawValue }
@@ -48,7 +51,7 @@ struct LLMProviderConfiguration: Codable, Equatable, Identifiable, Hashable {
     static func deepSeekDefault(model: String = "deepseek-v4-flash") -> LLMProviderConfiguration {
         let now = Date()
         return LLMProviderConfiguration(
-            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            id: deepSeekDefaultID,
             name: "DeepSeek",
             kind: .deepSeek,
             baseURL: "https://api.deepseek.com",
@@ -66,13 +69,19 @@ struct LLMProviderConfiguration: Codable, Equatable, Identifiable, Hashable {
 
     static func openAICompatibleDefault() -> LLMProviderConfiguration {
         let now = Date()
+        let id = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let endpoint = try! ProviderEndpoint("https://api.example.com", policy: .openAICompatible)
         return LLMProviderConfiguration(
-            id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+            id: id,
             name: "Custom OpenAI-compatible",
             kind: .openAICompatible,
             baseURL: "https://api.example.com",
             model: "model-name",
-            apiKeyAccount: "custom.openaiCompatible.default",
+            apiKeyAccount: ProviderCredentialAccount.providerAccount(
+                id: id,
+                kind: .openAICompatible,
+                endpoint: endpoint
+            ),
             isDefaultForRealtime: false,
             isDefaultForRecap: false,
             supportsJSONMode: true,

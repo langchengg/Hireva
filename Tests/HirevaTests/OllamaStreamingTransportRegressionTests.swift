@@ -4,8 +4,6 @@ import Testing
 
 @Suite(.serialized)
 struct OllamaStreamingTransportRegressionTests {
-    private let baseURL = URL(string: "https://ollama-streaming-regression.test")!
-
     @Test
     func streamsFinalAnswerChunksBeforeDoneAcrossArbitraryNetworkBoundaries() async throws {
         let probe = OllamaStreamingProbe()
@@ -244,7 +242,7 @@ struct OllamaStreamingTransportRegressionTests {
         OllamaStreamingURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OllamaStreamingURLProtocol.self]
-        return OllamaQwenProvider(baseURL: baseURL, session: URLSession(configuration: configuration))
+        return OllamaQwenProvider(session: URLSession(configuration: configuration))
     }
 
     private func request(model: String = "synthetic-qwen") -> LocalLLMRequest {

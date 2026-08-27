@@ -154,15 +154,20 @@ struct RAGPhase3VerificationTests {
     @Test
     func deepSeekProviderCompletionUsesInjectedTransportAndCredential() async throws {
         let apiKeyStore = InMemoryAPIKeyStore()
-        try apiKeyStore.saveAPIKey("synthetic-test-token", account: "rag.synthetic")
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [RAGSyntheticDeepSeekURLProtocol.self]
         let session = URLSession(configuration: sessionConfiguration)
         defer { session.invalidateAndCancel() }
         let client = DeepSeekLLMClient(apiKeyStore: apiKeyStore, session: session)
         var provider = LLMProviderConfiguration.deepSeekDefault(model: "deepseek-contract-model")
-        provider.baseURL = "https://rag-deepseek.example.test/v1"
-        provider.apiKeyAccount = "rag.synthetic"
+        provider.baseURL = "https://api.deepseek.com/v1"
+        provider.apiKeyAccount = "synthetic.untrusted-account"
+        let normalizedProvider = try provider.validatedForLiveUse()
+        #expect(normalizedProvider.apiKeyAccount == KeychainConstants.deepSeekAccount)
+        try apiKeyStore.saveAPIKey(
+            "synthetic-test-token",
+            account: try #require(normalizedProvider.apiKeyAccount)
+        )
 
         let result = try await client.chatCompletion(
             configuration: provider,
@@ -178,7 +183,7 @@ struct RAGPhase3VerificationTests {
         #expect(result.providerKind == .deepSeek)
         #expect(result.providerName == "DeepSeek")
         #expect(result.modelName == "deepseek-contract-model")
-        #expect(result.baseURL == "https://rag-deepseek.example.test/v1")
+        #expect(result.baseURL == "https://api.deepseek.com/v1")
     }
 
 }
@@ -222,7 +227,7 @@ private final class RAGSyntheticDeepSeekURLProtocol: URLProtocol {
                 try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
             }
             let methodMatches = request.httpMethod == "POST"
-            let urlMatches = request.url?.absoluteString == "https://rag-deepseek.example.test/v1/chat/completions"
+            let urlMatches = request.url?.absoluteString == "https://api.deepseek.com/v1/chat/completions"
             let authorizationMatches = request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-test-token"
             let modelMatches = object?["model"] as? String == "deepseek-contract-model"
             guard methodMatches, urlMatches, authorizationMatches, modelMatches else {

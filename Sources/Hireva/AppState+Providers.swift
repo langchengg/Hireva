@@ -11,9 +11,10 @@ import AppKit
 extension AppState {
     // MARK: - Settings Persistence
 
-    func saveSettings(_ newSettings: AppSettings) {
+    @discardableResult
+    func saveSettings(_ newSettings: AppSettings) -> Bool {
         let actionID = ActionID.saveSettings
-        guard !isActionLoading(actionID) else { return }
+        guard !isActionLoading(actionID) else { return false }
         beginAction(actionID, title: "Saving settings", message: "Applying the latest preferences...")
         var next = newSettings
         next.compactMode = next.floatingAssistantDisplayMode == .compact
@@ -21,14 +22,17 @@ extension AppState {
             next.floatingWindowOpacity = max(next.floatingWindowOpacity, 0.65)
         }
         do {
+            next = try next.validatedForLiveUse()
             settings = next
             try settingsRepository.saveSettings(next)
             refreshAll()
             completeAction(actionID, title: "Settings saved", message: "Your settings were applied.")
+            return true
         } catch {
             let message = "Could not save settings: \(error.localizedDescription)"
             failAction(actionID, title: "Save failed", message: message)
             showError(message)
+            return false
         }
     }
 
@@ -62,17 +66,19 @@ extension AppState {
     func saveAPIKey(_ apiKey: String, for provider: LLMProviderConfiguration) {
         let actionID = ActionID.provider(ActionID.providerSaveKey, provider.id)
         guard !isActionLoading(actionID) else { return }
-        guard let account = provider.apiKeyAccount else {
-            connectionResult = "\(provider.name) does not require an API key."
-            infoAction(actionID, title: "No key needed", message: "\(provider.name) does not require an API key.")
-            return
-        }
         beginAction(actionID, title: "Saving securely", message: "Saving \(provider.name) key without displaying it.")
         do {
+            let validated = try provider.validatedForLiveUse()
+            guard let account = validated.apiKeyAccount else {
+                connectionResult = "\(validated.name) does not require an API key."
+                infoAction(actionID, title: "No key needed", message: "\(validated.name) does not require an API key.")
+                return
+            }
+            try settingsRepository.saveProviderConfiguration(validated)
             try keychainService.saveAPIKey(apiKey, account: account)
-            self.providerConnectionResults[provider.id] = "API key securely saved."
+            self.providerConnectionResults[validated.id] = "API key securely saved."
             self.refreshAll()
-            completeAction(actionID, title: "Saved securely", message: "\(provider.name) key saved. Raw key is hidden.")
+            completeAction(actionID, title: "Saved securely", message: "\(validated.name) key saved. Raw key is hidden.")
         } catch {
             let message = "Could not save API key: \(error.localizedDescription)"
             failAction(actionID, title: "Key save failed", message: message)
@@ -80,19 +86,22 @@ extension AppState {
         }
     }
 
-    func saveEmbeddingAPIKey(_ apiKey: String, account: String) {
+    func saveEmbeddingAPIKey(_ apiKey: String) {
         let actionID = ActionID.saveEmbeddingKey
         guard !isActionLoading(actionID) else { return }
-        let cleanedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedAccount.isEmpty else {
-            let message = "Embedding API key account is missing."
-            failAction(actionID, title: "Key save failed", message: message)
-            showError(message)
-            return
-        }
         beginAction(actionID, title: "Saving securely", message: "Saving the embedding provider key without displaying it.")
         do {
-            try keychainService.saveAPIKey(apiKey, account: cleanedAccount)
+            let validated = try settings.validatedForLiveUse()
+            guard validated.embeddingProviderKind == .openAICompatibleCloud
+                    || validated.embeddingProviderKind == .customCloud else {
+                throw ProviderEndpoint.ValidationError.unsafeComponent
+            }
+            let expectedAccount = validated.embeddingApiKeyAccount
+            guard !expectedAccount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !ProviderCredentialAccount.isReservedForDeepSeek(expectedAccount) else {
+                throw ProviderEndpoint.ValidationError.unsafeComponent
+            }
+            try keychainService.saveAPIKey(apiKey, account: expectedAccount)
             lastEmbeddingError = nil
             lastEmbeddingTestStatus = "Embedding API key securely saved."
             refreshAll()
@@ -173,9 +182,10 @@ extension AppState {
         guard !isActionLoading(actionID) else { return }
         beginAction(actionID, title: "Saving provider", message: "Saving \(provider.name) configuration...")
         do {
-            try settingsRepository.saveProviderConfiguration(provider)
+            let validated = try provider.validatedForLiveUse()
+            try settingsRepository.saveProviderConfiguration(validated)
             refreshAll()
-            completeAction(actionID, title: "Provider saved", message: "\(provider.name) configuration saved.")
+            completeAction(actionID, title: "Provider saved", message: "\(validated.name) configuration saved.")
         } catch {
             let message = "Could not save provider: \(error.localizedDescription)"
             failAction(actionID, title: "Provider save failed", message: message)
@@ -203,9 +213,11 @@ extension AppState {
         guard !isActionLoading(actionID) else { return }
         beginAction(actionID, title: "Switching provider", message: "Setting \(provider.name) for realtime answers...")
         do {
-            try settingsRepository.setActiveRealtimeProvider(id: provider.id)
+            let validated = try provider.validatedForLiveUse()
+            try settingsRepository.saveProviderConfiguration(validated)
+            try settingsRepository.setActiveRealtimeProvider(id: validated.id)
             refreshAll()
-            completeAction(actionID, title: "Provider switched", message: "\(provider.name) is now used for realtime answers.")
+            completeAction(actionID, title: "Provider switched", message: "\(validated.name) is now used for realtime answers.")
         } catch {
             let message = "Could not set realtime provider: \(error.localizedDescription)"
             failAction(actionID, title: "Provider switch failed", message: message)
@@ -228,6 +240,7 @@ extension AppState {
         }
         
         do {
+            updated = try updated.validatedForLiveUse()
             if updated.kind == .ollamaLocal {
                 let msg = "Local providers are disabled. Please choose DeepSeek or another API provider."
                 self.lastProviderSwitchError = msg
@@ -278,9 +291,11 @@ extension AppState {
         guard !isActionLoading(actionID) else { return }
         beginAction(actionID, title: "Saving recap provider", message: "Setting \(provider.name) for full answers and recaps...")
         do {
-            try settingsRepository.setActiveRecapProvider(id: provider.id)
+            let validated = try provider.validatedForLiveUse()
+            try settingsRepository.saveProviderConfiguration(validated)
+            try settingsRepository.setActiveRecapProvider(id: validated.id)
             refreshAll()
-            completeAction(actionID, title: "Recap provider saved", message: "\(provider.name) is now used for recaps.")
+            completeAction(actionID, title: "Recap provider saved", message: "\(validated.name) is now used for recaps.")
         } catch {
             let message = "Could not set recap provider: \(error.localizedDescription)"
             failAction(actionID, title: "Provider save failed", message: message)
@@ -292,20 +307,29 @@ extension AppState {
         let actionID = ActionID.provider(ActionID.providerTest, provider.id)
         guard !isActionLoading(actionID) else { return }
         beginAction(actionID, title: "Testing \(provider.name)", message: "Testing provider connection...")
+        let validated: LLMProviderConfiguration
+        do {
+            validated = try provider.validatedForLiveUse()
+        } catch {
+            let message = userFacing(error)
+            providerConnectionResults[provider.id] = message
+            failAction(actionID, title: "Provider test failed", message: message)
+            return
+        }
         isTestingConnection = true
         providerConnectionResults[provider.id] = nil
         activeAITask?.cancel()
         activeAITask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await llmRouter.testProvider(configuration: provider)
+                let result = try await llmRouter.testProvider(configuration: validated)
                 guard !Task.isCancelled else { return }
                 providerConnectionResults[provider.id] = result.message
                 completeAction(actionID, title: "\(provider.name) connected", message: result.message)
                 updateDiagnostics {
                     $0.lastAPILatencyMS = result.latencyMS
-                    $0.lastProviderName = provider.name
-                    $0.lastProviderModel = provider.model
+                    $0.lastProviderName = validated.name
+                    $0.lastProviderModel = validated.model
                 }
             } catch {
                 guard !Task.isCancelled else { return }

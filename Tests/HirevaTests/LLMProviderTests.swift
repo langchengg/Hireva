@@ -151,9 +151,9 @@ struct LLMProviderTests {
     @Test
     func openAICompatibleRequestAppliesConfiguredTimeout() throws {
         let keyStore = InMemoryAPIKeyStore()
-        try keyStore.saveAPIKey("sk-timeout-test", account: "custom.test")
         let client = OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession())
         let configuration = configuredOpenAICompatibleProvider()
+        try keyStore.saveAPIKey("sk-timeout-test", account: try #require(configuration.apiKeyAccount))
 
         let request = try client.makeURLRequest(
             configuration: configuration,
@@ -648,16 +648,16 @@ struct LLMProviderTests {
         var configuration = LLMProviderConfiguration.openAICompatibleDefault()
         configuration.name = "Custom API"
         configuration.baseURL = "https://openai-compatible.test/v1"
-        configuration.apiKeyAccount = "custom.test"
-        return configuration
+        return try! configuration.validatedForLiveUse()
     }
 
     private func makeConfiguredOpenAICompatibleClient() throws -> (client: OpenAICompatibleLLMClient, configuration: LLMProviderConfiguration) {
         let keyStore = InMemoryAPIKeyStore()
-        try keyStore.saveAPIKey("sk-test-key", account: "custom.test")
+        let configuration = configuredOpenAICompatibleProvider()
+        try keyStore.saveAPIKey("sk-test-key", account: try #require(configuration.apiKeyAccount))
         return (
             OpenAICompatibleLLMClient(apiKeyStore: keyStore, session: makeMockSession()),
-            configuredOpenAICompatibleProvider()
+            configuration
         )
     }
 }

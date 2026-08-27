@@ -6,7 +6,7 @@ import Testing
 struct DeepSeekRequestTests {
     @Test
     func deepSeekRequestConstructionUsesBearerAuthAndJSONResponseFormat() throws {
-        let client = DeepSeekClient(baseURL: URL(string: "https://example.test")!)
+        let client = DeepSeekClient()
         let request = ChatCompletionRequest(
             model: "deepseek-v4-flash",
             messages: [.system("system"), .user("user")],
@@ -19,7 +19,7 @@ struct DeepSeekRequestTests {
         let body = try #require(urlRequest.httpBody)
         let bodyObject = try JSONSerialization.jsonObject(with: body) as? [String: Any]
 
-        #expect(urlRequest.url?.absoluteString == "https://example.test/chat/completions")
+        #expect(urlRequest.url?.absoluteString == "https://api.deepseek.com/chat/completions")
         #expect(urlRequest.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
         #expect(bodyObject?["model"] as? String == "deepseek-v4-flash")
         #expect(!(String(data: body, encoding: .utf8)?.contains("test-token") ?? true))
@@ -30,7 +30,7 @@ struct DeepSeekRequestTests {
 
     @Test
     func deepSeekClientDecodesCompletionWithMockNetwork() async throws {
-        MockURLProtocol.handlers["https://example.test"] = { request in
+        MockURLProtocol.handlers["https://api.deepseek.com"] = { request in
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -53,7 +53,7 @@ struct DeepSeekRequestTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        let client = DeepSeekClient(baseURL: URL(string: "https://example.test")!, session: session)
+        let client = DeepSeekClient(session: session)
         let request = ChatCompletionRequest(
             model: "deepseek-v4-flash",
             messages: [.user("ping")],

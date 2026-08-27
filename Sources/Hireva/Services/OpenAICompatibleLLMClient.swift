@@ -14,7 +14,7 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
     ) {
         self.providerKind = providerKind
         self.apiKeyStore = apiKeyStore
-        self.session = session
+        self.session = ProviderNetworkSession.sameOriginProtected(copying: session)
     }
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
@@ -71,14 +71,15 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
             throw LLMProviderError.emptyResponse(providerName: configuration.name)
         }
 
+        let endpoint = try endpoint(for: configuration)
         return LLMChatResult(
             content: content,
             modelName: decoded.model ?? configuration.model,
             providerKind: configuration.kind,
             providerName: configuration.name,
-            baseURL: configuration.baseURL,
+            baseURL: endpoint.absoluteString,
             latencyMS: latencyMS(since: started),
-            isLocal: configuration.kind.isLocal,
+            isLocal: endpoint.isLocal,
             rawResponse: options.includeRawResponse ? body : nil
         )
     }
@@ -147,11 +148,13 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) throws -> URLRequest {
-        guard let baseURL = URL(string: configuration.baseURL) else {
-            throw LLMProviderError.invalidBaseURL(configuration.baseURL)
-        }
-        guard let account = configuration.apiKeyAccount,
-              let apiKey = try loadAPIKeyForProviderRequest(account: account),
+        let endpoint = try endpoint(for: configuration)
+        let account = ProviderCredentialAccount.providerAccount(
+            id: configuration.id,
+            kind: configuration.kind,
+            endpoint: endpoint
+        )
+        guard let apiKey = try loadAPIKeyForProviderRequest(account: account),
               !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LLMProviderError.missingAPIKey(providerName: configuration.name)
         }
@@ -164,7 +167,7 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
             temperature: options.temperature
         )
 
-        var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
+        var request = URLRequest(url: endpoint.appendingPathComponent("chat/completions"))
         request.httpMethod = "POST"
         if let timeoutInterval = options.timeoutInterval {
             request.timeoutInterval = timeoutInterval
@@ -180,6 +183,13 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
             return try providerRequestStore.loadAPIKeyForProviderRequest(account: account)
         }
         return try apiKeyStore.loadAPIKey(account: account)
+    }
+
+    private func endpoint(for configuration: LLMProviderConfiguration) throws -> ProviderEndpoint {
+        let policy: ProviderEndpoint.Policy = configuration.kind == .deepSeek
+            ? .deepSeek
+            : .openAICompatible
+        return try ProviderEndpoint(configuration.baseURL, policy: policy)
     }
 
     private func validateHTTPResponse(_ response: URLResponse, body: String, providerName: String) throws {
@@ -218,7 +228,7 @@ final class DeepSeekLLMClient: LLMClientProtocol {
     }
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
-        try await compatibleClient.testConnection(configuration: normalized(configuration))
+        try await compatibleClient.testConnection(configuration: try normalized(configuration))
     }
 
     func chatCompletion(
@@ -228,7 +238,7 @@ final class DeepSeekLLMClient: LLMClientProtocol {
         options: LLMRequestOptions
     ) async throws -> LLMChatResult {
         try await compatibleClient.chatCompletion(
-            configuration: normalized(configuration),
+            configuration: try normalized(configuration),
             messages: messages,
             responseFormat: responseFormat,
             options: options
@@ -241,28 +251,28 @@ final class DeepSeekLLMClient: LLMClientProtocol {
         responseFormat: LLMResponseFormat?,
         options: LLMRequestOptions
     ) -> AsyncThrowingStream<String, Error> {
-        compatibleClient.chatCompletionStream(
-            configuration: normalized(configuration),
-            messages: messages,
-            responseFormat: responseFormat,
-            options: options
-        )
+        do {
+            return compatibleClient.chatCompletionStream(
+                configuration: try normalized(configuration),
+                messages: messages,
+                responseFormat: responseFormat,
+                options: options
+            )
+        } catch {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: error)
+            }
+        }
     }
 
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] {
-        try await compatibleClient.listModels(configuration: normalized(configuration))
+        try await compatibleClient.listModels(configuration: try normalized(configuration))
     }
 
-    private func normalized(_ configuration: LLMProviderConfiguration) -> LLMProviderConfiguration {
+    private func normalized(_ configuration: LLMProviderConfiguration) throws -> LLMProviderConfiguration {
         var normalized = configuration
         normalized.kind = .deepSeek
-        if normalized.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            normalized.baseURL = "https://api.deepseek.com"
-        }
-        if normalized.apiKeyAccount == nil {
-            normalized.apiKeyAccount = "deepseek.default"
-        }
-        return normalized
+        return try normalized.validatedForLiveUse()
     }
 }
 

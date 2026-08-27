@@ -117,11 +117,10 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
     }
 
     init(
-        baseURL: URL = URL(string: "http://localhost:11434")!,
         session: URLSession = OllamaQwenProvider.defaultSession()
     ) {
-        self.baseURL = baseURL
-        self.session = session
+        self.baseURL = ProviderEndpoint.ollamaDefault.url
+        self.session = ProviderNetworkSession.sameOriginProtected(copying: session)
     }
 
     private static func defaultSession() -> URLSession {

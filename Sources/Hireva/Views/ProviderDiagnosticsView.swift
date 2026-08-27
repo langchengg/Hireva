@@ -103,7 +103,7 @@ struct ProviderDiagnosticsView: View {
                 if title == "Active Realtime Provider" {
                     LLMProviderQuickSwitcherView(appState: appState, isCompact: false)
                 } else if let provider {
-                    StatusPill(title: provider.kind.isLocal ? "Local" : "Cloud", systemImage: provider.kind.isLocal ? "desktopcomputer" : "cloud", tint: provider.kind.isLocal ? .green : .blue)
+                    StatusPill(title: provider.endpointIsLocal ? "Local" : "Cloud", systemImage: provider.endpointIsLocal ? "desktopcomputer" : "cloud", tint: provider.endpointIsLocal ? .green : .blue)
                 }
             }
             if let provider {
