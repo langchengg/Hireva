@@ -23,7 +23,7 @@ struct RootView: View {
             ToastBanner(feedbacks: appState.activeActionFeedbacks)
         }
         .overlay(alignment: .top) {
-            if let warning = appState.staleBundleWarning {
+            if let warning = appState.buildIdentityWarning {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)

@@ -106,8 +106,8 @@ final class AppState: ObservableObject {
     @Published var latexPollutedChunkCount: Int = 0
     @Published var buildIdentity = BuildIdentity.current()
 
-    var staleBundleWarning: String? {
-        buildIdentity.staleWarning
+    var buildIdentityWarning: String? {
+        buildIdentity.identityWarning
     }
 
     var currentQABinding: QABindingSnapshot {

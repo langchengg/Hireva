@@ -7,18 +7,18 @@ struct BuildIdentityCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
-                Label("Build Identity", systemImage: identity.appearsStale ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                Label("Build Identity", systemImage: identity.hasIdentityWarning ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
                     .font(.headline)
-                    .foregroundStyle(identity.appearsStale ? .orange : .primary)
+                    .foregroundStyle(identity.hasIdentityWarning ? .orange : .primary)
                 Spacer()
                 StatusPill(
-                    title: identity.runningFromDistApp ? "dist app" : "not dist app",
-                    systemImage: identity.runningFromDistApp ? "checkmark.circle" : "exclamationmark.triangle",
-                    tint: identity.runningFromDistApp ? .green : .orange
+                    title: identity.isReleaseBuild ? "release build" : "development build",
+                    systemImage: identity.hasValidReleaseMetadata ? "checkmark.circle" : "exclamationmark.triangle",
+                    tint: identity.hasValidReleaseMetadata ? .green : .orange
                 )
             }
 
-            if let warning = identity.staleWarning {
+            if let warning = identity.identityWarning {
                 Text(warning)
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.orange)
@@ -33,13 +33,22 @@ struct BuildIdentityCardView: View {
                 buildRow("Build timestamp", identity.buildTimestampUTC)
                 buildRow("Git commit", identity.gitCommitHash)
                 buildRow("Source branch", identity.gitBranch)
-                buildRow("Running from dist app", identity.runningFromDistApp ? "yes" : "no")
+                buildRow("Git tree state", identity.gitTreeState)
+                buildRow("Build configuration", identity.buildConfiguration)
+                buildRow("Runtime mode", identity.runtimeMode)
+                buildRow("Signing mode", identity.signingMode)
+                buildRow("Distribution build", identity.distributionBuild ? "yes" : "no")
                 if !compact {
-                    buildRow("Expected bundle path", identity.expectedBundlePath)
+                    if identity.hasExplicitDevelopmentPaths {
+                        buildRow("Source root", identity.sourceRoot)
+                        buildRow("Expected bundle path", identity.expectedBundlePath)
+                    }
                     buildRow("Executable path", identity.executablePath)
                     buildRow("Executable timestamp", identity.executableModifiedDisplay)
                     buildRow("Info.plist timestamp", identity.infoPlistModifiedDisplay)
-                    buildRow("Latest source timestamp", identity.latestSourceModifiedDisplay)
+                    if identity.hasExplicitDevelopmentPaths {
+                        buildRow("Latest source timestamp", identity.latestSourceModifiedDisplay)
+                    }
                 }
             }
         }
