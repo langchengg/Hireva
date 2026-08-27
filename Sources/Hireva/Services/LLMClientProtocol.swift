@@ -131,6 +131,29 @@ enum LLMResponseFormat: Codable, Hashable {
     case text
 }
 
+enum LLMProviderErrorCategory: String, Codable, Equatable, Hashable {
+    case configuration
+    case authentication
+    case model
+    case response
+    case rateLimit
+    case server
+    case network
+}
+
+enum LLMProviderErrorCode: String, Codable, Equatable, Hashable {
+    case notConfigured = "provider_not_configured"
+    case invalidBaseURL = "invalid_base_url"
+    case missingAPIKey = "missing_api_key"
+    case modelNotFound = "model_not_found"
+    case invalidResponse = "invalid_response"
+    case emptyResponse = "empty_response"
+    case rateLimited = "rate_limited"
+    case invalidAPIKey = "invalid_api_key"
+    case serverError = "server_error"
+    case networkFailure = "network_failure"
+}
+
 struct LLMRequestOptions: Codable, Hashable {
     var temperature: Double?
     var stream: Bool
@@ -164,28 +187,143 @@ enum LLMProviderError: LocalizedError, Equatable {
     case serverError(providerName: String, statusCode: Int, body: String)
     case networkFailure(providerName: String, message: String)
 
-    var errorDescription: String? {
+    var category: LLMProviderErrorCategory {
         switch self {
-        case .notConfigured(let provider):
-            return "\(provider) is not configured yet."
-        case .invalidBaseURL(let baseURL):
-            return "Invalid provider base URL: \(baseURL)"
-        case .missingAPIKey(let providerName):
-            return "\(providerName) requires an API key. Add one in Settings."
-        case .modelNotFound(let model):
-            return "Model not found for the selected provider. Check the configured model name: \(model)."
-        case .invalidResponse(let message):
-            return "Provider returned an invalid response: \(message)"
-        case .emptyResponse(let providerName):
-            return "\(providerName) returned an empty response."
-        case .rateLimited(let providerName):
-            return "\(providerName) rate limit reached. Wait a moment and try again."
-        case .invalidAPIKey(let providerName):
-            return "\(providerName) rejected the API key."
-        case .serverError(let providerName, let statusCode, let body):
-            return "\(providerName) returned server error \(statusCode): \(body.prefix(220))"
-        case .networkFailure(let providerName, let message):
-            return "\(providerName) network request failed: \(message)"
+        case .notConfigured, .invalidBaseURL:
+            return .configuration
+        case .missingAPIKey, .invalidAPIKey:
+            return .authentication
+        case .modelNotFound:
+            return .model
+        case .invalidResponse, .emptyResponse:
+            return .response
+        case .rateLimited:
+            return .rateLimit
+        case .serverError:
+            return .server
+        case .networkFailure:
+            return .network
+        }
+    }
+
+    var code: LLMProviderErrorCode {
+        switch self {
+        case .notConfigured:
+            return .notConfigured
+        case .invalidBaseURL:
+            return .invalidBaseURL
+        case .missingAPIKey:
+            return .missingAPIKey
+        case .modelNotFound:
+            return .modelNotFound
+        case .invalidResponse:
+            return .invalidResponse
+        case .emptyResponse:
+            return .emptyResponse
+        case .rateLimited:
+            return .rateLimited
+        case .invalidAPIKey:
+            return .invalidAPIKey
+        case .serverError:
+            return .serverError
+        case .networkFailure:
+            return .networkFailure
+        }
+    }
+
+    var httpStatusCode: Int? {
+        switch self {
+        case .invalidAPIKey:
+            return nil
+        case .rateLimited:
+            return 429
+        case .serverError(_, let statusCode, _):
+            return statusCode
+        default:
+            return nil
+        }
+    }
+
+    var providerKind: LLMProviderKind? {
+        guard let descriptor = providerDescriptor else { return nil }
+
+        switch descriptor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "deepseek", "streaming for deepseek":
+            return .deepSeek
+        case "openai", "streaming for openai":
+            return .openAI
+        case "anthropic", "streaming for anthropic":
+            return .anthropic
+        case "gemini", "streaming for gemini":
+            return .gemini
+        case "openai-compatible", "custom openai-compatible", "streaming for openai-compatible":
+            return .openAICompatible
+        case "legacy local provider (disabled)", "streaming for legacy local provider (disabled)":
+            return .ollamaLocal
+        default:
+            return nil
+        }
+    }
+
+    var errorDescription: String? {
+        let errorCode = code.rawValue
+        let provider = safeProviderDisplayName
+
+        switch self {
+        case .notConfigured:
+            return "\(provider) is not configured yet (\(errorCode))."
+        case .invalidBaseURL:
+            return "\(provider) has an invalid base URL (\(errorCode))."
+        case .missingAPIKey:
+            return "\(provider) requires an API key (\(errorCode)). Add one in Settings."
+        case .modelNotFound:
+            return "The configured provider model was not found (\(errorCode)). Check the model setting."
+        case .invalidResponse:
+            return "\(provider) returned an invalid response (\(errorCode))."
+        case .emptyResponse:
+            return "\(provider) returned an empty response (\(errorCode))."
+        case .rateLimited:
+            return "\(provider) rate limit reached (\(errorCode)). Wait a moment and try again."
+        case .invalidAPIKey:
+            return "\(provider) rejected the API key (\(errorCode))."
+        case .serverError(_, let statusCode, _):
+            return "\(provider) returned HTTP \(statusCode) (\(errorCode))."
+        case .networkFailure:
+            return "\(provider) network request failed (\(errorCode))."
+        }
+    }
+
+    private var providerDescriptor: String? {
+        switch self {
+        case .notConfigured(let provider),
+             .missingAPIKey(let provider),
+             .emptyResponse(let provider),
+             .rateLimited(let provider),
+             .invalidAPIKey(let provider),
+             .serverError(let provider, _, _),
+             .networkFailure(let provider, _):
+            return provider
+        case .invalidBaseURL, .modelNotFound, .invalidResponse:
+            return nil
+        }
+    }
+
+    private var safeProviderDisplayName: String {
+        switch providerKind {
+        case .deepSeek:
+            return "DeepSeek"
+        case .openAICompatible:
+            return "OpenAI-compatible provider"
+        case .openAI:
+            return "OpenAI"
+        case .anthropic:
+            return "Anthropic"
+        case .gemini:
+            return "Gemini"
+        case .ollamaLocal:
+            return "Local provider"
+        case nil:
+            return "Selected provider"
         }
     }
 }
