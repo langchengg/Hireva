@@ -297,14 +297,30 @@ final class GenerationCoordinator {
         Int(now.timeIntervalSince(start) * 1000)
     }
 
-    static func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
+    static func withTimeout<T>(
+        seconds: TimeInterval,
+        timeoutSleep: ((UInt64) async throws -> Void)? = nil,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        let timeoutNanoseconds = UInt64(seconds * 1_000_000_000)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .nanoseconds(Int64(timeoutNanoseconds)))
+
+        return try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
-                try await operation()
+                let result = try await operation()
+                guard clock.now < deadline else {
+                    throw timeoutError(seconds: seconds)
+                }
+                return result
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw NSError(domain: "TimeoutDomain", code: 1, userInfo: [NSLocalizedDescriptionKey: "Request timed out after \(seconds)s"])
+                if let timeoutSleep {
+                    try await timeoutSleep(timeoutNanoseconds)
+                } else {
+                    try await clock.sleep(until: deadline)
+                }
+                throw timeoutError(seconds: seconds)
             }
 
             guard let result = try await group.next() else {
@@ -313,6 +329,14 @@ final class GenerationCoordinator {
             group.cancelAll()
             return result
         }
+    }
+
+    private static func timeoutError(seconds: TimeInterval) -> NSError {
+        NSError(
+            domain: "TimeoutDomain",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Request timed out after \(seconds)s"]
+        )
     }
 
     static func isSpecificAnswer(_ text: String) -> Bool {

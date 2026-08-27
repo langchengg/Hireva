@@ -2,6 +2,18 @@ import Foundation
 import Testing
 @testable import Hireva
 
+private actor RecordingTimeoutSleeper {
+    private var requestedNanoseconds: [UInt64] = []
+
+    func sleep(nanoseconds: UInt64) {
+        requestedNanoseconds.append(nanoseconds)
+    }
+
+    func requests() -> [UInt64] {
+        requestedNanoseconds
+    }
+}
+
 @Suite
 struct GenerationCoordinatorTests {
     @Test
@@ -35,12 +47,40 @@ struct GenerationCoordinatorTests {
 
     @Test
     func timeoutHelperThrowsSameTimeoutErrorShape() async throws {
+        let timeoutSleeper = RecordingTimeoutSleeper()
         do {
-            _ = try await GenerationCoordinator.withTimeout(seconds: 0.001) {
-                try await Task.sleep(nanoseconds: 50_000_000)
+            _ = try await GenerationCoordinator.withTimeout(
+                seconds: 0.001,
+                timeoutSleep: { nanoseconds in
+                    await timeoutSleeper.sleep(nanoseconds: nanoseconds)
+                }
+            ) {
+                try await Task.sleep(nanoseconds: 50_000_000_000)
                 return "late"
             }
             Issue.record("Expected timeout helper to throw")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "TimeoutDomain")
+            #expect(nsError.code == 1)
+            #expect(nsError.localizedDescription.contains("Request timed out after 0.001s"))
+        }
+        #expect(await timeoutSleeper.requests() == [1_000_000])
+    }
+
+    @Test
+    func timeoutHelperRejectsOperationThatCompletesAfterAbsoluteDeadline() async throws {
+        do {
+            _ = try await GenerationCoordinator.withTimeout(
+                seconds: 0.001,
+                timeoutSleep: { _ in
+                    try await Task.sleep(nanoseconds: 50_000_000_000)
+                }
+            ) {
+                try await Task.sleep(nanoseconds: 50_000_000)
+                return "late"
+            }
+            Issue.record("Expected a post-deadline result to be rejected")
         } catch {
             let nsError = error as NSError
             #expect(nsError.domain == "TimeoutDomain")
