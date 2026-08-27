@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Testing
 @testable import Hireva
 
@@ -275,6 +276,7 @@ struct RuntimeSmokeHarnessTests {
                 groupedHarnesses[harnessKey] = harness
             }
             let rowsBefore = try harness.rows()
+            let runtimeEventIDsBeforeFeed = harness.runtimeEventIDs
             let source = AudioSourceType(rawValue: item.source ?? AudioSourceType.systemAudio.rawValue) ?? .systemAudio
             let speaker = SpeakerRole(rawValue: item.expectedSpeaker) ?? .unknown
             let startedAt = Date()
@@ -295,9 +297,10 @@ struct RuntimeSmokeHarnessTests {
             if item.shouldTrigger {
                 triggered += 1
                 let expectedQuestion = try #require(item.expectedPrimaryQuestion)
-                let persisted = await harness.waitForRowsForReleaseGate(rowsBefore.count + 1)
-                #expect(persisted, "\(item.id) did not persist its expected answer")
-                guard persisted else { continue }
+                try await harness.waitForPersistenceOutcome(
+                    question: expectedQuestion,
+                    excludingEventIDs: runtimeEventIDsBeforeFeed
+                )
                 let rowsAfter = try harness.rows()
                 let row = try #require(rowsAfter.last, "\(item.id) has no final row")
                 let answerText = ([row.sayFirst] + row.keyPoints + row.followUpReady)
@@ -890,15 +893,79 @@ private struct RuntimeSmokeHarness {
         }
     }
 
-    func waitForRowsForReleaseGate(_ expected: Int, timeout: TimeInterval = 1.0) async -> Bool {
-        let start = Date()
-        while Date().timeIntervalSince(start) <= timeout {
-            if (try? rows().count) == expected {
-                return true
+    var runtimeEventIDs: Set<String> {
+        Set(appState.recentTranscriptRuntimeEvents.map(\.id))
+    }
+
+    func waitForPersistenceOutcome(
+        question expectedQuestion: String,
+        excludingEventIDs: Set<String>,
+        watchdogNanoseconds: UInt64 = 12_000_000_000
+    ) async throws {
+        let expectedCanonicalQuestion = QuestionCanonicalizer.canonicalize(expectedQuestion)
+        let expectedSessionID = session.id
+        let publisher = appState.$recentTranscriptRuntimeEvents
+        let outcome = await withTaskGroup(of: RuntimeSmokePersistenceWaitOutcome.self) { group in
+            group.addTask { @MainActor in
+                for await records in publisher.values {
+                    let matchingRecords = records.filter {
+                        !excludingEventIDs.contains($0.id) &&
+                            $0.sessionID == expectedSessionID &&
+                            $0.canonicalText == expectedCanonicalQuestion
+                    }
+                    if matchingRecords.contains(where: { $0.name == "persistenceSucceeded" }) {
+                        return .succeeded
+                    }
+                    if let rejected = matchingRecords.first(where: { $0.name == "persistenceRejected" }) {
+                        return .rejected(question: rejected.text, reason: rejected.reason)
+                    }
+                }
+                return .publisherEnded
             }
-            try? await Task.sleep(nanoseconds: 25_000_000)
+            group.addTask {
+                do {
+                    try await Task.sleep(nanoseconds: watchdogNanoseconds)
+                    return .watchdogExpired
+                } catch {
+                    return .cancelled
+                }
+            }
+            let first = await group.next() ?? .publisherEnded
+            group.cancelAll()
+            return first
         }
-        return false
+
+        switch outcome {
+        case .succeeded:
+            return
+        case let .rejected(question, reason):
+            throw NSError(
+                domain: "RuntimeSmokeHarnessTests",
+                code: 9,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Persistence rejected for \(question): \(reason)"
+                ]
+            )
+        case .watchdogExpired:
+            let currentRows = (try? rows().count) ?? -1
+            throw NSError(
+                domain: "RuntimeSmokeHarnessTests",
+                code: 10,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Timed out waiting for a persistence terminal event | sessionID=\(expectedSessionID) | expectedQuestion=\(expectedQuestion) | persistedRows=\(currentRows) | lastSQLiteOperation=\(appState.lastSQLiteOperation) | lastAlignmentError=\(appState.lastAlignmentError)"
+                ]
+            )
+        case .publisherEnded:
+            throw NSError(
+                domain: "RuntimeSmokeHarnessTests",
+                code: 11,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Runtime event publisher ended before persistence completed for \(expectedQuestion)."
+                ]
+            )
+        case .cancelled:
+            throw CancellationError()
+        }
     }
 
     func waitForRowsAtLeast(_ expected: Int, timeout: TimeInterval = 12.0) async throws {
@@ -1107,6 +1174,14 @@ private struct RuntimeSmokeHarness {
             ].joined(separator: " | "))
         }
     }
+}
+
+private enum RuntimeSmokePersistenceWaitOutcome: Sendable {
+    case succeeded
+    case rejected(question: String, reason: String)
+    case watchdogExpired
+    case publisherEnded
+    case cancelled
 }
 
 private struct RuntimeSmokeContextRetrievalService: ContextRetrievalService {
