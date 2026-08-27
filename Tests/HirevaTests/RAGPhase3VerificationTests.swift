@@ -7,17 +7,24 @@ import Testing
 struct RAGPhase3VerificationTests {
     @Test
     func cleanRAGRebuildWorksWithoutEmbeddings() async throws {
-        let database = try makeTemporaryDatabase()
+        let fixture = try RAGTemporaryDatabaseFixture(prefix: "HirevaRAGPhase3-Keyword")
+        var cleanupCompleted = false
+        defer {
+            if !cleanupCompleted {
+                try? fixture.cleanup()
+            }
+        }
+        let database = fixture.database
         let documents = DocumentRepository(database: database)
 
         _ = try documents.saveDocument(
             type: .cv,
-            title: "LaTeX Resume",
+            title: "Synthetic Service Profile",
             content: """
             \\documentclass{article}
             \\usepackage{geometry}
             \\begin{document}
-            Robotics project: built VLA grasping and ROS2 control loops.
+            Event scheduling service: built idempotent workflows and queue retry controls.
             \\end{document}
             """
         )
@@ -48,7 +55,7 @@ struct RAGPhase3VerificationTests {
         )
 
         let (_, trace) = try await service.retrieveContextWithTrace(
-            question: "Tell me about your robotics project.",
+            question: "Tell me about your event scheduling service.",
             intent: .technical,
             maxCVWords: 150,
             maxJDWords: 150
@@ -56,26 +63,35 @@ struct RAGPhase3VerificationTests {
 
         #expect(trace.retrievalMode == "keywordOnly")
         #expect(trace.queryEmbeddingGenerated == false)
+        try fixture.cleanup()
+        cleanupCompleted = true
     }
 
     @Test
     func cleanRAGRebuildWithMockCloudEmbeddingsGivesHybridRetrieval() async throws {
-        let database = try makeTemporaryDatabase()
+        let fixture = try RAGTemporaryDatabaseFixture(prefix: "HirevaRAGPhase3-Hybrid")
+        var cleanupCompleted = false
+        defer {
+            if !cleanupCompleted {
+                try? fixture.cleanup()
+            }
+        }
+        let database = fixture.database
         let documents = DocumentRepository(database: database)
 
         _ = try documents.saveDocument(
             type: .cv,
-            title: "Robotics CV",
+            title: "Synthetic Service Profile",
             content: """
-            Vision-language-action robotic manipulation project using ROS2 and VLM grasp reranking.
+            Incident analytics service using structured logs and trace correlation for retry diagnosis.
 
-            Database indexing project using SQLite query optimization.
+            Event scheduling API using idempotency keys and queue backpressure.
             """
         )
         _ = try documents.saveDocument(
             type: .jobDescription,
-            title: "JD",
-            content: "Looking for an embodied AI engineer with robotics manipulation and computer vision experience."
+            title: "Synthetic Service Opportunity",
+            content: "Looking for a service engineer with incident analytics, trace correlation, and reliable queue processing experience."
         )
 
         _ = try documents.rebuildCleanRAGIndex()
@@ -121,7 +137,7 @@ struct RAGPhase3VerificationTests {
         )
 
         let (_, trace) = try await service.retrieveContextWithTrace(
-            question: "Tell me about your embodied AI robotics experience.",
+            question: "Tell me about your incident analytics service experience.",
             intent: .technical,
             maxCVWords: 150,
             maxJDWords: 150
@@ -131,32 +147,25 @@ struct RAGPhase3VerificationTests {
         #expect(trace.queryEmbeddingGenerated == true)
         #expect(trace.rankedCVChunks.first?.semanticScore != nil)
         #expect(trace.rankedCVChunks.first?.finalHybridScore != nil)
+        try fixture.cleanup()
+        cleanupCompleted = true
     }
 
     @Test
-    func realDeepSeekProviderCompletionIsExplicitlyGated() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping real DeepSeek provider test: set REAL_APP_DB_TESTS=1 to allow real provider/keychain access.")
-            return
-        }
+    func deepSeekProviderCompletionUsesInjectedTransportAndCredential() async throws {
+        let apiKeyStore = InMemoryAPIKeyStore()
+        try apiKeyStore.saveAPIKey("synthetic-test-token", account: "rag.synthetic")
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [RAGSyntheticDeepSeekURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let client = DeepSeekLLMClient(apiKeyStore: apiKeyStore, session: session)
+        var provider = LLMProviderConfiguration.deepSeekDefault(model: "deepseek-contract-model")
+        provider.baseURL = "https://rag-deepseek.example.test/v1"
+        provider.apiKeyAccount = "rag.synthetic"
 
-        let keychain = KeychainService()
-        guard let apiKey = try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount), !apiKey.isEmpty else {
-            print("Skipping real DeepSeek provider test: DeepSeek API key is not configured in Keychain.")
-            return
-        }
-
-        final class EnvironmentAPIKeyStore: APIKeyStore {
-            let key: String
-            init(key: String) { self.key = key }
-            func loadAPIKey(account: String) throws -> String? { key }
-            func saveAPIKey(_ apiKey: String, account: String) throws {}
-            func deleteAPIKey(account: String) throws {}
-        }
-
-        let client = DeepSeekLLMClient(apiKeyStore: EnvironmentAPIKeyStore(key: apiKey))
         let result = try await client.chatCompletion(
-            configuration: .deepSeekDefault(model: "deepseek-chat"),
+            configuration: provider,
             messages: [
                 .system("You are a helpful assistant. Keep answers brief."),
                 .user("Return a single short sentence confirming readiness.")
@@ -165,14 +174,119 @@ struct RAGPhase3VerificationTests {
             options: LLMRequestOptions(temperature: 0.1)
         )
 
-        #expect(!result.content.isEmpty)
+        #expect(result.content == "Synthetic provider contract ready.")
         #expect(result.providerKind == .deepSeek)
+        #expect(result.providerName == "DeepSeek")
+        #expect(result.modelName == "deepseek-contract-model")
+        #expect(result.baseURL == "https://rag-deepseek.example.test/v1")
     }
 
-    private func makeTemporaryDatabase() throws -> AppDatabase {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("HirevaRAGPhase3-\(UUID().uuidString)", isDirectory: true)
+}
+
+private final class RAGTemporaryDatabaseFixture {
+    let database: AppDatabase
+    private let directory: URL
+    private var cleanedUp = false
+
+    init(prefix: String) throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+        do {
+            database = try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    func cleanup() throws {
+        guard !cleanedUp else { return }
+        try database.close()
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+        cleanedUp = true
+    }
+}
+
+private final class RAGSyntheticDeepSeekURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        do {
+            let body = try requestBody()
+            let object = body.flatMap {
+                try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+            }
+            let methodMatches = request.httpMethod == "POST"
+            let urlMatches = request.url?.absoluteString == "https://rag-deepseek.example.test/v1/chat/completions"
+            let authorizationMatches = request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-test-token"
+            let modelMatches = object?["model"] as? String == "deepseek-contract-model"
+            guard methodMatches, urlMatches, authorizationMatches, modelMatches else {
+                throw NSError(
+                    domain: "RAGSyntheticDeepSeekURLProtocol",
+                    code: 1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Synthetic DeepSeek request contract did not match: method=\(methodMatches), url=\(urlMatches), authorization=\(authorizationMatches), body=\(body != nil), model=\(modelMatches)."
+                    ]
+                )
+            }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data("""
+            {
+              "id": "synthetic-rag-contract",
+              "model": "deepseek-contract-model",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "Synthetic provider contract ready."
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """.utf8)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+
+    private func requestBody() throws -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+        var body = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count < 0 {
+                throw stream.streamError ?? URLError(.cannotDecodeContentData)
+            }
+            if count == 0 {
+                break
+            }
+            body.append(buffer, count: count)
+        }
+        return body
     }
 }
