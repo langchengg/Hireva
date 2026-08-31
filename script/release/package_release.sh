@@ -228,10 +228,10 @@ validate_hireva_release_contract() {
     validate_grdb_privacy_manifest "$grdb_privacy_manifest"
     validate_runtime_provenance_manifest "$runtime_provenance" "$sherpa" "$onnx"
     [[ -x "$helper" ]] || release_die "bundled Parakeet helper is not executable"
-    if /usr/bin/strings -a "$RELEASE_MAIN_EXECUTABLE" | \
-       /usr/bin/grep -F 'GRDB_GRDB.bundle' >/dev/null; then
-        release_die "linked code uses GRDB's incompatible app-root SwiftPM resource lookup"
-    fi
+    [[ -x "$SCRIPT_DIR/../runtime/verify_grdb_resource_accessor.sh" ]] || \
+        release_die "GRDB resource-accessor verifier is unavailable"
+    "$SCRIPT_DIR/../runtime/verify_grdb_resource_accessor.sh" "$RELEASE_MAIN_EXECUTABLE" || \
+        release_die "linked code actively uses GRDB's incompatible app-root SwiftPM resource lookup"
     [[ "$(/usr/bin/file -b "$helper")" == *Mach-O* ]] || release_die "bundled Parakeet helper is not Mach-O"
     [[ "$(/usr/bin/file -b "$sherpa")" == *"dynamically linked shared library"* ]] || \
         release_die "bundled sherpa runtime is not a dynamic library"

@@ -84,9 +84,9 @@ struct ReleaseToolingTests {
         #expect(!packaging.contains("HIREVA_SIGNING_IDENTITY"))
         #expect(buildAndRun.contains("HIREVA_EMBED_DEVELOPMENT_PATHS"))
         #expect(buildAndRun.contains("HirevaBuildConfiguration"))
-        #expect(buildAndRun.contains("GRDB's SwiftPM Bundle.module accessor"))
+        #expect(buildAndRun.contains("verify_grdb_resource_accessor.sh"))
         #expect(buildAndRun.contains("sanitize_release_build_paths.sh"))
-        #expect(packaging.contains("incompatible app-root SwiftPM resource lookup"))
+        #expect(packaging.contains("verify_grdb_resource_accessor.sh"))
         #expect(packaging.contains("snapshotting signed app"))
         #expect(packaging.contains("HIREVA_RELEASE_OUTPUT_DIR must not be the source app or one of its descendants"))
         #expect(packaging.contains("Explicit 10-character Apple Team ID"))
@@ -122,6 +122,49 @@ struct ReleaseToolingTests {
         #expect(entitlements.count == 1)
         #expect(entitlements["com.apple.security.device.audio-input"] as? Bool == true)
         #expect(entitlements["com.apple.security.get-task-allow"] == nil)
+    }
+
+    @Test
+    func grdbResourceAccessorGateDistinguishesLinkedDefinitionFromRuntimeUse() throws {
+        let verifier = repositoryRoot.appendingPathComponent(
+            "script/runtime/verify_grdb_resource_accessor.sh"
+        )
+        #expect(FileManager.default.fileExists(atPath: verifier.path))
+        #expect(FileManager.default.isExecutableFile(atPath: verifier.path))
+
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hireva grdb accessor gate \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+
+        let declaration = #"""
+        __attribute__((used)) static const char grdb_bundle_marker[] = "GRDB_GRDB.bundle";
+        __attribute__((noinline, used))
+        void grdb_bundle_accessor(void) __asm__("$sSo8NSBundleC4GRDBE6moduleABvgZ");
+        void grdb_bundle_accessor(void) {
+            __asm__ volatile("" : : "r"(grdb_bundle_marker));
+        }
+        """#
+        let unusedSource = sandbox.appendingPathComponent("unused-accessor.c")
+        let usedSource = sandbox.appendingPathComponent("used-accessor.c")
+        try Data(
+            "\(declaration)\nint main(void) { return 0; }\n".utf8
+        ).write(to: unusedSource)
+        try Data(
+            "\(declaration)\nint main(void) { grdb_bundle_accessor(); return 0; }\n".utf8
+        ).write(to: usedSource)
+
+        let unusedBinary = sandbox.appendingPathComponent("unused-accessor")
+        let usedBinary = sandbox.appendingPathComponent("used-accessor")
+        try compileC(unusedSource, output: unusedBinary)
+        try compileC(usedSource, output: usedBinary)
+
+        let unused = try runScript(verifier, arguments: [unusedBinary.path])
+        #expect(unused.status == 0, Comment(rawValue: unused.output))
+
+        let used = try runScript(verifier, arguments: [usedBinary.path])
+        #expect(used.status != 0)
+        #expect(used.output.contains("live GRDB Bundle.module accessor call"))
     }
 
     @Test

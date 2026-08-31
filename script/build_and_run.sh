@@ -62,6 +62,7 @@ PARAKEET_HELPER_BUILD="$PARAKEET_RUNTIME_BUILD_DIR/Helpers/parakeet_asr_helper"
 PARAKEET_HELPER_BUNDLE="$APP_HELPERS/parakeet_asr_helper"
 PARAKEET_RUNTIME_PROVENANCE_BUILD="$PARAKEET_RUNTIME_BUILD_DIR/RuntimeProvenance.plist"
 RELEASE_BUILD_PATH_SANITIZER="$ROOT_DIR/script/runtime/sanitize_release_build_paths.sh"
+GRDB_RESOURCE_ACCESSOR_VERIFIER="$ROOT_DIR/script/runtime/verify_grdb_resource_accessor.sh"
 RELEASE_MAIN_BUILD_PATH_REPLACEMENT_COUNT=31
 BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 GIT_COMMIT_HASH="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
@@ -482,8 +483,12 @@ if [[ ! -d "$GRDB_RESOURCE_BUNDLE_BUILD" ]] || \
     echo "[build] ERROR: SwiftPM did not produce the pinned GRDB resource bundle beside the executable." >&2
     exit 1
 fi
-if /usr/bin/strings -a "$BUILD_BINARY" | /usr/bin/grep -F 'GRDB_GRDB.bundle' >/dev/null; then
-    echo "[build] ERROR: linked code uses GRDB's SwiftPM Bundle.module accessor; the resource bundle cannot be relocated into a standard macOS app layout." >&2
+if [[ ! -x "$GRDB_RESOURCE_ACCESSOR_VERIFIER" ]]; then
+    echo "[build] ERROR: GRDB resource-accessor verifier is unavailable." >&2
+    exit 1
+fi
+if ! "$GRDB_RESOURCE_ACCESSOR_VERIFIER" "$BUILD_BINARY"; then
+    echo "[build] ERROR: linked code actively uses GRDB's SwiftPM Bundle.module accessor; the resource bundle cannot be relocated into a standard macOS app layout." >&2
     exit 1
 fi
 
@@ -512,8 +517,8 @@ cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 # SwiftPM's executable convention places dependency bundles beside the binary.
 # A signed macOS .app may contain only Contents at its root, so this metadata-only
-# GRDB bundle belongs in Contents/Resources. The binary check above fails closed
-# if a future GRDB version makes its generated Bundle.module accessor live.
+# GRDB bundle belongs in Contents/Resources. The binary check above permits an
+# unreferenced generated accessor but fails closed if a caller makes it live.
 echo "[bundle] Copying the pinned GRDB SwiftPM resource bundle into app resources..."
 /usr/bin/ditto --norsrc "$GRDB_RESOURCE_BUNDLE_BUILD" "$GRDB_RESOURCE_BUNDLE_APP"
 
