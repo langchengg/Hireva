@@ -58,6 +58,7 @@ final class AppState: ObservableObject {
     @Published var finalTranscriptText: String = ""
     @Published var displayTranscriptText: String = ""
     @Published var lastAcceptedQuestionText: String = ""
+    var lastAcceptedQuestionContextReference: AcceptedQuestionContextReference?
     // Audio-buffer callbacks update this diagnostic on every PCM buffer. Keep
     // the counter in memory without invalidating every AppState-observing view.
     var transcriptRuntimeDiagnostics: TranscriptRuntimeDiagnostics = .empty

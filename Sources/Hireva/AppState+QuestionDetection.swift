@@ -1136,6 +1136,14 @@ extension AppState {
             return nil
         }
         if let candidate = accepted.result.candidate {
+            lastAcceptedQuestionContextReference = AcceptedQuestionContextReference(
+                questionID: accepted.question.id,
+                sessionID: accepted.question.sessionID,
+                contextSnapshotID: currentSession?.id == accepted.question.sessionID
+                    ? currentSession?.contextSnapshotID
+                    : nil,
+                questionText: candidate.text
+            )
             recordTranscriptRuntimeEvent(.questionAccepted(
                 sessionID: question.sessionID,
                 candidate: candidate,

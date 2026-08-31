@@ -6,6 +6,87 @@ import Testing
 @MainActor
 struct SystemAudioQuestionOnlyAutoGenerationTests {
     @Test
+    func contextualWhyResolverRequiresFinalSameSessionSameSnapshotEvaluationQuestion() throws {
+        let previous = AcceptedQuestionContextReference(
+            questionID: "question-evaluation",
+            sessionID: "session-a",
+            contextSnapshotID: "snapshot-a",
+            questionText: "How did you evaluate your work against recovery latency in the synthetic event-processing project?"
+        )
+
+        let resolved = try #require(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: "session-a",
+            currentContextSnapshotID: "snapshot-a",
+            previous: previous
+        ))
+        #expect(resolved.referencedQuestionID == previous.questionID)
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: resolved.resolvedQuestion).accepted)
+
+        let validationReference = AcceptedQuestionContextReference(
+            questionID: "question-validation",
+            sessionID: "session-a",
+            contextSnapshotID: "snapshot-a",
+            questionText: "How did you validate rollback recovery under a fixed failure injection?"
+        )
+        let validationResolution = try #require(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: "session-a",
+            currentContextSnapshotID: "snapshot-a",
+            previous: validationReference
+        ))
+        #expect(validationResolution.resolvedQuestion == "Why did that evaluation of rollback recovery under a fixed failure injection matter?")
+
+        #expect(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: false,
+            currentSessionID: "session-a",
+            currentContextSnapshotID: "snapshot-a",
+            previous: previous
+        ) == nil)
+        #expect(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: "session-b",
+            currentContextSnapshotID: "snapshot-a",
+            previous: previous
+        ) == nil)
+        #expect(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: "session-a",
+            currentContextSnapshotID: "snapshot-b",
+            previous: previous
+        ) == nil)
+        #expect(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: "session-a",
+            currentContextSnapshotID: "snapshot-a",
+            previous: AcceptedQuestionContextReference(
+                questionID: "question-design",
+                sessionID: "session-a",
+                contextSnapshotID: "snapshot-a",
+                questionText: "How would you design a resilient event-processing system?"
+            )
+        ) == nil)
+        #expect(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: "session-a",
+            currentContextSnapshotID: "snapshot-a",
+            previous: AcceptedQuestionContextReference(
+                questionID: "question-opinion",
+                sessionID: "session-a",
+                contextSnapshotID: "snapshot-a",
+                questionText: "What trade-off would you make first in a resilient event-processing system?"
+            )
+        ) == nil)
+    }
+
+    @Test
     func interviewerOnlySystemAudioUnknownSpeakerAutoGeneratesEveryQuestionWithoutQuestionMarks() async throws {
         let (appState, session, client) = try makeAppState()
         let questions = [
@@ -139,6 +220,91 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
         #expect(appState.currentSuggestion?.questionText != "why do you want")
     }
 
+    @Test
+    func singleWordWhyResolvesOnlyAgainstAcceptedQuestionInSameFrozenContext() async throws {
+        let (appState, session, client) = try makeAppState()
+        let snapshotID = try #require(session.contextSnapshotID)
+        let evaluationQuestion = "How did you evaluate your work against recovery latency in the synthetic event-processing project?"
+
+        #expect(!QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: "Why?").accepted)
+
+        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+            id: "contextual-why-evaluation",
+            sessionID: session.id,
+            text: evaluationQuestion
+        ))
+        try await waitUntil(appState: appState, timeout: 8.0) {
+            appState.detectedQuestionsInSessionCount == 1 &&
+                appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
+                appState.generationUIState.isTerminal
+        }
+        let previousQuestionID = try #require(appState.lastDetectedQuestion?.id)
+
+        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+            id: "contextual-why-follow-up",
+            sessionID: session.id,
+            text: "Why?"
+        ))
+        try await waitUntil(appState: appState, timeout: 8.0) {
+            appState.detectedQuestionsInSessionCount == 2 &&
+                appState.lastDetectedQuestion?.transcriptSegmentID == "contextual-why-follow-up" &&
+                appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
+                appState.generationUIState.isTerminal
+        }
+
+        let resolved = try #require(appState.lastDetectedQuestion)
+        #expect(resolved.id != previousQuestionID)
+        #expect(normalizedQuestion(resolved.questionText) == normalizedQuestion(
+            "Why did your evaluation against recovery latency in the synthetic event-processing project matter?"
+        ))
+        #expect(appState.currentSuggestion?.contextSnapshotID == snapshotID)
+        #expect(appState.currentSuggestion?.detectedQuestionID == resolved.id)
+        #expect(appState.transcriptSegments.first(where: { $0.id == "contextual-why-follow-up" })?.text == "Why?")
+        #expect(resolved.ingressIdentity?.sourceStartUTF16 == 0)
+        #expect(resolved.ingressIdentity?.sourceEndUTF16 == "Why?".utf16.count)
+        #expect(client.detectionCallCount == 0)
+    }
+
+    @Test
+    func contextualWhyRAGPrecomputeUsesResolvedQuestionIdentityAndPreservesRawTranscript() async throws {
+        let (appState, session, _) = try makeAppState(autoDetectEnabled: false)
+        let snapshotID = try #require(session.contextSnapshotID)
+        let priorQuestion = "How did you evaluate your work against rollback recovery under a fixed failure injection?"
+        let previous = AcceptedQuestionContextReference(
+            questionID: "question-before-contextual-why",
+            sessionID: session.id,
+            contextSnapshotID: snapshotID,
+            questionText: priorQuestion
+        )
+        appState.lastAcceptedQuestionContextReference = previous
+        let expected = try #require(ContextualQuestionResolver.resolve(
+            rawText: "Why?",
+            isFinal: true,
+            currentSessionID: session.id,
+            currentContextSnapshotID: snapshotID,
+            previous: previous
+        ))
+
+        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+            id: "contextual-why-precompute",
+            sessionID: session.id,
+            text: "Why?",
+            asrFinalizationReason: "final_accepted"
+        ))
+        try await waitUntil(appState: appState, timeout: 2.0) {
+            !appState.precomputedRAGCache.isEmpty
+        }
+
+        let item = try #require(appState.precomputedRAGCache.values.first)
+        #expect(item.rawText == "Why?")
+        #expect(item.normalizedQuestionText == AnswerRelevancePolicy.normalizedQuestionText(
+            for: expected.resolvedQuestion
+        ))
+        #expect(appState.transcriptSegments.first(where: { $0.id == "contextual-why-precompute" })?.text == "Why?")
+        #expect(appState.detectedQuestionsInSessionCount == 0)
+        appState.precomputeDebounceTask?.cancel()
+    }
+
     private func makeAppState(autoDetectEnabled: Bool = true) throws -> (AppState, InterviewSession, QuestionOnlyLLMClient) {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "SystemAudioQuestionOnlyAutoGenerationTests")
         let settingsRepository = SettingsRepository(database: database)
@@ -222,6 +388,12 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
             try await Task.sleep(nanoseconds: 25_000_000)
         }
     }
+}
+
+private func normalizedQuestion(_ value: String) -> String {
+    value.lowercased()
+        .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        .joined(separator: " ")
 }
 
 private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendable {
@@ -311,6 +483,9 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
 
     private func answerText(for prompt: String) -> String {
         let lower = prompt.lowercased()
+        if lower.contains("why did your evaluation against recovery latency") {
+            return "That evaluation mattered because it exposed recovery latency under the same synthetic protocol and made the reliability trade-off measurable."
+        }
         if lower.contains("do you have any questions for us") {
             return "I would ask how the synthetic engineering team defines success for dependable deployed services and how debugging ownership is shared."
         }

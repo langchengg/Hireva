@@ -248,6 +248,7 @@ extension AppState {
         finalTranscriptText = ""
         displayTranscriptText = ""
         lastAcceptedQuestionText = ""
+        lastAcceptedQuestionContextReference = nil
         transcriptRuntimeDiagnostics = .empty
         if clearEvents {
             recentTranscriptRuntimeEvents = []

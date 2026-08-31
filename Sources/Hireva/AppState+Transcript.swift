@@ -74,8 +74,21 @@ extension AppState {
             currentGenerationState: generationUIState.displayName,
             currentSuggestionExists: currentSuggestion != nil
         )
+        let contextualQuestionResolution = ContextualQuestionResolver.resolve(
+            rawText: segment.text,
+            isFinal: segment.asrFinalizationReason != "partial",
+            currentSessionID: segment.sessionID,
+            currentContextSnapshotID: currentSession?.id == segment.sessionID
+                ? currentSession?.contextSnapshotID
+                : nil,
+            previous: lastAcceptedQuestionContextReference
+        )
+        var questionSemanticSegment = segment
+        if let contextualQuestionResolution {
+            questionSemanticSegment.text = contextualQuestionResolution.resolvedQuestion
+        }
         let dialogueTrigger = InterviewDialogueTriggerPolicy.decideDialogueTrigger(
-            segment: segment,
+            segment: questionSemanticSegment,
             sessionMode: interviewSessionMode,
             currentState: dialogueRuntimeState,
             answerPanelQuestions: answerPanelQuestionsEnabled,
@@ -131,7 +144,7 @@ extension AppState {
         }
 
         let systemAudioClassification = classifySystemAudioUtteranceIfNeeded(
-            segment,
+            questionSemanticSegment,
             previousSegment: previousSegment
         )
         if let systemAudioClassification {
@@ -139,15 +152,28 @@ extension AppState {
             lastTranscriptQuestionGenerationTrace.questionConfidence = systemAudioClassification.confidence
             lastTranscriptQuestionGenerationTrace.questionIntent = systemAudioClassification.intent.rawValue
         } else {
-            let localQuestion = questionDetectionService.isLikelyQuestion(segment.text)
+            let localQuestion = questionDetectionService.isLikelyQuestion(questionSemanticSegment.text)
             lastTranscriptQuestionGenerationTrace.questionCandidate = localQuestion.shouldTrigger
             lastTranscriptQuestionGenerationTrace.questionConfidence = localQuestion.confidence
             lastTranscriptQuestionGenerationTrace.questionIntent = localQuestion.reason
         }
         let questionExtractionSegment = systemAudioSegmentForQuestionExtraction(from: segment)
-        let extractedSystemAudioQuestions = questionExtractionSegment.map {
-            extractSystemAudioQuestionsIfNeeded(from: $0)
-        } ?? []
+        let extractedSystemAudioQuestions: [ExtractedTranscriptQuestion]
+        if let contextualQuestionResolution, questionExtractionSegment != nil {
+            let candidate = contextualQuestionResolution.candidate
+            extractedSystemAudioQuestions = [ExtractedTranscriptQuestion(
+                text: candidate.text,
+                confidence: candidate.confidence,
+                intent: candidate.intent,
+                answerStrategy: candidate.answerStrategy,
+                sourceStartUTF16: 0,
+                sourceEndUTF16: segment.text.utf16.count
+            )]
+        } else {
+            extractedSystemAudioQuestions = questionExtractionSegment.map {
+                extractSystemAudioQuestionsIfNeeded(from: $0)
+            } ?? []
+        }
         if !extractedSystemAudioQuestions.isEmpty {
             lastTranscriptQuestionGenerationTrace.extractedQuestionCount = extractedSystemAudioQuestions.count
             lastTranscriptQuestionGenerationTrace.extractedQuestionsPreview = extractedSystemAudioQuestions.map(\.text)
@@ -165,7 +191,7 @@ extension AppState {
         if segment.source == .systemAudio,
            systemAudioCanUseQuestionIntent(segment),
            systemAudioClassification?.intent == .answerWorthyQuestion {
-            let words = segment.text.split(whereSeparator: \.isWhitespace)
+            let words = questionSemanticSegment.text.split(whereSeparator: \.isWhitespace)
             if words.count >= 6 { // 5-7 words range
                 precomputeDebounceTask?.cancel()
                 let retrievalService = contextRetrievalService!
@@ -177,16 +203,16 @@ extension AppState {
                     }
                     guard let self = self, !Task.isCancelled else { return }
                     
-                    let precomputeIntent = AnswerRelevancePolicy.intent(for: segment.text)
+                    let precomputeIntent = AnswerRelevancePolicy.intent(for: questionSemanticSegment.text)
                     let key = self.ragPrecomputeCacheKey(
                         segmentID: segment.id,
-                        questionText: segment.text,
+                        questionText: questionSemanticSegment.text,
                         intent: precomputeIntent
                     )
                     do {
                         let (context, trace) = try await Task.detached(priority: .utility) {
                             try await retrievalService.retrieveContextWithTrace(
-                                question: segment.text,
+                                question: questionSemanticSegment.text,
                                 intent: .unclear,
                                 maxCVWords: 240,
                                 maxJDWords: 120
@@ -197,7 +223,9 @@ extension AppState {
                                 context: context,
                                 trace: trace,
                                 rawText: segment.text,
-                                normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(for: segment.text),
+                                normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(
+                                    for: questionSemanticSegment.text
+                                ),
                                 questionIntent: precomputeIntent
                             )
                         }
