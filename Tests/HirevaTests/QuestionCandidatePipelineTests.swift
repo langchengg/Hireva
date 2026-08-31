@@ -7,6 +7,40 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func leadingDisfluenciesPreserveQuestionsWithoutPromotingStatements() throws {
+        let questions = [
+            (
+                raw: "Um, what evidence from your simulated manipulation pipeline best prepares you for this Robotics Research Engineer role?",
+                expected: "What evidence from your simulated manipulation pipeline best prepares you for this Robotics Research Engineer role?"
+            ),
+            (
+                raw: "Uh, how did you verify that the recovery path preserved the current question?",
+                expected: "How did you verify that the recovery path preserved the current question?"
+            ),
+            (
+                raw: "Well, which failure mode mattered most during the evaluation?",
+                expected: "Which failure mode mattered most during the evaluation?"
+            ),
+        ]
+
+        for question in questions {
+            let candidate = try #require(QuestionCandidatePipeline.extract(from: question.raw).first)
+            #expect(candidate.text == question.expected)
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question.raw).accepted)
+        }
+
+        let statements = [
+            "Um, I think the evaluation protocol was consistent.",
+            "Uh, the report explains what evidence was collected.",
+            "Well, the system is ready for another run.",
+        ]
+        for statement in statements {
+            #expect(QuestionCandidatePipeline.extract(from: statement).isEmpty)
+            #expect(!QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: statement).accepted)
+        }
+    }
+
+    @Test
     func campaignImperativeAndLongWHQuestionFamiliesAreAcceptedWithoutNarrativeFalsePositives() {
         let questions = [
             "Compare pairwise and listwise ranking under the same evaluation constraint.",

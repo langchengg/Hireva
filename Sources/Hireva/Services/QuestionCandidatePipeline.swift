@@ -247,6 +247,10 @@ enum MultiQuestionSplitter {
     }
 
     static func questionStarts(in source: String) -> [Int] {
+        // Keep the start offset at the beginning of the physical utterance when
+        // a recognizer preserves a leading filled pause. RawQuestionCleaner
+        // removes only this bounded prefix after the source range is captured.
+        let leadingDiscourseBoundary = #"^\s*(?:(?:um+|uh+|uhm+|erm+|er+|ah+|hmm+|well|so)\b[\s,;:]+)*"#
         let auxiliaryQuestionStarts = [
             "\\bcould\\s+you\\b",
             "\\bcan\\s+you\\b",
@@ -268,14 +272,14 @@ enum MultiQuestionSplitter {
         // treating ordinary statements such as "Your result was correct." as
         // questions.
         let declarativeConfirmationStarts = [
-            "^\\s*(?:you|the|this|that|it|we|your)\\b[^?\\n]{3,220}(?:,\\s*(?:right|correct)\\s*\\??|\\s+(?:right|correct)\\s*\\?)\\s*$",
-            "^\\s*(?:you|the|this|that|it|we|your)\\b[^?\\n]{3,220},\\s*(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|can['’]?t|couldn['’]?t|wouldn['’]?t|won['’]?t|shouldn['’]?t)\\s+(?:it|you|they|he|she|we)\\s*\\?\\s*$",
-            "^\\s*you\\b[^?\\n]{3,220},\\s*so\\s+(?:which|what|how)\\b[^?\\n]{3,220}\\?\\s*$"
+            leadingDiscourseBoundary + "(?:you|the|this|that|it|we|your)\\b[^?\\n]{3,220}(?:,\\s*(?:right|correct)\\s*\\??|\\s+(?:right|correct)\\s*\\?)\\s*$",
+            leadingDiscourseBoundary + "(?:you|the|this|that|it|we|your)\\b[^?\\n]{3,220},\\s*(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|can['’]?t|couldn['’]?t|wouldn['’]?t|won['’]?t|shouldn['’]?t)\\s+(?:it|you|they|he|she|we)\\s*\\?\\s*$",
+            leadingDiscourseBoundary + "you\\b[^?\\n]{3,220},\\s*so\\s+(?:which|what|how)\\b[^?\\n]{3,220}\\?\\s*$"
         ]
         let imperativeQuestionStarts = [
-            "^compare(?:\\s+and\\s+contrast)?\\b",
-            "^contrast\\b",
-            "^distinguish\\b",
+            leadingDiscourseBoundary + "compare(?:\\s+and\\s+contrast)?\\b",
+            leadingDiscourseBoundary + "contrast\\b",
+            leadingDiscourseBoundary + "distinguish\\b",
             "\\btell\\s+me\\s+about\\b",
             "\\btell\\s+us\\s+about\\b",
             "\\btell\\s+(?:me|us)\\s+(?:how|what|why|which|where|when)\\b",
@@ -296,14 +300,14 @@ enum MultiQuestionSplitter {
             "\\bsuppose\\b"
         ]
         let whQuestionStarts = [
-            "^what\\s+(?:evidence|limitation|constraint|risk|result|baseline|trade[- ]?off)\\b",
-            "^what\\s+(?:work[- ]authorization|availability)\\b",
+            leadingDiscourseBoundary + "what\\s+(?:evidence|limitation|constraint|risk|result|baseline|trade[- ]?off)\\b",
+            leadingDiscourseBoundary + "what\\s+(?:work[- ]authorization|availability)\\b",
             "\\bwhat\\s+(?:happened|happens)\\b",
-            "^what\\s+(?:causes|caused|creates|created|prevents|prevented|affects|affected|attracts|attracted|motivates|motivated)\\b",
+            leadingDiscourseBoundary + "what\\s+(?:causes|caused|creates|created|prevents|prevented|affects|affected|attracts|attracted|motivates|motivated)\\b",
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
             "\\bwhat\\s+(?:did|does|do|was|were|would|could|should|made|makes)\\b",
-            "^what\\s+(?:is|are)\\b",
-            "^what\\s+(?:[-a-z0-9'’]+\\s+){1,7}[a-z]{3,}(?:s|ed)\\s+(?:how|why|what|which|who|where|when|your|you|the|this|that|a|an)\\b",
+            leadingDiscourseBoundary + "what\\s+(?:is|are)\\b",
+            leadingDiscourseBoundary + "what\\s+(?:[-a-z0-9'’]+\\s+){1,7}[a-z]{3,}(?:s|ed)\\s+(?:how|why|what|which|who|where|when|your|you|the|this|that|a|an)\\b",
             "\\bwhat\\s+(?!(?:is|are)\\b)(?:[-a-z0-9'’]+\\s+){1,5}(?:did|does|do|was|were|would|could|should|created|caused|needed|mattered|failed)\\b",
             "\\bwhich\\s+robots?\\s+have\\s+you\\b",
             "\\bwhich\\s+(?:[-a-z0-9'’]+\\s+){0,8}(?:did|does|do|was|were|would|could|should|became|created|caused|made|failed|mattered|part|component|module|subsystem|stage|step)\\b",
@@ -321,9 +325,9 @@ enum MultiQuestionSplitter {
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
             "\\bwhy\\s+might\\b",
-            "^where\\s+(?:did|does|do|was|were|would|could|should|is|are|can)\\b",
-            "^which\\s+(?:parts?|aspects?|areas?)\\b",
-            "^what\\s+(?:part|aspect|area)\\b"
+            leadingDiscourseBoundary + "where\\s+(?:did|does|do|was|were|would|could|should|is|are|can)\\b",
+            leadingDiscourseBoundary + "which\\s+(?:parts?|aspects?|areas?)\\b",
+            leadingDiscourseBoundary + "what\\s+(?:part|aspect|area)\\b"
         ]
         let contextualQuestionStarts = [
             "\\bprior\\s+to\\s+your\\s+msc\\b"
@@ -814,6 +818,7 @@ enum MultiQuestionSplitter {
 enum RawQuestionCleaner {
     static func clean(_ raw: String) -> String {
         var cleaned = QuestionTextUtilities.collapse(raw)
+        cleaned = removeLeadingDiscourseMarkers(cleaned)
         let leadingNoise = [
             "first ",
             "great thanks ",
@@ -861,6 +866,14 @@ enum RawQuestionCleaner {
         }
         cleaned = normalizeDependentTemporalQuestion(cleaned)
         return normalizeLeadingCapitalization(cleaned)
+    }
+
+    private static func removeLeadingDiscourseMarkers(_ text: String) -> String {
+        QuestionTextUtilities.regexReplace(
+            #"^\s*(?:(?:um+|uh+|uhm+|erm+|er+|ah+|hmm+|well|so)\b[\s,;:]*)+"#,
+            in: text,
+            with: ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func isSmallTalkOnly(_ text: String) -> Bool {
