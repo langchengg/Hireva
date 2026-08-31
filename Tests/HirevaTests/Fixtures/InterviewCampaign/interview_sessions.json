@@ -1,0 +1,2245 @@
+{
+  "sessions": [
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to form testable robotics hypotheses",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-01",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to build manipulation experiments",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-02",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to compare simulation and real-robot behavior",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-03",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to document safety limitations",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-01",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of perception",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-02",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of planning",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-03",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of control",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-01",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of experimental validity",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-02",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of sim-to-real reasoning",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-03",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of latency and safety",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_research_engineer-01",
+      "roleFamilyID": "robotics_research_engineer",
+      "sessionID": "campaign-robotics_research_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to integrate robot software modules",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-01",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to debug timing and sensor failures",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-02",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to build simulation and hardware tests",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-03",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the requirement to make recovery behavior observable",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-01",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of C++ and Python",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-02",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of ROS-style interfaces",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-03",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of concurrency",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-01",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of sensor integration",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-02",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of real-time trade-offs",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-03",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-robotics-msc",
+      "focus": "the competency of failure recovery",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-robotics_software_engineer-01",
+      "roleFamilyID": "robotics_software_engineer",
+      "sessionID": "campaign-robotics_software_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the requirement to train multimodal action models",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-01",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the requirement to curate robot data",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-02",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the requirement to evaluate generalization",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-03",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the requirement to connect high-level reasoning to safe control",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-01",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the competency of vision-language-action models",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-02",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the competency of action representation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-03",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the competency of robot learning",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-01",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the competency of dataset design",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-02",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the competency of generalization",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-03",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-vla-researcher",
+      "focus": "the competency of safety evaluation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-01",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "sessionID": "campaign-embodied_ai_vla_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the requirement to build perception pipelines",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-01",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the requirement to define annotation policy",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-02",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the requirement to measure generalization",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-03",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the requirement to optimize inference and inspect failures",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-01",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the competency of detection and segmentation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-02",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the competency of dataset quality",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-03",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the competency of metrics",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-01",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the competency of 3D geometry",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-02",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the competency of inference profiling",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-03",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-cv-graduate",
+      "focus": "the competency of failure analysis",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-computer_vision_engineer-01",
+      "roleFamilyID": "computer_vision_engineer",
+      "sessionID": "campaign-computer_vision_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to build training pipelines",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-01",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to evaluate models",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-02",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to serve predictions",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-03",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to monitor data and model behavior",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-01",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of feature pipelines",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-02",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of training reproducibility",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-03",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of offline evaluation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-01",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of serving",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-02",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of drift monitoring",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-03",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of cost and latency",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-machine_learning_engineer-01",
+      "roleFamilyID": "machine_learning_engineer",
+      "sessionID": "campaign-machine_learning_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to turn product questions into hypotheses",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-01",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-01",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to choose baselines",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-02",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-02",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to design experiments",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-03",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-03",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to communicate uncertainty and impact",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-01",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-04",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of experimental design",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-02",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-05",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of statistics",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-03",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-06",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of machine learning",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-01",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-07",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of baseline selection",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-02",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-08",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of causal reasoning",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-03",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-09",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of business relevance",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-applied_scientist-01",
+      "roleFamilyID": "applied_scientist",
+      "sessionID": "campaign-applied_scientist-10",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to identify a research gap",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-01",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-01",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to develop falsifiable methods",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-02",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-02",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to compare strong baselines",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-03",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-03",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the requirement to publish limitations and future work",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-01",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-04",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of literature synthesis",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-02",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-05",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of methodology",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-03",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-06",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of falsifiability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-01",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-07",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of statistical validity",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-02",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-08",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of novelty",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-03",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-09",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-applied-scientist",
+      "focus": "the competency of research communication",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-01",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "sessionID": "campaign-ai_research_scientist_phd-10",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to automate model delivery",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-01",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to track artifacts and lineage",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-02",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to monitor serving",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-03",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to design rollback and recovery",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-01",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of model registries",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-02",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of CI/CD",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-03",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of reproducibility",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-01",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of observability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-02",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of security",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-03",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of cost control",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-01",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to design versioned APIs",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-01",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to model durable data",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-02",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to operate services",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-03",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to debug incidents",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-01",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of API design",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-02",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of relational databases",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-03",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of concurrency",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-01",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of observability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-02",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of testing",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-03",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of deployment",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-backend_software_engineer-01",
+      "roleFamilyID": "backend_software_engineer",
+      "sessionID": "campaign-backend_software_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to reason about consistency",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-01",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to design failure recovery",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-02",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to measure capacity and latency",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-03",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the requirement to operate distributed storage",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-01",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of consensus concepts",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-02",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of replication",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-03",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of transactions",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-01",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of fault tolerance",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-02",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of performance",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-03",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-backend-engineer",
+      "focus": "the competency of observability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-01",
+      "roleFamilyID": "distributed_systems_engineer",
+      "sessionID": "campaign-distributed_systems_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to ship native macOS features",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-01",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to manage concurrency and lifecycle",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-02",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to integrate AppKit and SwiftUI",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-03",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to validate permissions and process cleanup",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-01",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of Swift concurrency",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-02",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of MainActor",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-03",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of AppKit interop",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-01",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of audio lifecycle",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-02",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of TCC and signing",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-03",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of memory and tests",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-macos_swift_engineer-01",
+      "roleFamilyID": "macos_swift_engineer",
+      "sessionID": "campaign-macos_swift_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to build shared platform primitives",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-01",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to profile bottlenecks",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-02",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to improve reliability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-03",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the requirement to support incident response",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-01",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of operating systems",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-02",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of networking",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-03",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of storage",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-01",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of performance profiling",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-02",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of automation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-03",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-mlops-engineer",
+      "focus": "the competency of reliability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-systems_platform_engineer-01",
+      "roleFamilyID": "systems_platform_engineer",
+      "sessionID": "campaign-systems_platform_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the requirement to define decision metrics",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-01",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-01",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the requirement to audit data quality",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-02",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-02",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the requirement to design experiments",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-03",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-03",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the requirement to communicate uncertainty",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-01",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-04",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the competency of SQL",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-02",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-05",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the competency of statistics",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-03",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-06",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the competency of experimentation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-01",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-07",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the competency of causal inference",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-02",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-08",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the competency of data quality",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-03",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-09",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-data-scientist",
+      "focus": "the competency of stakeholder communication",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-data_scientist-01",
+      "roleFamilyID": "data_scientist",
+      "sessionID": "campaign-data_scientist-10",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the requirement to implement scoped features",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-01",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the requirement to write tests",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-02",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the requirement to debug with evidence",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-03",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the requirement to learn and communicate clearly",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-01",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the competency of programming fundamentals",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-02",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the competency of data structures",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-03",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the competency of testing",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-01",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the competency of version control",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-02",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the competency of problem decomposition",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-03",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-graduate-software",
+      "focus": "the competency of learning agility",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-graduate_software_engineer-01",
+      "roleFamilyID": "graduate_software_engineer",
+      "sessionID": "campaign-graduate_software_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to turn ambiguity into product increments",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-01",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to own systems end to end",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-02",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to balance research and delivery",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-03",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the requirement to build safety and observability early",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-01",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of product judgment",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-02",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of full-stack ownership",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-03",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of applied AI",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-01",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of rapid validation",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-02",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of reliability",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-03",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-ml-engineer",
+      "focus": "the competency of clear trade-offs",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-01",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "sessionID": "campaign-founding_startup_ai_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to threat-model systems",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-01",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-01",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to minimize sensitive data",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-02",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-02",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to verify controls",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-03",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-03",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the requirement to respond to security failures",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-01",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-04",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of threat modeling",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-02",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-05",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of secure design",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-03",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-06",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of privacy engineering",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-01",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-07",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of logging discipline",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-02",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-08",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of incident response",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-03",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-09",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    },
+    {
+      "candidateProfileID": "profile-swift-macos",
+      "focus": "the competency of supply-chain risk",
+      "initialMode": "auto",
+      "opportunityContextID": "opportunity-security_privacy_engineer-01",
+      "roleFamilyID": "security_privacy_engineer",
+      "sessionID": "campaign-security_privacy_engineer-10",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true
+    }
+  ],
+  "synthetic": true
+}

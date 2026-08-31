@@ -1,0 +1,659 @@
+{
+  "profiles": [
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "robotics.e1",
+        "robotics.e2",
+        "robotics.e3"
+      ],
+      "displayName": "Synthetic Robotics MSc Candidate",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans to extend evaluation to controlled hardware trials."
+      ],
+      "id": "profile-robotics-msc",
+      "limitations": [
+        "Has not operated a commercial robot fleet."
+      ],
+      "metrics": [
+        "The fixed synthetic benchmark contained 240 scenes; this is not a production-user metric."
+      ],
+      "notExperiencedIn": [
+        "commercial robot deployment",
+        "large-team management"
+      ],
+      "projects": [
+        "Synthetic manipulation benchmark"
+      ],
+      "roleFamilies": [
+        "robotics_research_engineer",
+        "robotics_software_engineer"
+      ],
+      "skills": [
+        "Python",
+        "C++",
+        "robotics",
+        "simulation",
+        "evaluation"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "robotics.e1",
+          "statement": "Built a simulated manipulation pipeline with perception, planning, and bounded recovery",
+          "type": "project"
+        },
+        {
+          "id": "robotics.e2",
+          "statement": "Compared two grasping approaches on the same held-out scenes and success criteria",
+          "type": "experience"
+        },
+        {
+          "id": "robotics.e3",
+          "statement": "Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "vla.e1",
+        "vla.e2",
+        "vla.e3"
+      ],
+      "displayName": "Synthetic VLA Manipulation Researcher",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans controlled real-hardware validation with safety stops."
+      ],
+      "id": "profile-vla-researcher",
+      "limitations": [
+        "Has not trained a general foundation model from scratch."
+      ],
+      "metrics": [
+        "The study used simulated tasks and does not establish real-robot production performance."
+      ],
+      "notExperiencedIn": [
+        "foundation-model pretraining",
+        "production humanoid deployment"
+      ],
+      "projects": [
+        "Synthetic VLA decoder study"
+      ],
+      "roleFamilies": [
+        "embodied_ai_vla_engineer"
+      ],
+      "skills": [
+        "PyTorch",
+        "robot learning",
+        "multimodal models",
+        "evaluation"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "vla.e1",
+          "statement": "Implemented a small vision-language-action policy for tabletop manipulation in simulation",
+          "type": "project"
+        },
+        {
+          "id": "vla.e2",
+          "statement": "Evaluated action decoders across matched tasks, embodiments, and intervention criteria",
+          "type": "experience"
+        },
+        {
+          "id": "vla.e3",
+          "statement": "Isolated visual shortcut learning with camera and workspace perturbations",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "vision.e1",
+        "vision.e2",
+        "vision.e3"
+      ],
+      "displayName": "Synthetic Computer Vision Graduate",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans to validate domain shift before any deployment claim."
+      ],
+      "id": "profile-cv-graduate",
+      "limitations": [
+        "Has not owned a global production vision service."
+      ],
+      "metrics": [
+        "Results are limited to the fixed fixture dataset."
+      ],
+      "notExperiencedIn": [
+        "global deployment",
+        "customer-scale inference"
+      ],
+      "projects": [
+        "Synthetic visual inspection prototype"
+      ],
+      "roleFamilies": [
+        "computer_vision_engineer"
+      ],
+      "skills": [
+        "Python",
+        "computer vision",
+        "annotation",
+        "model evaluation"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "vision.e1",
+          "statement": "Built a multi-camera defect-detection prototype on a licensed synthetic image set",
+          "type": "project"
+        },
+        {
+          "id": "vision.e2",
+          "statement": "Created a frozen split and reported class-level precision, recall, and calibration",
+          "type": "experience"
+        },
+        {
+          "id": "vision.e3",
+          "statement": "Isolated rare-lighting false positives through inference profiling and annotation checks",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "ml.e1",
+        "ml.e2",
+        "ml.e3"
+      ],
+      "displayName": "Synthetic ML Engineer",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans a guarded pilot with rollback criteria."
+      ],
+      "id": "profile-ml-engineer",
+      "limitations": [
+        "Has not claimed revenue or customer adoption."
+      ],
+      "metrics": [
+        "Only offline and shadow results are documented."
+      ],
+      "notExperiencedIn": [
+        "commercial impact",
+        "large-scale people leadership"
+      ],
+      "projects": [
+        "Synthetic ranking and serving pipeline"
+      ],
+      "roleFamilies": [
+        "machine_learning_engineer",
+        "founding_startup_ai_engineer"
+      ],
+      "skills": [
+        "Python",
+        "ML pipelines",
+        "ranking",
+        "serving",
+        "monitoring"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "ml.e1",
+          "statement": "Built a reproducible ranking pipeline with versioned features and model artifacts",
+          "type": "project"
+        },
+        {
+          "id": "ml.e2",
+          "statement": "Compared pairwise and listwise objectives with time-aware offline evaluation",
+          "type": "experience"
+        },
+        {
+          "id": "ml.e3",
+          "statement": "Instrumented training-serving skew with shadow requests and feature checksums",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "science.e1",
+        "science.e2",
+        "science.e3"
+      ],
+      "displayName": "Synthetic Applied Scientist",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans replication on an independently sampled fixture set."
+      ],
+      "id": "profile-applied-scientist",
+      "limitations": [
+        "Has not published this fixture study or deployed it commercially."
+      ],
+      "metrics": [
+        "The experiment is synthetic and has no business-impact claim."
+      ],
+      "notExperiencedIn": [
+        "commercial deployment",
+        "unsupported publication claims"
+      ],
+      "projects": [
+        "Synthetic recommendation study"
+      ],
+      "roleFamilies": [
+        "applied_scientist",
+        "ai_research_scientist_phd"
+      ],
+      "skills": [
+        "experimental design",
+        "statistics",
+        "machine learning",
+        "research communication"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "science.e1",
+          "statement": "Designed a synthetic recommendation experiment around a falsifiable hypothesis",
+          "type": "project"
+        },
+        {
+          "id": "science.e2",
+          "statement": "Pre-registered primary metrics, baselines, and confidence intervals before analysis",
+          "type": "experience"
+        },
+        {
+          "id": "science.e3",
+          "statement": "Tested the initial conclusion with a stronger split that removed the measured effect",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "backend.e1",
+        "backend.e2",
+        "backend.e3"
+      ],
+      "displayName": "Synthetic Backend Engineer",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans staged load and recovery tests before wider use."
+      ],
+      "id": "profile-backend-engineer",
+      "limitations": [
+        "Has not operated a global customer platform."
+      ],
+      "metrics": [
+        "The service ran only in an isolated test environment."
+      ],
+      "notExperiencedIn": [
+        "global operations",
+        "enterprise customer ownership"
+      ],
+      "projects": [
+        "Synthetic event-intake service"
+      ],
+      "roleFamilies": [
+        "backend_software_engineer",
+        "distributed_systems_engineer"
+      ],
+      "skills": [
+        "Swift",
+        "Kotlin",
+        "SQL",
+        "distributed systems",
+        "observability"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "backend.e1",
+          "statement": "Built an event-intake service with versioned APIs and idempotency keys",
+          "type": "project"
+        },
+        {
+          "id": "backend.e2",
+          "statement": "Measured deterministic replay, transaction boundaries, and tail latency under injected failures",
+          "type": "experience"
+        },
+        {
+          "id": "backend.e3",
+          "statement": "Debugged duplicate delivery across a retry and persistence boundary",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "swift.e1",
+        "swift.e2",
+        "swift.e3"
+      ],
+      "displayName": "Synthetic Swift and macOS Engineer",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans to validate Developer ID signing and notarization separately."
+      ],
+      "id": "profile-swift-macos",
+      "limitations": [
+        "Has not shipped a notarized commercial release."
+      ],
+      "metrics": [
+        "No notarization, public distribution, or production-user claim is part of the profile."
+      ],
+      "notExperiencedIn": [
+        "notarized public distribution",
+        "commercial adoption"
+      ],
+      "projects": [
+        "Synthetic local macOS assistant prototype"
+      ],
+      "roleFamilies": [
+        "macos_swift_engineer",
+        "security_privacy_engineer"
+      ],
+      "skills": [
+        "Swift",
+        "SwiftUI",
+        "AppKit",
+        "Swift concurrency",
+        "SQLite",
+        "privacy testing"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "swift.e1",
+          "statement": "Built a local Swift prototype that reconciles transcript events and isolates test data",
+          "type": "project"
+        },
+        {
+          "id": "swift.e2",
+          "statement": "Added deterministic question, generation, session, and context identity checks",
+          "type": "experience"
+        },
+        {
+          "id": "swift.e3",
+          "statement": "Tested bundled-app process cleanup and isolated a stale callback after cancellation",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "mlops.e1",
+        "mlops.e2",
+        "mlops.e3"
+      ],
+      "displayName": "Synthetic MLOps Engineer",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans capacity and recovery validation under controlled load."
+      ],
+      "id": "profile-mlops-engineer",
+      "limitations": [
+        "Has not run hyperscale production infrastructure."
+      ],
+      "metrics": [
+        "The pipeline was validated locally rather than on a public cloud fleet."
+      ],
+      "notExperiencedIn": [
+        "hyperscale operations",
+        "unverified cloud cost savings"
+      ],
+      "projects": [
+        "Synthetic model delivery control plane"
+      ],
+      "roleFamilies": [
+        "ai_infrastructure_mlops_engineer",
+        "systems_platform_engineer"
+      ],
+      "skills": [
+        "CI/CD",
+        "model registry",
+        "containers",
+        "observability",
+        "security"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "mlops.e1",
+          "statement": "Built a model promotion pipeline with immutable artifact identifiers",
+          "type": "project"
+        },
+        {
+          "id": "mlops.e2",
+          "statement": "Used staged checks for reproducibility, serving health, and rollback readiness",
+          "type": "experience"
+        },
+        {
+          "id": "mlops.e3",
+          "statement": "Tested rollback recovery after an unversioned feature artifact caused failure",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "data.e1",
+        "data.e2",
+        "data.e3"
+      ],
+      "displayName": "Synthetic Data Scientist",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans a prospective evaluation before operational use."
+      ],
+      "id": "profile-data-scientist",
+      "limitations": [
+        "Has not claimed causal impact from observational data."
+      ],
+      "metrics": [
+        "The data and decisions are synthetic and do not represent a real business."
+      ],
+      "notExperiencedIn": [
+        "real revenue impact",
+        "unsupported causal conclusions"
+      ],
+      "projects": [
+        "Synthetic demand-forecasting analysis"
+      ],
+      "roleFamilies": [
+        "data_scientist"
+      ],
+      "skills": [
+        "SQL",
+        "Python",
+        "statistics",
+        "experimentation",
+        "communication"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "data.e1",
+          "statement": "Built a demand-forecasting analysis with time-based validation",
+          "type": "project"
+        },
+        {
+          "id": "data.e2",
+          "statement": "Defined decision metrics and calibrated uncertainty intervals before model comparison",
+          "type": "experience"
+        },
+        {
+          "id": "data.e3",
+          "statement": "Tested feature availability and isolated target leakage at prediction time",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    },
+    {
+      "availabilityFacts": [
+        "Availability is unspecified and must not be invented."
+      ],
+      "candidateEvidenceIDs": [
+        "graduate.e1",
+        "graduate.e2",
+        "graduate.e3"
+      ],
+      "displayName": "Synthetic Graduate Software Engineer",
+      "forbiddenClaims": [
+        "deployed to one million users",
+        "generated production revenue",
+        "managed a team of twenty",
+        "trained a foundation model from scratch"
+      ],
+      "futurePlans": [
+        "Plans to deepen production observability and deployment skills."
+      ],
+      "id": "profile-graduate-software",
+      "limitations": [
+        "Has not led a large engineering team or operated a global service."
+      ],
+      "metrics": [
+        "Experience is limited to coursework and controlled projects."
+      ],
+      "notExperiencedIn": [
+        "large-team leadership",
+        "global service operations"
+      ],
+      "projects": [
+        "Synthetic scheduling service"
+      ],
+      "roleFamilies": [
+        "graduate_software_engineer"
+      ],
+      "skills": [
+        "Python",
+        "Swift",
+        "data structures",
+        "testing",
+        "Git"
+      ],
+      "synthetic": true,
+      "verifiedStatements": [
+        {
+          "id": "graduate.e1",
+          "statement": "Implemented a small scheduling service with explicit input validation",
+          "type": "project"
+        },
+        {
+          "id": "graduate.e2",
+          "statement": "Added unit and integration tests for boundary and retry cases",
+          "type": "experience"
+        },
+        {
+          "id": "graduate.e3",
+          "statement": "Debugged an invalid-state edge case using a minimal reproducible example",
+          "type": "skill"
+        }
+      ],
+      "workAuthorizationFacts": [
+        "Work authorization must be answered only from explicit scenario facts; none are asserted in this fixture."
+      ]
+    }
+  ],
+  "synthetic": true
+}

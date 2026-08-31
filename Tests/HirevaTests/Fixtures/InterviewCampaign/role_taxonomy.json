@@ -1,0 +1,962 @@
+{
+  "accessDate": "2026-08-31",
+  "additionalExplorationFamilies": [
+    "SLAM Engineer",
+    "Controls Engineer",
+    "Simulation Engineer",
+    "Research Assistant",
+    "Technical Consultant",
+    "Solution Architect",
+    "Engineering Manager",
+    "Founder's Associate technical interview"
+  ],
+  "coreRoleFamilies": [
+    {
+      "additionalStages": [
+        "research_motivation",
+        "experimental_validity",
+        "future_research"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "form testable robotics hypotheses",
+        "build manipulation experiments",
+        "compare simulation and real-robot behavior",
+        "document safety limitations"
+      ],
+      "fixtureHints": {
+        "comparison": "model-based and learned control",
+        "design": "a reproducible manipulation evaluation loop",
+        "evaluation": "the same held-out scenes and success criteria",
+        "failure": "sensor uncertainty changed the grasp ranking",
+        "project": "simulated manipulation pipeline"
+      },
+      "id": "robotics_research_engineer",
+      "profileID": "profile-robotics-msc",
+      "requiredCompetencies": [
+        "perception",
+        "planning",
+        "control",
+        "experimental validity",
+        "sim-to-real reasoning",
+        "latency and safety"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "title": "Robotics Research Engineer"
+    },
+    {
+      "additionalStages": [
+        "coding_reasoning",
+        "real_robot_evaluation",
+        "sensor_failure"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "integrate robot software modules",
+        "debug timing and sensor failures",
+        "build simulation and hardware tests",
+        "make recovery behavior observable"
+      ],
+      "fixtureHints": {
+        "comparison": "event-driven and fixed-rate control loops",
+        "design": "a fault-tolerant robot software stack",
+        "evaluation": "repeatable simulation and bench tests",
+        "failure": "a delayed sensor update invalidated a plan",
+        "project": "simulated manipulation pipeline"
+      },
+      "id": "robotics_software_engineer",
+      "profileID": "profile-robotics-msc",
+      "requiredCompetencies": [
+        "C++ and Python",
+        "ROS-style interfaces",
+        "concurrency",
+        "sensor integration",
+        "real-time trade-offs",
+        "failure recovery"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "title": "Robotics Software Engineer"
+    },
+    {
+      "additionalStages": [
+        "novelty",
+        "domain_gap",
+        "action_representation"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "train multimodal action models",
+        "curate robot data",
+        "evaluate generalization",
+        "connect high-level reasoning to safe control"
+      ],
+      "fixtureHints": {
+        "comparison": "diffusion and autoregressive action decoders",
+        "design": "a guarded VLA inference and recovery pipeline",
+        "evaluation": "shared embodiments, tasks, and intervention criteria",
+        "failure": "the policy overfit camera and workspace cues",
+        "project": "vision-language-action policy"
+      },
+      "id": "embodied_ai_vla_engineer",
+      "profileID": "profile-vla-researcher",
+      "requiredCompetencies": [
+        "vision-language-action models",
+        "action representation",
+        "robot learning",
+        "dataset design",
+        "generalization",
+        "safety evaluation"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "title": "Embodied AI / VLA Engineer"
+    },
+    {
+      "additionalStages": [
+        "dataset_sufficiency",
+        "annotation_quality",
+        "generalization"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "build perception pipelines",
+        "define annotation policy",
+        "measure generalization",
+        "optimize inference and inspect failures"
+      ],
+      "fixtureHints": {
+        "comparison": "two-stage and end-to-end detectors",
+        "design": "a monitored vision inference service",
+        "evaluation": "a frozen test split with class-level error analysis",
+        "failure": "rare lighting conditions caused false positives",
+        "project": "multi-camera defect-detection prototype"
+      },
+      "id": "computer_vision_engineer",
+      "profileID": "profile-cv-graduate",
+      "requiredCompetencies": [
+        "detection and segmentation",
+        "dataset quality",
+        "metrics",
+        "3D geometry",
+        "inference profiling",
+        "failure analysis"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "title": "Computer Vision Engineer"
+    },
+    {
+      "additionalStages": [
+        "data_pipeline",
+        "deployment",
+        "monitoring_and_drift"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "build training pipelines",
+        "evaluate models",
+        "serve predictions",
+        "monitor data and model behavior"
+      ],
+      "fixtureHints": {
+        "comparison": "pairwise and listwise ranking",
+        "design": "a reproducible train-evaluate-serve workflow",
+        "evaluation": "time-aware offline evaluation and shadow checks",
+        "failure": "training-serving feature skew degraded ranking",
+        "project": "reproducible ranking pipeline"
+      },
+      "id": "machine_learning_engineer",
+      "profileID": "profile-ml-engineer",
+      "requiredCompetencies": [
+        "feature pipelines",
+        "training reproducibility",
+        "offline evaluation",
+        "serving",
+        "drift monitoring",
+        "cost and latency"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "title": "Machine Learning Engineer"
+    },
+    {
+      "additionalStages": [
+        "hypothesis",
+        "statistical_validity",
+        "limitations"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "turn product questions into hypotheses",
+        "choose baselines",
+        "design experiments",
+        "communicate uncertainty and impact"
+      ],
+      "fixtureHints": {
+        "comparison": "observational and randomized evaluation",
+        "design": "an experiment-to-decision workflow",
+        "evaluation": "pre-registered metrics and confidence intervals",
+        "failure": "a proxy metric diverged from the target outcome",
+        "project": "synthetic recommendation experiment"
+      },
+      "id": "applied_scientist",
+      "profileID": "profile-applied-scientist",
+      "requiredCompetencies": [
+        "experimental design",
+        "statistics",
+        "machine learning",
+        "baseline selection",
+        "causal reasoning",
+        "business relevance"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "title": "Applied Scientist"
+    },
+    {
+      "additionalStages": [
+        "paper_critique",
+        "supervisor_fit",
+        "threats_to_validity",
+        "falsifiability"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "identify a research gap",
+        "develop falsifiable methods",
+        "compare strong baselines",
+        "publish limitations and future work"
+      ],
+      "fixtureHints": {
+        "comparison": "contrastive and generative objectives",
+        "design": "a falsifiable research programme",
+        "evaluation": "matched baselines, ablations, and uncertainty estimates",
+        "failure": "the initial result disappeared under a stronger split",
+        "project": "synthetic recommendation experiment"
+      },
+      "id": "ai_research_scientist_phd",
+      "profileID": "profile-applied-scientist",
+      "requiredCompetencies": [
+        "literature synthesis",
+        "methodology",
+        "falsifiability",
+        "statistical validity",
+        "novelty",
+        "research communication"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "title": "AI Research Scientist / PhD Interview"
+    },
+    {
+      "additionalStages": [
+        "model_registry",
+        "rollback",
+        "reproducibility"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "automate model delivery",
+        "track artifacts and lineage",
+        "monitor serving",
+        "design rollback and recovery"
+      ],
+      "fixtureHints": {
+        "comparison": "blue-green and canary deployment",
+        "design": "a secure model delivery control plane",
+        "evaluation": "reproducible builds and staged deployment checks",
+        "failure": "an unversioned feature artifact broke rollback",
+        "project": "model promotion pipeline"
+      },
+      "id": "ai_infrastructure_mlops_engineer",
+      "profileID": "profile-mlops-engineer",
+      "requiredCompetencies": [
+        "model registries",
+        "CI/CD",
+        "reproducibility",
+        "observability",
+        "security",
+        "cost control"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "title": "AI Infrastructure / MLOps Engineer"
+    },
+    {
+      "additionalStages": [
+        "api_design",
+        "database",
+        "incident_response"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "design versioned APIs",
+        "model durable data",
+        "operate services",
+        "debug incidents"
+      ],
+      "fixtureHints": {
+        "comparison": "optimistic and pessimistic concurrency",
+        "design": "an idempotent service and persistence model",
+        "evaluation": "deterministic replay and tail-latency checks",
+        "failure": "duplicate delivery crossed a retry boundary",
+        "project": "event-intake service"
+      },
+      "id": "backend_software_engineer",
+      "profileID": "profile-backend-engineer",
+      "requiredCompetencies": [
+        "API design",
+        "relational databases",
+        "concurrency",
+        "observability",
+        "testing",
+        "deployment"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "title": "Backend Software Engineer"
+    },
+    {
+      "additionalStages": [
+        "consistency_model",
+        "capacity_planning",
+        "fault_tolerance"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "reason about consistency",
+        "design failure recovery",
+        "measure capacity and latency",
+        "operate distributed storage"
+      ],
+      "fixtureHints": {
+        "comparison": "linearizable and eventually consistent operations",
+        "design": "a recoverable distributed coordination layer",
+        "evaluation": "fault injection with consistency and latency checks",
+        "failure": "a retry raced a leadership change",
+        "project": "event-intake service"
+      },
+      "id": "distributed_systems_engineer",
+      "profileID": "profile-backend-engineer",
+      "requiredCompetencies": [
+        "consensus concepts",
+        "replication",
+        "transactions",
+        "fault tolerance",
+        "performance",
+        "observability"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "title": "Distributed Systems Engineer"
+    },
+    {
+      "additionalStages": [
+        "main_actor",
+        "tcc_identity",
+        "process_management"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "ship native macOS features",
+        "manage concurrency and lifecycle",
+        "integrate AppKit and SwiftUI",
+        "validate permissions and process cleanup"
+      ],
+      "fixtureHints": {
+        "comparison": "ScreenCaptureKit and microphone capture",
+        "design": "a privacy-preserving native macOS pipeline",
+        "evaluation": "deterministic identity tests and bundled-app verification",
+        "failure": "a cancelled task delivered a stale UI callback",
+        "project": "local Swift prototype"
+      },
+      "id": "macos_swift_engineer",
+      "profileID": "profile-swift-macos",
+      "requiredCompetencies": [
+        "Swift concurrency",
+        "MainActor",
+        "AppKit interop",
+        "audio lifecycle",
+        "TCC and signing",
+        "memory and tests"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "title": "macOS / Swift Engineer"
+    },
+    {
+      "additionalStages": [
+        "operating_systems",
+        "resource_management",
+        "performance_analysis"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "build shared platform primitives",
+        "profile bottlenecks",
+        "improve reliability",
+        "support incident response"
+      ],
+      "fixtureHints": {
+        "comparison": "process and container isolation",
+        "design": "an observable multi-tenant platform",
+        "evaluation": "load, failure, and resource-boundary tests",
+        "failure": "file-descriptor pressure amplified retries",
+        "project": "model promotion pipeline"
+      },
+      "id": "systems_platform_engineer",
+      "profileID": "profile-mlops-engineer",
+      "requiredCompetencies": [
+        "operating systems",
+        "networking",
+        "storage",
+        "performance profiling",
+        "automation",
+        "reliability"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "title": "Systems / Platform Engineer"
+    },
+    {
+      "additionalStages": [
+        "metric_definition",
+        "data_leakage",
+        "uncertainty"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "define decision metrics",
+        "audit data quality",
+        "design experiments",
+        "communicate uncertainty"
+      ],
+      "fixtureHints": {
+        "comparison": "predictive and causal analysis",
+        "design": "a trustworthy measurement and decision workflow",
+        "evaluation": "time-based validation and calibrated intervals",
+        "failure": "target leakage inflated the first estimate",
+        "project": "demand-forecasting analysis"
+      },
+      "id": "data_scientist",
+      "profileID": "profile-data-scientist",
+      "requiredCompetencies": [
+        "SQL",
+        "statistics",
+        "experimentation",
+        "causal inference",
+        "data quality",
+        "stakeholder communication"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "title": "Data Scientist"
+    },
+    {
+      "additionalStages": [
+        "coding_reasoning",
+        "learning_quickly",
+        "fundamentals"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "implement scoped features",
+        "write tests",
+        "debug with evidence",
+        "learn and communicate clearly"
+      ],
+      "fixtureHints": {
+        "comparison": "arrays and hash-based indexes",
+        "design": "a small testable service",
+        "evaluation": "unit tests and reproducible integration checks",
+        "failure": "an edge case bypassed input validation",
+        "project": "small scheduling service"
+      },
+      "id": "graduate_software_engineer",
+      "profileID": "profile-graduate-software",
+      "requiredCompetencies": [
+        "programming fundamentals",
+        "data structures",
+        "testing",
+        "version control",
+        "problem decomposition",
+        "learning agility"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "title": "Graduate Software Engineer"
+    },
+    {
+      "additionalStages": [
+        "ambiguous_task",
+        "founder_trade_off",
+        "zero_to_one_delivery"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "turn ambiguity into product increments",
+        "own systems end to end",
+        "balance research and delivery",
+        "build safety and observability early"
+      ],
+      "fixtureHints": {
+        "comparison": "custom models and managed APIs",
+        "design": "a minimal observable AI product loop",
+        "evaluation": "small controlled pilots and explicit rollback criteria",
+        "failure": "a fast prototype hid an unreliable dependency",
+        "project": "reproducible ranking pipeline"
+      },
+      "id": "founding_startup_ai_engineer",
+      "profileID": "profile-ml-engineer",
+      "requiredCompetencies": [
+        "product judgment",
+        "full-stack ownership",
+        "applied AI",
+        "rapid validation",
+        "reliability",
+        "clear trade-offs"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "title": "Founding Engineer / Startup AI Engineer"
+    },
+    {
+      "additionalStages": [
+        "privacy_review",
+        "threat_model",
+        "data_retention"
+      ],
+      "core": true,
+      "coreResponsibilities": [
+        "threat-model systems",
+        "minimize sensitive data",
+        "verify controls",
+        "respond to security failures"
+      ],
+      "fixtureHints": {
+        "comparison": "detection and prevention controls",
+        "design": "a data-minimizing security boundary",
+        "evaluation": "canary scans and least-data test cases",
+        "failure": "diagnostics retained more text than policy allowed",
+        "project": "local Swift prototype"
+      },
+      "id": "security_privacy_engineer",
+      "profileID": "profile-swift-macos",
+      "requiredCompetencies": [
+        "threat modeling",
+        "secure design",
+        "privacy engineering",
+        "logging discipline",
+        "incident response",
+        "supply-chain risk"
+      ],
+      "requiredStages": [
+        "recruiter_screen",
+        "hiring_manager",
+        "technical_fundamentals",
+        "project_deep_dive",
+        "system_design",
+        "behavioral_star",
+        "failure_and_debugging",
+        "research_methodology",
+        "trade_off_discussion",
+        "panel_interview",
+        "presentation_follow_up",
+        "candidate_questions",
+        "salary_visa_availability",
+        "stress_challenge",
+        "closing_discussion"
+      ],
+      "seniorities": [
+        "graduate",
+        "mid_level",
+        "senior_research_depth"
+      ],
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "title": "Security / Privacy Engineer"
+    }
+  ],
+  "minimumIndependentSourcesPerRole": 3,
+  "synthetic": true
+}

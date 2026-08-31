@@ -49,6 +49,7 @@ let package = Package(
                 .process("Fixtures/DialogueScenarios/dialogue_scenarios_128.json"),
                 .process("Fixtures/robotics_phd_candidate_profile.json"),
                 .process("Fixtures/robotics_phd_opportunity_context.json"),
+                .copy("Fixtures/InterviewCampaign"),
                 .copy("Fixtures/WebSourcedSyntheticContexts")
             ]
         )

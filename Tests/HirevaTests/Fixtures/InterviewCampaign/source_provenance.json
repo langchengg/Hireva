@@ -1,0 +1,576 @@
+{
+  "accessDate": "2026-08-31",
+  "sources": [
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Robotics roles combine research, software, hardware, testing, and reliable deployment in multidisciplinary teams.",
+      "id": "source-boston-dynamics-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Boston Dynamics Careers",
+      "url": "https://bostondynamics.com/careers/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Robotics and AI work spans manipulation, navigation, perception, simulation, deep learning, and accelerated systems.",
+      "id": "source-nvidia-teams",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "NVIDIA Teams and Areas of Work",
+      "url": "https://www.nvidia.com/en-us/about-nvidia/careers/teams-in-action/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Research engineers bridge theory and implementation, build distributed infrastructure, and run scaled experiments.",
+      "id": "source-deepmind-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Google DeepMind Careers",
+      "url": "https://deepmind.google/careers/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Applied-science and robotics roles emphasize hypotheses, real and simulated evaluation, perception, control, and production transition.",
+      "id": "source-amazon-science-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Amazon Science Careers",
+      "url": "https://www.amazon.science/careers"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "ML opportunities span research, computer vision, systems, evaluation, and product-facing engineering.",
+      "id": "source-apple-ml-work",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Apple Machine Learning Research: Work With Us",
+      "url": "https://machinelearning.apple.com/work-with-us"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Research roles require rigorous methods, collaboration, publication-quality reasoning, and paths from research to products.",
+      "id": "source-microsoft-research-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Microsoft Research Careers",
+      "url": "https://www.microsoft.com/en-us/research/careers/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Infrastructure work covers distributed systems, reliability, observability, incident response, databases, and cloud foundations.",
+      "id": "source-openai-infrastructure",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "OpenAI Software Engineer, Infrastructure",
+      "url": "https://openai.com/careers/software-engineer-infrastructure-san-francisco/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Current roles cover research engineering, ML infrastructure, performance, safeguards, security, and research tooling.",
+      "id": "source-anthropic-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Anthropic Jobs",
+      "url": "https://www.anthropic.com/careers/jobs"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Backend ownership includes reliability, scale, performance, cost, debugging, and core service infrastructure.",
+      "id": "source-stripe-backend",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Stripe Backend Engineer, Core Technology",
+      "url": "https://stripe.com/careers/listing/backend-engineer-core-technology/6042172"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Database engineering requires correctness, resilience, collaboration, and clear reasoning about distributed behavior.",
+      "id": "source-cockroach-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Cockroach Labs Careers",
+      "url": "https://www.cockroachlabs.com/careers/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Interview stages include coding, debugging, system design, and structured discussion of engineering decisions.",
+      "id": "source-cockroach-interview",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Cockroach Labs Open Interview Process",
+      "url": "https://www.cockroachlabs.com/careers/open-interview/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Distributed-system design must account for consistency, latency, failure, and operational edge cases.",
+      "id": "source-cockroach-distributed",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Cockroach Labs: Building Distributed Systems for the Real World",
+      "url": "https://www.cockroachlabs.com/blog/building-distributed-systems-for-scale-becca-taft/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Internet platform roles value ownership, transparent communication, security, and solving globally distributed systems problems.",
+      "id": "source-cloudflare-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Cloudflare Careers",
+      "url": "https://www.cloudflare.com/careers/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Native macOS engineering spans Swift concurrency, SwiftUI/AppKit interop, process lifecycle, signing, entitlements, accessibility, and tests.",
+      "id": "source-apple-macos-swift",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Apple Senior Software Engineer, Swift - macOS",
+      "url": "https://jobs.apple.com/en-us/details/200658053-3956/senior-software-engineer-swift-macos"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Swift concurrency defines task, actor, cancellation, and isolation concepts relevant to correctness questions.",
+      "id": "source-swift-concurrency",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "The Swift Programming Language: Concurrency",
+      "url": "https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "SwiftUI work includes state-driven interfaces, lifecycle integration, and interoperability with platform frameworks.",
+      "id": "source-apple-swiftui",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Apple SwiftUI Documentation",
+      "url": "https://developer.apple.com/documentation/swiftui"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Data-science work emphasizes experimentation, causal inference, reusable measurement tooling, and business communication.",
+      "id": "source-airbnb-data-science",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Airbnb Data Science, Experimentation Platform",
+      "url": "https://careers.airbnb.com/positions/7790902/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Early-career roles emphasize learning, applied engineering, research exposure, and meaningful ownership for candidates with zero to three years of experience.",
+      "id": "source-openai-emerging-talent",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "OpenAI Emerging Talent",
+      "url": "https://openai.com/careers/emerging-talent/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Graduate software roles combine fundamentals, troubleshooting, collaboration, delivery, and continuous learning.",
+      "id": "source-microsoft-recent-graduate",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Microsoft Recent Graduate Opportunities",
+      "url": "https://careers.microsoft.com/v2/global/en/recentgraduate"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "University role families include robotics, perception, simulation, operating systems, data structures, and deep-learning systems.",
+      "id": "source-nvidia-university",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "NVIDIA Autonomous Vehicles and Robotics University Role Guide",
+      "url": "https://www.nvidia.com/content/dam/en-zz/Solutions/careers/university-recruiting/corporate-web-hr-ur-digital-flyer-job-description.pdf"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Privacy engineering reduces user-data exposure through architecture, review, and cross-team guidance.",
+      "id": "source-apple-privacy",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Apple Privacy Engineer",
+      "url": "https://jobs.apple.com/en-us/details/200663705/privacy-engineer-systems-experiences-apps-and-technologies"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Privacy work includes data minimization, protection, transparency, regulatory obligations, and customer controls.",
+      "id": "source-cloudflare-privacy",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Cloudflare Privacy and Data Protection",
+      "url": "https://www.cloudflare.com/trust-hub/privacy-and-data-protection/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Safety engineering builds robust systems to detect abuse, reduce deployment risk, and support trustworthy operation.",
+      "id": "source-openai-ai-safety",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "OpenAI Software Engineer, AI Safety",
+      "url": "https://openai.com/careers/software-engineer-ai-safety-san-francisco/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "MLOps joins automated validation, reproducible pipelines, continuous delivery, monitoring, and controlled model promotion.",
+      "id": "source-google-mlops",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Google Cloud MLOps Architecture",
+      "url": "https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Embodied models require spatial reasoning, action, adaptation across embodiments, and explicit safety evaluation.",
+      "id": "source-deepmind-robotics",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Google DeepMind Gemini Robotics",
+      "url": "https://deepmind.google/blog/gemini-robotics-brings-ai-into-the-physical-world/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "A compact robotics company expects engineers to work across AI, engineering, design, and real hardware outcomes.",
+      "id": "source-figure-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Figure Careers",
+      "url": "https://www.figure.ai/careers"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "A small applied-AI team lists product, research, ML infrastructure, security, reliability, and software ownership roles.",
+      "id": "source-cognition-careers",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Cognition Careers",
+      "url": "https://cognition.com/careers"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Early-stage physical-AI companies must connect research, data, deployment, safety, and product constraints.",
+      "id": "source-deepmind-accelerator",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Google DeepMind Robotics Accelerator",
+      "url": "https://deepmind.google/accelerators/robotics/"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Data-science roles support experimentation, product decisions, model behavior analysis, and reusable measurement systems.",
+      "id": "source-openai-data-science",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "OpenAI Data Science Careers",
+      "url": "https://openai.com/careers/search/?q=Data+Scientist"
+    },
+    {
+      "accessedAt": "2026-08-31T00:00:00Z",
+      "appliesToHirevaBecause": "It informs a synthetic role competency or interview topic without supplying candidate history.",
+      "codeCopied": false,
+      "commitOrVersion": "accessed-2026-08-31",
+      "doesNotApplyBecause": "The source does not prove any candidate experience and is not used as a live test dependency.",
+      "finding": "Security roles include supply-chain assurance, secure services, privacy compliance, and preventing unsafe code from shipping.",
+      "id": "source-apple-security-jobs",
+      "license": "Copyright; facts paraphrased only",
+      "problemID": "H24-ROLE-CORPUS",
+      "relevantFiles": [
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+        "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json"
+      ],
+      "repository": "",
+      "sourceType": "official",
+      "title": "Apple Security and Privacy Jobs",
+      "url": "https://jobs.apple.com/en-us/search?team=security-and-privacy-SFTWR-SEC"
+    }
+  ],
+  "synthetic": true
+}

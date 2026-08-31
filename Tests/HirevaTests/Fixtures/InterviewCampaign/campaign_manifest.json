@@ -1,0 +1,35 @@
+{
+  "campaignFixtureVersion": 1,
+  "containsRealPersonalData": false,
+  "contentPolicy": {
+    "noEmployerRuleEvasion": true,
+    "noStealthOrAntiDetectionFeatures": true,
+    "noThirdPartyInterviewRecordings": true,
+    "syntheticMockInterviewsOnly": true
+  },
+  "counts": {
+    "automatedTurns": 1280,
+    "candidateProfiles": 10,
+    "distinctFrozenContextScenarioKeys": 1280,
+    "distinctNormalizedUtterances": 1181,
+    "missingEvidenceAdversarialTurns": 160,
+    "negativeTurns": 480,
+    "opportunityContexts": 48,
+    "partialFinalReplayTurns": 160,
+    "positiveTurns": 800,
+    "rapidTurns": 160,
+    "roleFamilies": 16,
+    "sessions": 160
+  },
+  "files": [
+    "source_provenance.json",
+    "role_taxonomy.json",
+    "candidate_profiles.json",
+    "opportunity_contexts.json",
+    "interview_sessions.json",
+    "dialogue_turns.json"
+  ],
+  "generatedDeterministically": true,
+  "randomSeed": 20260831,
+  "synthetic": true
+}

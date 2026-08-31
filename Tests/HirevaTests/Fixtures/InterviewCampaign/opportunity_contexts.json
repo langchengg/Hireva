@@ -1,0 +1,2309 @@
+{
+  "opportunities": [
+    {
+      "coreResponsibilities": [
+        "form testable robotics hypotheses",
+        "build manipulation experiments",
+        "compare simulation and real-robot behavior",
+        "document safety limitations"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-robotics_research_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-robotics_research_engineer-01.responsibility",
+          "statement": "Own form testable robotics hypotheses.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-robotics_research_engineer-01.competency",
+          "statement": "Demonstrate control with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-robotics_research_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about the same held-out scenes and success criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "perception",
+        "planning",
+        "control",
+        "experimental validity",
+        "sim-to-real reasoning",
+        "latency and safety"
+      ],
+      "roleFamily": "Robotics Research Engineer",
+      "roleFamilyID": "robotics_research_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true,
+      "title": "Graduate Robotics Research Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "form testable robotics hypotheses",
+        "build manipulation experiments",
+        "compare simulation and real-robot behavior",
+        "document safety limitations"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-robotics_research_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-robotics_research_engineer-02.responsibility",
+          "statement": "Own build manipulation experiments.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-robotics_research_engineer-02.competency",
+          "statement": "Demonstrate experimental validity with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-robotics_research_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about the same held-out scenes and success criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "perception",
+        "planning",
+        "control",
+        "experimental validity",
+        "sim-to-real reasoning",
+        "latency and safety"
+      ],
+      "roleFamily": "Robotics Research Engineer",
+      "roleFamilyID": "robotics_research_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Robotics Research Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "form testable robotics hypotheses",
+        "build manipulation experiments",
+        "compare simulation and real-robot behavior",
+        "document safety limitations"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-robotics_research_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-robotics_research_engineer-03.responsibility",
+          "statement": "Own compare simulation and real-robot behavior.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-robotics_research_engineer-03.competency",
+          "statement": "Demonstrate sim-to-real reasoning with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-robotics_research_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about the same held-out scenes and success criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "perception",
+        "planning",
+        "control",
+        "experimental validity",
+        "sim-to-real reasoning",
+        "latency and safety"
+      ],
+      "roleFamily": "Robotics Research Engineer",
+      "roleFamilyID": "robotics_research_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Robotics Research Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "integrate robot software modules",
+        "debug timing and sensor failures",
+        "build simulation and hardware tests",
+        "make recovery behavior observable"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-robotics_software_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-robotics_software_engineer-01.responsibility",
+          "statement": "Own integrate robot software modules.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-robotics_software_engineer-01.competency",
+          "statement": "Demonstrate concurrency with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-robotics_software_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about repeatable simulation and bench tests.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "C++ and Python",
+        "ROS-style interfaces",
+        "concurrency",
+        "sensor integration",
+        "real-time trade-offs",
+        "failure recovery"
+      ],
+      "roleFamily": "Robotics Software Engineer",
+      "roleFamilyID": "robotics_software_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true,
+      "title": "Graduate Robotics Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "integrate robot software modules",
+        "debug timing and sensor failures",
+        "build simulation and hardware tests",
+        "make recovery behavior observable"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-robotics_software_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-robotics_software_engineer-02.responsibility",
+          "statement": "Own debug timing and sensor failures.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-robotics_software_engineer-02.competency",
+          "statement": "Demonstrate sensor integration with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-robotics_software_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about repeatable simulation and bench tests.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "C++ and Python",
+        "ROS-style interfaces",
+        "concurrency",
+        "sensor integration",
+        "real-time trade-offs",
+        "failure recovery"
+      ],
+      "roleFamily": "Robotics Software Engineer",
+      "roleFamilyID": "robotics_software_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Robotics Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "integrate robot software modules",
+        "debug timing and sensor failures",
+        "build simulation and hardware tests",
+        "make recovery behavior observable"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-robotics_software_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-robotics_software_engineer-03.responsibility",
+          "statement": "Own build simulation and hardware tests.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-robotics_software_engineer-03.competency",
+          "statement": "Demonstrate real-time trade-offs with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-robotics_software_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about repeatable simulation and bench tests.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "C++ and Python",
+        "ROS-style interfaces",
+        "concurrency",
+        "sensor integration",
+        "real-time trade-offs",
+        "failure recovery"
+      ],
+      "roleFamily": "Robotics Software Engineer",
+      "roleFamilyID": "robotics_software_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-boston-dynamics-careers",
+        "source-nvidia-teams",
+        "source-figure-careers"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Robotics Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "train multimodal action models",
+        "curate robot data",
+        "evaluate generalization",
+        "connect high-level reasoning to safe control"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-embodied_ai_vla_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-01.responsibility",
+          "statement": "Own train multimodal action models.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-01.competency",
+          "statement": "Demonstrate robot learning with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about shared embodiments, tasks, and intervention criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "vision-language-action models",
+        "action representation",
+        "robot learning",
+        "dataset design",
+        "generalization",
+        "safety evaluation"
+      ],
+      "roleFamily": "Embodied AI / VLA Engineer",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true,
+      "title": "Graduate Embodied AI / VLA Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "train multimodal action models",
+        "curate robot data",
+        "evaluate generalization",
+        "connect high-level reasoning to safe control"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-embodied_ai_vla_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-02.responsibility",
+          "statement": "Own curate robot data.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-02.competency",
+          "statement": "Demonstrate dataset design with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about shared embodiments, tasks, and intervention criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "vision-language-action models",
+        "action representation",
+        "robot learning",
+        "dataset design",
+        "generalization",
+        "safety evaluation"
+      ],
+      "roleFamily": "Embodied AI / VLA Engineer",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Embodied AI / VLA Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "train multimodal action models",
+        "curate robot data",
+        "evaluate generalization",
+        "connect high-level reasoning to safe control"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-embodied_ai_vla_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-03.responsibility",
+          "statement": "Own evaluate generalization.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-03.competency",
+          "statement": "Demonstrate generalization with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-embodied_ai_vla_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about shared embodiments, tasks, and intervention criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "vision-language-action models",
+        "action representation",
+        "robot learning",
+        "dataset design",
+        "generalization",
+        "safety evaluation"
+      ],
+      "roleFamily": "Embodied AI / VLA Engineer",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-deepmind-robotics",
+        "source-nvidia-teams",
+        "source-amazon-science-careers"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Embodied AI / VLA Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build perception pipelines",
+        "define annotation policy",
+        "measure generalization",
+        "optimize inference and inspect failures"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-computer_vision_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-computer_vision_engineer-01.responsibility",
+          "statement": "Own build perception pipelines.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-computer_vision_engineer-01.competency",
+          "statement": "Demonstrate metrics with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-computer_vision_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about a frozen test split with class-level error analysis.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "detection and segmentation",
+        "dataset quality",
+        "metrics",
+        "3D geometry",
+        "inference profiling",
+        "failure analysis"
+      ],
+      "roleFamily": "Computer Vision Engineer",
+      "roleFamilyID": "computer_vision_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true,
+      "title": "Graduate Computer Vision Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build perception pipelines",
+        "define annotation policy",
+        "measure generalization",
+        "optimize inference and inspect failures"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-computer_vision_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-computer_vision_engineer-02.responsibility",
+          "statement": "Own define annotation policy.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-computer_vision_engineer-02.competency",
+          "statement": "Demonstrate 3D geometry with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-computer_vision_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about a frozen test split with class-level error analysis.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "detection and segmentation",
+        "dataset quality",
+        "metrics",
+        "3D geometry",
+        "inference profiling",
+        "failure analysis"
+      ],
+      "roleFamily": "Computer Vision Engineer",
+      "roleFamilyID": "computer_vision_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Computer Vision Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build perception pipelines",
+        "define annotation policy",
+        "measure generalization",
+        "optimize inference and inspect failures"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-computer_vision_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-computer_vision_engineer-03.responsibility",
+          "statement": "Own measure generalization.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-computer_vision_engineer-03.competency",
+          "statement": "Demonstrate inference profiling with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-computer_vision_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about a frozen test split with class-level error analysis.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "detection and segmentation",
+        "dataset quality",
+        "metrics",
+        "3D geometry",
+        "inference profiling",
+        "failure analysis"
+      ],
+      "roleFamily": "Computer Vision Engineer",
+      "roleFamilyID": "computer_vision_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-nvidia-teams",
+        "source-amazon-science-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Computer Vision Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build training pipelines",
+        "evaluate models",
+        "serve predictions",
+        "monitor data and model behavior"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-machine_learning_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-machine_learning_engineer-01.responsibility",
+          "statement": "Own build training pipelines.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-machine_learning_engineer-01.competency",
+          "statement": "Demonstrate offline evaluation with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-machine_learning_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about time-aware offline evaluation and shadow checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "feature pipelines",
+        "training reproducibility",
+        "offline evaluation",
+        "serving",
+        "drift monitoring",
+        "cost and latency"
+      ],
+      "roleFamily": "Machine Learning Engineer",
+      "roleFamilyID": "machine_learning_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true,
+      "title": "Graduate Machine Learning Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build training pipelines",
+        "evaluate models",
+        "serve predictions",
+        "monitor data and model behavior"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-machine_learning_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-machine_learning_engineer-02.responsibility",
+          "statement": "Own evaluate models.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-machine_learning_engineer-02.competency",
+          "statement": "Demonstrate serving with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-machine_learning_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about time-aware offline evaluation and shadow checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "feature pipelines",
+        "training reproducibility",
+        "offline evaluation",
+        "serving",
+        "drift monitoring",
+        "cost and latency"
+      ],
+      "roleFamily": "Machine Learning Engineer",
+      "roleFamilyID": "machine_learning_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Machine Learning Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build training pipelines",
+        "evaluate models",
+        "serve predictions",
+        "monitor data and model behavior"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-machine_learning_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-machine_learning_engineer-03.responsibility",
+          "statement": "Own serve predictions.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-machine_learning_engineer-03.competency",
+          "statement": "Demonstrate drift monitoring with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-machine_learning_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about time-aware offline evaluation and shadow checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "feature pipelines",
+        "training reproducibility",
+        "offline evaluation",
+        "serving",
+        "drift monitoring",
+        "cost and latency"
+      ],
+      "roleFamily": "Machine Learning Engineer",
+      "roleFamilyID": "machine_learning_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-apple-ml-work",
+        "source-anthropic-careers"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Machine Learning Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "turn product questions into hypotheses",
+        "choose baselines",
+        "design experiments",
+        "communicate uncertainty and impact"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-applied_scientist-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-applied_scientist-01.responsibility",
+          "statement": "Own turn product questions into hypotheses.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-applied_scientist-01.competency",
+          "statement": "Demonstrate machine learning with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-applied_scientist-01.success",
+          "statement": "Success requires reproducible reasoning about pre-registered metrics and confidence intervals.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "experimental design",
+        "statistics",
+        "machine learning",
+        "baseline selection",
+        "causal reasoning",
+        "business relevance"
+      ],
+      "roleFamily": "Applied Scientist",
+      "roleFamilyID": "applied_scientist",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true,
+      "title": "Graduate Applied Scientist"
+    },
+    {
+      "coreResponsibilities": [
+        "turn product questions into hypotheses",
+        "choose baselines",
+        "design experiments",
+        "communicate uncertainty and impact"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-applied_scientist-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-applied_scientist-02.responsibility",
+          "statement": "Own choose baselines.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-applied_scientist-02.competency",
+          "statement": "Demonstrate baseline selection with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-applied_scientist-02.success",
+          "statement": "Success requires reproducible reasoning about pre-registered metrics and confidence intervals.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "experimental design",
+        "statistics",
+        "machine learning",
+        "baseline selection",
+        "causal reasoning",
+        "business relevance"
+      ],
+      "roleFamily": "Applied Scientist",
+      "roleFamilyID": "applied_scientist",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Applied Scientist"
+    },
+    {
+      "coreResponsibilities": [
+        "turn product questions into hypotheses",
+        "choose baselines",
+        "design experiments",
+        "communicate uncertainty and impact"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-applied_scientist-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-applied_scientist-03.responsibility",
+          "statement": "Own design experiments.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-applied_scientist-03.competency",
+          "statement": "Demonstrate causal reasoning with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-applied_scientist-03.success",
+          "statement": "Success requires reproducible reasoning about pre-registered metrics and confidence intervals.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "experimental design",
+        "statistics",
+        "machine learning",
+        "baseline selection",
+        "causal reasoning",
+        "business relevance"
+      ],
+      "roleFamily": "Applied Scientist",
+      "roleFamilyID": "applied_scientist",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-amazon-science-careers",
+        "source-microsoft-research-careers",
+        "source-deepmind-careers"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Applied Scientist"
+    },
+    {
+      "coreResponsibilities": [
+        "identify a research gap",
+        "develop falsifiable methods",
+        "compare strong baselines",
+        "publish limitations and future work"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-ai_research_scientist_phd-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-ai_research_scientist_phd-01.responsibility",
+          "statement": "Own identify a research gap.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-ai_research_scientist_phd-01.competency",
+          "statement": "Demonstrate falsifiability with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-ai_research_scientist_phd-01.success",
+          "statement": "Success requires reproducible reasoning about matched baselines, ablations, and uncertainty estimates.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "literature synthesis",
+        "methodology",
+        "falsifiability",
+        "statistical validity",
+        "novelty",
+        "research communication"
+      ],
+      "roleFamily": "AI Research Scientist / PhD Interview",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true,
+      "title": "Graduate AI Research Scientist / PhD Interview"
+    },
+    {
+      "coreResponsibilities": [
+        "identify a research gap",
+        "develop falsifiable methods",
+        "compare strong baselines",
+        "publish limitations and future work"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-ai_research_scientist_phd-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-ai_research_scientist_phd-02.responsibility",
+          "statement": "Own develop falsifiable methods.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-ai_research_scientist_phd-02.competency",
+          "statement": "Demonstrate statistical validity with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-ai_research_scientist_phd-02.success",
+          "statement": "Success requires reproducible reasoning about matched baselines, ablations, and uncertainty estimates.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "literature synthesis",
+        "methodology",
+        "falsifiability",
+        "statistical validity",
+        "novelty",
+        "research communication"
+      ],
+      "roleFamily": "AI Research Scientist / PhD Interview",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true,
+      "title": "Mid-level AI Research Scientist / PhD Interview"
+    },
+    {
+      "coreResponsibilities": [
+        "identify a research gap",
+        "develop falsifiable methods",
+        "compare strong baselines",
+        "publish limitations and future work"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-ai_research_scientist_phd-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-ai_research_scientist_phd-03.responsibility",
+          "statement": "Own compare strong baselines.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-ai_research_scientist_phd-03.competency",
+          "statement": "Demonstrate novelty with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-ai_research_scientist_phd-03.success",
+          "statement": "Success requires reproducible reasoning about matched baselines, ablations, and uncertainty estimates.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "literature synthesis",
+        "methodology",
+        "falsifiability",
+        "statistical validity",
+        "novelty",
+        "research communication"
+      ],
+      "roleFamily": "AI Research Scientist / PhD Interview",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-deepmind-careers",
+        "source-microsoft-research-careers",
+        "source-apple-ml-work"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth AI Research Scientist / PhD Interview"
+    },
+    {
+      "coreResponsibilities": [
+        "automate model delivery",
+        "track artifacts and lineage",
+        "monitor serving",
+        "design rollback and recovery"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-ai_infrastructure_mlops_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-01.responsibility",
+          "statement": "Own automate model delivery.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-01.competency",
+          "statement": "Demonstrate reproducibility with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about reproducible builds and staged deployment checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "model registries",
+        "CI/CD",
+        "reproducibility",
+        "observability",
+        "security",
+        "cost control"
+      ],
+      "roleFamily": "AI Infrastructure / MLOps Engineer",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true,
+      "title": "Graduate AI Infrastructure / MLOps Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "automate model delivery",
+        "track artifacts and lineage",
+        "monitor serving",
+        "design rollback and recovery"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-ai_infrastructure_mlops_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-02.responsibility",
+          "statement": "Own track artifacts and lineage.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-02.competency",
+          "statement": "Demonstrate observability with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about reproducible builds and staged deployment checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "model registries",
+        "CI/CD",
+        "reproducibility",
+        "observability",
+        "security",
+        "cost control"
+      ],
+      "roleFamily": "AI Infrastructure / MLOps Engineer",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true,
+      "title": "Mid-level AI Infrastructure / MLOps Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "automate model delivery",
+        "track artifacts and lineage",
+        "monitor serving",
+        "design rollback and recovery"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-ai_infrastructure_mlops_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-03.responsibility",
+          "statement": "Own monitor serving.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-03.competency",
+          "statement": "Demonstrate security with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-ai_infrastructure_mlops_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about reproducible builds and staged deployment checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "model registries",
+        "CI/CD",
+        "reproducibility",
+        "observability",
+        "security",
+        "cost control"
+      ],
+      "roleFamily": "AI Infrastructure / MLOps Engineer",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-anthropic-careers",
+        "source-google-mlops"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth AI Infrastructure / MLOps Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "design versioned APIs",
+        "model durable data",
+        "operate services",
+        "debug incidents"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-backend_software_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-backend_software_engineer-01.responsibility",
+          "statement": "Own design versioned APIs.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-backend_software_engineer-01.competency",
+          "statement": "Demonstrate concurrency with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-backend_software_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about deterministic replay and tail-latency checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "API design",
+        "relational databases",
+        "concurrency",
+        "observability",
+        "testing",
+        "deployment"
+      ],
+      "roleFamily": "Backend Software Engineer",
+      "roleFamilyID": "backend_software_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true,
+      "title": "Graduate Backend Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "design versioned APIs",
+        "model durable data",
+        "operate services",
+        "debug incidents"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-backend_software_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-backend_software_engineer-02.responsibility",
+          "statement": "Own model durable data.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-backend_software_engineer-02.competency",
+          "statement": "Demonstrate observability with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-backend_software_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about deterministic replay and tail-latency checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "API design",
+        "relational databases",
+        "concurrency",
+        "observability",
+        "testing",
+        "deployment"
+      ],
+      "roleFamily": "Backend Software Engineer",
+      "roleFamilyID": "backend_software_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Backend Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "design versioned APIs",
+        "model durable data",
+        "operate services",
+        "debug incidents"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-backend_software_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-backend_software_engineer-03.responsibility",
+          "statement": "Own operate services.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-backend_software_engineer-03.competency",
+          "statement": "Demonstrate testing with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-backend_software_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about deterministic replay and tail-latency checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "API design",
+        "relational databases",
+        "concurrency",
+        "observability",
+        "testing",
+        "deployment"
+      ],
+      "roleFamily": "Backend Software Engineer",
+      "roleFamilyID": "backend_software_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-stripe-backend",
+        "source-cockroach-careers",
+        "source-cloudflare-careers"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Backend Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "reason about consistency",
+        "design failure recovery",
+        "measure capacity and latency",
+        "operate distributed storage"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-distributed_systems_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-distributed_systems_engineer-01.responsibility",
+          "statement": "Own reason about consistency.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-distributed_systems_engineer-01.competency",
+          "statement": "Demonstrate transactions with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-distributed_systems_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about fault injection with consistency and latency checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "consensus concepts",
+        "replication",
+        "transactions",
+        "fault tolerance",
+        "performance",
+        "observability"
+      ],
+      "roleFamily": "Distributed Systems Engineer",
+      "roleFamilyID": "distributed_systems_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true,
+      "title": "Graduate Distributed Systems Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "reason about consistency",
+        "design failure recovery",
+        "measure capacity and latency",
+        "operate distributed storage"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-distributed_systems_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-distributed_systems_engineer-02.responsibility",
+          "statement": "Own design failure recovery.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-distributed_systems_engineer-02.competency",
+          "statement": "Demonstrate fault tolerance with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-distributed_systems_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about fault injection with consistency and latency checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "consensus concepts",
+        "replication",
+        "transactions",
+        "fault tolerance",
+        "performance",
+        "observability"
+      ],
+      "roleFamily": "Distributed Systems Engineer",
+      "roleFamilyID": "distributed_systems_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Distributed Systems Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "reason about consistency",
+        "design failure recovery",
+        "measure capacity and latency",
+        "operate distributed storage"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-distributed_systems_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-distributed_systems_engineer-03.responsibility",
+          "statement": "Own measure capacity and latency.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-distributed_systems_engineer-03.competency",
+          "statement": "Demonstrate performance with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-distributed_systems_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about fault injection with consistency and latency checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "consensus concepts",
+        "replication",
+        "transactions",
+        "fault tolerance",
+        "performance",
+        "observability"
+      ],
+      "roleFamily": "Distributed Systems Engineer",
+      "roleFamilyID": "distributed_systems_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-cockroach-distributed",
+        "source-stripe-backend",
+        "source-openai-infrastructure"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Distributed Systems Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "ship native macOS features",
+        "manage concurrency and lifecycle",
+        "integrate AppKit and SwiftUI",
+        "validate permissions and process cleanup"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-macos_swift_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-macos_swift_engineer-01.responsibility",
+          "statement": "Own ship native macOS features.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-macos_swift_engineer-01.competency",
+          "statement": "Demonstrate AppKit interop with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-macos_swift_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about deterministic identity tests and bundled-app verification.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "Swift concurrency",
+        "MainActor",
+        "AppKit interop",
+        "audio lifecycle",
+        "TCC and signing",
+        "memory and tests"
+      ],
+      "roleFamily": "macOS / Swift Engineer",
+      "roleFamilyID": "macos_swift_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true,
+      "title": "Graduate macOS / Swift Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "ship native macOS features",
+        "manage concurrency and lifecycle",
+        "integrate AppKit and SwiftUI",
+        "validate permissions and process cleanup"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-macos_swift_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-macos_swift_engineer-02.responsibility",
+          "statement": "Own manage concurrency and lifecycle.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-macos_swift_engineer-02.competency",
+          "statement": "Demonstrate audio lifecycle with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-macos_swift_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about deterministic identity tests and bundled-app verification.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "Swift concurrency",
+        "MainActor",
+        "AppKit interop",
+        "audio lifecycle",
+        "TCC and signing",
+        "memory and tests"
+      ],
+      "roleFamily": "macOS / Swift Engineer",
+      "roleFamilyID": "macos_swift_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true,
+      "title": "Mid-level macOS / Swift Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "ship native macOS features",
+        "manage concurrency and lifecycle",
+        "integrate AppKit and SwiftUI",
+        "validate permissions and process cleanup"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-macos_swift_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-macos_swift_engineer-03.responsibility",
+          "statement": "Own integrate AppKit and SwiftUI.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-macos_swift_engineer-03.competency",
+          "statement": "Demonstrate TCC and signing with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-macos_swift_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about deterministic identity tests and bundled-app verification.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "Swift concurrency",
+        "MainActor",
+        "AppKit interop",
+        "audio lifecycle",
+        "TCC and signing",
+        "memory and tests"
+      ],
+      "roleFamily": "macOS / Swift Engineer",
+      "roleFamilyID": "macos_swift_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-apple-macos-swift",
+        "source-swift-concurrency",
+        "source-apple-swiftui"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth macOS / Swift Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build shared platform primitives",
+        "profile bottlenecks",
+        "improve reliability",
+        "support incident response"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-systems_platform_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-systems_platform_engineer-01.responsibility",
+          "statement": "Own build shared platform primitives.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-systems_platform_engineer-01.competency",
+          "statement": "Demonstrate storage with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-systems_platform_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about load, failure, and resource-boundary tests.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "operating systems",
+        "networking",
+        "storage",
+        "performance profiling",
+        "automation",
+        "reliability"
+      ],
+      "roleFamily": "Systems / Platform Engineer",
+      "roleFamilyID": "systems_platform_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true,
+      "title": "Graduate Systems / Platform Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build shared platform primitives",
+        "profile bottlenecks",
+        "improve reliability",
+        "support incident response"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-systems_platform_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-systems_platform_engineer-02.responsibility",
+          "statement": "Own profile bottlenecks.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-systems_platform_engineer-02.competency",
+          "statement": "Demonstrate performance profiling with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-systems_platform_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about load, failure, and resource-boundary tests.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "operating systems",
+        "networking",
+        "storage",
+        "performance profiling",
+        "automation",
+        "reliability"
+      ],
+      "roleFamily": "Systems / Platform Engineer",
+      "roleFamilyID": "systems_platform_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Systems / Platform Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "build shared platform primitives",
+        "profile bottlenecks",
+        "improve reliability",
+        "support incident response"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-systems_platform_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-systems_platform_engineer-03.responsibility",
+          "statement": "Own improve reliability.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-systems_platform_engineer-03.competency",
+          "statement": "Demonstrate automation with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-systems_platform_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about load, failure, and resource-boundary tests.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "operating systems",
+        "networking",
+        "storage",
+        "performance profiling",
+        "automation",
+        "reliability"
+      ],
+      "roleFamily": "Systems / Platform Engineer",
+      "roleFamilyID": "systems_platform_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-openai-infrastructure",
+        "source-cloudflare-careers",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Systems / Platform Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "define decision metrics",
+        "audit data quality",
+        "design experiments",
+        "communicate uncertainty"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-data_scientist-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-data_scientist-01.responsibility",
+          "statement": "Own define decision metrics.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-data_scientist-01.competency",
+          "statement": "Demonstrate experimentation with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-data_scientist-01.success",
+          "statement": "Success requires reproducible reasoning about time-based validation and calibrated intervals.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "SQL",
+        "statistics",
+        "experimentation",
+        "causal inference",
+        "data quality",
+        "stakeholder communication"
+      ],
+      "roleFamily": "Data Scientist",
+      "roleFamilyID": "data_scientist",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true,
+      "title": "Graduate Data Scientist"
+    },
+    {
+      "coreResponsibilities": [
+        "define decision metrics",
+        "audit data quality",
+        "design experiments",
+        "communicate uncertainty"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-data_scientist-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-data_scientist-02.responsibility",
+          "statement": "Own audit data quality.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-data_scientist-02.competency",
+          "statement": "Demonstrate causal inference with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-data_scientist-02.success",
+          "statement": "Success requires reproducible reasoning about time-based validation and calibrated intervals.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "SQL",
+        "statistics",
+        "experimentation",
+        "causal inference",
+        "data quality",
+        "stakeholder communication"
+      ],
+      "roleFamily": "Data Scientist",
+      "roleFamilyID": "data_scientist",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Data Scientist"
+    },
+    {
+      "coreResponsibilities": [
+        "define decision metrics",
+        "audit data quality",
+        "design experiments",
+        "communicate uncertainty"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-data_scientist-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-data_scientist-03.responsibility",
+          "statement": "Own design experiments.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-data_scientist-03.competency",
+          "statement": "Demonstrate data quality with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-data_scientist-03.success",
+          "statement": "Success requires reproducible reasoning about time-based validation and calibrated intervals.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "SQL",
+        "statistics",
+        "experimentation",
+        "causal inference",
+        "data quality",
+        "stakeholder communication"
+      ],
+      "roleFamily": "Data Scientist",
+      "roleFamilyID": "data_scientist",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-airbnb-data-science",
+        "source-openai-data-science",
+        "source-nvidia-teams"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Data Scientist"
+    },
+    {
+      "coreResponsibilities": [
+        "implement scoped features",
+        "write tests",
+        "debug with evidence",
+        "learn and communicate clearly"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-graduate_software_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-graduate_software_engineer-01.responsibility",
+          "statement": "Own implement scoped features.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-graduate_software_engineer-01.competency",
+          "statement": "Demonstrate testing with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-graduate_software_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about unit tests and reproducible integration checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "programming fundamentals",
+        "data structures",
+        "testing",
+        "version control",
+        "problem decomposition",
+        "learning agility"
+      ],
+      "roleFamily": "Graduate Software Engineer",
+      "roleFamilyID": "graduate_software_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true,
+      "title": "Graduate Graduate Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "implement scoped features",
+        "write tests",
+        "debug with evidence",
+        "learn and communicate clearly"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-graduate_software_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-graduate_software_engineer-02.responsibility",
+          "statement": "Own write tests.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-graduate_software_engineer-02.competency",
+          "statement": "Demonstrate version control with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-graduate_software_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about unit tests and reproducible integration checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "programming fundamentals",
+        "data structures",
+        "testing",
+        "version control",
+        "problem decomposition",
+        "learning agility"
+      ],
+      "roleFamily": "Graduate Software Engineer",
+      "roleFamilyID": "graduate_software_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Graduate Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "implement scoped features",
+        "write tests",
+        "debug with evidence",
+        "learn and communicate clearly"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-graduate_software_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-graduate_software_engineer-03.responsibility",
+          "statement": "Own debug with evidence.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-graduate_software_engineer-03.competency",
+          "statement": "Demonstrate problem decomposition with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-graduate_software_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about unit tests and reproducible integration checks.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "programming fundamentals",
+        "data structures",
+        "testing",
+        "version control",
+        "problem decomposition",
+        "learning agility"
+      ],
+      "roleFamily": "Graduate Software Engineer",
+      "roleFamilyID": "graduate_software_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-openai-emerging-talent",
+        "source-microsoft-recent-graduate",
+        "source-nvidia-university"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Graduate Software Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "turn ambiguity into product increments",
+        "own systems end to end",
+        "balance research and delivery",
+        "build safety and observability early"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-founding_startup_ai_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-founding_startup_ai_engineer-01.responsibility",
+          "statement": "Own turn ambiguity into product increments.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-founding_startup_ai_engineer-01.competency",
+          "statement": "Demonstrate applied AI with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-founding_startup_ai_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about small controlled pilots and explicit rollback criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "product judgment",
+        "full-stack ownership",
+        "applied AI",
+        "rapid validation",
+        "reliability",
+        "clear trade-offs"
+      ],
+      "roleFamily": "Founding Engineer / Startup AI Engineer",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true,
+      "title": "Graduate Founding Engineer / Startup AI Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "turn ambiguity into product increments",
+        "own systems end to end",
+        "balance research and delivery",
+        "build safety and observability early"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-founding_startup_ai_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-founding_startup_ai_engineer-02.responsibility",
+          "statement": "Own own systems end to end.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-founding_startup_ai_engineer-02.competency",
+          "statement": "Demonstrate rapid validation with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-founding_startup_ai_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about small controlled pilots and explicit rollback criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "product judgment",
+        "full-stack ownership",
+        "applied AI",
+        "rapid validation",
+        "reliability",
+        "clear trade-offs"
+      ],
+      "roleFamily": "Founding Engineer / Startup AI Engineer",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Founding Engineer / Startup AI Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "turn ambiguity into product increments",
+        "own systems end to end",
+        "balance research and delivery",
+        "build safety and observability early"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-founding_startup_ai_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-founding_startup_ai_engineer-03.responsibility",
+          "statement": "Own balance research and delivery.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-founding_startup_ai_engineer-03.competency",
+          "statement": "Demonstrate reliability with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-founding_startup_ai_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about small controlled pilots and explicit rollback criteria.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "product judgment",
+        "full-stack ownership",
+        "applied AI",
+        "rapid validation",
+        "reliability",
+        "clear trade-offs"
+      ],
+      "roleFamily": "Founding Engineer / Startup AI Engineer",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-cognition-careers",
+        "source-figure-careers",
+        "source-deepmind-accelerator"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Founding Engineer / Startup AI Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "threat-model systems",
+        "minimize sensitive data",
+        "verify controls",
+        "respond to security failures"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-security_privacy_engineer-01",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-security_privacy_engineer-01.responsibility",
+          "statement": "Own threat-model systems.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-security_privacy_engineer-01.competency",
+          "statement": "Demonstrate privacy engineering with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-security_privacy_engineer-01.success",
+          "statement": "Success requires reproducible reasoning about canary scans and least-data test cases.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "threat modeling",
+        "secure design",
+        "privacy engineering",
+        "logging discipline",
+        "incident response",
+        "supply-chain risk"
+      ],
+      "roleFamily": "Security / Privacy Engineer",
+      "roleFamilyID": "security_privacy_engineer",
+      "seniority": "graduate",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true,
+      "title": "Graduate Security / Privacy Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "threat-model systems",
+        "minimize sensitive data",
+        "verify controls",
+        "respond to security failures"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-security_privacy_engineer-02",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-security_privacy_engineer-02.responsibility",
+          "statement": "Own minimize sensitive data.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-security_privacy_engineer-02.competency",
+          "statement": "Demonstrate logging discipline with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-security_privacy_engineer-02.success",
+          "statement": "Success requires reproducible reasoning about canary scans and least-data test cases.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "threat modeling",
+        "secure design",
+        "privacy engineering",
+        "logging discipline",
+        "incident response",
+        "supply-chain risk"
+      ],
+      "roleFamily": "Security / Privacy Engineer",
+      "roleFamilyID": "security_privacy_engineer",
+      "seniority": "mid_level",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true,
+      "title": "Mid-level Security / Privacy Engineer"
+    },
+    {
+      "coreResponsibilities": [
+        "threat-model systems",
+        "minimize sensitive data",
+        "verify controls",
+        "respond to security failures"
+      ],
+      "forbiddenExperienceClaims": [
+        "A job requirement is not candidate experience.",
+        "Seniority does not prove people-management experience."
+      ],
+      "id": "opportunity-security_privacy_engineer-03",
+      "opportunityEvidence": [
+        {
+          "id": "opportunity-security_privacy_engineer-03.responsibility",
+          "statement": "Own verify controls.",
+          "type": "responsibility"
+        },
+        {
+          "id": "opportunity-security_privacy_engineer-03.competency",
+          "statement": "Demonstrate incident response with explicit evidence.",
+          "type": "required_skill"
+        },
+        {
+          "id": "opportunity-security_privacy_engineer-03.success",
+          "statement": "Success requires reproducible reasoning about canary scans and least-data test cases.",
+          "type": "evaluation_criterion"
+        }
+      ],
+      "requiredCompetencies": [
+        "threat modeling",
+        "secure design",
+        "privacy engineering",
+        "logging discipline",
+        "incident response",
+        "supply-chain risk"
+      ],
+      "roleFamily": "Security / Privacy Engineer",
+      "roleFamilyID": "security_privacy_engineer",
+      "seniority": "senior_research_depth",
+      "sourceProvenanceIDs": [
+        "source-apple-privacy",
+        "source-cloudflare-privacy",
+        "source-openai-ai-safety"
+      ],
+      "synthetic": true,
+      "title": "Senior / Research-depth Security / Privacy Engineer"
+    }
+  ],
+  "synthetic": true
+}
