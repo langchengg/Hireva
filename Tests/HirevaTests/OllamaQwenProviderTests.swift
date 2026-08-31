@@ -410,6 +410,67 @@ struct OllamaQwenProviderTests {
     }
 
     @Test @MainActor
+    func ollamaDebuggingRecoveryPromptNamesTheFailureBeforeEvidenceDetails() async throws {
+        let question = "What was the hardest failure when you applied that approach to the requirement to build perception pipelines?"
+        let rejected = "I isolated rare-lighting false positives through inference profiling and annotation checks."
+        let accepted = "I can support rare-lighting false positives as the failure. I isolated them through inference profiling and annotation checks."
+        let rejectedAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: rejected,
+            sayFirst: rejected,
+            stageBCompleted: true
+        )
+        let acceptedAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: accepted,
+            sayFirst: accepted,
+            stageBCompleted: true
+        )
+        #expect(rejectedAlignment.verdict == .mismatched)
+        #expect(rejectedAlignment.missingThemes.contains("question topic"))
+        #expect(acceptedAlignment.verdict == .aligned)
+
+        let runtime = try makeRuntime(
+            evidence: "Built a multi-camera defect-detection prototype on a licensed synthetic image set. Isolated rare-lighting false positives through inference profiling and annotation checks.",
+            question: question
+        )
+        let guidanceNeedle = "Name the failure or challenge explicitly in the first sentence"
+        let provider = InstructionConditionedDiagnosticMockLocalLLMProvider(
+            requiredInstruction: guidanceNeedle,
+            answerWithoutInstruction: rejected,
+            answerWithInstruction: accepted
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "Multi-camera defect detection and rare-lighting false-positive analysis.",
+            jdSummary: "Computer Vision Engineer.",
+            generationID: runtime.generationID,
+            cardID: "debugging-recovery-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 3)
+        #expect(provider.requests.last?.prompt.contains(guidanceNeedle) == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == accepted)
+        #expect(runtime.appState.ollamaLifecycleEvents.filter {
+            $0.name == "answer.alignment.completed" && $0.failureCategory != nil
+        }.count == 2)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
     func ollamaSupportRecoveryPromptRequiresAProspectivePreference() async throws {
         let question = "What support would help you improve faster?"
         let rejected = "I received weekly executive mentoring that accelerated my promotion."
@@ -655,6 +716,50 @@ private final class SequencedDiagnosticMockLocalLLMProvider: LocalLLMProvider {
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
         requests.append(request)
         let answer = answers.isEmpty ? "" : answers.removeFirst()
+        return AsyncThrowingStream { continuation in
+            continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
+            continuation.finish()
+        }
+    }
+}
+
+private final class InstructionConditionedDiagnosticMockLocalLLMProvider: LocalLLMProvider {
+    let id = "instruction-conditioned-diagnostic-mock"
+    let displayName = "Instruction Conditioned Diagnostic Mock"
+    let requiredInstruction: String
+    let answerWithoutInstruction: String
+    let answerWithInstruction: String
+    private(set) var requests: [LocalLLMRequest] = []
+
+    init(
+        requiredInstruction: String,
+        answerWithoutInstruction: String,
+        answerWithInstruction: String
+    ) {
+        self.requiredInstruction = requiredInstruction
+        self.answerWithoutInstruction = answerWithoutInstruction
+        self.answerWithInstruction = answerWithInstruction
+    }
+
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        LocalLLMHealth(
+            ollamaRunning: true,
+            selectedModel: modelName,
+            modelInstalled: true,
+            providerSource: .ollamaQwen,
+            lastError: nil
+        )
+    }
+
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        requests.append(request)
+        let answer = request.prompt.contains(requiredInstruction)
+            ? answerWithInstruction
+            : answerWithoutInstruction
         return AsyncThrowingStream { continuation in
             continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
             continuation.finish()

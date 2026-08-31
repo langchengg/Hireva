@@ -716,6 +716,12 @@ extension AppState {
             """
         }
         switch IntentRouter.answerIntent(for: question.questionText) {
+        case .technicalChallenge, .errorHandling, .perceptionDebugging,
+             .systemIntegrationDebugging, .simToRealDebugging:
+            return """
+            This is a failure or debugging question. Name the failure or challenge explicitly in the first sentence, then state the supported diagnosis or action. Include how it was checked or validated only when the selected candidate evidence states that detail.
+            Use only the selected candidate evidence. Do not turn the role requirement into personal experience or invent a cause, mitigation, validation result, metric, or outcome.
+            """
         case .technicalTradeoff:
             return """
             This is a trade-off question. Name the competing constraints, then explicitly state what you would choose, prioritize, recommend, or propose and explain the consequence or rationale.
