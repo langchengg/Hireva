@@ -6,6 +6,12 @@ import Foundation
 enum IntentRouter {
     static func answerIntent(for questionText: String) -> AnswerRelevanceIntent {
         let text = normalize(questionText)
+        if isDeclarativeConfirmationQuestion(questionText) {
+            // A tag question asks the candidate to confirm or reject the stated
+            // premise. Technical words inside that premise must not turn the
+            // expected answer shape into a comparison or debugging walkthrough.
+            return .generic
+        }
         if containsAny(text, ["what questions would you ask", "what would you ask the", "before accepting an offer"]) {
             return .interviewerQuestions
         }
@@ -200,6 +206,16 @@ enum IntentRouter {
 
     static func isRobotDecisionInformationQuestion(_ text: String) -> Bool {
         isDecisionRequirementsQuestion(text)
+    }
+
+    private static func isDeclarativeConfirmationQuestion(_ text: String) -> Bool {
+        let patterns = [
+            #",\s*(?:right|correct)\s*\??\s*$"#,
+            #",\s*(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|can['’]?t|couldn['’]?t|wouldn['’]?t|won['’]?t|shouldn['’]?t)\s+(?:it|you|they|he|she|we)\s*\?\s*$"#
+        ]
+        return patterns.contains { pattern in
+            text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
 
     static func isPerceptionControlReliabilityQuestion(_ text: String) -> Bool {

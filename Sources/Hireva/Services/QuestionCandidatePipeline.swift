@@ -260,7 +260,22 @@ enum MultiQuestionSplitter {
             "\\bwill\\s+you\\b",
             "\\byou\\s+have\\b.{0,140}\\b(?:right|correct)\\b"
         ]
+        // Interviewers often challenge an unsupported personal claim with a
+        // declarative confirmation question: "You deployed it, correct?" or
+        // "The result improved, wasn't it?". These are questions even though
+        // the anchor clause has declarative word order. Requiring either a
+        // comma-delimited lexical tag or a terminal grammatical tag avoids
+        // treating ordinary statements such as "Your result was correct." as
+        // questions.
+        let declarativeConfirmationStarts = [
+            "^\\s*(?:you|the|this|that|it|we|your)\\b[^?\\n]{3,220}(?:,\\s*(?:right|correct)\\s*\\??|\\s+(?:right|correct)\\s*\\?)\\s*$",
+            "^\\s*(?:you|the|this|that|it|we|your)\\b[^?\\n]{3,220},\\s*(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|can['’]?t|couldn['’]?t|wouldn['’]?t|won['’]?t|shouldn['’]?t)\\s+(?:it|you|they|he|she|we)\\s*\\?\\s*$",
+            "^\\s*you\\b[^?\\n]{3,220},\\s*so\\s+(?:which|what|how)\\b[^?\\n]{3,220}\\?\\s*$"
+        ]
         let imperativeQuestionStarts = [
+            "^compare(?:\\s+and\\s+contrast)?\\b",
+            "^contrast\\b",
+            "^distinguish\\b",
             "\\btell\\s+me\\s+about\\b",
             "\\btell\\s+us\\s+about\\b",
             "\\btell\\s+(?:me|us)\\s+(?:how|what|why|which|where|when)\\b",
@@ -281,6 +296,8 @@ enum MultiQuestionSplitter {
             "\\bsuppose\\b"
         ]
         let whQuestionStarts = [
+            "^what\\s+(?:evidence|limitation|constraint|risk|result|baseline|trade[- ]?off)\\b",
+            "^what\\s+(?:work[- ]authorization|availability)\\b",
             "\\bwhat\\s+(?:happened|happens)\\b",
             "^what\\s+(?:causes|caused|creates|created|prevents|prevented|affects|affected|attracts|attracted|motivates|motivated)\\b",
             "\\bwhat\\s+questions?\\s+(?:would|do|should|could)\\b",
@@ -319,6 +336,7 @@ enum MultiQuestionSplitter {
             "\\bsince\\b.{0,140}\\b(?:how|what|which|why)\\b"
         ]
         let patterns = auxiliaryQuestionStarts +
+            declarativeConfirmationStarts +
             imperativeQuestionStarts +
             conditionalQuestionStarts +
             whQuestionStarts +
@@ -552,29 +570,33 @@ enum MultiQuestionSplitter {
         }
         let whPrefixes = ["what ", "which ", "how ", "why ", "where ", "when ", "who "]
         let auxiliaryTails = [
-            "would you ", "could you ", "should you ",
+            "would you ", "could you ", "should you ", "can you ",
             "did you ", "do you ", "does ", "was ", "were ", "is ", "are "
         ]
-        let previousWords = Set(previous.split(whereSeparator: \.isWhitespace).map(String.init))
         let finiteQuestionVerbs: Set<String> = [
             "am", "is", "are", "was", "were",
             "do", "does", "did", "have", "has", "had",
             "can", "could", "will", "would", "should"
         ]
         guard auxiliaryTails.contains(where: current.hasPrefix) else { return false }
-        if whPrefixes.contains(where: previous.hasPrefix) {
-            return previousWords.isDisjoint(with: finiteQuestionVerbs)
-        }
 
         // A temporal or conversational preface can precede the WH phrase,
         // e.g. "Before you finish, which signal would you investigate?".
-        // The auxiliary is still part of that same question, not a new one.
+        // A compound question can also contain the same WH marker twice. Use
+        // the final WH phrase so an earlier finite verb does not make the
+        // auxiliary in "and what baseline would you use" look independent.
         let whMarkers = [" what ", " which ", " how ", " why ", " where ", " when ", " who "]
-        guard let marker = whMarkers
-            .compactMap({ previous.range(of: $0)?.lowerBound })
+        let lastMarker = whMarkers
+            .compactMap({ previous.range(of: $0, options: [.backwards])?.lowerBound })
             .max()
-        else { return false }
-        let whPhrase = String(previous[marker...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let whPhrase: String
+        if let lastMarker {
+            whPhrase = String(previous[lastMarker...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if whPrefixes.contains(where: previous.hasPrefix) {
+            whPhrase = previous
+        } else {
+            return false
+        }
         let whWords = Set(whPhrase.split(whereSeparator: \.isWhitespace).map(String.init))
         return whWords.isDisjoint(with: finiteQuestionVerbs)
     }

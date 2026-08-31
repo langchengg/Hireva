@@ -7,6 +7,19 @@ import Testing
 @MainActor
 struct QuestionAnswerAlignmentTests {
     @Test
+    func falsePremiseConfirmationUsesDirectAnswerShapeInsteadOfEmbeddedTechnicalKeywords() {
+        let question = "You deployed this to one million users while solving sim-to-real failures, correct?"
+        let answer = "I do not have evidence for that production-scale or sim-to-real claim. My documented work is limited to a synthetic evaluation, so I would not present it as a deployment."
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question,
+            answerText: answer
+        )
+
+        #expect(alignment.questionIntent == .generic)
+        #expect(alignment.verdict == .aligned, "Alignment error: \(alignment.reason)")
+    }
+
+    @Test
     func technicalChallengeAcceptsHarderBecauseUncertaintyAnswer() {
         let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
             questionText: "What made production execution harder than the test environment?",

@@ -7,6 +7,69 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func campaignImperativeAndLongWHQuestionFamiliesAreAcceptedWithoutNarrativeFalsePositives() {
+        let questions = [
+            "Compare pairwise and listwise ranking under the same evaluation constraint.",
+            "What limitation in your ranking-model pipeline matters most for training reproducibility?",
+            "What evidence from your robot task execution stack best prepares you for this Robotics Software Engineer role?",
+            "What evidence from your early-stage AI workflow prototype best prepares you for this Founding Engineer / Startup AI Engineer role?",
+            "You already mastered concurrency, so which result proves it?",
+        ]
+        for question in questions {
+            let expected = question.hasSuffix(".") ? String(question.dropLast()) : question
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [expected], "Missed campaign question: \(question)")
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        }
+
+        let statements = [
+            "The report compares pairwise and listwise ranking under one evaluation constraint.",
+            "I described what limitation mattered most for training reproducibility.",
+            "You already mastered concurrency, so the result proves it.",
+        ]
+        for statement in statements {
+            #expect(QuestionCandidatePipeline.extract(from: statement).isEmpty, "False trigger for statement: \(statement)")
+        }
+    }
+
+    @Test
+    func repeatedWHAndAuxiliaryMarkersPreserveTheCompleteQuestion() {
+        let questions = [
+            "What result would falsify your approach to model evaluation, and what baseline would you use?",
+            "What work-authorization or availability facts can you state with evidence for this interview process?",
+        ]
+
+        for question in questions {
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        }
+    }
+
+    @Test
+    func confirmationTagFalsePremisesAreQuestionsWithoutNarrativeFalsePositives() {
+        let falsePremiseQuestions = [
+            "You deployed this to thousands of users, correct?",
+            "You trained the foundation model from scratch, right?",
+            "The improvement was twenty percent, wasn't it?",
+            "You managed a large team, correct?",
+            "You delivered the system globally, correct",
+        ]
+        for question in falsePremiseQuestions {
+            #expect(QuestionCandidatePipeline.extract(from: question).count == 1, "Missed confirmation question: \(question)")
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        }
+
+        let statements = [
+            "Your result was correct.",
+            "You used the correct model configuration.",
+            "I recorded that you deployed it correctly.",
+            "The report describes the right recovery procedure.",
+        ]
+        for statement in statements {
+            #expect(QuestionCandidatePipeline.extract(from: statement).isEmpty, "False trigger for statement: \(statement)")
+        }
+    }
+
+    @Test
     func modalImprovementAndEvidenceQuestionsAreAcceptedWithoutEmbeddedStatements() {
         let positiveQuestions = [
             "What would you improve next?",

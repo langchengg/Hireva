@@ -76,6 +76,29 @@ struct InterviewDialogueModeTests {
     }
 
     @Test
+    func systemAudioChecksAreLogisticsWhileSubstantiveAudioQuestionsStillTrigger() {
+        let state = DialogueRuntimeState.initial(for: .auto)
+        let audioChecks = [
+            "Can you hear me?",
+            "Can you hear me clearly?",
+            "Can everyone hear me?",
+            "Is my audio clear?",
+        ]
+
+        for text in audioChecks {
+            let decision = decide(systemQuestion(text), state: state)
+            #expect(!decision.shouldEvaluateQuestion, "Audio check triggered: \(text)")
+            #expect(decision.decision == .suppressLogistics)
+        }
+
+        let substantive = decide(
+            systemQuestion("Can you explain how you would isolate an audio route failure?"),
+            state: state
+        )
+        #expect(substantive.shouldEvaluateQuestion)
+    }
+
+    @Test
     func presentationSuppressesCandidateSpeech() {
         let state = DialogueRuntimeState.initial(for: .presentation)
         let decision = decide(

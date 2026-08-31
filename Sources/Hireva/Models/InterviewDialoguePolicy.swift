@@ -489,6 +489,18 @@ enum InterviewDialogueTriggerPolicy {
     }
 
     private static func isLogistics(_ text: String) -> Bool {
+        let audioChecks = [
+            "can you hear me",
+            "can you hear me clearly",
+            "can everyone hear me",
+            "can everyone hear me clearly",
+            "can you hear us",
+            "is my audio clear",
+            "is the audio clear"
+        ]
+        if audioChecks.contains(text) {
+            return true
+        }
         let phrases = [
             "you can start when you are ready",
             "you can start when ready",
