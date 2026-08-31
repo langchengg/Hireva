@@ -47,6 +47,24 @@ struct AnswerClaimValidator {
 
     private func isPersonalClaim(_ sentence: String) -> Bool {
         let lower = " " + sentence.lowercased() + " "
+        let evidenceDenials = [
+            " i do not have evidence ",
+            " i don't have evidence ",
+            " i don’t have evidence ",
+            " i have no evidence ",
+            " i cannot substantiate ",
+            " i can't substantiate ",
+            " i can’t substantiate "
+        ]
+        if evidenceDenials.contains(where: lower.contains) {
+            let affirmativeContinuation = [
+                " but i ", " however i ", " although i ", " yet i ",
+                " and i ", "; i "
+            ].contains(where: lower.contains)
+            if !affirmativeContinuation {
+                return false
+            }
+        }
         let prospectivePlan = [
             " i would ", " i'd ", " i’d ", " i will ", " i'll ", " i’ll ",
             " we would ", " we'd ", " we’d ", " we will ", " we'll ", " we’ll ",
@@ -58,12 +76,12 @@ struct AnswerClaimValidator {
             " previously ", " in my previous ", " in our previous "
         ].contains { lower.contains($0) }
         let completedExperienceVerb = [
-            " built ", " developed ", " implemented ", " led ", " owned ", " managed ",
+            " built ", " developed ", " implemented ", " led ", " owned ",
             " worked ", " used ", " designed ", " delivered ", " improved ", " reduced ",
-            " completed ", " published ", " studied ", " controlled ", " operated ", " trained ",
+            " completed ", " published ", " studied ", " operated ", " trained ",
             " evaluated ", " validated ", " tested ", " integrated ", " contributed ", " achieved ",
             " demonstrated ", " observed ", " encountered ", " experienced "
-        ].contains { lower.contains($0) }
+        ].contains { lower.contains($0) } || containsPastPersonalAmbiguousAction(lower)
         if prospectivePlan && !referencesPastExperience && !completedExperienceVerb {
             return false
         }
@@ -73,6 +91,11 @@ struct AnswerClaimValidator {
         let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model "]
             .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
         return firstPerson && (claimVerb || personalAsset)
+    }
+
+    private func containsPastPersonalAmbiguousAction(_ text: String) -> Bool {
+        let pattern = #"\b(?:i|we|i['’]ve|we['’]ve)\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\s+){0,3}(?:controlled|managed)\b"#
+        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private func personalExperienceEventIsSupported(claim: String, evidence: String) -> Bool {

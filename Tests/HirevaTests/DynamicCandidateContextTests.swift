@@ -384,6 +384,78 @@ struct DynamicCandidateContextTests {
     }
 
     @Test
+    func explicitEvidenceDenialIsNotTreatedAsUnsupportedPersonalExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I do not have evidence for that production-scale claim or for any revenue result.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
+    func evidenceDenialCannotHideASeparateUnsupportedPersonalClaim() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I do not have evidence for that revenue result, but I deployed the system globally.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+    }
+
+    @Test
+    func controlledAsProspectiveExperimentAdjectiveIsNotPastExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I would use small controlled pilots and explicit rollback criteria before choosing.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
+    func controlledAsPastPersonalActionStillRequiresEvidence() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I controlled the robot through a difficult recovery manoeuvre.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+    }
+
+    @Test
+    func managedAsTechnologyAdjectiveIsNotPastExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I would compare custom models and managed APIs under the same checks.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
+    func managedAsPastPersonalActionStillRequiresEvidence() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I managed a team of twenty engineers.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+    }
+
+    @Test
     func prospectivePlanStillValidatesReferencedPastExperience() {
         let decision = AnswerClaimValidator().validate(
             answer: "I would apply what I built during a clinical deployment.",
