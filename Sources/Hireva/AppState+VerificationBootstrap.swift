@@ -73,6 +73,43 @@ enum HirevaVerificationEventPolicy {
         return (verificationTurnID(sessionID: sessionID, turnIndex: turnIndex), expectedQuestionNeedle)
     }
 
+    static func questionContainsExpectedNeedle(question: String, needle: String) -> Bool {
+        let normalizedQuestion = verificationComparisonText(question)
+        let normalizedNeedle = verificationComparisonText(needle)
+        return normalizedQuestion.contains(normalizedNeedle)
+    }
+
+    private static func verificationComparisonText(_ text: String) -> String {
+        var result = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(?<![\p{L}\p{N}])\d[\d,]*(?:\.\d+)?(?![\p{L}\p{N}])"#
+        ) else {
+            return QuestionTextUtilities.collapse(result)
+        }
+
+        let decimal = NumberFormatter()
+        decimal.locale = Locale(identifier: "en_US_POSIX")
+        decimal.numberStyle = .decimal
+        decimal.isLenient = false
+
+        let spellOut = NumberFormatter()
+        spellOut.locale = Locale(identifier: "en_US")
+        spellOut.numberStyle = .spellOut
+
+        let range = NSRange(location: 0, length: (result as NSString).length)
+        for match in regex.matches(in: result, range: range).reversed() {
+            let token = (result as NSString).substring(with: match.range)
+            guard let number = decimal.number(from: token),
+                  let words = spellOut.string(from: number) else {
+                continue
+            }
+            result = (result as NSString).replacingCharacters(in: match.range, with: words)
+        }
+        return QuestionTextUtilities.collapse(result)
+    }
+
     static func finalizationReasonCode(_ reason: String?) -> String {
         switch reason {
         case "partial": return "partial"
@@ -504,14 +541,11 @@ private final class HirevaVerificationCoordinator {
     }
 
     private func matchingTurnID(for question: String) -> String {
-        let normalizedQuestion = question
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
         return expectedVisibleQuestionMatches.first { candidate in
-            let normalizedNeedle = candidate.needle
-                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                .lowercased()
-            return normalizedQuestion.contains(normalizedNeedle)
+            HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+                question: question,
+                needle: candidate.needle
+            )
         }?.turnID ?? ""
     }
 

@@ -64,6 +64,26 @@ struct VerificationBootstrapTests {
     }
 
     @Test
+    func visibleEvidenceMatchingNormalizesSpokenAndNumericNumberForms() {
+        #expect(HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "You deployed the pipeline to 1 million production users, correct?",
+            needle: "one million production users"
+        ))
+        #expect(HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "Was the measured improvement 20 percent?",
+            needle: "twenty percent"
+        ))
+        #expect(!HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "You deployed the pipeline to 2 million production users, correct?",
+            needle: "one million production users"
+        ))
+        #expect(!HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "The pipeline served one hundred test cases.",
+            needle: "one million production users"
+        ))
+    }
+
+    @Test
     func verificationEvidenceAllowlistRejectsPathsRawAnswersAndErrors() {
         #expect(HirevaVerificationEventPolicy.allows(
             event: "bootstrap.started",
