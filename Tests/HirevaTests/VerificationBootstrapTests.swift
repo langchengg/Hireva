@@ -133,10 +133,100 @@ struct VerificationBootstrapTests {
             event: "app.error",
             fields: ["error": "private-error-token"]
         ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "ollama.attempt_rejected",
+            fields: ["answer": "private-answer-token"]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "ollama.generation_failed",
+            fields: ["error": "private-error-token"]
+        ))
         #expect(!HirevaVerificationEventPolicy.allows(event: "unknown.event", fields: [:]))
         #expect(HirevaVerificationEventPolicy.finalizationReasonCode("final is longer or similar") == "final_accepted")
         #expect(HirevaVerificationEventPolicy.finalizationReasonCode("provider supplied detail") == "other")
         #expect(HirevaVerificationEventPolicy.verificationTurnID(sessionID: "session-1", turnIndex: 2) == "session-1.2")
+    }
+
+    @Test
+    func ollamaFailureEvidenceUsesOnlyClosedDiagnosticCodesAndCounts() throws {
+        let canary = "HIREVA_PRIVATE_PROVIDER_DIAGNOSTIC_CANARY"
+        let lifecycle = OllamaLifecycleEvent(
+            id: "event-1",
+            name: "answer.alignment.completed",
+            timestamp: Date(timeIntervalSince1970: 0),
+            sessionID: "session-1",
+            questionID: "question-1",
+            generationID: "generation-1",
+            contextSnapshotID: "snapshot-1",
+            candidateProfileID: "profile-1",
+            candidateProfileVersion: 1,
+            opportunityContextID: "opportunity-1",
+            opportunityContextVersion: 1,
+            domainProfileID: "computer_vision",
+            model: "qwen-test",
+            endpoint: "http://localhost:11434/api/chat",
+            streamMode: true,
+            requestMessageCount: 2,
+            systemPromptCharacters: 100,
+            userPromptCharacters: 200,
+            candidateEvidenceCount: 3,
+            opportunityEvidenceCount: 2,
+            dialogueEvidenceCount: 1,
+            estimatedPromptTokens: 100,
+            responseChunkCount: 7,
+            rawContentCharacters: 89,
+            parsedContentCharacters: 83,
+            alignmentDecision: canary,
+            failureCategory: .alignmentRejectedNonemptyContent
+        )
+
+        let attempt = try #require(HirevaVerificationEventPolicy.ollamaFailureFields(
+            lifecycle,
+            terminalState: nil
+        ))
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "ollama.attempt_rejected",
+            fields: attempt
+        ))
+        #expect(attempt["diagnosticStage"] as? String == "alignment")
+        #expect(attempt["validationCode"] as? String == "other")
+        #expect(attempt["failureCategory"] as? String == "alignment_rejected_nonempty_content")
+        #expect(attempt["responseChunkCount"] as? Int == 7)
+
+        let terminal = try #require(HirevaVerificationEventPolicy.ollamaFailureFields(
+            lifecycle,
+            terminalState: "failed"
+        ))
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "ollama.generation_failed",
+            fields: terminal
+        ))
+        #expect(terminal["terminalState"] as? String == "failed")
+
+        let unknownTerminal = try #require(HirevaVerificationEventPolicy.ollamaFailureFields(
+            lifecycle,
+            terminalState: canary
+        ))
+        #expect(unknownTerminal["terminalState"] as? String == "other")
+
+        let encoded = try JSONSerialization.data(withJSONObject: [attempt, terminal, unknownTerminal])
+        let serialized = String(decoding: encoded, as: UTF8.self)
+        #expect(!serialized.contains(canary))
+        #expect(!serialized.contains("qwen-test"))
+        #expect(!serialized.contains("localhost"))
+    }
+
+    @Test
+    func ollamaFailureEvidenceClassifiesOnlySupportedLifecycleCodes() {
+        #expect(HirevaVerificationEventPolicy.ollamaDiagnosticStageCode("answer.request.failed") == "request")
+        #expect(HirevaVerificationEventPolicy.ollamaDiagnosticStageCode("ollama.answer.parsed") == "parser")
+        #expect(HirevaVerificationEventPolicy.ollamaDiagnosticStageCode("answer.alignment.completed") == "alignment")
+        #expect(HirevaVerificationEventPolicy.ollamaDiagnosticStageCode("answer.sections.parsed") == nil)
+        #expect(HirevaVerificationEventPolicy.ollamaValidationCode("generic_or_incomplete") == "generic_or_incomplete")
+        #expect(HirevaVerificationEventPolicy.ollamaValidationCode("unsupported_personal_claim") == "unsupported_personal_claim")
+        #expect(HirevaVerificationEventPolicy.ollamaValidationCode("Rejected incomplete answer: too short.") == "incomplete_answer")
+        #expect(HirevaVerificationEventPolicy.ollamaValidationCode("Answer is missing: question topic.") == "topic_or_shape_mismatch")
+        #expect(HirevaVerificationEventPolicy.ollamaValidationCode("raw provider output") == "other")
     }
 
     @Test

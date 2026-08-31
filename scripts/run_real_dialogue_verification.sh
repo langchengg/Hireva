@@ -344,7 +344,7 @@ evidence_invalid_visible_count() {
 
 evidence_failure_count() {
     local events_path="$1"
-    jq -r 'select(.event == "bootstrap.failed" or .event == "control.next_session.failed" or .event == "app.error") | .event' "$events_path" |
+    jq -r 'select(.event == "bootstrap.failed" or .event == "control.next_session.failed" or .event == "app.error" or .event == "ollama.generation_failed") | .event' "$events_path" |
         wc -l | tr -d ' '
 }
 
@@ -363,7 +363,8 @@ evidence_unexpected_event_count() {
         "control.next_session.requested", "control.next_session.failed",
         "control.stopped", "verification.finished", "control.rejected",
         "bootstrap.ready", "sck.first_buffer", "asr.transcript",
-        "question.accepted", "generation.started", "suggestion.visible",
+        "question.accepted", "generation.started", "ollama.attempt_rejected",
+        "ollama.generation_failed", "suggestion.visible",
         "dialogue.decision", "sqlite.suggestion_count", "app.error", "status"
     ] | index($event) | not) | .event // "invalid"' "$events_path" | wc -l | tr -d ' '
 }
@@ -377,6 +378,7 @@ evidence_schema_error_count() {
         def nonnegative_integer: type == "number" and . >= 0 and floor == .;
         def positive_number: type == "number" and . > 0;
         def safe_id: type == "string" and test("^[A-Za-z0-9._-]{0,160}$");
+        def one_of($values): . as $value | ($values | index($value)) != null;
         select(
             (.event | string | not) or
             (.timestamp | string | not) or
@@ -427,6 +429,29 @@ evidence_schema_error_count() {
              elif .event == "generation.started" then
                 (exact(["sessionID", "questionID", "generationID", "contextSnapshotID"]) | not) or
                 ([.sessionID, .questionID, .generationID, .contextSnapshotID] | all(safe_id) | not)
+             elif .event == "ollama.attempt_rejected" or .event == "ollama.generation_failed" then
+                (exact(
+                    ["sessionID", "questionID", "generationID", "contextSnapshotID", "diagnosticStage", "failureCategory", "validationCode", "responseChunkCount", "rawContentCharacters", "parsedContentCharacters"] +
+                    (if .event == "ollama.generation_failed" then ["terminalState"] else [] end)
+                 ) | not) or
+                ([.sessionID, .questionID, .generationID, .contextSnapshotID] | all(safe_id) | not) or
+                (.diagnosticStage | one_of(["request", "parser", "alignment"]) | not) or
+                (.failureCategory | one_of([
+                    "provider_returned_no_content", "stream_parser_dropped_content", "response_schema_mismatch",
+                    "reasoning_received_without_final_answer", "answer_section_parser_rejected_content",
+                    "alignment_rejected_nonempty_content", "request_cancelled", "request_timed_out",
+                    "stale_generation", "stale_context_snapshot", "malformed_stream_event", "provider_http_error"
+                 ]) | not) or
+                (.validationCode | one_of([
+                    "generic_or_incomplete", "unsupported_personal_claim", "aligned", "incomplete_question",
+                    "incomplete_answer", "generic_coaching_template", "topic_or_shape_mismatch", "other"
+                 ]) | not) or
+                (.responseChunkCount | nonnegative_integer | not) or
+                (.rawContentCharacters | nonnegative_integer | not) or
+                (.parsedContentCharacters | nonnegative_integer | not) or
+                (if .event == "ollama.generation_failed" then
+                    (.terminalState | one_of(["failed", "timeout", "cancelled", "low_confidence_rejected", "other"]) | not)
+                 else false end)
              elif .event == "suggestion.visible" then
                 (exact(["sessionID", "suggestionID", "questionID", "generationID", "contextSnapshotID", "matchedTurnID", "answerCharacters", "answerProvider", "alignmentVerdict"]) | not) or
                 ([.sessionID, .suggestionID, .questionID, .generationID, .contextSnapshotID, .matchedTurnID, .answerProvider, .alignmentVerdict] | all(safe_id) | not) or

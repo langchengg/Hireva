@@ -18,6 +18,8 @@ enum HirevaVerificationEventPolicy {
         "asr.transcript": ["sessionID", "segmentID", "textCharacters", "textWords", "source", "speaker", "asrProvider", "isFinal", "finalizationReason"],
         "question.accepted": ["sessionID", "questionID", "questionCharacters", "contextSnapshotID"],
         "generation.started": ["sessionID", "questionID", "generationID", "contextSnapshotID"],
+        "ollama.attempt_rejected": ["sessionID", "questionID", "generationID", "contextSnapshotID", "diagnosticStage", "failureCategory", "validationCode", "responseChunkCount", "rawContentCharacters", "parsedContentCharacters"],
+        "ollama.generation_failed": ["sessionID", "questionID", "generationID", "contextSnapshotID", "diagnosticStage", "failureCategory", "validationCode", "responseChunkCount", "rawContentCharacters", "parsedContentCharacters", "terminalState"],
         "suggestion.visible": ["sessionID", "suggestionID", "questionID", "generationID", "contextSnapshotID", "matchedTurnID", "answerCharacters", "answerProvider", "alignmentVerdict"],
         "dialogue.decision": ["sessionID", "segmentID", "triggerDecision", "questionID", "generationID", "speaker", "source", "asrProvider"],
         "sqlite.suggestion_count": ["sessionID", "count", "latestQuestionCharacters"],
@@ -53,6 +55,76 @@ enum HirevaVerificationEventPolicy {
     static func allows(event: String, fields: [String: Any]) -> Bool {
         guard let allowedFields = allowedFieldsByEvent[event] else { return false }
         return Set(fields.keys) == allowedFields
+    }
+
+    static func ollamaFailureFields(
+        _ event: OllamaLifecycleEvent,
+        terminalState: String?
+    ) -> [String: Any]? {
+        guard let diagnosticStage = ollamaDiagnosticStageCode(event.name),
+              let failureCategory = event.failureCategory else {
+            return nil
+        }
+        var fields: [String: Any] = [
+            "sessionID": event.sessionID,
+            "questionID": event.questionID,
+            "generationID": event.generationID,
+            "contextSnapshotID": event.contextSnapshotID ?? "",
+            "diagnosticStage": diagnosticStage,
+            "failureCategory": failureCategory.rawValue,
+            "validationCode": ollamaValidationCode(event.alignmentDecision),
+            "responseChunkCount": max(0, event.responseChunkCount),
+            "rawContentCharacters": max(0, event.rawContentCharacters),
+            "parsedContentCharacters": max(0, event.parsedContentCharacters),
+        ]
+        if let terminalState {
+            fields["terminalState"] = ollamaTerminalStateCode(terminalState)
+        }
+        return fields
+    }
+
+    static func ollamaDiagnosticStageCode(_ eventName: String) -> String? {
+        switch eventName {
+        case "answer.request.failed":
+            "request"
+        case "ollama.answer.parsed":
+            "parser"
+        case "answer.alignment.completed":
+            "alignment"
+        default:
+            nil
+        }
+    }
+
+    static func ollamaValidationCode(_ decision: String) -> String {
+        let normalized = decision.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "generic_or_incomplete":
+            return "generic_or_incomplete"
+        case "unsupported_personal_claim":
+            return "unsupported_personal_claim"
+        case "aligned":
+            return "aligned"
+        case let value where value.hasPrefix("rejected incomplete question"):
+            return "incomplete_question"
+        case let value where value.hasPrefix("rejected incomplete answer"):
+            return "incomplete_answer"
+        case let value where value.hasPrefix("rejected generic coaching template"):
+            return "generic_coaching_template"
+        case let value where value.hasPrefix("answer is missing"):
+            return "topic_or_shape_mismatch"
+        default:
+            return "other"
+        }
+    }
+
+    private static func ollamaTerminalStateCode(_ state: String) -> String {
+        switch state {
+        case "failed", "timeout", "cancelled", "low_confidence_rejected":
+            state
+        default:
+            "other"
+        }
     }
 
     static func verificationTurnID(sessionID: String, turnIndex: Int) -> String {
@@ -238,6 +310,8 @@ private final class HirevaVerificationCoordinator {
     private var seenTranscriptIDs = Set<String>()
     private var seenQuestionIDs = Set<String>()
     private var seenGenerationIDs = Set<String>()
+    private var seenOllamaFailureEventIDs = Set<String>()
+    private var seenOllamaTerminalGenerationIDs = Set<String>()
     private var seenSuggestionIDs = Set<String>()
     private var firstBufferSessionIDs = Set<String>()
     private var lastTraceKey = ""
@@ -493,6 +567,38 @@ private final class HirevaVerificationCoordinator {
                 "generationID": generationID,
                 "contextSnapshotID": appState.currentSession?.contextSnapshotID ?? "",
             ])
+        }
+        for lifecycle in appState.ollamaLifecycleEvents {
+            guard let fields = HirevaVerificationEventPolicy.ollamaFailureFields(
+                lifecycle,
+                terminalState: nil
+            ), seenOllamaFailureEventIDs.insert(lifecycle.id).inserted else {
+                continue
+            }
+            emit("ollama.attempt_rejected", fields)
+        }
+        let terminal: (generationID: String, state: String)?
+        switch appState.generationUIState {
+        case let .failed(_, generationID?, _, _):
+            terminal = (generationID, "failed")
+        case let .timeout(_, generationID?, _, _):
+            terminal = (generationID, "timeout")
+        case let .cancelled(_, generationID?, _, _):
+            terminal = (generationID, "cancelled")
+        case let .lowConfidenceRejected(_, generationID?, _, _):
+            terminal = (generationID, "low_confidence_rejected")
+        default:
+            terminal = nil
+        }
+        if let terminal,
+           let lifecycle = appState.ollamaLifecycleEvents.reversed().first(where: {
+               $0.generationID == terminal.generationID && $0.failureCategory != nil
+           }),
+           let fields = HirevaVerificationEventPolicy.ollamaFailureFields(
+               lifecycle,
+               terminalState: terminal.state
+           ), seenOllamaTerminalGenerationIDs.insert(terminal.generationID).inserted {
+            emit("ollama.generation_failed", fields)
         }
         let visibleSuggestions = HirevaVerificationEventPolicy.orderedUniqueCandidates(
             history: appState.liveSuggestionHistory,

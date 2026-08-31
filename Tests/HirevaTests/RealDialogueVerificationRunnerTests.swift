@@ -357,6 +357,64 @@ struct RealDialogueVerificationRunnerTests {
         #expect(result.output.contains("forbidden_fields=1"))
     }
 
+    @Test
+    func testEvidenceValidationAcceptsSafeOllamaAttemptRejectionAfterRecovery() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let scenarioURL = temporaryDirectory.appendingPathComponent("scenario.json")
+        let eventsURL = temporaryDirectory.appendingPathComponent("events.jsonl")
+        let scenario = scenarioPayload(
+            sessions: [[turn("What did you build?", trigger: true, needle: "did you build")]],
+            expectedTurns: 1,
+            expectedTriggers: 1,
+            expectedRejects: 0
+        )
+        let scenarioData = try JSONSerialization.data(withJSONObject: scenario, options: [.sortedKeys])
+        try scenarioData.write(to: scenarioURL)
+        var events = evidenceEvents(scenarioSHA256: digest(scenarioData), answerProvider: "ollama_qwen")
+        events.insert(ollamaFailureEvent("ollama.attempt_rejected"), at: events.count - 2)
+        try writeJSONLines(events, to: eventsURL)
+
+        let result = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
+        #expect(result.status == 0)
+        #expect(result.output.contains("failures=0"))
+        #expect(result.output.contains("forbidden_fields=0"))
+        #expect(result.output.contains("unexpected_events=0"))
+        #expect(result.output.contains("schema_errors=0"))
+    }
+
+    @Test
+    func testEvidenceValidationCountsSafeOllamaTerminalFailure() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let scenarioURL = temporaryDirectory.appendingPathComponent("scenario.json")
+        let eventsURL = temporaryDirectory.appendingPathComponent("events.jsonl")
+        let scenario = scenarioPayload(
+            sessions: [[turn("What did you build?", trigger: true, needle: "did you build")]],
+            expectedTurns: 1,
+            expectedTriggers: 1,
+            expectedRejects: 0
+        )
+        let scenarioData = try JSONSerialization.data(withJSONObject: scenario, options: [.sortedKeys])
+        try scenarioData.write(to: scenarioURL)
+        var events = evidenceEvents(scenarioSHA256: digest(scenarioData), answerProvider: "ollama_qwen")
+        events.insert(ollamaFailureEvent("ollama.generation_failed", terminalState: "failed"), at: events.count - 2)
+        try writeJSONLines(events, to: eventsURL)
+
+        let result = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
+        #expect(result.status != 0)
+        #expect(result.output.contains("failures=1"))
+        #expect(result.output.contains("forbidden_fields=0"))
+        #expect(result.output.contains("unexpected_events=0"))
+        #expect(result.output.contains("schema_errors=0"))
+    }
+
     private func validateScenario(
         sessions: [[[String: Any]]],
         expectedTurns: Int,
@@ -633,6 +691,26 @@ struct RealDialogueVerificationRunnerTests {
         payload["event"] = name
         payload["timestamp"] = "2026-08-27T12:00:00Z"
         return payload
+    }
+
+    private func ollamaFailureEvent(
+        _ name: String,
+        terminalState: String? = nil
+    ) -> [String: Any] {
+        var fields: [String: Any] = [
+            "sessionID": "session-0",
+            "questionID": "question-1",
+            "generationID": "generation-1",
+            "contextSnapshotID": "snapshot-1",
+            "diagnosticStage": "alignment",
+            "failureCategory": "alignment_rejected_nonempty_content",
+            "validationCode": "unsupported_personal_claim",
+            "responseChunkCount": 7,
+            "rawContentCharacters": 89,
+            "parsedContentCharacters": 83,
+        ]
+        if let terminalState { fields["terminalState"] = terminalState }
+        return event(name, fields)
     }
 
     private func digest(_ data: Data) -> String {
