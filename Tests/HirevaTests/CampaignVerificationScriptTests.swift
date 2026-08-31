@@ -40,7 +40,8 @@ struct CampaignVerificationScriptTests {
         let scripts = [
             "run_24h_campaign.sh",
             "resume_24h_campaign.sh",
-            "campaign_status.sh"
+            "campaign_status.sh",
+            "prepare_local_integration.sh"
         ]
         for scriptName in scripts {
             let script = repositoryRoot
@@ -62,8 +63,33 @@ struct CampaignVerificationScriptTests {
         #expect(runner.contains("Active time advances\nonly while this supervisor is running"))
         #expect(runner.contains("HIREVA_FIXED_USER_HOME"))
         #expect(runner.contains("trap cleanup EXIT"))
+        #expect(runner.contains(".retry-"))
         #expect(runner.contains("git reset --hard") == false)
         #expect(runner.contains("git clean") == false)
+
+        let integrationPreflight = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "scripts/verification/prepare_local_integration.sh"
+            ),
+            encoding: .utf8
+        )
+        #expect(integrationPreflight.contains(".legacy-migration.json"))
+        #expect(integrationPreflight.contains("build_parakeet_helper.sh"))
+        #expect(integrationPreflight.contains("generate_synthetic_parakeet_fixture.sh"))
+        #expect(integrationPreflight.contains("validate_synthetic_audio_provenance.rb"))
+        #expect(integrationPreflight.contains("--probe-model"))
+        #expect(integrationPreflight.contains("qwen3.5:4b"))
+        for requiredEnvironment in [
+            "HIREVA_REAL_OLLAMA_SMOKE=1",
+            "RUN_LOCAL_QWEN_EXTRACTION_TEST=1",
+            "HIREVA_REAL_PARAKEET_STREAM_TEST=1",
+            "HIREVA_PARAKEET_HELPER_PATH",
+            "HIREVA_PARAKEET_MODEL_PATH",
+            "HIREVA_PARAKEET_TEST_AUDIO",
+            "HIREVA_PARAKEET_TEST_AUDIO_PROVENANCE"
+        ] {
+            #expect(runner.contains(requiredEnvironment))
+        }
     }
 
     @Test

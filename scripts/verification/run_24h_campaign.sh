@@ -88,6 +88,7 @@ HEARTBEAT_FILE="$STATE_DIR/heartbeat.json"
 SCENARIO_RESULTS="$ARTIFACT_DIR/results/scenario_results.jsonl"
 REAL_AUDIO_RESULTS="$ARTIFACT_DIR/results/real_audio_results.jsonl"
 ANSWER_QUALITY_RESULTS="$ARTIFACT_DIR/results/answer_quality_results.jsonl"
+LOCAL_INTEGRATION_ENVIRONMENT="$STATE_DIR/local_integration_environment.json"
 APP_HOME="$ARTIFACT_DIR/app-home"
 APP_SUPPORT_DIR="$APP_HOME/Library/Application Support/Hireva"
 LOCK_DIR="$STATE_DIR/campaign.lock"
@@ -370,6 +371,36 @@ mark_step_completed() {
          | .last_successful_gate = $gate | .last_good_commit = $head' "$STATE_FILE"
 }
 
+INTEGRATION_ENV=()
+load_local_integration_environment() {
+    [[ -f "$LOCAL_INTEGRATION_ENVIRONMENT" && ! -L "$LOCAL_INTEGRATION_ENVIRONMENT" ]] || return 1
+    jq -e '.schema_version == 1 and .synthetic_audio == true
+           and .contains_real_personal_data == false
+           and (.helper_path | type == "string")
+           and (.model_path | type == "string")
+           and (.audio_path | type == "string")
+           and (.provenance_path | type == "string")' \
+        "$LOCAL_INTEGRATION_ENVIRONMENT" >/dev/null || return 1
+    local helper_path model_path audio_path provenance_path
+    helper_path="$(jq -r '.helper_path' "$LOCAL_INTEGRATION_ENVIRONMENT")"
+    model_path="$(jq -r '.model_path' "$LOCAL_INTEGRATION_ENVIRONMENT")"
+    audio_path="$(jq -r '.audio_path' "$LOCAL_INTEGRATION_ENVIRONMENT")"
+    provenance_path="$(jq -r '.provenance_path' "$LOCAL_INTEGRATION_ENVIRONMENT")"
+    [[ -f "$helper_path" && ! -L "$helper_path" && -x "$helper_path" ]] || return 1
+    [[ -d "$model_path" && ! -L "$model_path" ]] || return 1
+    [[ -f "$audio_path" && ! -L "$audio_path" ]] || return 1
+    [[ -f "$provenance_path" && ! -L "$provenance_path" ]] || return 1
+    INTEGRATION_ENV=(
+        "HIREVA_REAL_OLLAMA_SMOKE=1"
+        "RUN_LOCAL_QWEN_EXTRACTION_TEST=1"
+        "HIREVA_REAL_PARAKEET_STREAM_TEST=1"
+        "HIREVA_PARAKEET_HELPER_PATH=$helper_path"
+        "HIREVA_PARAKEET_MODEL_PATH=$model_path"
+        "HIREVA_PARAKEET_TEST_AUDIO=$audio_path"
+        "HIREVA_PARAKEET_TEST_AUDIO_PROVENANCE=$provenance_path"
+    )
+}
+
 record_failure() {
     local step_id="$1" category="$2" reproduction="$3" log_path="$4" exit_code="$5"
     local failure_id
@@ -402,6 +433,16 @@ run_step() {
     if step_completed "$step_id"; then
         echo "[campaign] skip completed step=$step_id"
         return 0
+    fi
+    if [[ -e "$log_path" || -L "$log_path" ]]; then
+        case "$log_path" in
+            *.log) log_path="${log_path%.log}.retry-$(date -u +%Y%m%dT%H%M%SZ)-$$.log" ;;
+            *) log_path="$log_path.retry-$(date -u +%Y%m%dT%H%M%SZ)-$$" ;;
+        esac
+        [[ ! -e "$log_path" && ! -L "$log_path" ]] || {
+            echo "error: retry log path already exists: $log_path" >&2
+            return 2
+        }
     fi
     CURRENT_PHASE="$step_id"
     persist_state
@@ -439,11 +480,22 @@ run_step() {
 BASELINE_FAILURES=0
 run_step baseline-package-resolve dependency 00-package-resolve.log swift package resolve || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
 run_step baseline-build compiler 01-baseline-build.log swift build || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
-run_step baseline-test unit 02-baseline-test.log swift test || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+run_step baseline-integration-prerequisites environment 01a-baseline-integration-prerequisites.log \
+    ./scripts/verification/prepare_local_integration.sh \
+    --artifact-dir "$ARTIFACT_DIR" --state-dir "$STATE_DIR" || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+if load_local_integration_environment; then
+    run_step baseline-test unit 02-baseline-test.log env "${INTEGRATION_ENV[@]}" swift test || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+else
+    run_step baseline-test unit 02-baseline-test.log swift test || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+fi
 run_step baseline-runtime-smoke runtime 03-baseline-runtime-smoke.log ./scripts/runtime_smoke.sh --suite all || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
-run_step baseline-stability stability 04-baseline-stability.log env HIREVA_FIXED_USER_HOME="$APP_HOME" ./scripts/verify_runtime_stability.sh || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
-run_step baseline-tsan sanitizer 05-baseline-tsan.log swift test --sanitize=thread || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
-run_step baseline-asan sanitizer 06-baseline-asan.log swift test --sanitize=address || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+BASELINE_RECONCILIATION_OUTPUT="$ARTIFACT_DIR/results/stability-reconciliation-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+run_step baseline-stability stability 04-baseline-stability.log env "${INTEGRATION_ENV[@]}" \
+    HIREVA_FIXED_USER_HOME="$APP_HOME" \
+    HIREVA_RECONCILIATION_OUTPUT_DIRECTORY="$BASELINE_RECONCILIATION_OUTPUT" \
+    ./scripts/verify_runtime_stability.sh || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+run_step baseline-tsan sanitizer 05-baseline-tsan.log env "${INTEGRATION_ENV[@]}" swift test --sanitize=thread || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
+run_step baseline-asan sanitizer 06-baseline-asan.log env "${INTEGRATION_ENV[@]}" swift test --sanitize=address || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
 run_step baseline-app-verify app 07-baseline-app-verify.log env HIREVA_FIXED_USER_HOME="$APP_HOME" ./script/build_and_run.sh --verify || BASELINE_FAILURES=$((BASELINE_FAILURES + 1))
 
 if (( BASELINE_FAILURES > 0 )); then
@@ -468,7 +520,7 @@ while (( $(current_active_seconds) < TARGET_ACTIVE_SECONDS )); do
     filter_index=$((cycle % ${#FOCUSED_FILTERS[@]}))
     filter="${FOCUSED_FILTERS[$filter_index]}"
     step_id="soak-cycle-$((cycle + 1))"
-    if run_step "$step_id" soak "soak-cycle-$((cycle + 1)).log" swift test --filter "$filter"; then
+    if run_step "$step_id" soak "soak-cycle-$((cycle + 1)).log" env "${INTEGRATION_ENV[@]}" swift test --filter "$filter"; then
         atomic_jq_write "$STATE_FILE" '.completed_cycles += 1' "$STATE_FILE"
     else
         CAMPAIGN_EXIT_REASON="needs_triage"
@@ -483,7 +535,11 @@ while (( $(current_active_seconds) < TARGET_ACTIVE_SECONDS )); do
         stop_owned_runtime_processes
     fi
     if (( completed_cycles % 100 == 0 )); then
-        run_step "stability-$completed_cycles" stability "stability-$completed_cycles.log" env HIREVA_FIXED_USER_HOME="$APP_HOME" ./scripts/verify_runtime_stability.sh || {
+        SOAK_RECONCILIATION_OUTPUT="$ARTIFACT_DIR/results/stability-reconciliation-$completed_cycles-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+        run_step "stability-$completed_cycles" stability "stability-$completed_cycles.log" env "${INTEGRATION_ENV[@]}" \
+            HIREVA_FIXED_USER_HOME="$APP_HOME" \
+            HIREVA_RECONCILIATION_OUTPUT_DIRECTORY="$SOAK_RECONCILIATION_OUTPUT" \
+            ./scripts/verify_runtime_stability.sh || {
             CAMPAIGN_EXIT_REASON="needs_triage"
             exit 1
         }
@@ -493,13 +549,17 @@ done
 CURRENT_PHASE="final-gates"
 FINAL_FAILURES=0
 run_step final-build compiler final-build.log swift build || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-test-1 unit final-test-1.log swift test --enable-code-coverage || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-test-2 unit final-test-2.log swift test || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-test-3 unit final-test-3.log swift test || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-tsan sanitizer final-tsan.log swift test --sanitize=thread || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-asan sanitizer final-asan.log swift test --sanitize=address || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+run_step final-test-1 unit final-test-1.log env "${INTEGRATION_ENV[@]}" swift test --enable-code-coverage || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+run_step final-test-2 unit final-test-2.log env "${INTEGRATION_ENV[@]}" swift test || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+run_step final-test-3 unit final-test-3.log env "${INTEGRATION_ENV[@]}" swift test || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+run_step final-tsan sanitizer final-tsan.log env "${INTEGRATION_ENV[@]}" swift test --sanitize=thread || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+run_step final-asan sanitizer final-asan.log env "${INTEGRATION_ENV[@]}" swift test --sanitize=address || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 run_step final-runtime-smoke runtime final-runtime-smoke.log ./scripts/runtime_smoke.sh --suite all || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-stability stability final-stability.log env HIREVA_FIXED_USER_HOME="$APP_HOME" ./scripts/verify_runtime_stability.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+FINAL_RECONCILIATION_OUTPUT="$ARTIFACT_DIR/results/final-stability-reconciliation-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+run_step final-stability stability final-stability.log env "${INTEGRATION_ENV[@]}" \
+    HIREVA_FIXED_USER_HOME="$APP_HOME" \
+    HIREVA_RECONCILIATION_OUTPUT_DIRECTORY="$FINAL_RECONCILIATION_OUTPUT" \
+    ./scripts/verify_runtime_stability.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 run_step final-app-verify app final-app-verify.log env HIREVA_FIXED_USER_HOME="$APP_HOME" ./script/build_and_run.sh --verify || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 run_step final-db-diagnostics persistence final-db-diagnostics.log env HOME="$APP_HOME" ./scripts/db_diagnostics.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 run_step final-release-status release final-release-status.log env \
