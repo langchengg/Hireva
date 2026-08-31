@@ -391,8 +391,8 @@ struct RuntimePathSingleSourceOfTruthTests {
             "question.detected",
             "question.accepted",
             "answer.request.started",
-            "answer.first_token",
             "answer.state.updated",
+            "answer.first_token",
             "answer.ui.rendered",
             "answer.stream.completed"
         ]
