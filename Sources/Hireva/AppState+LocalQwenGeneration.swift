@@ -151,6 +151,11 @@ extension AppState {
         var lastFailureDiagnostic = lastFailureCategory.rawValue
         var firstContentRecorded = false
         var firstProviderTokenMS: Int?
+        var usedGroundedFailureJSON = false
+        let groundedFailureCandidateEvidence = localQwenGroundedFailureCandidateEvidence(
+            promptSnapshot: promptSnapshot,
+            interviewContextSnapshot: interviewContextSnapshot
+        )
         let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
         for requestIndex in requests.indices {
             let request = requests[requestIndex]
@@ -240,7 +245,15 @@ extension AppState {
                     promptSnapshot: promptSnapshot
                 )
 
-                let parsed = LocalQwenAnswerParser.parse(answer)
+                let parsed: LocalQwenParsedAnswer
+                if request.responseFormat == "json" {
+                    parsed = LocalQwenGroundedFailureParser.parse(
+                        answer,
+                        candidateEvidence: groundedFailureCandidateEvidence
+                    )
+                } else {
+                    parsed = LocalQwenAnswerParser.parse(answer)
+                }
                 cleanedAnswer = parsed.sayFirst
                 ollamaDiagnostics.sectionParserResult = parsed.sectionParserResult
                 ollamaDiagnostics.parsedContentCharacters = cleanedAnswer.count
@@ -297,6 +310,7 @@ extension AppState {
                         cleanedAnswer = ""
                         continue
                     }
+                    usedGroundedFailureJSON = request.responseFormat == "json"
                     break
                 }
                 if attempt < maxAttempts {
@@ -340,7 +354,7 @@ extension AppState {
             evidenceUsed: localRetrievedChunks.map(\.id),
             riskLevel: .low,
             modelName: modelName,
-            promptVersion: "ollama-qwen-v1",
+            promptVersion: usedGroundedFailureJSON ? "ollama-qwen-grounded-failure-v1" : "ollama-qwen-v1",
             providerKind: .ollamaLocal,
             providerName: "Ollama Qwen",
             providerBaseURL: "http://localhost:11434",
@@ -607,7 +621,18 @@ extension AppState {
         modelName: String,
         previousQuestionContext: String?
     ) -> LocalLLMRequest {
-        let evidence = ContextBudgeter.limitWords(context.promptText, maxWords: 160)
+        let candidateEvidence = localQwenRecoveryEvidence(
+            chunks: context.cvChunks,
+            fallback: cvSummary,
+            maxWords: 120,
+            emptyMessage: "No selected candidate evidence is available."
+        )
+        let opportunityContext = localQwenRecoveryEvidence(
+            chunks: context.jobDescriptionChunks,
+            fallback: jdSummary,
+            maxWords: 60,
+            emptyMessage: "No opportunity context is available."
+        )
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
@@ -620,18 +645,19 @@ extension AppState {
         Conversation context:
         \(previousContext)
 
-        Candidate/project summary:
-        \(ContextBudgeter.limitWords(cvSummary, maxWords: 90))
+        Candidate evidence allowed for personal claims:
+        <candidate_evidence>
+        \(candidateEvidence)
+        </candidate_evidence>
 
-        Role summary:
-        \(ContextBudgeter.limitWords(jdSummary, maxWords: 60))
-
-        Relevant local evidence:
-        \(evidence.isEmpty ? "No compact evidence available." : evidence)
+        Opportunity context describes the target role and must never be presented as personal experience:
+        <opportunity_context>
+        \(opportunityContext)
+        </opportunity_context>
 
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use the conversation context only to resolve pronouns such as it, that, or this.
-        State past personal experience only when it is explicit in the candidate/project summary or relevant local evidence.
+        State past personal experience only when it is explicit inside <candidate_evidence>.
         Do not turn role requirements or future plans into completed work or observed events.
         Omit implementation mechanisms, intermediate steps, tools, metrics, and causal links unless the evidence states them explicitly.
         \(intentGuidance)
@@ -668,7 +694,52 @@ extension AppState {
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
-        let groundedEvidence = ContextBudgeter.limitWords(context.promptText, maxWords: 220)
+        let candidateEvidence = localQwenRecoveryEvidence(
+            chunks: context.cvChunks,
+            fallback: "",
+            maxWords: 180,
+            emptyMessage: "No selected candidate evidence is available."
+        )
+        let opportunityContext = localQwenRecoveryEvidence(
+            chunks: context.jobDescriptionChunks,
+            fallback: "",
+            maxWords: 80,
+            emptyMessage: "No opportunity context is available."
+        )
+        if localQwenUsesGroundedFailureJSON(for: question) {
+            let prompt = """
+            /no_think
+            Current interview question:
+            \(question.questionText)
+
+            Previous question context, only for resolving pronouns:
+            \(previousContext)
+
+            Candidate evidence allowed for personal claims:
+            <candidate_evidence>
+            \(candidateEvidence)
+            </candidate_evidence>
+
+            Opportunity context is not candidate evidence and must never be presented as personal experience:
+            <opportunity_context>
+            \(opportunityContext)
+            </opportunity_context>
+
+            Return exactly one JSON object with the keys "failure" and "evidence".
+            "failure" must be a short failure or challenge phrase copied exactly and contiguously from <candidate_evidence>.
+            "evidence" must be one complete sentence copied exactly and contiguously from <candidate_evidence> that states the supported action or check.
+            Never copy from <opportunity_context>. Do not paraphrase, infer, rank, explain, or add facts.
+            Use exactly this JSON shape and no other keys: {"failure":"exact candidate-evidence phrase","evidence":"exact candidate-evidence sentence"}
+            """
+            return LocalLLMRequest(
+                prompt: prompt,
+                systemPrompt: "/no_think Return one JSON object only, using exact substrings from candidate evidence and never opportunity context.",
+                modelName: modelName,
+                temperature: 0,
+                numPredict: 180,
+                responseFormat: "json"
+            )
+        }
         let intentGuidance = localQwenRecoveryIntentGuidance(for: question)
         let prompt = """
         /no_think
@@ -678,11 +749,18 @@ extension AppState {
         Previous question context, only if needed for pronouns:
         \(previousContext)
 
-        Selected profile and opportunity evidence:
-        \(groundedEvidence.isEmpty ? "No candidate evidence is available. Do not invent a personal answer." : groundedEvidence)
+        Candidate evidence allowed for personal claims:
+        <candidate_evidence>
+        \(candidateEvidence)
+        </candidate_evidence>
+
+        Opportunity context describes the target role and must never be presented as personal experience:
+        <opportunity_context>
+        \(opportunityContext)
+        </opportunity_context>
 
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
-        Use only personal facts supported by the selected profile evidence. Treat opportunity requirements as targets, never as completed achievements.
+        Use only personal facts supported inside <candidate_evidence>. Treat <opportunity_context> as targets, never as completed achievements.
         Do not invent observations, incidents, metrics, outcomes, or completed experiments that are absent from the selected profile evidence.
         Do not infer implementation mechanisms, intermediate steps, tools, or causal links that the selected profile evidence does not state.
         \(intentGuidance)
@@ -696,6 +774,58 @@ extension AppState {
             temperature: 0.0,
             numPredict: 220
         )
+    }
+
+    private func localQwenUsesGroundedFailureJSON(for question: DetectedQuestion) -> Bool {
+        switch IntentRouter.answerIntent(for: question.questionText) {
+        case .technicalChallenge, .errorHandling, .perceptionDebugging,
+             .systemIntegrationDebugging, .simToRealDebugging:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func localQwenGroundedFailureCandidateEvidence(
+        promptSnapshot: AnswerPromptSnapshot,
+        interviewContextSnapshot: InterviewContextSnapshot?
+    ) -> [String] {
+        guard let interviewContextSnapshot else {
+            return promptSnapshot.ragContextSnapshot.cvChunks.map(\.content)
+        }
+        let selectedChunkIDs = Set(promptSnapshot.ragContextSnapshot.cvChunks.map(\.id))
+        return interviewContextSnapshot.candidateEvidence
+            .filter { evidence in
+                selectedChunkIDs.contains(evidence.id) ||
+                    evidence.sourceChunkID.map(selectedChunkIDs.contains) == true
+            }
+            .map(\.statement)
+    }
+
+    private func localQwenRecoveryEvidence(
+        chunks: [DocumentChunk],
+        fallback: String,
+        maxWords: Int,
+        emptyMessage: String
+    ) -> String {
+        let selected = chunks
+            .map {
+                "- \(localQwenEscapedRecoveryEvidence($0.content.trimmingCharacters(in: .whitespacesAndNewlines)))"
+            }
+            .filter { $0 != "- " }
+            .joined(separator: "\n")
+        let source = selected.isEmpty
+            ? localQwenEscapedRecoveryEvidence(fallback.trimmingCharacters(in: .whitespacesAndNewlines))
+            : selected
+        guard !source.isEmpty else { return emptyMessage }
+        return ContextBudgeter.limitWords(source, maxWords: maxWords)
+    }
+
+    private func localQwenEscapedRecoveryEvidence(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
@@ -719,8 +849,9 @@ extension AppState {
         case .technicalChallenge, .errorHandling, .perceptionDebugging,
              .systemIntegrationDebugging, .simToRealDebugging:
             return """
-            This is a failure or debugging question. Name the failure or challenge explicitly in the first sentence, then state the supported diagnosis or action. Include how it was checked or validated only when the selected candidate evidence states that detail.
-            Use only the selected candidate evidence. Do not turn the role requirement into personal experience or invent a cause, mitigation, validation result, metric, or outcome.
+            This is a failure or debugging question. For the first sentence use this evidence-safe shape, replacing the bracketed phrase only with words supported inside <candidate_evidence>: "I can support [a failure phrase copied from candidate evidence] as the closest documented failure."
+            Do not claim it was the hardest failure unless <candidate_evidence> explicitly ranks it. Then state only the supported diagnosis or action, and include how it was checked or validated only when <candidate_evidence> states that detail.
+            Do not use <opportunity_context> as personal experience or invent a cause, mitigation, validation result, metric, or outcome.
             """
         case .technicalTradeoff:
             return """

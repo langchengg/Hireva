@@ -286,6 +286,143 @@ enum LocalQwenAnswerParser {
     }
 }
 
+enum LocalQwenGroundedFailureParser {
+    static func parse(
+        _ raw: String,
+        candidateEvidence: [String]
+    ) -> LocalQwenParsedAnswer {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set(["failure", "evidence"]),
+              let requestedFailure = object["failure"] as? String,
+              let requestedEvidence = object["evidence"] as? String else {
+            return rejected()
+        }
+
+        let failure = requestedFailure.trimmingCharacters(in: .whitespacesAndNewlines)
+        let evidence = requestedEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !failure.isEmpty,
+              !evidence.isEmpty,
+              failure.count <= 160,
+              evidence.count <= 800,
+              failure.rangeOfCharacter(from: CharacterSet(charactersIn: ".?!;:\n")) == nil,
+              let matchedEvidence = exactSupportedStatement(evidence, in: candidateEvidence),
+              let matchedFailure = exactSupportedSubstring(failure, in: [matchedEvidence]),
+              preservesFailurePolarity(failure: matchedFailure, evidence: matchedEvidence) else {
+            return rejected()
+        }
+
+        let evidenceSentence = firstPersonSentence(from: matchedEvidence)
+        guard !evidenceSentence.isEmpty else { return rejected() }
+        let answer = "I can support \(matchedFailure) as the closest documented failure. \(evidenceSentence)"
+        return LocalQwenParsedAnswer(
+            sayFirst: answer,
+            sectionParserResult: "grounded_failure_json",
+            failureCategory: nil
+        )
+    }
+
+    private static func exactSupportedSubstring(
+        _ requested: String,
+        in evidence: [String]
+    ) -> String? {
+        let requestedCore = requested.trimmingCharacters(
+            in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".?!"))
+        )
+        guard requestedCore.count >= 3 else { return nil }
+        for statement in evidence {
+            if let range = statement.range(
+                of: requestedCore,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) {
+                return String(statement[range])
+            }
+        }
+        return nil
+    }
+
+    private static func exactSupportedStatement(
+        _ requested: String,
+        in evidence: [String]
+    ) -> String? {
+        let requestedCore = statementCore(requested)
+        guard requestedCore.count >= 3 else { return nil }
+        for statement in evidence {
+            let supportedCore = statementCore(statement)
+            guard !supportedCore.isEmpty else { continue }
+            if supportedCore.compare(
+                requestedCore,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) == .orderedSame {
+                return supportedCore
+            }
+        }
+        return nil
+    }
+
+    private static func statementCore(_ statement: String) -> String {
+        statement.trimmingCharacters(
+            in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".?!"))
+        )
+    }
+
+    private static func preservesFailurePolarity(failure: String, evidence: String) -> Bool {
+        polarityMarkers(in: evidence).isSubset(of: polarityMarkers(in: failure))
+    }
+
+    private static func polarityMarkers(in text: String) -> Set<String> {
+        let standaloneMarkers: Set<String> = [
+            "not", "never", "no", "without", "cannot", "failed", "unable", "lacked", "missing"
+        ]
+        var markers = Set(TextChunker.tokenize(text)).intersection(standaloneMarkers)
+        let normalized = text.lowercased().replacingOccurrences(of: "’", with: "'")
+        for contraction in ["can't", "didn't", "doesn't", "wasn't", "weren't"]
+            where normalized.contains(contraction) {
+            markers.insert(contraction)
+        }
+        return markers
+    }
+
+    private static func firstPersonSentence(from evidence: String) -> String {
+        let core = evidence.trimmingCharacters(
+            in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".?!"))
+        )
+        guard !core.isEmpty else { return "" }
+        let lower = core.lowercased()
+        let sentence: String
+        if lower.hasPrefix("i ") || lower.hasPrefix("i'") || lower.hasPrefix("i’") ||
+            lower.hasPrefix("my ") || lower.hasPrefix("we ") || lower.hasPrefix("our ") {
+            sentence = core
+        } else if let first = core.first,
+                  let action = TextChunker.tokenize(core).first,
+                  subjectSafeActionPrefixes.contains(action) {
+            sentence = "I " + String(first).lowercased() + core.dropFirst()
+        } else {
+            return ""
+        }
+        return sentence + "."
+    }
+
+    private static let subjectSafeActionPrefixes: Set<String> = [
+        "addressed", "analysed", "analyzed", "built", "completed", "compared", "contributed",
+        "coordinated", "created", "debugged", "delivered", "demonstrated", "designed", "detected",
+        "developed", "diagnosed", "encountered", "established", "evaluated", "experienced", "fixed",
+        "handled", "identified", "implemented", "improved", "integrated", "investigated", "isolated",
+        "launched", "led", "maintained", "measured", "migrated", "mitigated", "observed", "operated",
+        "owned", "published", "recovered", "reduced", "resolved", "studied", "tested", "traced",
+        "trained", "used", "validated", "worked"
+    ]
+
+    private static func rejected() -> LocalQwenParsedAnswer {
+        LocalQwenParsedAnswer(
+            sayFirst: "",
+            sectionParserResult: "grounded_failure_json_rejected",
+            failureCategory: .answerSectionParserRejectedContent
+        )
+    }
+}
+
 struct LocalQwenAnswerValidationResult: Equatable {
     let accepted: Bool
     let failureCategory: OllamaFailureCategory?
