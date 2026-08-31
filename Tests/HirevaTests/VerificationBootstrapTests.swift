@@ -84,6 +84,30 @@ struct VerificationBootstrapTests {
     }
 
     @Test
+    func visibleEvidenceMatchingNormalizesSafeInflections() {
+        #expect(HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "What was the hardest failure when you apply that approach to robot integration?",
+            needle: "hardest failure when you applied"
+        ))
+        #expect(HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "Which failures occurred when the robots were tested?",
+            needle: "failure occur when the robot was tested"
+        ))
+        #expect(!HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "What was the hardest success when you apply that approach?",
+            needle: "hardest failure when you applied"
+        ))
+        #expect(!HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "What was the hardest failure when you supplied that component?",
+            needle: "hardest failure when you applied"
+        ))
+        #expect(!HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+            question: "What was the hardest failure before you apply that approach?",
+            needle: "hardest failure when you applied"
+        ))
+    }
+
+    @Test
     func verificationEvidenceAllowlistRejectsPathsRawAnswersAndErrors() {
         #expect(HirevaVerificationEventPolicy.allows(
             event: "bootstrap.started",

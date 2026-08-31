@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import NaturalLanguage
 
 enum HirevaVerificationEventPolicy {
     private static let allowedFieldsByEvent: [String: Set<String>] = [
@@ -74,9 +75,45 @@ enum HirevaVerificationEventPolicy {
     }
 
     static func questionContainsExpectedNeedle(question: String, needle: String) -> Bool {
-        let normalizedQuestion = verificationComparisonText(question)
-        let normalizedNeedle = verificationComparisonText(needle)
-        return normalizedQuestion.contains(normalizedNeedle)
+        let questionTokens = verificationComparisonTokens(question)
+        let needleTokens = verificationComparisonTokens(needle)
+        guard !needleTokens.isEmpty, questionTokens.count >= needleTokens.count else {
+            return false
+        }
+        for start in 0...(questionTokens.count - needleTokens.count) {
+            let end = start + needleTokens.count
+            if questionTokens[start..<end].elementsEqual(needleTokens) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func verificationComparisonTokens(_ text: String) -> [String] {
+        let normalized = verificationComparisonText(text)
+        guard !normalized.isEmpty else { return [] }
+
+        let tagger = NLTagger(tagSchemes: [.lemma])
+        tagger.string = normalized
+        tagger.setLanguage(.english, range: normalized.startIndex..<normalized.endIndex)
+
+        var tokens: [String] = []
+        tagger.enumerateTags(
+            in: normalized.startIndex..<normalized.endIndex,
+            unit: .word,
+            scheme: .lemma,
+            options: [.omitPunctuation, .omitWhitespace, .omitOther]
+        ) { tag, range in
+            let original = String(normalized[range]).lowercased()
+            let lemma = tag?.rawValue.lowercased()
+            if let lemma, !lemma.isEmpty {
+                tokens.append(lemma)
+            } else {
+                tokens.append(original)
+            }
+            return true
+        }
+        return tokens
     }
 
     private static func verificationComparisonText(_ text: String) -> String {
