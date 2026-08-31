@@ -48,8 +48,9 @@
   "expectedTurnCount": 4,
   "expectedTriggerCount": 3,
   "expectedRejectCount": 1,
-  "expectedVisibleCount": 2,
-  "expectedRapidCancellationCount": 1,
+  "expectedVisibleCountMinimum": 2,
+  "expectedVisibleCountMaximum": 3,
+  "expectedRapidTransitionCount": 1,
   "sessions": [
     {
       "id": "release-session-1",

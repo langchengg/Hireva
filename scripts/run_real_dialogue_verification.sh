@@ -3,6 +3,7 @@ set -euo pipefail
 
 VALIDATE_ONLY=false
 EVIDENCE_ONLY=false
+RUNTIME_COMPATIBILITY_ONLY=false
 EVIDENCE_PATH=""
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VALIDATED_SCENARIO_DIRECTORY=""
@@ -10,6 +11,8 @@ APP_LAUNCHED=false
 OWNED_APP_PID=""
 OWNED_HELPER_PIDS=()
 NOTIFY_BINARY=""
+RUN_REQUIRES_COMPLETION=false
+VERIFICATION_COMPLETED=false
 
 resolve_existing_file() {
     local input="$1" parent base
@@ -28,7 +31,9 @@ resolve_new_directory() {
     printf '%s/%s\n' "$parent" "$base"
 }
 
-if [[ $# -eq 2 && "$1" == "--validate-scenario" ]]; then
+if [[ $# -eq 1 && "$1" == "--validate-runtime-compatibility" ]]; then
+    RUNTIME_COMPATIBILITY_ONLY=true
+elif [[ $# -eq 2 && "$1" == "--validate-scenario" ]]; then
     SCENARIO_PATH="$(resolve_existing_file "$2")" || { echo "scenario fixture must be a regular non-symlink file" >&2; exit 2; }
     VALIDATE_ONLY=true
 elif [[ $# -eq 3 && "$1" == "--validate-evidence" ]]; then
@@ -41,10 +46,12 @@ elif [[ $# -eq 4 ]]; then
     APP_SUPPORT_ROOT="$(resolve_new_directory "$3")" || { echo "verification app support must be a fresh non-symlink directory path with an existing parent" >&2; exit 2; }
     [[ -d "$4" && ! -L "$4" ]] || { echo "local model root must be an existing non-symlink directory" >&2; exit 2; }
     MODEL_ROOT="$(cd -P "$4" && pwd)"
+    RUN_REQUIRES_COMPLETION=true
 else
     echo "usage: $0 <scenario.json> <output-root> <app-support-root> <local-models-root>" >&2
     echo "       $0 --validate-scenario <scenario.json>" >&2
     echo "       $0 --validate-evidence <scenario.json> <events.jsonl>" >&2
+    echo "       $0 --validate-runtime-compatibility" >&2
     exit 2
 fi
 
@@ -84,11 +91,28 @@ capture_owned_helper_pids() {
     while IFS= read -r pid; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         process_matches_bundled_helper "$pid" || continue
-        case " ${OWNED_HELPER_PIDS[*]} " in
-            *" $pid "*) ;;
-            *) OWNED_HELPER_PIDS+=("$pid") ;;
-        esac
+        remember_owned_helper_pid "$pid"
     done < <(pgrep -P "$OWNED_APP_PID" 2>/dev/null || true)
+}
+
+remember_owned_helper_pid() {
+    local pid="$1" existing_pid
+    if (( ${#OWNED_HELPER_PIDS[@]} > 0 )); then
+        for existing_pid in "${OWNED_HELPER_PIDS[@]}"; do
+            [[ "$existing_pid" == "$pid" ]] && return 0
+        done
+    fi
+    OWNED_HELPER_PIDS+=("$pid")
+}
+
+completion_checked_status() {
+    local status="$1"
+    if [[ "$RUN_REQUIRES_COMPLETION" == "true" &&
+          "$VERIFICATION_COMPLETED" != "true" &&
+          "$status" -eq 0 ]]; then
+        status=1
+    fi
+    printf '%s\n' "$status"
 }
 
 terminate_owned_process() {
@@ -115,6 +139,7 @@ cleanup() {
     trap - EXIT INT TERM
     set +e
     set +u
+    status="$(completion_checked_status "$status")"
     if [[ "$APP_LAUNCHED" == "true" ]]; then
         capture_owned_helper_pids
         if [[ -n "$NOTIFY_BINARY" && -x "$NOTIFY_BINARY" ]]; then
@@ -145,6 +170,27 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+if [[ "$RUNTIME_COMPATIBILITY_ONLY" == "true" ]]; then
+    remember_owned_helper_pid 101
+    remember_owned_helper_pid 101
+    remember_owned_helper_pid 202
+    [[ "${#OWNED_HELPER_PIDS[@]}" -eq 2 ]] || {
+        echo "runtime compatibility helper tracking failed" >&2
+        exit 1
+    }
+    RUN_REQUIRES_COMPLETION=true
+    VERIFICATION_COMPLETED=false
+    incomplete_status="$(completion_checked_status 0)"
+    [[ "$incomplete_status" -eq 1 ]] || {
+        echo "runtime compatibility completion status failed" >&2
+        exit 1
+    }
+    RUN_REQUIRES_COMPLETION=false
+    OWNED_HELPER_PIDS=()
+    echo "runtime_compatibility_valid empty_helper_tracking=true incomplete_real_run_status=$incomplete_status"
+    exit 0
+fi
 
 if [[ "$VALIDATE_ONLY" == "false" && "$EVIDENCE_ONLY" == "false" ]]; then
     case "$OUTPUT_ROOT/" in "$ROOT_DIR/"*) echo "verification output must remain outside the source repository" >&2; exit 2;; esac
@@ -202,14 +248,15 @@ EXPECTED_SESSION_COUNT="$(validation_value SYNTHETIC_SCENARIO_SESSIONS)"
 EXPECTED_TURN_COUNT="$(validation_value SYNTHETIC_SCENARIO_TURNS)"
 EXPECTED_TRIGGER_COUNT="$(validation_value SYNTHETIC_SCENARIO_TRIGGERS)"
 EXPECTED_REJECT_COUNT="$(validation_value SYNTHETIC_SCENARIO_REJECTS)"
-EXPECTED_VISIBLE_COUNT="$(validation_value SYNTHETIC_SCENARIO_VISIBLE)"
-EXPECTED_RAPID_CANCELLATIONS="$(validation_value SYNTHETIC_SCENARIO_RAPID_CANCELLATIONS)"
+EXPECTED_VISIBLE_MINIMUM="$(validation_value SYNTHETIC_SCENARIO_VISIBLE_MINIMUM)"
+EXPECTED_VISIBLE_MAXIMUM="$(validation_value SYNTHETIC_SCENARIO_VISIBLE_MAXIMUM)"
+EXPECTED_RAPID_TRANSITIONS="$(validation_value SYNTHETIC_SCENARIO_RAPID_TRANSITIONS)"
 for validated_count in "$EXPECTED_SESSION_COUNT" "$EXPECTED_TURN_COUNT" "$EXPECTED_TRIGGER_COUNT" \
-    "$EXPECTED_REJECT_COUNT" "$EXPECTED_VISIBLE_COUNT" "$EXPECTED_RAPID_CANCELLATIONS"; do
+    "$EXPECTED_REJECT_COUNT" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM" "$EXPECTED_RAPID_TRANSITIONS"; do
     [[ "$validated_count" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "scenario validation returned an invalid count" >&2; exit 2; }
 done
 
-echo "scenario_valid sessions=$EXPECTED_SESSION_COUNT turns=$EXPECTED_TURN_COUNT triggers=$EXPECTED_TRIGGER_COUNT rejects=$EXPECTED_REJECT_COUNT visible=$EXPECTED_VISIBLE_COUNT rapid_cancellations=$EXPECTED_RAPID_CANCELLATIONS"
+echo "scenario_valid sessions=$EXPECTED_SESSION_COUNT turns=$EXPECTED_TURN_COUNT triggers=$EXPECTED_TRIGGER_COUNT rejects=$EXPECTED_REJECT_COUNT visible_min=$EXPECTED_VISIBLE_MINIMUM visible_max=$EXPECTED_VISIBLE_MAXIMUM rapid_transitions=$EXPECTED_RAPID_TRANSITIONS"
 
 evidence_missing_visible_matches() {
     local events_path="$1"
@@ -367,10 +414,80 @@ evidence_event_count() {
     jq -r --arg event "$event" 'select(.event == $event) | .event' "$events_path" | wc -l | tr -d ' '
 }
 
+evidence_rapid_metrics() {
+    local events_path="$1"
+    /usr/bin/ruby - "$SCENARIO_PATH" "$events_path" <<'RUBY'
+require "json"
+
+scenario = JSON.parse(File.read(ARGV.fetch(0)))
+events = File.readlines(ARGV.fetch(1), chomp: true).reject(&:empty?).map { |line| JSON.parse(line) }
+trigger_turns = scenario.fetch("sessions").flat_map do |session|
+  session.fetch("turns").select { |turn| turn["expectedShouldTrigger"] == true }
+end
+generations = []
+questions = []
+events.each_with_index do |event, index|
+  generations << [event, index] if event["event"] == "generation.started"
+  questions << [event, index] if event["event"] == "question.accepted"
+end
+
+rapid_indices = []
+trigger_turns.each_with_index do |turn, index|
+  rapid_indices << index if turn.fetch("rapid", false) == true
+end
+
+completed_before_followup = 0
+cancellations = 0
+stale_visible = 0
+rapid_indices.each do |rapid_index|
+  rapid_generation = generations[rapid_index]
+  followup_question = questions[rapid_index + 1]
+  unless rapid_generation && followup_question
+    stale_visible += 1
+    next
+  end
+
+  rapid_generation_id = rapid_generation.fetch(0).fetch("generationID", "")
+  followup_event_index = followup_question.fetch(1)
+  suggestion_indices = []
+  events.each_with_index do |event, event_index|
+    if event["event"] == "suggestion.visible" && event["generationID"] == rapid_generation_id
+      suggestion_indices << event_index
+    end
+  end
+  before_followup = suggestion_indices.count { |event_index| event_index < followup_event_index }
+  after_followup = suggestion_indices.count { |event_index| event_index > followup_event_index }
+  completed_before_followup += 1 if before_followup.positive?
+  cancellations += 1 if suggestion_indices.empty?
+  stale_visible += [before_followup - 1, 0].max + after_followup
+end
+
+puts [
+  "rapid_transitions=#{rapid_indices.length}",
+  "rapid_completed_before_followup=#{completed_before_followup}",
+  "rapid_cancellations=#{cancellations}",
+  "stale_rapid_visible=#{stale_visible}"
+].join(" ")
+RUBY
+}
+
+metric_value() {
+    local metrics="$1" key="$2"
+    printf '%s\n' "$metrics" | tr ' ' '\n' | sed -n "s/^${key}=//p"
+}
+
 require_equal() {
     local label="$1" actual="$2" expected="$3"
     if [[ "$actual" -ne "$expected" ]]; then
         echo "$label count mismatch: actual=$actual expected=$expected" >&2
+        exit 1
+    fi
+}
+
+require_between() {
+    local label="$1" actual="$2" minimum="$3" maximum="$4"
+    if [[ "$actual" -lt "$minimum" || "$actual" -gt "$maximum" ]]; then
+        echo "$label count outside range: actual=$actual minimum=$minimum maximum=$maximum" >&2
         exit 1
     fi
 }
@@ -391,13 +508,21 @@ if [[ "$EVIDENCE_ONLY" == "true" ]]; then
     schema_error_count="$(evidence_schema_error_count "$EVIDENCE_PATH")"
     missing_visible_match_count="$(evidence_missing_visible_matches "$EVIDENCE_PATH")"
     invalid_visible_count="$(evidence_invalid_visible_count "$EVIDENCE_PATH")"
-    echo "evidence_valid ready=$ready_count buffers=$buffer_count transcripts=$transcript_count questions=$question_count generations=$generation_count visible=$visible_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
+    rapid_metrics="$(evidence_rapid_metrics "$EVIDENCE_PATH")"
+    rapid_transition_count="$(metric_value "$rapid_metrics" rapid_transitions)"
+    rapid_completed_before_followup_count="$(metric_value "$rapid_metrics" rapid_completed_before_followup)"
+    rapid_cancellation_count="$(metric_value "$rapid_metrics" rapid_cancellations)"
+    stale_rapid_visible_count="$(metric_value "$rapid_metrics" stale_rapid_visible)"
+    rapid_disposition_count=$((rapid_completed_before_followup_count + rapid_cancellation_count))
+    expected_visible_count=$((EXPECTED_VISIBLE_MINIMUM + rapid_completed_before_followup_count))
+    echo "evidence_valid ready=$ready_count buffers=$buffer_count transcripts=$transcript_count questions=$question_count generations=$generation_count visible=$visible_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count $rapid_metrics"
     require_equal ready "$ready_count" "$EXPECTED_SESSION_COUNT"
     require_equal buffers "$buffer_count" "$EXPECTED_SESSION_COUNT"
     require_equal transcripts "$transcript_count" "$EXPECTED_TURN_COUNT"
     require_equal questions "$question_count" "$EXPECTED_TRIGGER_COUNT"
     require_equal generations "$generation_count" "$EXPECTED_TRIGGER_COUNT"
-    require_equal visible "$visible_count" "$EXPECTED_VISIBLE_COUNT"
+    require_between visible "$visible_count" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM"
+    require_equal visible_from_rapid_disposition "$visible_count" "$expected_visible_count"
     require_equal finished "$finished_count" 1
     require_equal scenario_digest "$digest_count" 1
     require_equal failures "$failure_count" 0
@@ -406,6 +531,9 @@ if [[ "$EVIDENCE_ONLY" == "true" ]]; then
     require_equal schema_errors "$schema_error_count" 0
     require_equal missing_visible_matches "$missing_visible_match_count" 0
     require_equal invalid_visible "$invalid_visible_count" 0
+    require_equal rapid_transitions "$rapid_transition_count" "$EXPECTED_RAPID_TRANSITIONS"
+    require_equal rapid_dispositions "$rapid_disposition_count" "$EXPECTED_RAPID_TRANSITIONS"
+    require_equal stale_rapid_visible "$stale_rapid_visible_count" 0
     exit
 fi
 [[ "$VALIDATE_ONLY" == "false" ]] || exit 0
@@ -493,12 +621,6 @@ latest_generation_id() {
     jq -sr '[.[] | select(.event == "generation.started")] | last | .generationID // ""' "$EVENTS" 2>/dev/null
 }
 
-suggestion_count_for_generation() {
-    local generation_id="$1"
-    [[ -f "$EVENTS" ]] || { echo 0; return; }
-    jq -r --arg generation_id "$generation_id" 'select(.event == "suggestion.visible" and .generationID == $generation_id) | .event' "$EVENTS" 2>/dev/null | wc -l | tr -d ' '
-}
-
 wait_for_matching_suggestion() {
     local previous="$1" expected_turn_id="$2" timeout="$3"
     local deadline=$((SECONDS + timeout))
@@ -567,8 +689,7 @@ printf 'session\tturn\tvoice\tlocale\trate\texpected_trigger\ttranscript_observe
 
 session_count="$(jq '.sessions | length' "$SCENARIO_PATH")"
 rapid_pending_generation_id=""
-rapid_generation_ids=()
-rapid_cancellation_count=0
+rapid_transition_count=0
 for ((session_index=0; session_index<session_count; session_index++)); do
     if (( session_index > 0 )); then
         ready_before="$(event_count bootstrap.ready)"
@@ -600,17 +721,14 @@ for ((session_index=0; session_index<session_count; session_index++)); do
         if wait_for_count asr.transcript "$transcript_before" 35; then transcript_observed=true; fi
         if [[ -n "$rapid_pending_generation_id" ]]; then
             wait_for_count generation.started "$generation_before" 45 || { echo "rapid follow-up did not start generation" >&2; exit 1; }
-            [[ "$(suggestion_count_for_generation "$rapid_pending_generation_id")" -eq 0 ]] || { echo "stale rapid generation became visible before follow-up generation started" >&2; exit 1; }
             rapid_pending_generation_id=""
         fi
         if [[ "$expected" == "true" ]]; then
             if [[ "$rapid" == "true" ]]; then
                 wait_for_count generation.started "$generation_before" 45 || { echo "rapid turn did not start generation" >&2; exit 1; }
-                (( $(event_count suggestion.visible) == visible_before )) || { echo "rapid turn completed before its follow-up could start" >&2; exit 1; }
                 rapid_pending_generation_id="$(latest_generation_id)"
                 [[ -n "$rapid_pending_generation_id" ]] || { echo "rapid generation identity was not recorded" >&2; exit 1; }
-                rapid_generation_ids+=("$rapid_pending_generation_id")
-                rapid_cancellation_count=$((rapid_cancellation_count + 1))
+                rapid_transition_count=$((rapid_transition_count + 1))
             elif wait_for_matching_suggestion "$visible_before" "$expected_turn_id" 90; then
                 visible_observed=true
             fi
@@ -627,11 +745,6 @@ for ((session_index=0; session_index<session_count; session_index++)); do
 done
 
 [[ -z "$rapid_pending_generation_id" ]] || { echo "rapid turn was not followed by a completed follow-up" >&2; exit 1; }
-if (( rapid_cancellation_count > 0 )); then
-    for generation_id in "${rapid_generation_ids[@]}"; do
-        [[ "$(suggestion_count_for_generation "$generation_id")" -eq 0 ]] || { echo "stale rapid generation became visible: $generation_id" >&2; exit 1; }
-    done
-fi
 
 notify finish
 wait_for_count verification.finished 0 30 || { echo "verification did not emit its terminal event" >&2; exit 1; }
@@ -647,11 +760,13 @@ if kill -0 "$OWNED_APP_PID" >/dev/null 2>&1 && process_matches_app "$OWNED_APP_P
     app_count=1
 fi
 helper_count=0
-for helper_pid in "${OWNED_HELPER_PIDS[@]}"; do
-    if kill -0 "$helper_pid" >/dev/null 2>&1 && process_matches_bundled_helper "$helper_pid"; then
-        helper_count=$((helper_count + 1))
-    fi
-done
+if (( ${#OWNED_HELPER_PIDS[@]} > 0 )); then
+    for helper_pid in "${OWNED_HELPER_PIDS[@]}"; do
+        if kill -0 "$helper_pid" >/dev/null 2>&1 && process_matches_bundled_helper "$helper_pid"; then
+            helper_count=$((helper_count + 1))
+        fi
+    done
+fi
 ready_count="$(event_count bootstrap.ready)"
 buffer_count="$(event_count sck.first_buffer)"
 transcript_count="$(event_count asr.transcript)"
@@ -667,14 +782,21 @@ unexpected_event_count="$(evidence_unexpected_event_count "$EVENTS")"
 schema_error_count="$(evidence_schema_error_count "$EVENTS")"
 missing_visible_match_count="$(evidence_missing_visible_matches "$EVENTS")"
 invalid_visible_count="$(evidence_invalid_visible_count "$EVENTS")"
-echo "ready=$ready_count buffers=$buffer_count transcripts=$transcript_count questions=$question_count generations=$generation_count visible=$visible_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count false_triggers=$false_trigger_count rapid_cancellations=$rapid_cancellation_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
+rapid_metrics="$(evidence_rapid_metrics "$EVENTS")"
+rapid_completed_before_followup_count="$(metric_value "$rapid_metrics" rapid_completed_before_followup)"
+rapid_cancellation_count="$(metric_value "$rapid_metrics" rapid_cancellations)"
+stale_rapid_visible_count="$(metric_value "$rapid_metrics" stale_rapid_visible)"
+rapid_disposition_count=$((rapid_completed_before_followup_count + rapid_cancellation_count))
+expected_visible_count=$((EXPECTED_VISIBLE_MINIMUM + rapid_completed_before_followup_count))
+echo "ready=$ready_count buffers=$buffer_count transcripts=$transcript_count questions=$question_count generations=$generation_count visible=$visible_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count false_triggers=$false_trigger_count $rapid_metrics missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
 echo "app_count=$app_count helper_count=$helper_count"
 require_equal ready "$ready_count" "$EXPECTED_SESSION_COUNT"
 require_equal buffers "$buffer_count" "$EXPECTED_SESSION_COUNT"
 require_equal transcripts "$transcript_count" "$EXPECTED_TURN_COUNT"
 require_equal questions "$question_count" "$EXPECTED_TRIGGER_COUNT"
 require_equal generations "$generation_count" "$EXPECTED_TRIGGER_COUNT"
-require_equal visible "$visible_count" "$EXPECTED_VISIBLE_COUNT"
+require_between visible "$visible_count" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM"
+require_equal visible_from_rapid_disposition "$visible_count" "$expected_visible_count"
 require_equal finished "$finished_count" 1
 require_equal scenario_digest "$digest_count" 1
 require_equal failures "$failure_count" 0
@@ -682,8 +804,11 @@ require_equal forbidden_fields "$forbidden_field_count" 0
 require_equal unexpected_events "$unexpected_event_count" 0
 require_equal schema_errors "$schema_error_count" 0
 require_equal false_triggers "$false_trigger_count" 0
-require_equal rapid_cancellations "$rapid_cancellation_count" "$EXPECTED_RAPID_CANCELLATIONS"
+require_equal rapid_transitions "$rapid_transition_count" "$EXPECTED_RAPID_TRANSITIONS"
+require_equal rapid_dispositions "$rapid_disposition_count" "$EXPECTED_RAPID_TRANSITIONS"
+require_equal stale_rapid_visible "$stale_rapid_visible_count" 0
 require_equal missing_visible_matches "$missing_visible_match_count" 0
 require_equal invalid_visible "$invalid_visible_count" 0
 require_equal app_processes "$app_count" 0
 require_equal helper_processes "$helper_count" 0
+VERIFICATION_COMPLETED=true

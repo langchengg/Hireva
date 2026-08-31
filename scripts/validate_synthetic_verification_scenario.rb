@@ -131,26 +131,24 @@ turn_count = turns.length
 trigger_count = turns.count { |turn| turn["expectedShouldTrigger"] == true }
 reject_count = turns.count { |turn| turn["expectedShouldTrigger"] == false }
 rapid_count = turns.count { |turn| turn.fetch("rapid", false) == true }
-visible_count = trigger_count - rapid_count
+visible_count_minimum = trigger_count - rapid_count
+visible_count_maximum = trigger_count
 
 expected_counts = {
   "expectedSessionCount" => session_count,
   "expectedTurnCount" => turn_count,
   "expectedTriggerCount" => trigger_count,
-  "expectedRejectCount" => reject_count
+  "expectedRejectCount" => reject_count,
+  "expectedVisibleCountMinimum" => visible_count_minimum,
+  "expectedVisibleCountMaximum" => visible_count_maximum,
+  "expectedRapidTransitionCount" => rapid_count
 }
 expected_counts.each do |key, actual|
   value = scenario[key]
   problems << "#{key} must be the exact non-negative integer #{actual}" unless value.is_a?(Integer) && value >= 0 && value == actual
 end
-if scenario.key?("expectedVisibleCount")
-  value = scenario["expectedVisibleCount"]
-  problems << "expectedVisibleCount must be the exact non-negative integer #{visible_count}" unless value.is_a?(Integer) && value >= 0 && value == visible_count
-end
-if scenario.key?("expectedRapidCancellationCount")
-  value = scenario["expectedRapidCancellationCount"]
-  problems << "expectedRapidCancellationCount must be the exact non-negative integer #{rapid_count}" unless value.is_a?(Integer) && value >= 0 && value == rapid_count
-end
+problems << "expectedVisibleCount is timing-dependent; declare exact minimum and maximum counts" if scenario.key?("expectedVisibleCount")
+problems << "expectedRapidCancellationCount is timing-dependent; declare expectedRapidTransitionCount" if scenario.key?("expectedRapidCancellationCount")
 
 strings = []
 keys = []
@@ -199,5 +197,6 @@ puts "SYNTHETIC_SCENARIO_SESSIONS=#{session_count}"
 puts "SYNTHETIC_SCENARIO_TURNS=#{turn_count}"
 puts "SYNTHETIC_SCENARIO_TRIGGERS=#{trigger_count}"
 puts "SYNTHETIC_SCENARIO_REJECTS=#{reject_count}"
-puts "SYNTHETIC_SCENARIO_VISIBLE=#{visible_count}"
-puts "SYNTHETIC_SCENARIO_RAPID_CANCELLATIONS=#{rapid_count}"
+puts "SYNTHETIC_SCENARIO_VISIBLE_MINIMUM=#{visible_count_minimum}"
+puts "SYNTHETIC_SCENARIO_VISIBLE_MAXIMUM=#{visible_count_maximum}"
+puts "SYNTHETIC_SCENARIO_RAPID_TRANSITIONS=#{rapid_count}"

@@ -6,6 +6,15 @@ import Testing
 @Suite("Real dialogue verification runner", .serialized, .sharedRuntimeResources)
 struct RealDialogueVerificationRunnerTests {
     @Test
+    func testRuntimeCompatibilityProbeProtectsEmptyProcessTrackingAndExitStatus() throws {
+        let result = try runRunner(["--validate-runtime-compatibility"])
+
+        #expect(result.status == 0)
+        #expect(result.output.contains("runtime_compatibility_valid empty_helper_tracking=true"))
+        #expect(result.output.contains("incomplete_real_run_status=1"))
+    }
+
+    @Test
     func testScenarioValidationAcceptsExplicitSmallMatrixCounts() throws {
         let result = try validateScenario(
             sessions: [[
@@ -18,11 +27,11 @@ struct RealDialogueVerificationRunnerTests {
         )
 
         #expect(result.status == 0)
-        #expect(result.output.contains("sessions=1 turns=2 triggers=1 rejects=1 visible=1 rapid_cancellations=0"))
+        #expect(result.output.contains("sessions=1 turns=2 triggers=1 rejects=1 visible_min=1 visible_max=1 rapid_transitions=0"))
     }
 
     @Test
-    func testScenarioValidationTreatsRapidGenerationAsCancelledByFollowUp() throws {
+    func testScenarioValidationTreatsRapidTurnAsTransitionWithTimingDependentCompletion() throws {
         let result = try validateScenario(
             sessions: [[
                 turn("How do you prevent stale answers?", trigger: true, needle: "prevent stale answers", rapid: true),
@@ -34,7 +43,53 @@ struct RealDialogueVerificationRunnerTests {
         )
 
         #expect(result.status == 0)
-        #expect(result.output.contains("visible=1 rapid_cancellations=1"))
+        #expect(result.output.contains("visible_min=1 visible_max=2 rapid_transitions=1"))
+    }
+
+    @Test
+    func testEvidenceValidationAllowsRapidCompletionBeforeFollowUpButRejectsStaleCompletionAfterIt() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let scenarioURL = temporaryDirectory.appendingPathComponent("scenario.json")
+        let eventsURL = temporaryDirectory.appendingPathComponent("events.jsonl")
+        let scenario = scenarioPayload(
+            sessions: [[
+                turn("What reliability checks did you add?", trigger: true, needle: "reliability checks", rapid: true),
+                turn("How did you verify recovery?", trigger: true, needle: "verify recovery"),
+            ]],
+            expectedTurns: 2,
+            expectedTriggers: 2,
+            expectedRejects: 0
+        )
+        let scenarioData = try JSONSerialization.data(withJSONObject: scenario, options: [.sortedKeys])
+        try scenarioData.write(to: scenarioURL)
+        let scenarioSHA256 = digest(scenarioData)
+
+        try writeJSONLines(
+            rapidTransitionEvidenceEvents(
+                scenarioSHA256: scenarioSHA256,
+                rapidSuggestionAfterFollowUpAccepted: false
+            ),
+            to: eventsURL
+        )
+        let accepted = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
+        #expect(accepted.status == 0)
+        #expect(accepted.output.contains("rapid_completed_before_followup=1"))
+        #expect(accepted.output.contains("stale_rapid_visible=0"))
+
+        try writeJSONLines(
+            rapidTransitionEvidenceEvents(
+                scenarioSHA256: scenarioSHA256,
+                rapidSuggestionAfterFollowUpAccepted: true
+            ),
+            to: eventsURL
+        )
+        let rejected = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
+        #expect(rejected.status != 0)
+        #expect(rejected.output.contains("stale_rapid_visible=1"))
     }
 
     @Test
@@ -240,7 +295,10 @@ struct RealDialogueVerificationRunnerTests {
         expectedTriggers: Int,
         expectedRejects: Int
     ) -> [String: Any] {
-        [
+        let rapidTransitions = sessions
+            .flatMap { $0 }
+            .count { ($0["rapid"] as? Bool) == true }
+        return [
             "synthetic": true,
             "runID": "synthetic-runner-test",
             "provenance": [
@@ -276,6 +334,9 @@ struct RealDialogueVerificationRunnerTests {
             "expectedTurnCount": expectedTurns,
             "expectedTriggerCount": expectedTriggers,
             "expectedRejectCount": expectedRejects,
+            "expectedVisibleCountMinimum": expectedTriggers - rapidTransitions,
+            "expectedVisibleCountMaximum": expectedTriggers,
+            "expectedRapidTransitionCount": rapidTransitions,
             "sessions": sessions.enumerated().map { index, turns in
                 ["id": "session-\(index)", "turns": turns]
             },
@@ -367,6 +428,113 @@ struct RealDialogueVerificationRunnerTests {
                 "systemCaptureRunning": false,
             ]),
         ]
+    }
+
+    private func rapidTransitionEvidenceEvents(
+        scenarioSHA256: String,
+        rapidSuggestionAfterFollowUpAccepted: Bool
+    ) -> [[String: Any]] {
+        let rapidSuggestion = event("suggestion.visible", [
+            "sessionID": "session-0",
+            "suggestionID": "suggestion-rapid",
+            "questionID": "question-rapid",
+            "generationID": "generation-rapid",
+            "contextSnapshotID": "snapshot-1",
+            "matchedTurnID": "session-0.0",
+            "answerCharacters": 64,
+            "answerProvider": "ollama_qwen",
+            "alignmentVerdict": "aligned",
+        ])
+        let followUpGeneration = event("generation.started", [
+            "sessionID": "session-0",
+            "questionID": "question-follow-up",
+            "generationID": "generation-follow-up",
+            "contextSnapshotID": "snapshot-1",
+        ])
+        var events = [
+            event("bootstrap.started", [
+                "runID": "synthetic-runner-test",
+                "databaseLocation": "isolated_verification_support",
+                "scenarioSHA256": scenarioSHA256,
+            ]),
+            event("bootstrap.ready", [
+                "sessionID": "session-0",
+                "contextSnapshotID": "snapshot-1",
+                "activeASRProvider": "local_parakeet",
+                "systemCaptureRunning": true,
+            ]),
+            event("sck.first_buffer", [
+                "sessionID": "session-0",
+                "totalBuffers": 1,
+                "sampleRate": 48_000,
+                "channelCount": 2,
+                "lastBufferAt": "2026-08-27T12:00:00Z",
+            ]),
+            event("asr.transcript", [
+                "sessionID": "session-0",
+                "segmentID": "segment-rapid",
+                "textCharacters": 40,
+                "textWords": 6,
+                "source": "systemAudio",
+                "speaker": "interviewer",
+                "asrProvider": "local_parakeet",
+                "isFinal": true,
+                "finalizationReason": "final_accepted",
+            ]),
+            event("question.accepted", [
+                "sessionID": "session-0",
+                "questionID": "question-rapid",
+                "questionCharacters": 40,
+                "contextSnapshotID": "snapshot-1",
+            ]),
+            event("generation.started", [
+                "sessionID": "session-0",
+                "questionID": "question-rapid",
+                "generationID": "generation-rapid",
+                "contextSnapshotID": "snapshot-1",
+            ]),
+        ]
+        if !rapidSuggestionAfterFollowUpAccepted { events.append(rapidSuggestion) }
+        events.append(contentsOf: [
+            event("asr.transcript", [
+                "sessionID": "session-0",
+                "segmentID": "segment-follow-up",
+                "textCharacters": 28,
+                "textWords": 5,
+                "source": "systemAudio",
+                "speaker": "interviewer",
+                "asrProvider": "local_parakeet",
+                "isFinal": true,
+                "finalizationReason": "final_accepted",
+            ]),
+            event("question.accepted", [
+                "sessionID": "session-0",
+                "questionID": "question-follow-up",
+                "questionCharacters": 28,
+                "contextSnapshotID": "snapshot-1",
+            ]),
+        ])
+        if rapidSuggestionAfterFollowUpAccepted { events.append(rapidSuggestion) }
+        events.append(followUpGeneration)
+        events.append(contentsOf: [
+            event("suggestion.visible", [
+                "sessionID": "session-0",
+                "suggestionID": "suggestion-follow-up",
+                "questionID": "question-follow-up",
+                "generationID": "generation-follow-up",
+                "contextSnapshotID": "snapshot-1",
+                "matchedTurnID": "session-0.1",
+                "answerCharacters": 72,
+                "answerProvider": "ollama_qwen",
+                "alignmentVerdict": "aligned",
+            ]),
+            event("verification.finished", [
+                "suggestionRows": 2,
+                "databaseLocation": "isolated_verification_support",
+                "systemCaptureRunning": false,
+            ]),
+        ])
+        return events
     }
 
     private func event(_ name: String, _ fields: [String: Any] = [:]) -> [String: Any] {
