@@ -103,6 +103,82 @@ private actor ControlledScreenSystemAudioPermissionProbe: ScreenSystemAudioPermi
     }
 }
 
+private actor ControlledCancellableProbeStreamLifecycle {
+    private let startEntered: AsyncStream<Void>.Continuation
+    private let stopEntered: AsyncStream<Void>.Continuation
+    private var startRelease: CheckedContinuation<Void, Never>?
+    private var events = [String]()
+
+    init(
+        startEntered: AsyncStream<Void>.Continuation,
+        stopEntered: AsyncStream<Void>.Continuation
+    ) {
+        self.startEntered = startEntered
+        self.stopEntered = stopEntered
+    }
+
+    func start() async throws {
+        events.append("start_entered")
+        startEntered.yield()
+        await withCheckedContinuation { continuation in
+            startRelease = continuation
+        }
+        events.append("start_finished")
+    }
+
+    func stop() async throws {
+        events.append("stop_entered")
+        stopEntered.yield()
+        startRelease?.resume()
+        startRelease = nil
+        events.append("stop_finished")
+    }
+
+    func observedEvents() -> [String] {
+        events
+    }
+}
+
+private actor ControlledProbeStreamLifecycle {
+    private let stopEntered: AsyncStream<Void>.Continuation
+    private var stopRelease: CheckedContinuation<Void, Never>?
+    private var events = [String]()
+
+    init(stopEntered: AsyncStream<Void>.Continuation) {
+        self.stopEntered = stopEntered
+    }
+
+    func start() async throws {
+        events.append("start")
+    }
+
+    func stop() async throws {
+        events.append("stop_entered")
+        stopEntered.yield()
+        await withCheckedContinuation { continuation in
+            stopRelease = continuation
+        }
+        events.append("stop_finished")
+    }
+
+    func releaseStop() {
+        stopRelease?.resume()
+        stopRelease = nil
+    }
+
+    func observedEvents() -> [String] {
+        events
+    }
+}
+
+private actor ProbeLifecycleResultRecorder {
+    private(set) var result: Bool?
+
+    func record(_ result: Bool) {
+        self.result = result
+    }
+}
+
 @Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct PermissionProbeTests {
@@ -128,6 +204,64 @@ struct PermissionProbeTests {
             .appendingPathComponent("HirevaPermissionTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+    }
+
+    @Test
+    func testCancelledStreamProbeStopsAnInFlightStartExactlyOnce() async {
+        let (startEvents, startEventContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (stopEvents, stopEventContinuation) = AsyncStream.makeStream(of: Void.self)
+        let lifecycle = ControlledCancellableProbeStreamLifecycle(
+            startEntered: startEventContinuation,
+            stopEntered: stopEventContinuation
+        )
+        let probeTask = Task {
+            await ScreenSystemAudioProbeLifecycle.run(
+                start: { try await lifecycle.start() },
+                stop: { try await lifecycle.stop() }
+            )
+        }
+
+        var startIterator = startEvents.makeAsyncIterator()
+        _ = await startIterator.next()
+        probeTask.cancel()
+
+        var stopIterator = stopEvents.makeAsyncIterator()
+        _ = await stopIterator.next()
+        #expect(await probeTask.value == false)
+        #expect(await lifecycle.observedEvents() == [
+            "start_entered",
+            "stop_entered",
+            "stop_finished",
+            "start_finished",
+        ])
+        startEventContinuation.finish()
+        stopEventContinuation.finish()
+    }
+
+    @Test
+    func testSuccessfulStreamProbeDoesNotReturnUntilTeardownFinishes() async {
+        let (stopEvents, stopEventContinuation) = AsyncStream.makeStream(of: Void.self)
+        let lifecycle = ControlledProbeStreamLifecycle(stopEntered: stopEventContinuation)
+        let resultRecorder = ProbeLifecycleResultRecorder()
+        let probeTask = Task {
+            let result = await ScreenSystemAudioProbeLifecycle.run(
+                start: { try await lifecycle.start() },
+                stop: { try await lifecycle.stop() }
+            )
+            await resultRecorder.record(result)
+            return result
+        }
+
+        var stopIterator = stopEvents.makeAsyncIterator()
+        _ = await stopIterator.next()
+        #expect(await resultRecorder.result == nil)
+        #expect(await lifecycle.observedEvents() == ["start", "stop_entered"])
+
+        await lifecycle.releaseStop()
+        #expect(await probeTask.value)
+        #expect(await resultRecorder.result == true)
+        #expect(await lifecycle.observedEvents() == ["start", "stop_entered", "stop_finished"])
+        stopEventContinuation.finish()
     }
 
     @Test

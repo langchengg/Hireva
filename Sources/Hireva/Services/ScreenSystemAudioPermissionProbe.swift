@@ -15,6 +15,96 @@ protocol ScreenSystemAudioPermissionProbing: Sendable {
     func probe() async -> ScreenSystemAudioPermissionProbeResult
 }
 
+private actor ScreenSystemAudioProbeLifecycleCoordinator {
+    private enum State {
+        case idle
+        case starting
+        case started
+        case stopping(Task<Bool, Never>)
+        case stopped(Bool)
+    }
+
+    private let startOperation: @Sendable () async throws -> Void
+    private let stopOperation: @Sendable () async throws -> Void
+    private var state = State.idle
+
+    init(
+        start: @escaping @Sendable () async throws -> Void,
+        stop: @escaping @Sendable () async throws -> Void
+    ) {
+        startOperation = start
+        stopOperation = stop
+    }
+
+    func start() async -> Bool {
+        guard case .idle = state else { return false }
+
+        do {
+            try Task.checkCancellation()
+            state = .starting
+            try await startOperation()
+            if case .starting = state {
+                state = .started
+            }
+            return true
+        } catch {
+            // Leave a partially started operation eligible for the shared
+            // stop path. ScreenCaptureKit can fail after allocating resources.
+            return false
+        }
+    }
+
+    func stop() async -> Bool {
+        switch state {
+        case .idle:
+            // A cancellation can win before start enters the actor. Marking
+            // the lifecycle stopped prevents a late start from beginning.
+            state = .stopped(true)
+            return true
+        case .stopping(let task):
+            return await task.value
+        case .stopped(let succeeded):
+            return succeeded
+        case .starting, .started:
+            let stopOperation = self.stopOperation
+            let task = Task {
+                do {
+                    try await stopOperation()
+                    return true
+                } catch {
+                    return false
+                }
+            }
+            state = .stopping(task)
+            let succeeded = await task.value
+            state = .stopped(succeeded)
+            return succeeded
+        }
+    }
+}
+
+enum ScreenSystemAudioProbeLifecycle {
+    static func run(
+        start: @escaping @Sendable () async throws -> Void,
+        stop: @escaping @Sendable () async throws -> Void
+    ) async -> Bool {
+        let coordinator = ScreenSystemAudioProbeLifecycleCoordinator(
+            start: start,
+            stop: stop
+        )
+
+        return await withTaskCancellationHandler {
+            let started = await coordinator.start()
+            let stopped = await coordinator.stop()
+            return started && stopped && !Task.isCancelled
+        } onCancel: {
+            Task {
+                _ = await coordinator.stop()
+            }
+        }
+    }
+}
+
 final class ScreenSystemAudioPermissionProbe: ScreenSystemAudioPermissionProbing, @unchecked Sendable {
     static let shared = ScreenSystemAudioPermissionProbe()
     static var mockProbe: (() async -> ScreenSystemAudioPermissionProbeResult)?
@@ -118,11 +208,6 @@ final class ScreenSystemAudioPermissionProbe: ScreenSystemAudioPermissionProbing
 }
 
 fileprivate final class StreamAudioProbeHelper: NSObject, SCStreamOutput {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Bool, Never>?
-    private var stream: SCStream?
-    private var isFinished = false
-    
     func runProbe(display: SCDisplay) async -> Bool {
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
@@ -135,92 +220,22 @@ fileprivate final class StreamAudioProbeHelper: NSObject, SCStreamOutput {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 2)
         
         let queue = DispatchQueue(label: "com.langcheng.Hireva.streamProbeQueue")
-        
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if isFinished {
-                    lock.unlock()
-                    continuation.resume(returning: false)
-                    return
-                }
-                self.continuation = continuation
-                lock.unlock()
-
-                if Task.isCancelled {
-                    finish(succeeded: false)
-                    return
-                }
-
-                do {
-                    let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-                    try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-                    try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-
-                    lock.lock()
-                    let shouldStart = !isFinished
-                    if shouldStart {
-                        self.stream = stream
-                    }
-                    lock.unlock()
-
-                    guard shouldStart else { return }
-
-                    Task {
-                        guard !self.hasFinished else { return }
-                        do {
-                            try await stream.startCapture()
-                            if self.hasFinished {
-                                try? await stream.stopCapture()
-                                return
-                            }
-                            // This is a permission/startup probe, not an audio
-                            // activity meter. The live capture service has its
-                            // own watchdog for "stream started but no samples".
-                            self.finish(succeeded: true)
-                        } catch {
-                            self.finish(succeeded: false)
-                        }
-                    }
-                } catch {
-                    finish(succeeded: false)
-                }
-            }
-        } onCancel: {
-            finish(succeeded: false)
+        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        do {
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+        } catch {
+            return false
         }
-    }
 
-    private var hasFinished: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return isFinished
-    }
-
-    private func finish(succeeded: Bool) {
-        lock.lock()
-        guard !isFinished else {
-            lock.unlock()
-            return
-        }
-        isFinished = true
-        let continuation = self.continuation
-        self.continuation = nil
-        let stream = self.stream
-        self.stream = nil
-        lock.unlock()
-
-        continuation?.resume(returning: succeeded)
-        if let stream {
-            Task {
-                try? await stream.stopCapture()
-            }
-        }
+        // This is a permission/startup probe, not an audio-activity meter. A
+        // successful start is sufficient, but the probe must await teardown
+        // before the caller is allowed to start the production stream.
+        return await ScreenSystemAudioProbeLifecycle.run(
+            start: { try await stream.startCapture() },
+            stop: { try await stream.stopCapture() }
+        )
     }
     
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        if type == .audio {
-            finish(succeeded: true)
-        }
-    }
+    func stream(_: SCStream, didOutputSampleBuffer _: CMSampleBuffer, of _: SCStreamOutputType) {}
 }

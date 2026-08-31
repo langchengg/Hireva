@@ -96,6 +96,25 @@ struct VerificationBootstrapTests {
     }
 
     @Test
+    func verificationErrorCodeClassifiesPermissionStateWithoutRawErrorText() {
+        let canary = "HIREVA_PRIVATE_ERROR_CANARY"
+        let cases: [(ScreenSystemAudioPermissionState, String)] = [
+            (.granted, "app_reported_error"),
+            (.permissionMissing, "screen_audio_permission_missing"),
+            (.restartLikely, "screen_audio_restart_required"),
+            (.identityMismatch, "screen_audio_identity_mismatch"),
+            (.shareableContentProbeFailed(canary), "screen_audio_shareable_probe_failed"),
+            (.streamAudioProbeFailed(canary), "screen_audio_stream_probe_failed"),
+        ]
+
+        for (state, expectedCode) in cases {
+            let code = HirevaVerificationEventPolicy.appErrorCode(systemAudioPermissionState: state)
+            #expect(code == expectedCode)
+            #expect(!code.contains(canary))
+        }
+    }
+
+    @Test
     func syntheticDocumentSeederSatisfiesProductionOnboardingGate() throws {
         let databaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("VerificationSeeder-\(UUID().uuidString).sqlite")

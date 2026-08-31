@@ -84,6 +84,25 @@ enum HirevaVerificationEventPolicy {
         default: return "other"
         }
     }
+
+    static func appErrorCode(
+        systemAudioPermissionState: ScreenSystemAudioPermissionState
+    ) -> String {
+        switch systemAudioPermissionState {
+        case .granted:
+            "app_reported_error"
+        case .permissionMissing:
+            "screen_audio_permission_missing"
+        case .restartLikely:
+            "screen_audio_restart_required"
+        case .identityMismatch:
+            "screen_audio_identity_mismatch"
+        case .shareableContentProbeFailed:
+            "screen_audio_shareable_probe_failed"
+        case .streamAudioProbeFailed:
+            "screen_audio_stream_probe_failed"
+        }
+    }
 }
 
 struct HirevaVerificationSeededDocuments {
@@ -452,7 +471,12 @@ private final class HirevaVerificationCoordinator {
         }
         if let error = appState.errorMessage, !error.isEmpty, error != lastError {
             lastError = error
-            emit("app.error", ["errorCode": "app_reported_error", "sessionID": sessionID])
+            emit("app.error", [
+                "errorCode": HirevaVerificationEventPolicy.appErrorCode(
+                    systemAudioPermissionState: appState.systemAudioPermissionState
+                ),
+                "sessionID": sessionID,
+            ])
         }
     }
 
