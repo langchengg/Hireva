@@ -36,6 +36,34 @@ struct VerificationBootstrapTests {
     }
 
     @Test
+    func everyTriggeringTurnIncludingRapidCanMapVisibleEvidence() throws {
+        let ordinary = try #require(HirevaVerificationEventPolicy.expectedTurnMatch(
+            sessionID: "session-1",
+            turnIndex: 1,
+            expectedShouldTrigger: true,
+            isRapid: false,
+            expectedQuestionNeedle: "ordinary question"
+        ))
+        let rapid = try #require(HirevaVerificationEventPolicy.expectedTurnMatch(
+            sessionID: "session-1",
+            turnIndex: 2,
+            expectedShouldTrigger: true,
+            isRapid: true,
+            expectedQuestionNeedle: "rapid question"
+        ))
+
+        #expect(ordinary.turnID == "session-1.1")
+        #expect(rapid.turnID == "session-1.2")
+        #expect(HirevaVerificationEventPolicy.expectedTurnMatch(
+            sessionID: "session-1",
+            turnIndex: 3,
+            expectedShouldTrigger: false,
+            isRapid: false,
+            expectedQuestionNeedle: nil
+        ) == nil)
+    }
+
+    @Test
     func verificationEvidenceAllowlistRejectsPathsRawAnswersAndErrors() {
         #expect(HirevaVerificationEventPolicy.allows(
             event: "bootstrap.started",

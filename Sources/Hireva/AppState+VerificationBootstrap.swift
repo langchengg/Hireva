@@ -58,6 +58,21 @@ enum HirevaVerificationEventPolicy {
         "\(sessionID).\(turnIndex)"
     }
 
+    static func expectedTurnMatch(
+        sessionID: String,
+        turnIndex: Int,
+        expectedShouldTrigger: Bool,
+        isRapid _: Bool,
+        expectedQuestionNeedle: String?
+    ) -> (turnID: String, needle: String)? {
+        guard expectedShouldTrigger,
+              let expectedQuestionNeedle,
+              !expectedQuestionNeedle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return (verificationTurnID(sessionID: sessionID, turnIndex: turnIndex), expectedQuestionNeedle)
+    }
+
     static func finalizationReasonCode(_ reason: String?) -> String {
         switch reason {
         case "partial": return "partial"
@@ -202,18 +217,12 @@ private final class HirevaVerificationCoordinator {
             }
             expectedVisibleQuestionMatches = scenario.sessions.flatMap { session in
                 session.turns.enumerated().compactMap { turnIndex, turn in
-                    guard turn.expectedShouldTrigger,
-                          turn.rapid != true,
-                          let needle = turn.expectedQuestionNeedle,
-                          !needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                        return nil
-                    }
-                    return (
-                        HirevaVerificationEventPolicy.verificationTurnID(
-                            sessionID: session.id,
-                            turnIndex: turnIndex
-                        ),
-                        needle
+                    HirevaVerificationEventPolicy.expectedTurnMatch(
+                        sessionID: session.id,
+                        turnIndex: turnIndex,
+                        expectedShouldTrigger: turn.expectedShouldTrigger,
+                        isRapid: turn.rapid == true,
+                        expectedQuestionNeedle: turn.expectedQuestionNeedle
                     )
                 }
             }
