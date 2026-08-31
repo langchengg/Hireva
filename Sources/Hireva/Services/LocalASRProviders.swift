@@ -685,6 +685,13 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             }
             if stoppingProcess.isRunning {
                 _ = Darwin.kill(stoppingProcess.processIdentifier, SIGKILL)
+                let killDeadline = Date().addingTimeInterval(0.5)
+                while stoppingProcess.isRunning && Date() < killDeadline {
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+            }
+            if !stoppingProcess.isRunning {
+                stoppingProcess.waitUntilExit()
             }
         }
     }

@@ -1,5 +1,6 @@
 import AVFoundation
 import CryptoKit
+import Darwin
 import Foundation
 import Testing
 @testable import Hireva
@@ -312,6 +313,50 @@ struct ParakeetNativeRuntimeTests {
         await runtime.stop()
         let elapsed = start.duration(to: clock.now)
         #expect(elapsed < .seconds(5))
+        withExtendedLifetime(stream) {}
+    }
+
+    @Test
+    func forcedStopDoesNotReturnWhileHelperProcessIsStillAlive() async throws {
+        let pidFile = temporaryDirectory().appendingPathComponent("helper.pid")
+        let escapedPIDFile = pidFile.path.replacingOccurrences(of: "'", with: "'\\''")
+        let helper = try makeExecutable("""
+        #!/bin/sh
+        printf '%s\n' "$$" > '\(escapedPIDFile)'
+        trap '' TERM
+        exec /usr/bin/tail -f /dev/null
+        """)
+        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let stream = try await runtime.startTranscription(
+            modelDirectory: temporaryDirectory(),
+            config: ASRConfig(sessionID: "forced-stop", captureMode: .systemAudioOnly)
+        )
+
+        let clock = ContinuousClock()
+        let pidDeadline = clock.now.advanced(by: .seconds(1))
+        var helperPID: pid_t?
+        while helperPID == nil, clock.now < pidDeadline {
+            if let text = try? String(contentsOf: pidFile, encoding: .utf8),
+               let parsedPID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                helperPID = parsedPID
+            } else {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        let pid = try #require(helperPID)
+        defer {
+            if Darwin.kill(pid, 0) == 0 {
+                _ = Darwin.kill(pid, SIGKILL)
+            }
+        }
+
+        await runtime.stop()
+
+        errno = 0
+        let livenessResult = Darwin.kill(pid, 0)
+        let livenessError = errno
+        #expect(livenessResult == -1)
+        #expect(livenessError == ESRCH)
         withExtendedLifetime(stream) {}
     }
 
