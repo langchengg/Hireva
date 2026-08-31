@@ -19,39 +19,76 @@ enum TranscriptionError: LocalizedError {
 }
 
 final class MockTranscriptionService: TranscriptionProvider {
+    private struct State {
+        var continuation: AsyncStream<TranscriptSegment>.Continuation?
+        var currentSessionID: String?
+        var startBarrier: (() async -> Void)?
+        var startCallCount = 0
+        var stopCallCount = 0
+        var selectedMockSpeaker: SpeakerRole = .interviewer
+    }
+
     let providerName = "Mock Interview Mode"
-    private var continuation: AsyncStream<TranscriptSegment>.Continuation?
-    private var currentSessionID: String?
-    var startBarrier: (() async -> Void)?
-    private(set) var startCallCount = 0
-    private(set) var stopCallCount = 0
+    private let stateLock = NSLock()
+    private var state = State()
+
+    var startBarrier: (() async -> Void)? {
+        get { stateLock.withLock { state.startBarrier } }
+        set { stateLock.withLock { state.startBarrier = newValue } }
+    }
+
+    var startCallCount: Int {
+        stateLock.withLock { state.startCallCount }
+    }
+
+    var stopCallCount: Int {
+        stateLock.withLock { state.stopCallCount }
+    }
 
     // Allows user to manually select a speaker role for mock inputs
-    var selectedMockSpeaker: SpeakerRole = .interviewer
+    var selectedMockSpeaker: SpeakerRole {
+        get { stateLock.withLock { state.selectedMockSpeaker } }
+        set { stateLock.withLock { state.selectedMockSpeaker = newValue } }
+    }
 
-    lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { continuation in
-        self.continuation = continuation
+    lazy var segments: AsyncStream<TranscriptSegment> = AsyncStream { [weak self] continuation in
+        self?.stateLock.withLock {
+            self?.state.continuation = continuation
+        }
     }
 
     func start(sessionID: String) async throws {
-        startCallCount += 1
-        await startBarrier?()
-        currentSessionID = sessionID
+        // Snapshot the optional test barrier while holding the lock, but never
+        // keep a blocking primitive held across an async suspension point.
+        let barrier = stateLock.withLock { () -> (() async -> Void)? in
+            state.startCallCount += 1
+            return state.startBarrier
+        }
+        await barrier?()
+        stateLock.withLock {
+            state.currentSessionID = sessionID
+        }
     }
 
     func submit(_ text: String, speaker: SpeakerRole? = nil) {
-        guard let currentSessionID else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let finalSpeaker = speaker ?? selectedMockSpeaker
+        let snapshot = stateLock.withLock {
+            (
+                sessionID: state.currentSessionID,
+                speaker: speaker ?? state.selectedMockSpeaker,
+                continuation: state.continuation
+            )
+        }
+        guard let currentSessionID = snapshot.sessionID else { return }
 
-        continuation?.yield(
+        snapshot.continuation?.yield(
             TranscriptSegment(
                 id: UUID().uuidString,
                 sessionID: currentSessionID,
                 source: .mock,
-                speaker: finalSpeaker,
+                speaker: snapshot.speaker,
                 text: trimmed,
                 startTime: nil,
                 endTime: nil,
@@ -65,7 +102,9 @@ final class MockTranscriptionService: TranscriptionProvider {
     }
 
     func stop() {
-        stopCallCount += 1
-        currentSessionID = nil
+        stateLock.withLock {
+            state.stopCallCount += 1
+            state.currentSessionID = nil
+        }
     }
 }

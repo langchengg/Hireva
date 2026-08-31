@@ -13,17 +13,32 @@ struct CaptureRuntimeStateTests {
     @MainActor
     private final class AsyncGate {
         private var continuations: [CheckedContinuation<Void, Never>] = []
+        private var arrivalContinuations: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
         private(set) var waiterCount = 0
         private var isOpen = false
 
         func wait() async {
             guard !isOpen else { return }
             waiterCount += 1
+            let arrived = arrivalContinuations.filter { waiterCount >= $0.count }
+            arrivalContinuations.removeAll { waiterCount >= $0.count }
+            arrived.forEach { $0.continuation.resume() }
             await withCheckedContinuation { continuation in
                 if isOpen {
                     continuation.resume()
                 } else {
                     continuations.append(continuation)
+                }
+            }
+        }
+
+        func waitForWaiterCount(_ expectedCount: Int) async {
+            guard waiterCount < expectedCount else { return }
+            await withCheckedContinuation { continuation in
+                if waiterCount >= expectedCount {
+                    continuation.resume()
+                } else {
+                    arrivalContinuations.append((expectedCount, continuation))
                 }
             }
         }
@@ -279,9 +294,8 @@ struct CaptureRuntimeStateTests {
         }
 
         appState.startListening(mode: .mock)
-        try await waitUntil("mock provider startup to suspend") {
-            gate.waiterCount == 1 && appState.currentSession != nil
-        }
+        await gate.waitForWaiterCount(1)
+        #expect(appState.currentSession != nil)
         let pendingSession = try #require(appState.currentSession)
 
         appState.stopListening(reason: .userRequested)
@@ -310,9 +324,8 @@ struct CaptureRuntimeStateTests {
         }
 
         appState.startListening(mode: .mock)
-        try await waitUntil("first startup to suspend") {
-            gate.waiterCount == 1 && appState.currentSession != nil
-        }
+        await gate.waitForWaiterCount(1)
+        #expect(appState.currentSession != nil)
         let firstSession = try #require(appState.currentSession)
 
         appState.stopListening(reason: .userRequested)
@@ -349,7 +362,7 @@ struct CaptureRuntimeStateTests {
         }
 
         appState.startListening(mode: .mock)
-        try await waitUntil("teardown barrier to suspend") { gate.waiterCount == 1 }
+        await gate.waitForWaiterCount(1)
         #expect(appState.mockTranscriptionService.startCallCount == 0)
 
         gate.open()
