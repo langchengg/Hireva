@@ -1570,6 +1570,7 @@ struct RuntimePathSingleSourceOfTruthTests {
     func observedEngineeringFitThenSyntheticEventServiceImprovementRuntimeGeneratesLatestAnswerAndTraceEvents() async throws {
         let traceURL = temporaryTraceURL("runtime-engineering-fit-improvement-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        client.deliversStreamsAsSingleChunk = true
         let transcript = "What would you ask the engineering team to understand whether this role is a good fit? If you had one more month to improve your SyntheticEventService system, what would you improve first?"
 
         await appState.handleTranscriptSegment(systemAudioSegment(
@@ -2343,6 +2344,7 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
     private var detectionCalls = 0
     private var answerCalls = 0
     private var streamCalls = 0
+    private var deliversStreamsAsSingleChunkValue = false
     var stageAStreamDelayByNeedle = [String: UInt64]()
     var stageAStreamHangAfterTokenByNeedle = [String: Int]()
     var stageAStreamNeverYieldsByNeedle = Set<String>()
@@ -2351,6 +2353,10 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
     var detectionCallCount: Int { lock.withLock { detectionCalls } }
     var answerCallCount: Int { lock.withLock { answerCalls } }
     var streamCallCount: Int { lock.withLock { streamCalls } }
+    var deliversStreamsAsSingleChunk: Bool {
+        get { lock.withLock { deliversStreamsAsSingleChunkValue } }
+        set { lock.withLock { deliversStreamsAsSingleChunkValue = newValue } }
+    }
 
     init(providerDetectionQuestion: String?) {
         self.providerDetectionQuestion = providerDetectionQuestion
@@ -2772,6 +2778,7 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             let stageAHangAfterToken = isFullCardPrompt ? nil : self.stageAStreamHangAfterTokenCount(for: prompt)
             let stageANeverYields = !isFullCardPrompt && self.stageAStreamShouldNeverYield(for: prompt)
             let fullCardShouldHang = isFullCardPrompt && self.fullCardStreamShouldHang(for: prompt)
+            let deliversAsSingleChunk = self.deliversStreamsAsSingleChunk
             let task = Task {
                 if delay > 0 {
                     try? await Task.sleep(nanoseconds: delay)
@@ -2786,6 +2793,11 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
                     while !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 100_000_000)
                     }
+                    return
+                }
+                if deliversAsSingleChunk {
+                    continuation.yield(text)
+                    continuation.finish()
                     return
                 }
                 var yieldedTokens = 0
