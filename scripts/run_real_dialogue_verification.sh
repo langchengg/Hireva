@@ -2,6 +2,7 @@
 set -euo pipefail
 
 VALIDATE_ONLY=false
+APPROVAL_ONLY=false
 EVIDENCE_ONLY=false
 RUNTIME_COMPATIBILITY_ONLY=false
 EVIDENCE_PATH=""
@@ -33,6 +34,9 @@ resolve_new_directory() {
 
 if [[ $# -eq 1 && "$1" == "--validate-runtime-compatibility" ]]; then
     RUNTIME_COMPATIBILITY_ONLY=true
+elif [[ $# -eq 2 && "$1" == "--validate-approved-scenario" ]]; then
+    SCENARIO_PATH="$(resolve_existing_file "$2")" || { echo "scenario fixture must be a regular non-symlink file" >&2; exit 2; }
+    APPROVAL_ONLY=true
 elif [[ $# -eq 2 && "$1" == "--validate-scenario" ]]; then
     SCENARIO_PATH="$(resolve_existing_file "$2")" || { echo "scenario fixture must be a regular non-symlink file" >&2; exit 2; }
     VALIDATE_ONLY=true
@@ -49,6 +53,7 @@ elif [[ $# -eq 4 ]]; then
     RUN_REQUIRES_COMPLETION=true
 else
     echo "usage: $0 <scenario.json> <output-root> <app-support-root> <local-models-root>" >&2
+    echo "       $0 --validate-approved-scenario <scenario.json>" >&2
     echo "       $0 --validate-scenario <scenario.json>" >&2
     echo "       $0 --validate-evidence <scenario.json> <events.jsonl>" >&2
     echo "       $0 --validate-runtime-compatibility" >&2
@@ -193,36 +198,76 @@ if [[ "$RUNTIME_COMPATIBILITY_ONLY" == "true" ]]; then
     exit 0
 fi
 
-if [[ "$VALIDATE_ONLY" == "false" && "$EVIDENCE_ONLY" == "false" ]]; then
+require_clean_tracked_file() {
+    local relative_path="$1"
+    git -C "$ROOT_DIR" ls-files --error-unmatch "$relative_path" >/dev/null 2>&1 || return 1
+    git -C "$ROOT_DIR" diff --quiet -- "$relative_path" || return 1
+    git -C "$ROOT_DIR" diff --cached --quiet -- "$relative_path" || return 1
+}
+
+approve_scenario() {
+    local release_relative="scripts/fixtures/release_verification_scenario_v1.json"
+    local release_path="$ROOT_DIR/$release_relative"
+    local campaign_relative="scripts/fixtures/real_audio_campaign"
+    local campaign_path="$ROOT_DIR/$campaign_relative"
+    local manifest_relative="$campaign_relative/manifest.json"
+    local manifest_path="$ROOT_DIR/$manifest_relative"
+    local scenario_relative filename expected_sha actual_sha match_count
+
+    if [[ "$SCENARIO_PATH" == "$release_path" ]]; then
+        require_clean_tracked_file "$release_relative" || {
+            echo "scenario must be a tracked approved fixture with no uncommitted changes" >&2
+            return 1
+        }
+        APPROVED_SCENARIO_KIND="release"
+        return 0
+    fi
+
+    case "$SCENARIO_PATH" in
+        "$campaign_path"/role-*.json) ;;
+        *)
+            echo "scenario must be a tracked approved fixture: the approved release verification scenario or a manifest-bound reviewed campaign scenario" >&2
+            return 1
+            ;;
+    esac
+
+    filename="$(basename "$SCENARIO_PATH")"
+    scenario_relative="$campaign_relative/$filename"
+    require_clean_tracked_file "$scenario_relative" || {
+        echo "scenario must be a tracked approved fixture with no uncommitted changes" >&2
+        return 1
+    }
+    require_clean_tracked_file "$manifest_relative" || {
+        echo "campaign manifest must be tracked with no uncommitted changes" >&2
+        return 1
+    }
+
+    match_count="$(jq --arg filename "$filename" '[.scenarios[] | select(.filename == $filename)] | length' "$manifest_path")"
+    [[ "$match_count" -eq 1 ]] || {
+        echo "campaign scenario must have exactly one manifest entry" >&2
+        return 1
+    }
+    expected_sha="$(jq -r --arg filename "$filename" '.scenarios[] | select(.filename == $filename) | .sha256' "$manifest_path")"
+    actual_sha="$(/usr/bin/shasum -a 256 "$SCENARIO_PATH" | /usr/bin/awk '{print $1}')"
+    [[ "$expected_sha" =~ ^[a-f0-9]{64}$ && "$actual_sha" == "$expected_sha" ]] || {
+        echo "campaign scenario digest does not match the reviewed manifest" >&2
+        return 1
+    }
+    APPROVED_SCENARIO_KIND="campaign"
+}
+
+if [[ "$RUN_REQUIRES_COMPLETION" == "true" ]]; then
     case "$OUTPUT_ROOT/" in "$ROOT_DIR/"*) echo "verification output must remain outside the source repository" >&2; exit 2;; esac
     case "$APP_SUPPORT_ROOT/" in "$ROOT_DIR/"*) echo "verification app support must remain outside the source repository" >&2; exit 2;; esac
     case "$OUTPUT_ROOT/" in "$APP_SUPPORT_ROOT/"*) echo "verification output and app support must not contain one another" >&2; exit 2;; esac
     case "$APP_SUPPORT_ROOT/" in "$OUTPUT_ROOT/"*) echo "verification output and app support must not contain one another" >&2; exit 2;; esac
     PRODUCTION_SUPPORT_ROOT="$HOME/Library/Application Support/Hireva"
     [[ "$APP_SUPPORT_ROOT" != "$PRODUCTION_SUPPORT_ROOT" ]] || { echo "verification app support must not use the production support directory" >&2; exit 2; }
+fi
 
-    APPROVED_SCENARIO_RELATIVE="scripts/fixtures/release_verification_scenario_v1.json"
-    APPROVED_SCENARIO="$ROOT_DIR/$APPROVED_SCENARIO_RELATIVE"
-    [[ -f "$APPROVED_SCENARIO" && ! -L "$APPROVED_SCENARIO" ]] || {
-        echo "the approved release verification scenario is unavailable" >&2
-        exit 2
-    }
-    git -C "$ROOT_DIR" ls-files --error-unmatch "$APPROVED_SCENARIO_RELATIVE" >/dev/null 2>&1 || {
-        echo "the approved release verification scenario must be tracked" >&2
-        exit 2
-    }
-    git -C "$ROOT_DIR" diff --quiet -- "$APPROVED_SCENARIO_RELATIVE" || {
-        echo "the approved release verification scenario has uncommitted changes" >&2
-        exit 2
-    }
-    git -C "$ROOT_DIR" diff --cached --quiet -- "$APPROVED_SCENARIO_RELATIVE" || {
-        echo "the approved release verification scenario has staged but uncommitted changes" >&2
-        exit 2
-    }
-    /usr/bin/cmp -s "$SCENARIO_PATH" "$APPROVED_SCENARIO" || {
-    echo "real release verification accepts only the approved release verification scenario" >&2
-        exit 2
-    }
+APPROVED_SCENARIO_KIND=""
+if [[ "$RUN_REQUIRES_COMPLETION" == "true" || "$APPROVAL_ONLY" == "true" ]]; then
+    approve_scenario || exit 2
 fi
 
 [[ -f "$SCENARIO_PATH" ]] || { echo "scenario not found: $SCENARIO_PATH" >&2; exit 2; }
@@ -241,6 +286,11 @@ SCENARIO_PATH="$VALIDATED_SCENARIO"
 VERIFICATION_RUN_NONCE="$(/usr/bin/uuidgen | /usr/bin/tr -d '-' | /usr/bin/tr '[:upper:]' '[:lower:]')"
 [[ "$VERIFICATION_RUN_NONCE" =~ ^[a-f0-9]{32}$ ]] || { echo "could not create verification run nonce" >&2; exit 2; }
 printf '%s\n' "$SCENARIO_VALIDATION"
+if [[ "$APPROVAL_ONLY" == "true" ]]; then
+    printf 'APPROVED_SYNTHETIC_SCENARIO=passed\n'
+    printf 'APPROVED_SYNTHETIC_SCENARIO_KIND=%s\n' "$APPROVED_SCENARIO_KIND"
+    exit 0
+fi
 validation_value() {
     local key="$1"
     printf '%s\n' "$SCENARIO_VALIDATION" | sed -n "s/^${key}=//p"

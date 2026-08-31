@@ -102,6 +102,42 @@ struct RealDialogueVerificationRunnerTests {
     }
 
     @Test
+    func testApprovedScenarioValidationAcceptsTrackedManifestBoundFixtures() throws {
+        let repositoryRoot = runnerURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let fixtures = [
+            repositoryRoot.appendingPathComponent("scripts/fixtures/release_verification_scenario_v1.json"),
+            repositoryRoot.appendingPathComponent("scripts/fixtures/real_audio_campaign/role-01-robotics_research_engineer.json"),
+        ]
+
+        for fixture in fixtures {
+            let result = try runRunner(["--validate-approved-scenario", fixture.path])
+            #expect(result.status == 0, Comment(rawValue: result.output))
+            #expect(result.output.contains("APPROVED_SYNTHETIC_SCENARIO=passed"))
+        }
+    }
+
+    @Test
+    func testApprovedScenarioValidationRejectsExternalByteIdenticalCopy() throws {
+        let repositoryRoot = runnerURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let approved = repositoryRoot
+            .appendingPathComponent("scripts/fixtures/real_audio_campaign/role-01-robotics_research_engineer.json")
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let copied = temporaryDirectory.appendingPathComponent("role-01-robotics_research_engineer.json")
+        try FileManager.default.copyItem(at: approved, to: copied)
+
+        let result = try runRunner(["--validate-approved-scenario", copied.path])
+        #expect(result.status != 0)
+        #expect(result.output.contains("tracked approved fixture"))
+    }
+
+    @Test
     func testEvidenceValidationAllowsRapidCompletionBeforeFollowUpButRejectsStaleCompletionAfterIt() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
