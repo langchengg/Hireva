@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite("Real dialogue verification runner")
+@Suite("Real dialogue verification runner", .serialized, .sharedRuntimeResources)
 struct RealDialogueVerificationRunnerTests {
     @Test
     func testScenarioValidationAcceptsExplicitSmallMatrixCounts() throws {

@@ -4,7 +4,7 @@ import Testing
 
 // All people, employers, and project scenarios in this file are synthetic.
 
-@Suite
+@Suite(.serialized, .sharedRuntimeResources)
 struct OutputQualityTests {
     
     @Test

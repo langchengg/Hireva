@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct WebSourcedInterviewContextTests {
     @Test
     func backendDocumentsAutoBuildBackendContext() async throws {

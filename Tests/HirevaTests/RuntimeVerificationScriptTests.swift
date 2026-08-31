@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct RuntimeVerificationScriptTests {
     @Test
     func runtimeSmokeRejectsUnknownSuiteBeforeRunningTests() throws {

@@ -14,7 +14,7 @@ private actor RecordingTimeoutSleeper {
     }
 }
 
-@Suite
+@Suite(.serialized, .sharedRuntimeResources)
 struct GenerationCoordinatorTests {
     @Test
     func coordinatorInitializesWithDependenciesWithoutAppState() async throws {

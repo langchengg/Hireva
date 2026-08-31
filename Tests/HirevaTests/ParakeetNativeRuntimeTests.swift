@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite("Parakeet native runtime", .serialized)
+@Suite("Parakeet native runtime", .serialized, .sharedRuntimeResources)
 struct ParakeetNativeRuntimeTests {
     @Test
     func healthRequiresStructuredNativeResponse() async throws {

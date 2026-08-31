@@ -4,7 +4,7 @@ import Security
 import Testing
 @testable import Hireva
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct KeychainInventoryCleanupTests {
     private static let canonicalOrphanAccount = "provider.fixture.orphan"
     private static let legacyOrphanAccount = "embedding.fixture.orphan"

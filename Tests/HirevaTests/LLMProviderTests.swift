@@ -3,7 +3,7 @@ import Security
 import Testing
 @testable import Hireva
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct LLMProviderTests {
     @Test
     func providerConfigurationStorageCreatesDefaultsAndActiveSelections() throws {

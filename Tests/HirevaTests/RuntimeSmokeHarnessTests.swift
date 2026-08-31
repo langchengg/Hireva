@@ -235,7 +235,7 @@ func hermeticJSONString(_ value: String) -> String {
     return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct RuntimeSmokeHarnessTests {
     @Test

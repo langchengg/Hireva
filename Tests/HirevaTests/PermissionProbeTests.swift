@@ -103,7 +103,8 @@ private actor ControlledScreenSystemAudioPermissionProbe: ScreenSystemAudioPermi
     }
 }
 
-@Suite @MainActor
+@Suite(.serialized, .sharedRuntimeResources)
+@MainActor
 struct PermissionProbeTests {
 
     private static let successfulProbeResult = ScreenSystemAudioPermissionProbeResult(

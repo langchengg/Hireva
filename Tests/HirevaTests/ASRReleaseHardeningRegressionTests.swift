@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite("ASR release-hardening regressions")
+@Suite("ASR release-hardening regressions", .serialized, .sharedRuntimeResources)
 struct ASRReleaseHardeningRegressionTests {
     @Test
     func permissionPolicyCoversEveryProviderAndCaptureCombination() {

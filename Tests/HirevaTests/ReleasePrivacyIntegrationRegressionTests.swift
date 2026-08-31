@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite("Release privacy integration regressions")
+@Suite("Release privacy integration regressions", .serialized, .sharedRuntimeResources)
 @MainActor
 struct ReleasePrivacyIntegrationRegressionTests {
     private var repositoryRoot: URL {

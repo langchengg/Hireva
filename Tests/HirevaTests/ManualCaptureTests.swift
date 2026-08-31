@@ -16,7 +16,7 @@ private final class RecordingManualMicrophoneCaptureBackend: ManualMicrophoneCap
     }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct ManualCaptureTests {
 

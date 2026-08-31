@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct ReleaseToolingTests {
     @Test
     func scriptsExposeReviewedSigningAndNotarizationContracts() throws {

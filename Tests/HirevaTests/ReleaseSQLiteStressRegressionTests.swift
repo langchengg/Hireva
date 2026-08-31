@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite("Release SQLite stress regressions")
+@Suite("Release SQLite stress regressions", .serialized, .sharedRuntimeResources)
 struct ReleaseSQLiteStressRegressionTests {
     @Test
     func concurrentHundredTranscriptQuestionAndSuggestionWritesRemainComplete() async throws {

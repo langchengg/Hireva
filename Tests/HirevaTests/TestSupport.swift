@@ -1,5 +1,56 @@
 import Foundation
+import Testing
 @testable import Hireva
+
+/// Serializes suites that share process-wide runtime resources while leaving
+/// pure unit suites available for Swift Testing's normal parallel execution.
+private actor SharedRuntimeResourceGate {
+    static let shared = SharedRuntimeResourceGate()
+
+    private var isOccupied = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        guard isOccupied else {
+            isOccupied = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        guard !waiters.isEmpty else {
+            isOccupied = false
+            return
+        }
+        waiters.removeFirst().resume()
+    }
+}
+
+struct SharedRuntimeResourcesTrait: SuiteTrait, TestScoping {
+    var isRecursive: Bool { false }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        await SharedRuntimeResourceGate.shared.acquire()
+        do {
+            try await function()
+            await SharedRuntimeResourceGate.shared.release()
+        } catch {
+            await SharedRuntimeResourceGate.shared.release()
+            throw error
+        }
+    }
+}
+
+extension Trait where Self == SharedRuntimeResourcesTrait {
+    static var sharedRuntimeResources: Self { Self() }
+}
 
 final class HermeticTestASRProvider: ASRProvider, @unchecked Sendable {
     let id: ASRProviderID = .localParakeet

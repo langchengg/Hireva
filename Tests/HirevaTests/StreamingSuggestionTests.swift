@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Hireva
 
-@Suite
+@Suite(.serialized, .sharedRuntimeResources)
 struct StreamingSuggestionTests {
 
     // 1. SSE Parser handles split chunks, keep-alives, role-only deltas, and usage-only chunks
@@ -633,7 +633,7 @@ struct StreamingMockRequest {
 
 // MARK: - Soft Fallback & Provenance Suite
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct StreamingSoftFallbackTests {
 
     @MainActor

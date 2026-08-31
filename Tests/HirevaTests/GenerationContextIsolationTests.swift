@@ -3,7 +3,7 @@ import GRDB
 import Testing
 @testable import Hireva
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct GenerationContextIsolationTests {
     @Test

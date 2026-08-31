@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite("Parakeet Python sidecar diagnostics")
+@Suite("Parakeet Python sidecar diagnostics", .serialized, .sharedRuntimeResources)
 struct ParakeetPythonSidecarTests {
     @Test
     func healthAlwaysReturnsStructuredJSONWithoutImportTraceback() throws {

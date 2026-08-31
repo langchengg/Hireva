@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
-@Suite
+@Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct ProductPolishStateTests {
     @Test

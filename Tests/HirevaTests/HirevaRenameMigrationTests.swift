@@ -3,7 +3,7 @@ import GRDB
 import Testing
 @testable import Hireva
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 struct HirevaRenameMigrationTests {
     @Test
     func canonicalIdentityUsesHirevaEverywhere() {

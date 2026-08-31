@@ -4,7 +4,7 @@ import Testing
 
 // All people, employers, and project scenarios in this file are synthetic.
 
-@Suite(.serialized)
+@Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct SystemAudioMergedQuestionSegmentationTests {
     // Full `swift test` runs other MainActor-heavy runtime suites concurrently.
