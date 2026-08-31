@@ -1,0 +1,257 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-05",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-machine_learning_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-deepmind-careers",
+      "source-apple-ml-work",
+      "source-anthropic-careers"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "machine_learning_engineer",
+    "roleFamily": "Machine Learning Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-machine_learning_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-ml-engineer",
+    "sourceProfileID": "profile-ml-engineer",
+    "displayName": "Synthetic Candidate",
+    "domain": "data_science",
+    "evidence": [
+      {
+        "id": "ml.e1",
+        "statement": "Built a reproducible ranking pipeline with versioned features and model artifacts",
+        "type": "project"
+      },
+      {
+        "id": "ml.e2",
+        "statement": "Compared pairwise and listwise objectives with time-aware offline evaluation",
+        "type": "experience"
+      },
+      {
+        "id": "ml.e3",
+        "statement": "Instrumented training-serving skew with shadow requests and feature checksums",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-machine_learning_engineer-01",
+    "sourceOpportunityContextID": "opportunity-machine_learning_engineer-01",
+    "title": "Graduate Machine Learning Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-machine_learning_engineer-01.responsibility",
+        "statement": "Own build training pipelines.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-machine_learning_engineer-01.competency",
+        "statement": "Demonstrate offline evaluation with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-machine_learning_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about time-aware offline evaluation and shadow checks.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-machine_learning_engineer-01",
+      "turns": [
+        {
+          "text": "Um, What evidence from your reproducible ranking pipeline best prepares you for this Machine Learning Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-05-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the reproducible ranking pipeline was the documented evaluation work on the requirement to build training pipelines.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-05-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ],
+          "audioSeed": 24083134
+        },
+        {
+          "text": "[[slnc 900]] How did you evaluate your work against the requirement to build training pipelines in the reproducible ranking pipeline?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-05-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ],
+          "audioSeed": 24083135,
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "Actually, let me correct that framing. What was the hardest failure when you applied that approach to the requirement to build training pipelines?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-05-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to build training pipelines.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-05-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ]
+        },
+        {
+          "text": "You deployed the reproducible ranking pipeline to one million production users and generated revenue while meeting the requirement to build training pipelines, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-05-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to build training pipelines is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-05-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ]
+        },
+        {
+          "text": "请用 English 回答：How would you design a reproducible train-evaluate-serve workflow for the requirement to build training pipelines, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 3,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-05-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-careers",
+            "source-apple-ml-work",
+            "source-anthropic-careers"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

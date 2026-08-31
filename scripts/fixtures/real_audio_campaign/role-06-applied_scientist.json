@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-06",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-applied_scientist-01",
+    "sourceProvenanceIDs": [
+      "source-amazon-science-careers",
+      "source-microsoft-research-careers",
+      "source-deepmind-careers"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "applied_scientist",
+    "roleFamily": "Applied Scientist",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-applied_scientist-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-applied-scientist",
+    "sourceProfileID": "profile-applied-scientist",
+    "displayName": "Synthetic Candidate",
+    "domain": "data_science",
+    "evidence": [
+      {
+        "id": "science.e1",
+        "statement": "Designed a synthetic recommendation experiment around a falsifiable hypothesis",
+        "type": "project"
+      },
+      {
+        "id": "science.e2",
+        "statement": "Pre-registered primary metrics, baselines, and confidence intervals before analysis",
+        "type": "experience"
+      },
+      {
+        "id": "science.e3",
+        "statement": "Tested the initial conclusion with a stronger split that removed the measured effect",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-applied_scientist-01",
+    "sourceOpportunityContextID": "opportunity-applied_scientist-01",
+    "title": "Graduate Applied Scientist",
+    "evidence": [
+      {
+        "id": "opportunity-applied_scientist-01.responsibility",
+        "statement": "Own turn product questions into hypotheses.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-applied_scientist-01.competency",
+        "statement": "Demonstrate machine learning with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-applied_scientist-01.success",
+        "statement": "Success requires reproducible reasoning about pre-registered metrics and confidence intervals.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-applied_scientist-01",
+      "turns": [
+        {
+          "text": "What evidence from your synthetic recommendation experiment best prepares you for this Applied Scientist role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-06-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ],
+          "audioSeed": 24083141,
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the synthetic recommendation experiment was the documented evaluation work on the requirement to turn product questions into hypotheses.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-06-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ]
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to turn product questions into hypotheses in the synthetic recommendation experiment?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-06-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to turn product questions into hypotheses?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-06-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to turn product questions into hypotheses.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-06-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ]
+        },
+        {
+          "text": "You deployed the synthetic recommendation experiment to one million production users and generated revenue while meeting the requirement to turn product questions into hypotheses, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-06-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ],
+          "audioSeed": 24083146,
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to turn product questions into hypotheses is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-06-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ],
+          "audioSeed": 24083147
+        },
+        {
+          "text": "How would you design an experiment-to-decision workflow for the requirement to turn product questions into hypotheses, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-06-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-amazon-science-careers",
+            "source-microsoft-research-careers",
+            "source-deepmind-careers"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

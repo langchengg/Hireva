@@ -1,0 +1,257 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-16",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-security_privacy_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-apple-privacy",
+      "source-cloudflare-privacy",
+      "source-openai-ai-safety"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "security_privacy_engineer",
+    "roleFamily": "Security / Privacy Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-security_privacy_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-swift-macos",
+    "sourceProfileID": "profile-swift-macos",
+    "displayName": "Synthetic Candidate",
+    "domain": "cybersecurity",
+    "evidence": [
+      {
+        "id": "swift.e1",
+        "statement": "Built a local Swift prototype that reconciles transcript events and isolates test data",
+        "type": "project"
+      },
+      {
+        "id": "swift.e2",
+        "statement": "Added deterministic question, generation, session, and context identity checks",
+        "type": "experience"
+      },
+      {
+        "id": "swift.e3",
+        "statement": "Tested bundled-app process cleanup and isolated a stale callback after cancellation",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-security_privacy_engineer-01",
+    "sourceOpportunityContextID": "opportunity-security_privacy_engineer-01",
+    "title": "Graduate Security / Privacy Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-security_privacy_engineer-01.responsibility",
+        "statement": "Own threat-model systems.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-security_privacy_engineer-01.competency",
+        "statement": "Demonstrate privacy engineering with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-security_privacy_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about canary scans and least-data test cases.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-security_privacy_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your local Swift prototype best prepares you for this Security / Privacy Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-16-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the local Swift prototype was the documented evaluation work on the requirement to threat-model systems.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-16-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ]
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to threat-model systems in the local Swift prototype?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-16-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to threat-model systems?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-16-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ],
+          "audioSeed": 24083224,
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to threat-model systems.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-16-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ],
+          "audioSeed": 24083225
+        },
+        {
+          "text": "You deployed the local Swift prototype to one million production users and generated revenue while meeting the requirement to threat-model systems, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-16-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to threat-model systems is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-16-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ]
+        },
+        {
+          "text": "How would you design a data-minimizing security boundary for the requirement to threat-model systems, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-16-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-privacy",
+            "source-cloudflare-privacy",
+            "source-openai-ai-safety"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,257 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-10",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-distributed_systems_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-cockroach-distributed",
+      "source-stripe-backend",
+      "source-openai-infrastructure"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "distributed_systems_engineer",
+    "roleFamily": "Distributed Systems Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-distributed_systems_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-backend-engineer",
+    "sourceProfileID": "profile-backend-engineer",
+    "displayName": "Synthetic Candidate",
+    "domain": "software_engineering",
+    "evidence": [
+      {
+        "id": "backend.e1",
+        "statement": "Built an event-intake service with versioned APIs and idempotency keys",
+        "type": "project"
+      },
+      {
+        "id": "backend.e2",
+        "statement": "Measured deterministic replay, transaction boundaries, and tail latency under injected failures",
+        "type": "experience"
+      },
+      {
+        "id": "backend.e3",
+        "statement": "Debugged duplicate delivery across a retry and persistence boundary",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-distributed_systems_engineer-01",
+    "sourceOpportunityContextID": "opportunity-distributed_systems_engineer-01",
+    "title": "Graduate Distributed Systems Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-distributed_systems_engineer-01.responsibility",
+        "statement": "Own reason about consistency.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-distributed_systems_engineer-01.competency",
+        "statement": "Demonstrate transactions with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-distributed_systems_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about fault injection with consistency and latency checks.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-distributed_systems_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your event-intake service best prepares you for this Distributed Systems Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-10-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the event-intake service was the documented evaluation work on the requirement to reason about consistency.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-10-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ]
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to reason about consistency in the event-intake service?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-10-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to reason about consistency?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-10-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ],
+          "audioSeed": 24083176,
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to reason about consistency.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-10-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ],
+          "audioSeed": 24083177
+        },
+        {
+          "text": "You deployed the event-intake service to one million production users and generated revenue while meeting the requirement to reason about consistency, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-10-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to reason about consistency is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-10-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ]
+        },
+        {
+          "text": "How would you design a recoverable distributed coordination layer for the requirement to reason about consistency, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-10-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cockroach-distributed",
+            "source-stripe-backend",
+            "source-openai-infrastructure"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

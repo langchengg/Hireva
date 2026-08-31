@@ -47,6 +47,61 @@ struct RealDialogueVerificationRunnerTests {
     }
 
     @Test
+    func testScenarioValidationAcceptsReviewedSyntheticAudioProfilesAndChineseVoiceSlot() throws {
+        let result = try validateScenario(
+            sessions: [[
+                turn("Synthetic clean audio statement.", trigger: false, audioProfile: "clean"),
+                turn("Synthetic low-volume audio statement.", trigger: false, audioProfile: "low_volume"),
+                turn("Synthetic limited high-volume statement.", trigger: false, audioProfile: "high_volume_limited"),
+                turn("Synthetic white-noise statement.", trigger: false, audioProfile: "white_noise", audioSeed: 24_083_101),
+                turn("Synthetic cafe-style noise statement.", trigger: false, audioProfile: "synthetic_cafe_noise", audioSeed: 24_083_102),
+                turn("请用 English 回答这个 synthetic echo statement.", trigger: false, voiceSlot: 3, audioProfile: "mild_echo"),
+            ]],
+            expectedTurns: 6,
+            expectedTriggers: 0,
+            expectedRejects: 6
+        )
+
+        #expect(result.status == 0)
+        #expect(result.output.contains("audio_profiles=clean,high_volume_limited,low_volume,mild_echo,synthetic_cafe_noise,white_noise"))
+    }
+
+    @Test
+    func testScenarioValidationRejectsUnreviewedAudioProfileAndMissingNoiseSeed() throws {
+        var unreviewed = scenarioPayload(
+            sessions: [[
+                turn("Unreviewed recording profile.", trigger: false, audioProfile: "downloaded_cafe_recording"),
+            ]],
+            expectedTurns: 1,
+            expectedTriggers: 0,
+            expectedRejects: 1
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let scenarioURL = temporaryDirectory.appendingPathComponent("scenario.json")
+        try JSONSerialization.data(withJSONObject: unreviewed).write(to: scenarioURL)
+
+        var result = try runRunner(["--validate-scenario", scenarioURL.path])
+        #expect(result.status != 0)
+        #expect(result.output.contains("approved local synthetic profile"))
+
+        unreviewed = scenarioPayload(
+            sessions: [[
+                turn("Seedless synthetic white noise.", trigger: false, audioProfile: "white_noise"),
+            ]],
+            expectedTurns: 1,
+            expectedTriggers: 0,
+            expectedRejects: 1
+        )
+        try JSONSerialization.data(withJSONObject: unreviewed).write(to: scenarioURL)
+        result = try runRunner(["--validate-scenario", scenarioURL.path])
+        #expect(result.status != 0)
+        #expect(result.output.contains("noise profile requires an explicit audioSeed"))
+    }
+
+    @Test
     func testEvidenceValidationAllowsRapidCompletionBeforeFollowUpButRejectsStaleCompletionAfterIt() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -552,16 +607,21 @@ struct RealDialogueVerificationRunnerTests {
         _ text: String,
         trigger: Bool,
         needle: String? = nil,
-        rapid: Bool = false
+        rapid: Bool = false,
+        voiceSlot: Int = 0,
+        audioProfile: String? = nil,
+        audioSeed: Int? = nil
     ) -> [String: Any] {
         var value: [String: Any] = [
             "text": text,
             "expectedShouldTrigger": trigger,
             "rate": 175,
-            "voiceSlot": 0,
+            "voiceSlot": voiceSlot,
         ]
         if let needle { value["expectedQuestionNeedle"] = needle }
         if rapid { value["rapid"] = true }
+        if let audioProfile { value["audioProfile"] = audioProfile }
+        if let audioSeed { value["audioSeed"] = audioSeed }
         return value
     }
 

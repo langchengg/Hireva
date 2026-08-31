@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-02",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-robotics_software_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-boston-dynamics-careers",
+      "source-nvidia-teams",
+      "source-figure-careers"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "robotics_software_engineer",
+    "roleFamily": "Robotics Software Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-robotics_software_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-robotics-msc",
+    "sourceProfileID": "profile-robotics-msc",
+    "displayName": "Synthetic Candidate",
+    "domain": "robotics_research",
+    "evidence": [
+      {
+        "id": "robotics.e1",
+        "statement": "Built a simulated manipulation pipeline with perception, planning, and bounded recovery",
+        "type": "project"
+      },
+      {
+        "id": "robotics.e2",
+        "statement": "Compared two grasping approaches on the same held-out scenes and success criteria",
+        "type": "experience"
+      },
+      {
+        "id": "robotics.e3",
+        "statement": "Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-robotics_software_engineer-01",
+    "sourceOpportunityContextID": "opportunity-robotics_software_engineer-01",
+    "title": "Graduate Robotics Software Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-robotics_software_engineer-01.responsibility",
+        "statement": "Own integrate robot software modules.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-robotics_software_engineer-01.competency",
+        "statement": "Demonstrate concurrency with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-robotics_software_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about repeatable simulation and bench tests.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-robotics_software_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your simulated manipulation pipeline best prepares you for this Robotics Software Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-02-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the simulated manipulation pipeline was the documented evaluation work on the requirement to integrate robot software modules.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-02-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ],
+          "audioSeed": 24083110
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to integrate robot software modules in the simulated manipulation pipeline?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-02-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ],
+          "audioSeed": 24083111,
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to integrate robot software modules?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-02-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to integrate robot software modules.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-02-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ]
+        },
+        {
+          "text": "You deployed the simulated manipulation pipeline to one million production users and generated revenue while meeting the requirement to integrate robot software modules, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-02-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to integrate robot software modules is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-02-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ]
+        },
+        {
+          "text": "How would you design a fault-tolerant robot software stack for the requirement to integrate robot software modules, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-02-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-figure-careers"
+          ],
+          "audioSeed": 24083116,
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

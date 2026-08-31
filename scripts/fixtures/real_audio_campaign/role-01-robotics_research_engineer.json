@@ -1,0 +1,257 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-01",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-robotics_research_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-boston-dynamics-careers",
+      "source-nvidia-teams",
+      "source-amazon-science-careers"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "robotics_research_engineer",
+    "roleFamily": "Robotics Research Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-robotics_research_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-robotics-msc",
+    "sourceProfileID": "profile-robotics-msc",
+    "displayName": "Synthetic Candidate",
+    "domain": "robotics_research",
+    "evidence": [
+      {
+        "id": "robotics.e1",
+        "statement": "Built a simulated manipulation pipeline with perception, planning, and bounded recovery",
+        "type": "project"
+      },
+      {
+        "id": "robotics.e2",
+        "statement": "Compared two grasping approaches on the same held-out scenes and success criteria",
+        "type": "experience"
+      },
+      {
+        "id": "robotics.e3",
+        "statement": "Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-robotics_research_engineer-01",
+    "sourceOpportunityContextID": "opportunity-robotics_research_engineer-01",
+    "title": "Graduate Robotics Research Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-robotics_research_engineer-01.responsibility",
+        "statement": "Own form testable robotics hypotheses.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-robotics_research_engineer-01.competency",
+        "statement": "Demonstrate control with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-robotics_research_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about the same held-out scenes and success criteria.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-robotics_research_engineer-01",
+      "turns": [
+        {
+          "text": "Um, What evidence from your simulated manipulation pipeline best prepares you for this Robotics Research Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-01-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the simulated manipulation pipeline was the documented evaluation work on the requirement to form testable robotics hypotheses.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-01-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ]
+        },
+        {
+          "text": "[[slnc 900]] How did you evaluate your work against the requirement to form testable robotics hypotheses in the simulated manipulation pipeline?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-01-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "Actually, let me correct that framing. What was the hardest failure when you applied that approach to the requirement to form testable robotics hypotheses?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-01-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "audioSeed": 24083104,
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to form testable robotics hypotheses.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-01-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "audioSeed": 24083105
+        },
+        {
+          "text": "You deployed the simulated manipulation pipeline to one million production users and generated revenue while meeting the requirement to form testable robotics hypotheses, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-01-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to form testable robotics hypotheses is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-01-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ]
+        },
+        {
+          "text": "请用 English 回答：How would you design a reproducible manipulation evaluation loop for the requirement to form testable robotics hypotheses, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 3,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-01-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-boston-dynamics-careers",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

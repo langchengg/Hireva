@@ -1,0 +1,285 @@
+{
+  "synthetic": true,
+  "schemaVersion": 1,
+  "campaignFixtureVersion": "2026-08-31",
+  "generator": "scripts/generate_real_audio_campaign_fixtures.rb",
+  "audioSeedBase": 24083100,
+  "sourceFiles": {
+    "candidateProfiles": {
+      "path": "Tests/HirevaTests/Fixtures/InterviewCampaign/candidate_profiles.json",
+      "sha256": "dd431c28f4b90600eb4e554374523784eb77d2bbf9c77b930674b4ab64fbaccb"
+    },
+    "opportunityContexts": {
+      "path": "Tests/HirevaTests/Fixtures/InterviewCampaign/opportunity_contexts.json",
+      "sha256": "e2578f77a1373be25cc5593777eb9da9965999f180e4a38ee09260e8471b1a84"
+    },
+    "sessions": {
+      "path": "Tests/HirevaTests/Fixtures/InterviewCampaign/interview_sessions.json",
+      "sha256": "b935c4c060f398d05691028c932628fc939c4fe70d24244f712f044e7f44d445"
+    },
+    "turns": {
+      "path": "Tests/HirevaTests/Fixtures/InterviewCampaign/dialogue_turns.json",
+      "sha256": "95bfbec79a57db05d71871cc88acbf20ffcf06519c35d22da6f5fa74dc6d3350"
+    },
+    "roleTaxonomy": {
+      "path": "Tests/HirevaTests/Fixtures/InterviewCampaign/role_taxonomy.json",
+      "sha256": "becffed28515857092c88688f21a58900cf486344a45de6d62e0d630944543f4"
+    },
+    "sourceProvenance": {
+      "path": "Tests/HirevaTests/Fixtures/InterviewCampaign/source_provenance.json",
+      "sha256": "f8af46b52c7006bc403d286ba8f0d7b8eb803973df0b3fbe9305916f13248763"
+    }
+  },
+  "coverage": {
+    "roleFamilies": 16,
+    "candidateProfiles": [
+      "profile-applied-scientist",
+      "profile-backend-engineer",
+      "profile-cv-graduate",
+      "profile-data-scientist",
+      "profile-graduate-software",
+      "profile-ml-engineer",
+      "profile-mlops-engineer",
+      "profile-robotics-msc",
+      "profile-swift-macos",
+      "profile-vla-researcher"
+    ],
+    "opportunityContexts": 16,
+    "sessions": 16,
+    "turns": 128,
+    "triggerTurns": 80,
+    "rejectTurns": 48,
+    "rapidTransitions": 16,
+    "audioProfiles": {
+      "clean": 26,
+      "high_volume_limited": 21,
+      "low_volume": 20,
+      "mild_echo": 20,
+      "synthetic_cafe_noise": 21,
+      "white_noise": 20
+    },
+    "voiceSlots": {
+      "0": 42,
+      "1": 41,
+      "2": 41,
+      "3": 4
+    },
+    "rates": {
+      "145": 48,
+      "175": 48,
+      "210": 32
+    },
+    "dialoguePhenomena": {
+      "adversarial": 16,
+      "candidate_microphone_speech": 16,
+      "direct_question": 16,
+      "false_premise": 16,
+      "final_asr": 16,
+      "missing_evidence": 16,
+      "panel_interview": 16,
+      "panel_transition": 16,
+      "partial_asr": 16,
+      "partial_final": 16,
+      "pronoun_reference": 16,
+      "rapid_follow_up": 32,
+      "small_talk": 16,
+      "statement": 32,
+      "system_design": 16,
+      "two_interviewers": 16
+    }
+  },
+  "scenarios": [
+    {
+      "filename": "role-01-robotics_research_engineer.json",
+      "roleFamilyID": "robotics_research_engineer",
+      "candidateProfileID": "profile-robotics-msc",
+      "opportunityContextID": "opportunity-robotics_research_engineer-01",
+      "sessionID": "campaign-robotics_research_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "b5799d5d8b8fbf73abd6b0f6e52a65bf7477fef69c8ed8132e30c9f06a2a1310"
+    },
+    {
+      "filename": "role-02-robotics_software_engineer.json",
+      "roleFamilyID": "robotics_software_engineer",
+      "candidateProfileID": "profile-robotics-msc",
+      "opportunityContextID": "opportunity-robotics_software_engineer-01",
+      "sessionID": "campaign-robotics_software_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "59f5561ed93b04a32dd42d446816d73140263298cc0992162391a13132c7f537"
+    },
+    {
+      "filename": "role-03-embodied_ai_vla_engineer.json",
+      "roleFamilyID": "embodied_ai_vla_engineer",
+      "candidateProfileID": "profile-vla-researcher",
+      "opportunityContextID": "opportunity-embodied_ai_vla_engineer-01",
+      "sessionID": "campaign-embodied_ai_vla_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "3f9b1093486a20d4a942f8b2dd609d00704f5847d3b05d1ba39b7df2f903dcf2"
+    },
+    {
+      "filename": "role-04-computer_vision_engineer.json",
+      "roleFamilyID": "computer_vision_engineer",
+      "candidateProfileID": "profile-cv-graduate",
+      "opportunityContextID": "opportunity-computer_vision_engineer-01",
+      "sessionID": "campaign-computer_vision_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "e762b7c8275fd83566d197fea16205df0dfd92a46e1e7f95b110cd4595834bd7"
+    },
+    {
+      "filename": "role-05-machine_learning_engineer.json",
+      "roleFamilyID": "machine_learning_engineer",
+      "candidateProfileID": "profile-ml-engineer",
+      "opportunityContextID": "opportunity-machine_learning_engineer-01",
+      "sessionID": "campaign-machine_learning_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "d1fa96c6c9e12c708923a0f9c9a544685ee7f9c98193b7470069e951aecac05d"
+    },
+    {
+      "filename": "role-06-applied_scientist.json",
+      "roleFamilyID": "applied_scientist",
+      "candidateProfileID": "profile-applied-scientist",
+      "opportunityContextID": "opportunity-applied_scientist-01",
+      "sessionID": "campaign-applied_scientist-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "ba0d97d4cdeb6192195494cf63eacc3e42ae9b9bfe8bacc4ae95c5c397a39fc7"
+    },
+    {
+      "filename": "role-07-ai_research_scientist_phd.json",
+      "roleFamilyID": "ai_research_scientist_phd",
+      "candidateProfileID": "profile-applied-scientist",
+      "opportunityContextID": "opportunity-ai_research_scientist_phd-01",
+      "sessionID": "campaign-ai_research_scientist_phd-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "96c1878a214fda849ad407e9760e1f9eb4e3deb8da65fe0d8d138e2b74a47498"
+    },
+    {
+      "filename": "role-08-ai_infrastructure_mlops_engineer.json",
+      "roleFamilyID": "ai_infrastructure_mlops_engineer",
+      "candidateProfileID": "profile-mlops-engineer",
+      "opportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-01",
+      "sessionID": "campaign-ai_infrastructure_mlops_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "e94ac56c574fed873f004ffaa8a977e664a05b068896968e446a2e0f8ad850e2"
+    },
+    {
+      "filename": "role-09-backend_software_engineer.json",
+      "roleFamilyID": "backend_software_engineer",
+      "candidateProfileID": "profile-backend-engineer",
+      "opportunityContextID": "opportunity-backend_software_engineer-01",
+      "sessionID": "campaign-backend_software_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "4cbdab50ff8f6a05ae6b8775a6aea193dae354fe8f6bdf19828eaeab53a31d4f"
+    },
+    {
+      "filename": "role-10-distributed_systems_engineer.json",
+      "roleFamilyID": "distributed_systems_engineer",
+      "candidateProfileID": "profile-backend-engineer",
+      "opportunityContextID": "opportunity-distributed_systems_engineer-01",
+      "sessionID": "campaign-distributed_systems_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "73c0bd51a9ae0d0d9f1f9a0e31c11c95dc9458a59d7f6053571cf8d6299d14e8"
+    },
+    {
+      "filename": "role-11-macos_swift_engineer.json",
+      "roleFamilyID": "macos_swift_engineer",
+      "candidateProfileID": "profile-swift-macos",
+      "opportunityContextID": "opportunity-macos_swift_engineer-01",
+      "sessionID": "campaign-macos_swift_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "0b6ebad8e49117c81c0bbcd9c16149aa45ef1d146565e068c4dd3f11c4ff54b2"
+    },
+    {
+      "filename": "role-12-systems_platform_engineer.json",
+      "roleFamilyID": "systems_platform_engineer",
+      "candidateProfileID": "profile-mlops-engineer",
+      "opportunityContextID": "opportunity-systems_platform_engineer-01",
+      "sessionID": "campaign-systems_platform_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "a52087c46a7dee5c4144473656b5c9c5ce3fc74a475967b0781779d249e5a8fe"
+    },
+    {
+      "filename": "role-13-data_scientist.json",
+      "roleFamilyID": "data_scientist",
+      "candidateProfileID": "profile-data-scientist",
+      "opportunityContextID": "opportunity-data_scientist-01",
+      "sessionID": "campaign-data_scientist-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "bf00f3421221b764c15af523dd9a30888e271b366272b09e23e4de43de37988a"
+    },
+    {
+      "filename": "role-14-graduate_software_engineer.json",
+      "roleFamilyID": "graduate_software_engineer",
+      "candidateProfileID": "profile-graduate-software",
+      "opportunityContextID": "opportunity-graduate_software_engineer-01",
+      "sessionID": "campaign-graduate_software_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "9f1dd4fbebf0d45f912a082d1b659bfe40aa52287dd0a572359241edb9ce4236"
+    },
+    {
+      "filename": "role-15-founding_startup_ai_engineer.json",
+      "roleFamilyID": "founding_startup_ai_engineer",
+      "candidateProfileID": "profile-ml-engineer",
+      "opportunityContextID": "opportunity-founding_startup_ai_engineer-01",
+      "sessionID": "campaign-founding_startup_ai_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "56bd2367442e491e767c872af49686e63d3b3eb187cd21ceb119dd50a48bcf77"
+    },
+    {
+      "filename": "role-16-security_privacy_engineer.json",
+      "roleFamilyID": "security_privacy_engineer",
+      "candidateProfileID": "profile-swift-macos",
+      "opportunityContextID": "opportunity-security_privacy_engineer-01",
+      "sessionID": "campaign-security_privacy_engineer-01",
+      "turns": 8,
+      "triggerTurns": 5,
+      "rejectTurns": 3,
+      "rapidTransitions": 1,
+      "sha256": "81e7e10fba78f82ab850aa65370dff70c4f987b1731279ef7a44e1bc7516dc61"
+    }
+  ]
+}

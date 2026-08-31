@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-12",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-systems_platform_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-openai-infrastructure",
+      "source-cloudflare-careers",
+      "source-nvidia-teams"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "systems_platform_engineer",
+    "roleFamily": "Systems / Platform Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-systems_platform_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-mlops-engineer",
+    "sourceProfileID": "profile-mlops-engineer",
+    "displayName": "Synthetic Candidate",
+    "domain": "software_engineering",
+    "evidence": [
+      {
+        "id": "mlops.e1",
+        "statement": "Built a model promotion pipeline with immutable artifact identifiers",
+        "type": "project"
+      },
+      {
+        "id": "mlops.e2",
+        "statement": "Used staged checks for reproducibility, serving health, and rollback readiness",
+        "type": "experience"
+      },
+      {
+        "id": "mlops.e3",
+        "statement": "Tested rollback recovery after an unversioned feature artifact caused failure",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-systems_platform_engineer-01",
+    "sourceOpportunityContextID": "opportunity-systems_platform_engineer-01",
+    "title": "Graduate Systems / Platform Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-systems_platform_engineer-01.responsibility",
+        "statement": "Own build shared platform primitives.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-systems_platform_engineer-01.competency",
+        "statement": "Demonstrate storage with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-systems_platform_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about load, failure, and resource-boundary tests.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-systems_platform_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your model promotion pipeline best prepares you for this Systems / Platform Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-12-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ],
+          "audioSeed": 24083189,
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the model promotion pipeline was the documented evaluation work on the requirement to build shared platform primitives.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-12-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ]
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to build shared platform primitives in the model promotion pipeline?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-12-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to build shared platform primitives?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-12-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to build shared platform primitives.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-12-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ]
+        },
+        {
+          "text": "You deployed the model promotion pipeline to one million production users and generated revenue while meeting the requirement to build shared platform primitives, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-12-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ],
+          "audioSeed": 24083194,
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to build shared platform primitives is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-12-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ],
+          "audioSeed": 24083195
+        },
+        {
+          "text": "How would you design an observable multi-tenant platform for the requirement to build shared platform primitives, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-12-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-cloudflare-careers",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

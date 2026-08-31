@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-15",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-founding_startup_ai_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-cognition-careers",
+      "source-figure-careers",
+      "source-deepmind-accelerator"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "founding_startup_ai_engineer",
+    "roleFamily": "Founding Engineer / Startup AI Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-founding_startup_ai_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-ml-engineer",
+    "sourceProfileID": "profile-ml-engineer",
+    "displayName": "Synthetic Candidate",
+    "domain": "software_engineering",
+    "evidence": [
+      {
+        "id": "ml.e1",
+        "statement": "Built a reproducible ranking pipeline with versioned features and model artifacts",
+        "type": "project"
+      },
+      {
+        "id": "ml.e2",
+        "statement": "Compared pairwise and listwise objectives with time-aware offline evaluation",
+        "type": "experience"
+      },
+      {
+        "id": "ml.e3",
+        "statement": "Instrumented training-serving skew with shadow requests and feature checksums",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-founding_startup_ai_engineer-01",
+    "sourceOpportunityContextID": "opportunity-founding_startup_ai_engineer-01",
+    "title": "Graduate Founding Engineer / Startup AI Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-founding_startup_ai_engineer-01.responsibility",
+        "statement": "Own turn ambiguity into product increments.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-founding_startup_ai_engineer-01.competency",
+        "statement": "Demonstrate applied AI with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-founding_startup_ai_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about small controlled pilots and explicit rollback criteria.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-founding_startup_ai_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your reproducible ranking pipeline best prepares you for this Founding Engineer / Startup AI Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-15-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ],
+          "audioSeed": 24083213,
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the reproducible ranking pipeline was the documented evaluation work on the requirement to turn ambiguity into product increments.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-15-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ]
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to turn ambiguity into product increments in the reproducible ranking pipeline?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-15-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to turn ambiguity into product increments?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-15-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to turn ambiguity into product increments.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-15-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ]
+        },
+        {
+          "text": "You deployed the reproducible ranking pipeline to one million production users and generated revenue while meeting the requirement to turn ambiguity into product increments, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-15-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ],
+          "audioSeed": 24083218,
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to turn ambiguity into product increments is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-15-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ],
+          "audioSeed": 24083219
+        },
+        {
+          "text": "How would you design a minimal observable AI product loop for the requirement to turn ambiguity into product increments, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-15-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-cognition-careers",
+            "source-figure-careers",
+            "source-deepmind-accelerator"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

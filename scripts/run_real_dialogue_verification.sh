@@ -57,6 +57,7 @@ fi
 
 APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/Hireva"
+AUDIO_RENDERER="$ROOT_DIR/scripts/render_synthetic_verification_audio.sh"
 
 wait_for_pid_exit() {
     local pid="$1" attempts="$2"
@@ -251,12 +252,13 @@ EXPECTED_REJECT_COUNT="$(validation_value SYNTHETIC_SCENARIO_REJECTS)"
 EXPECTED_VISIBLE_MINIMUM="$(validation_value SYNTHETIC_SCENARIO_VISIBLE_MINIMUM)"
 EXPECTED_VISIBLE_MAXIMUM="$(validation_value SYNTHETIC_SCENARIO_VISIBLE_MAXIMUM)"
 EXPECTED_RAPID_TRANSITIONS="$(validation_value SYNTHETIC_SCENARIO_RAPID_TRANSITIONS)"
+EXPECTED_AUDIO_PROFILES="$(validation_value SYNTHETIC_SCENARIO_AUDIO_PROFILES)"
 for validated_count in "$EXPECTED_SESSION_COUNT" "$EXPECTED_TURN_COUNT" "$EXPECTED_TRIGGER_COUNT" \
     "$EXPECTED_REJECT_COUNT" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM" "$EXPECTED_RAPID_TRANSITIONS"; do
     [[ "$validated_count" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "scenario validation returned an invalid count" >&2; exit 2; }
 done
 
-echo "scenario_valid sessions=$EXPECTED_SESSION_COUNT turns=$EXPECTED_TURN_COUNT triggers=$EXPECTED_TRIGGER_COUNT rejects=$EXPECTED_REJECT_COUNT visible_min=$EXPECTED_VISIBLE_MINIMUM visible_max=$EXPECTED_VISIBLE_MAXIMUM rapid_transitions=$EXPECTED_RAPID_TRANSITIONS"
+echo "scenario_valid sessions=$EXPECTED_SESSION_COUNT turns=$EXPECTED_TURN_COUNT triggers=$EXPECTED_TRIGGER_COUNT rejects=$EXPECTED_REJECT_COUNT visible_min=$EXPECTED_VISIBLE_MINIMUM visible_max=$EXPECTED_VISIBLE_MAXIMUM rapid_transitions=$EXPECTED_RAPID_TRANSITIONS audio_profiles=$EXPECTED_AUDIO_PROFILES"
 
 evidence_missing_visible_matches() {
     local events_path="$1"
@@ -554,13 +556,17 @@ done
 [[ ! -e "$EVENTS" && ! -e "$RESULTS" ]] || { echo "verification evidence already exists; use a fresh output root" >&2; exit 2; }
 /usr/bin/say -v '?' > "$OUTPUT_ROOT/available_voices.txt"
 
-ruby - "$OUTPUT_ROOT/available_voices.txt" "$OUTPUT_ROOT/selected_voices.json" <<'RUBY'
+ruby - "$OUTPUT_ROOT/available_voices.txt" "$OUTPUT_ROOT/selected_voices.json" "$SCENARIO_PATH" <<'RUBY'
 require "json"
 lines = File.readlines(ARGV[0], chomp: true)
 voices = lines.map do |line|
-  match = line.match(/^(.*?)\s+(en_[A-Z]{2})\s+#/)
+  match = line.match(/^(.*?)\s+([a-z]{2}_[A-Z]{2})\s+#/)
   match && {"voice" => match[1].strip, "locale" => match[2]}
 end.compact
+scenario = JSON.parse(File.read(ARGV[2]))
+requires_chinese_voice = scenario.fetch("sessions").any? do |session|
+  session.fetch("turns").any? { |turn| turn.fetch("voiceSlot") == 3 }
+end
 selected = []
 preferred_voices = {"en_GB" => "Daniel", "en_US" => "Samantha", "en_AU" => "Karen"}
 ["en_GB", "en_US", "en_AU"].each do |locale|
@@ -575,8 +581,27 @@ while selected.length < 3
 end
 abort("fewer than three English voices are available") if selected.length < 3
 abort("three distinct English locales are required") if selected.map { |item| item["locale"] }.uniq.length < 3
+if requires_chinese_voice
+  chinese = voices.find { |item| item["locale"] == "zh_CN" && item["voice"] == "Tingting" }
+  chinese ||= voices.find { |item| item["locale"].start_with?("zh_") }
+  abort("a Chinese voice is required by voiceSlot 3") unless chinese
+  selected << chinese
+end
 File.write(ARGV[1], JSON.pretty_generate(selected) + "\n")
 RUBY
+
+[[ -x "$AUDIO_RENDERER" && ! -L "$AUDIO_RENDERER" ]] || {
+    echo "synthetic audio renderer is unavailable or not executable" >&2
+    exit 2
+}
+if [[ "$EXPECTED_AUDIO_PROFILES" != "clean" ]]; then
+    FFMPEG_BINARY="$(command -v ffmpeg || true)"
+    [[ -n "$FFMPEG_BINARY" && -x "$FFMPEG_BINARY" ]] || {
+        echo "ffmpeg is required by the selected synthetic audio profiles" >&2
+        exit 2
+    }
+    "$FFMPEG_BINARY" -version | /usr/bin/sed -n '1p' > "$OUTPUT_ROOT/ffmpeg_version.txt"
+fi
 
 cat > "$OUTPUT_ROOT/verification_notify.swift" <<'SWIFT'
 import Foundation
@@ -685,7 +710,7 @@ wait_for_count "bootstrap.ready" 0 60 || {
 }
 capture_owned_helper_pids
 
-printf 'session\tturn\tvoice\tlocale\trate\texpected_trigger\ttranscript_observed\tvisible_observed\tfalse_trigger\tmatched_turn_id\n' > "$RESULTS"
+printf 'session\tturn\tvoice\tlocale\trate\taudio_profile\taudio_seed\taudio_duration_seconds\taudio_sha256\tplayback_started_at\tplayback_ended_at\texpected_trigger\ttranscript_observed\tvisible_observed\tfalse_trigger\tmatched_turn_id\n' > "$RESULTS"
 
 session_count="$(jq '.sessions | length' "$SCENARIO_PATH")"
 rapid_pending_generation_id=""
@@ -702,6 +727,8 @@ for ((session_index=0; session_index<session_count; session_index++)); do
         expected="$(jq -r ".sessions[$session_index].turns[$turn_index].expectedShouldTrigger" "$SCENARIO_PATH")"
         rate="$(jq -r ".sessions[$session_index].turns[$turn_index].rate" "$SCENARIO_PATH")"
         voice_slot="$(jq -r ".sessions[$session_index].turns[$turn_index].voiceSlot" "$SCENARIO_PATH")"
+        audio_profile="$(jq -r ".sessions[$session_index].turns[$turn_index].audioProfile // \"clean\"" "$SCENARIO_PATH")"
+        audio_seed="$(jq -r ".sessions[$session_index].turns[$turn_index].audioSeed // empty" "$SCENARIO_PATH")"
         rapid="$(jq -r ".sessions[$session_index].turns[$turn_index].rapid // false" "$SCENARIO_PATH")"
         session_id="$(jq -r ".sessions[$session_index].id" "$SCENARIO_PATH")"
         expected_turn_id="$session_id.$turn_index"
@@ -711,8 +738,16 @@ for ((session_index=0; session_index<session_count; session_index++)); do
         transcript_before="$(event_count asr.transcript)"
         generation_before="$(event_count generation.started)"
         visible_before="$(event_count suggestion.visible)"
-        /usr/bin/say -v "$voice" -r "$rate" -o "$audio" "$text"
+        render_metadata="$("$AUDIO_RENDERER" "$voice" "$rate" "$text" "$audio_profile" "$audio_seed" "$audio")"
+        audio_duration="$(printf '%s\n' "$render_metadata" | /usr/bin/sed -n 's/^AUDIO_DURATION_SECONDS=//p')"
+        audio_sha256="$(printf '%s\n' "$render_metadata" | /usr/bin/sed -n 's/^AUDIO_SHA256=//p')"
+        [[ "$audio_duration" =~ ^[0-9]+([.][0-9]+)?$ && "$audio_sha256" =~ ^[a-f0-9]{64}$ ]] || {
+            echo "audio renderer returned invalid metadata" >&2
+            exit 1
+        }
+        playback_started_at="$(/usr/bin/ruby -rtime -e 'puts Time.now.utc.iso8601(6)')"
         /usr/bin/afplay "$audio"
+        playback_ended_at="$(/usr/bin/ruby -rtime -e 'puts Time.now.utc.iso8601(6)')"
         if [[ "$rapid" == "true" ]]; then sleep 0.1; else sleep 2; fi
         transcript_observed=false
         visible_observed=false
@@ -732,13 +767,17 @@ for ((session_index=0; session_index<session_count; session_index++)); do
             elif wait_for_matching_suggestion "$visible_before" "$expected_turn_id" 90; then
                 visible_observed=true
             fi
-            observed_question="$(latest_suggestion_match)"
+            if (( $(event_count suggestion.visible) > visible_before )); then
+                observed_question="$(latest_suggestion_match)"
+            fi
         else
             sleep 4
             if (( $(event_count suggestion.visible) > visible_before )); then false_trigger=true; fi
         fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$((session_index+1))" "$((turn_index+1))" "$voice" "$locale" "$rate" "$expected" \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$((session_index+1))" "$((turn_index+1))" "$voice" "$locale" "$rate" \
+            "$audio_profile" "$audio_seed" "$audio_duration" "$audio_sha256" \
+            "$playback_started_at" "$playback_ended_at" "$expected" \
             "$transcript_observed" "$visible_observed" "$false_trigger" "$observed_question" >> "$RESULTS"
         echo "session=$((session_index+1)) turn=$((turn_index+1)) transcript=$transcript_observed visible=$visible_observed false_trigger=$false_trigger"
     done
@@ -773,7 +812,7 @@ transcript_count="$(event_count asr.transcript)"
 question_count="$(event_count question.accepted)"
 generation_count="$(event_count generation.started)"
 visible_count="$(event_count suggestion.visible)"
-false_trigger_count="$(awk -F '\t' 'NR > 1 && $9 == "true" { count++ } END { print count + 0 }' "$RESULTS")"
+false_trigger_count="$(awk -F '\t' 'NR > 1 && $15 == "true" { count++ } END { print count + 0 }' "$RESULTS")"
 finished_count="$(event_count verification.finished)"
 digest_count="$(evidence_scenario_digest_count "$EVENTS")"
 failure_count="$(evidence_failure_count "$EVENTS")"

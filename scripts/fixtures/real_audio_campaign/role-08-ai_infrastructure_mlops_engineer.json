@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-08",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-ai_infrastructure_mlops_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-openai-infrastructure",
+      "source-anthropic-careers",
+      "source-google-mlops"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "ai_infrastructure_mlops_engineer",
+    "roleFamily": "AI Infrastructure / MLOps Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-ai_infrastructure_mlops_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-mlops-engineer",
+    "sourceProfileID": "profile-mlops-engineer",
+    "displayName": "Synthetic Candidate",
+    "domain": "data_science",
+    "evidence": [
+      {
+        "id": "mlops.e1",
+        "statement": "Built a model promotion pipeline with immutable artifact identifiers",
+        "type": "project"
+      },
+      {
+        "id": "mlops.e2",
+        "statement": "Used staged checks for reproducibility, serving health, and rollback readiness",
+        "type": "experience"
+      },
+      {
+        "id": "mlops.e3",
+        "statement": "Tested rollback recovery after an unversioned feature artifact caused failure",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-ai_infrastructure_mlops_engineer-01",
+    "sourceOpportunityContextID": "opportunity-ai_infrastructure_mlops_engineer-01",
+    "title": "Graduate AI Infrastructure / MLOps Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-ai_infrastructure_mlops_engineer-01.responsibility",
+        "statement": "Own automate model delivery.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-ai_infrastructure_mlops_engineer-01.competency",
+        "statement": "Demonstrate reproducibility with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-ai_infrastructure_mlops_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about reproducible builds and staged deployment checks.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-ai_infrastructure_mlops_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your model promotion pipeline best prepares you for this AI Infrastructure / MLOps Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-08-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the model promotion pipeline was the documented evaluation work on the requirement to automate model delivery.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-08-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ],
+          "audioSeed": 24083158
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to automate model delivery in the model promotion pipeline?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-08-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ],
+          "audioSeed": 24083159,
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to automate model delivery?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-08-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to automate model delivery.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-08-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ]
+        },
+        {
+          "text": "You deployed the model promotion pipeline to one million production users and generated revenue while meeting the requirement to automate model delivery, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-08-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to automate model delivery is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-08-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ]
+        },
+        {
+          "text": "How would you design a secure model delivery control plane for the requirement to automate model delivery, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-08-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-openai-infrastructure",
+            "source-anthropic-careers",
+            "source-google-mlops"
+          ],
+          "audioSeed": 24083164,
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

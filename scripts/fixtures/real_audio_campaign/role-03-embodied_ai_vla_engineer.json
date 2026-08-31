@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-03",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-embodied_ai_vla_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-deepmind-robotics",
+      "source-nvidia-teams",
+      "source-amazon-science-careers"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "embodied_ai_vla_engineer",
+    "roleFamily": "Embodied AI / VLA Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-embodied_ai_vla_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-vla-researcher",
+    "sourceProfileID": "profile-vla-researcher",
+    "displayName": "Synthetic Candidate",
+    "domain": "robotics_research",
+    "evidence": [
+      {
+        "id": "vla.e1",
+        "statement": "Implemented a small vision-language-action policy for tabletop manipulation in simulation",
+        "type": "project"
+      },
+      {
+        "id": "vla.e2",
+        "statement": "Evaluated action decoders across matched tasks, embodiments, and intervention criteria",
+        "type": "experience"
+      },
+      {
+        "id": "vla.e3",
+        "statement": "Isolated visual shortcut learning with camera and workspace perturbations",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-embodied_ai_vla_engineer-01",
+    "sourceOpportunityContextID": "opportunity-embodied_ai_vla_engineer-01",
+    "title": "Graduate Embodied AI / VLA Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-embodied_ai_vla_engineer-01.responsibility",
+        "statement": "Own train multimodal action models.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-embodied_ai_vla_engineer-01.competency",
+        "statement": "Demonstrate robot learning with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-embodied_ai_vla_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about shared embodiments, tasks, and intervention criteria.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-embodied_ai_vla_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your vision-language-action policy best prepares you for this Embodied AI / VLA Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-03-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "audioSeed": 24083117,
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the vision-language-action policy was the documented evaluation work on the requirement to train multimodal action models.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-03-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ]
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to train multimodal action models in the vision-language-action policy?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-03-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to train multimodal action models?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-03-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to train multimodal action models.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-03-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ]
+        },
+        {
+          "text": "You deployed the vision-language-action policy to one million production users and generated revenue while meeting the requirement to train multimodal action models, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-03-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "audioSeed": 24083122,
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to train multimodal action models is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-03-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "audioSeed": 24083123
+        },
+        {
+          "text": "How would you design a guarded VLA inference and recovery pipeline for the requirement to train multimodal action models, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-03-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-deepmind-robotics",
+            "source-nvidia-teams",
+            "source-amazon-science-careers"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

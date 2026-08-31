@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-09",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-backend_software_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-stripe-backend",
+      "source-cockroach-careers",
+      "source-cloudflare-careers"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "backend_software_engineer",
+    "roleFamily": "Backend Software Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-backend_software_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-backend-engineer",
+    "sourceProfileID": "profile-backend-engineer",
+    "displayName": "Synthetic Candidate",
+    "domain": "software_engineering",
+    "evidence": [
+      {
+        "id": "backend.e1",
+        "statement": "Built an event-intake service with versioned APIs and idempotency keys",
+        "type": "project"
+      },
+      {
+        "id": "backend.e2",
+        "statement": "Measured deterministic replay, transaction boundaries, and tail latency under injected failures",
+        "type": "experience"
+      },
+      {
+        "id": "backend.e3",
+        "statement": "Debugged duplicate delivery across a retry and persistence boundary",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-backend_software_engineer-01",
+    "sourceOpportunityContextID": "opportunity-backend_software_engineer-01",
+    "title": "Graduate Backend Software Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-backend_software_engineer-01.responsibility",
+        "statement": "Own design versioned APIs.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-backend_software_engineer-01.competency",
+        "statement": "Demonstrate concurrency with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-backend_software_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about deterministic replay and tail-latency checks.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-backend_software_engineer-01",
+      "turns": [
+        {
+          "text": "Um, What evidence from your event-intake service best prepares you for this Backend Software Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-09-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ],
+          "audioSeed": 24083165,
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the event-intake service was the documented evaluation work on the requirement to design versioned APIs.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-09-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ]
+        },
+        {
+          "text": "[[slnc 900]] How did you evaluate your work against the requirement to design versioned APIs in the event-intake service?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-09-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "Actually, let me correct that framing. What was the hardest failure when you applied that approach to the requirement to design versioned APIs?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-09-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to design versioned APIs.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 0,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-09-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ]
+        },
+        {
+          "text": "You deployed the event-intake service to one million production users and generated revenue while meeting the requirement to design versioned APIs, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 2,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-09-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ],
+          "audioSeed": 24083170,
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to design versioned APIs is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 1,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-09-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ],
+          "audioSeed": 24083171
+        },
+        {
+          "text": "请用 English 回答：How would you design an idempotent service and persistence model for the requirement to design versioned APIs, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 3,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-09-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-stripe-backend",
+            "source-cockroach-careers",
+            "source-cloudflare-careers"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

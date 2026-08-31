@@ -65,6 +65,16 @@ end
 
 turns = []
 visible_needles = []
+approved_audio_profiles = %w[
+  clean
+  low_volume
+  high_volume_limited
+  white_noise
+  synthetic_cafe_noise
+  mild_echo
+].freeze
+noise_audio_profiles = %w[white_noise synthetic_cafe_noise].freeze
+used_audio_profiles = []
 if sessions.is_a?(Array)
   session_ids = sessions.each_with_object([]) do |session, identifiers|
     identifiers << session["id"] if session.is_a?(Hash)
@@ -91,12 +101,25 @@ if sessions.is_a?(Array)
       rate = turn["rate"]
       voice_slot = turn["voiceSlot"]
       rapid = turn.fetch("rapid", false)
+      audio_profile = turn.fetch("audioProfile", "clean")
+      audio_seed = turn["audioSeed"]
       needle = turn.fetch("expectedQuestionNeedle", "")
       problems << "#{label} text must be non-empty" unless text.is_a?(String) && !text.strip.empty? && text.length <= 2_000
       problems << "#{label} expectedShouldTrigger must be boolean" unless [true, false].include?(expected_trigger)
       problems << "#{label} rate must be an integer from 80 through 300" unless rate.is_a?(Integer) && rate.between?(80, 300)
-      problems << "#{label} voiceSlot must be an integer from 0 through 2" unless voice_slot.is_a?(Integer) && voice_slot.between?(0, 2)
+      problems << "#{label} voiceSlot must be an integer from 0 through 3" unless voice_slot.is_a?(Integer) && voice_slot.between?(0, 3)
       problems << "#{label} rapid must be boolean" unless [true, false].include?(rapid)
+      unless audio_profile.is_a?(String) && approved_audio_profiles.include?(audio_profile)
+        problems << "#{label} audioProfile must be an approved local synthetic profile"
+      end
+      if noise_audio_profiles.include?(audio_profile)
+        unless audio_seed.is_a?(Integer) && audio_seed.between?(1, 2_147_483_647)
+          problems << "#{label} noise profile requires an explicit audioSeed from 1 through 2147483647"
+        end
+      elsif !audio_seed.nil? && !(audio_seed.is_a?(Integer) && audio_seed.between?(1, 2_147_483_647))
+        problems << "#{label} audioSeed must be an integer from 1 through 2147483647"
+      end
+      used_audio_profiles << audio_profile if approved_audio_profiles.include?(audio_profile)
       if expected_trigger == true
         normalized_text = text.is_a?(String) ? text.downcase.gsub(/[^[:alnum:]]+/, " ").strip : ""
         normalized_needle = needle.is_a?(String) ? needle.downcase.gsub(/[^[:alnum:]]+/, " ").strip : ""
@@ -200,3 +223,4 @@ puts "SYNTHETIC_SCENARIO_REJECTS=#{reject_count}"
 puts "SYNTHETIC_SCENARIO_VISIBLE_MINIMUM=#{visible_count_minimum}"
 puts "SYNTHETIC_SCENARIO_VISIBLE_MAXIMUM=#{visible_count_maximum}"
 puts "SYNTHETIC_SCENARIO_RAPID_TRANSITIONS=#{rapid_count}"
+puts "SYNTHETIC_SCENARIO_AUDIO_PROFILES=#{used_audio_profiles.uniq.sort.join(',')}"

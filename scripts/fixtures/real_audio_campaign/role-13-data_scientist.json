@@ -1,0 +1,257 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-13",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-data_scientist-01",
+    "sourceProvenanceIDs": [
+      "source-airbnb-data-science",
+      "source-openai-data-science",
+      "source-nvidia-teams"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "data_scientist",
+    "roleFamily": "Data Scientist",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-data_scientist-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-data-scientist",
+    "sourceProfileID": "profile-data-scientist",
+    "displayName": "Synthetic Candidate",
+    "domain": "data_science",
+    "evidence": [
+      {
+        "id": "data.e1",
+        "statement": "Built a demand-forecasting analysis with time-based validation",
+        "type": "project"
+      },
+      {
+        "id": "data.e2",
+        "statement": "Defined decision metrics and calibrated uncertainty intervals before model comparison",
+        "type": "experience"
+      },
+      {
+        "id": "data.e3",
+        "statement": "Tested feature availability and isolated target leakage at prediction time",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-data_scientist-01",
+    "sourceOpportunityContextID": "opportunity-data_scientist-01",
+    "title": "Graduate Data Scientist",
+    "evidence": [
+      {
+        "id": "opportunity-data_scientist-01.responsibility",
+        "statement": "Own define decision metrics.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-data_scientist-01.competency",
+        "statement": "Demonstrate experimentation with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-data_scientist-01.success",
+        "statement": "Success requires reproducible reasoning about time-based validation and calibrated intervals.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-data_scientist-01",
+      "turns": [
+        {
+          "text": "Um, What evidence from your demand-forecasting analysis best prepares you for this Data Scientist role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-13-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the demand-forecasting analysis was the documented evaluation work on the requirement to define decision metrics.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-13-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ]
+        },
+        {
+          "text": "[[slnc 900]] How did you evaluate your work against the requirement to define decision metrics in the demand-forecasting analysis?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-13-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "Actually, let me correct that framing. What was the hardest failure when you applied that approach to the requirement to define decision metrics?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-13-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ],
+          "audioSeed": 24083200,
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to define decision metrics.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 2,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-13-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ],
+          "audioSeed": 24083201
+        },
+        {
+          "text": "You deployed the demand-forecasting analysis to one million production users and generated revenue while meeting the requirement to define decision metrics, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 1,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-13-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to define decision metrics is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 0,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-13-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ]
+        },
+        {
+          "text": "请用 English 回答：How would you design a trustworthy measurement and decision workflow for the requirement to define decision metrics, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 3,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-13-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-airbnb-data-science",
+            "source-openai-data-science",
+            "source-nvidia-teams"
+          ],
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}

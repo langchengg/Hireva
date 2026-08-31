@@ -1,0 +1,258 @@
+{
+  "synthetic": true,
+  "runID": "real-audio-role-11",
+  "provenance": {
+    "schemaVersion": 1,
+    "origin": "project_authored_synthetic_fixture",
+    "containsRealPersonalData": false,
+    "reviewedForRelease": true,
+    "sourceFixtureSessionID": "campaign-macos_swift_engineer-01",
+    "sourceProvenanceIDs": [
+      "source-apple-macos-swift",
+      "source-swift-concurrency",
+      "source-apple-swiftui"
+    ]
+  },
+  "campaignMetadata": {
+    "roleFamilyID": "macos_swift_engineer",
+    "roleFamily": "macOS / Swift Engineer",
+    "seniority": "graduate",
+    "sourceSessionID": "campaign-macos_swift_engineer-01",
+    "playbackChannel": "systemAudio",
+    "audioOrigin": "local_synthetic_say_and_ffmpeg_only"
+  },
+  "asrProvider": "local_parakeet",
+  "answerProvider": "local_qwen",
+  "qwenModel": "qwen3.5:4b",
+  "diagnosticTraceMode": "metadataOnly",
+  "candidateProfile": {
+    "id": "synthetic-profile-swift-macos",
+    "sourceProfileID": "profile-swift-macos",
+    "displayName": "Synthetic Candidate",
+    "domain": "software_engineering",
+    "evidence": [
+      {
+        "id": "swift.e1",
+        "statement": "Built a local Swift prototype that reconciles transcript events and isolates test data",
+        "type": "project"
+      },
+      {
+        "id": "swift.e2",
+        "statement": "Added deterministic question, generation, session, and context identity checks",
+        "type": "experience"
+      },
+      {
+        "id": "swift.e3",
+        "statement": "Tested bundled-app process cleanup and isolated a stale callback after cancellation",
+        "type": "skill"
+      }
+    ]
+  },
+  "opportunityContext": {
+    "id": "synthetic-opportunity-macos_swift_engineer-01",
+    "sourceOpportunityContextID": "opportunity-macos_swift_engineer-01",
+    "title": "Graduate macOS / Swift Engineer",
+    "evidence": [
+      {
+        "id": "opportunity-macos_swift_engineer-01.responsibility",
+        "statement": "Own ship native macOS features.",
+        "type": "responsibility"
+      },
+      {
+        "id": "opportunity-macos_swift_engineer-01.competency",
+        "statement": "Demonstrate AppKit interop with explicit evidence.",
+        "type": "required_skill"
+      },
+      {
+        "id": "opportunity-macos_swift_engineer-01.success",
+        "statement": "Success requires reproducible reasoning about deterministic identity tests and bundled-app verification.",
+        "type": "evaluation_criterion"
+      }
+    ]
+  },
+  "expectedSessionCount": 1,
+  "expectedTurnCount": 8,
+  "expectedTriggerCount": 5,
+  "expectedRejectCount": 3,
+  "expectedVisibleCountMinimum": 4,
+  "expectedVisibleCountMaximum": 5,
+  "expectedRapidTransitionCount": 1,
+  "sessions": [
+    {
+      "id": "real-audio-macos_swift_engineer-01",
+      "turns": [
+        {
+          "text": "What evidence from your local Swift prototype best prepares you for this macOS / Swift Engineer role?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-11-01-01",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "direct_question"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ],
+          "expectedQuestionNeedle": "best prepares you for"
+        },
+        {
+          "text": "My main contribution to the local Swift prototype was the documented evaluation work on the requirement to ship native macOS features.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-11-01-02",
+          "sourceChannel": "microphone",
+          "sourceSpeaker": "candidate",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "candidate_microphone_speech"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ],
+          "audioSeed": 24083182
+        },
+        {
+          "text": "How did you evaluate your work against the requirement to ship native macOS features in the local Swift prototype?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "synthetic_cafe_noise",
+          "sourceScenarioID": "campaign-11-01-03",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "partial_final",
+          "dialoguePhenomena": [
+            "partial_asr",
+            "final_asr",
+            "partial_final"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ],
+          "audioSeed": 24083183,
+          "expectedQuestionNeedle": "evaluate your work against",
+          "rapid": true
+        },
+        {
+          "text": "What was the hardest failure when you applied that approach to the requirement to ship native macOS features?",
+          "expectedShouldTrigger": true,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "mild_echo",
+          "sourceScenarioID": "campaign-11-01-04",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "rapid_follow_up",
+            "rapid_follow_up",
+            "pronoun_reference"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ],
+          "expectedQuestionNeedle": "hardest failure when you applied"
+        },
+        {
+          "text": "Great, thank you; we will move beyond the requirement to ship native macOS features.",
+          "expectedShouldTrigger": false,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "clean",
+          "sourceScenarioID": "campaign-11-01-05",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "small_talk",
+            "statement"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ]
+        },
+        {
+          "text": "You deployed the local Swift prototype to one million production users and generated revenue while meeting the requirement to ship native macOS features, correct?",
+          "expectedShouldTrigger": true,
+          "rate": 210,
+          "voiceSlot": 0,
+          "audioProfile": "low_volume",
+          "sourceScenarioID": "campaign-11-01-06",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "missing_evidence",
+            "adversarial",
+            "false_premise"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ],
+          "expectedQuestionNeedle": "one million production users"
+        },
+        {
+          "text": "Interviewer A notes that the requirement to ship native macOS features is important, and Interviewer B will now narrow the discussion to recovery behavior.",
+          "expectedShouldTrigger": false,
+          "rate": 145,
+          "voiceSlot": 2,
+          "audioProfile": "high_volume_limited",
+          "sourceScenarioID": "campaign-11-01-07",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "two_interviewers",
+            "statement",
+            "panel_transition"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ]
+        },
+        {
+          "text": "How would you design a privacy-preserving native macOS pipeline for the requirement to ship native macOS features, and how would you test recovery?",
+          "expectedShouldTrigger": true,
+          "rate": 175,
+          "voiceSlot": 1,
+          "audioProfile": "white_noise",
+          "sourceScenarioID": "campaign-11-01-08",
+          "sourceChannel": "systemAudio",
+          "sourceSpeaker": "interviewer",
+          "recognitionPattern": "final",
+          "dialoguePhenomena": [
+            "system_design",
+            "panel_interview"
+          ],
+          "sourceProvenanceIDs": [
+            "source-apple-macos-swift",
+            "source-swift-concurrency",
+            "source-apple-swiftui"
+          ],
+          "audioSeed": 24083188,
+          "expectedQuestionNeedle": "would you design"
+        }
+      ]
+    }
+  ]
+}
