@@ -69,6 +69,11 @@ struct CampaignVerificationScriptTests {
         #expect(runner.contains("HIREVA_DB_DIAGNOSTICS_DB_PATH"))
         #expect(runner.contains("HIREVA_DB_DIAGNOSTICS_TRACE_PATH"))
         #expect(runner.contains("env HOME=") == false)
+        #expect(runner.contains("/bin/ps -axo pid=,comm="))
+        #expect(runner.contains("while read -r pid executable"))
+        #expect(runner.contains("done < <(/bin/ps -axo pid=,comm=)"))
+        #expect(runner.contains("$2 == app") == false)
+        #expect(runner.contains("owned runtime processes remain after SIGKILL"))
         #expect(runner.contains("git reset --hard") == false)
         #expect(runner.contains("git clean") == false)
 

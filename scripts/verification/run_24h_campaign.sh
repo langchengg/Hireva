@@ -145,22 +145,29 @@ current_active_seconds() {
     printf '%s\n' "$((ACTIVE_BASE_SECONDS + now_epoch - RUN_STARTED_EPOCH))"
 }
 
+process_ids_for_exact_executable() {
+    local target_binary="$1"
+    local pid executable
+    while read -r pid executable; do
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        [[ "$executable" == "$target_binary" ]] && printf '%s\n' "$pid"
+    done < <(/bin/ps -axo pid=,comm=)
+    return 0
+}
+
 owned_process_ids() {
-    local app_binary="$ROOT_DIR/dist/Hireva.app/Contents/MacOS/Hireva"
-    local helper_binary="$ROOT_DIR/dist/Hireva.app/Contents/Helpers/parakeet_asr_helper"
-    /bin/ps -axo pid=,command= | awk -v app="$app_binary" -v helper="$helper_binary" '
-        $2 == app || $2 == helper { print $1 }
-    '
+    process_ids_for_exact_executable "$ROOT_DIR/dist/Hireva.app/Contents/MacOS/Hireva"
+    process_ids_for_exact_executable "$ROOT_DIR/dist/Hireva.app/Contents/Helpers/parakeet_asr_helper"
 }
 
 owned_app_pid() {
     local app_binary="$ROOT_DIR/dist/Hireva.app/Contents/MacOS/Hireva"
-    /bin/ps -axo pid=,command= | awk -v app="$app_binary" '$2 == app { print $1; exit }'
+    process_ids_for_exact_executable "$app_binary" | sed -n '1p'
 }
 
 owned_helper_pids_json() {
     local helper_binary="$ROOT_DIR/dist/Hireva.app/Contents/Helpers/parakeet_asr_helper"
-    /bin/ps -axo pid=,command= | awk -v helper="$helper_binary" '$2 == helper { print $1 }' | jq -Rsc '
+    process_ids_for_exact_executable "$helper_binary" | jq -Rsc '
         split("\n") | map(select(length > 0) | tonumber)
     '
 }
@@ -249,7 +256,7 @@ terminate_child_tree() {
 }
 
 stop_owned_runtime_processes() {
-    local pid
+    local pid remaining
     while IFS= read -r pid; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         kill -TERM "$pid" 2>/dev/null || true
@@ -263,10 +270,22 @@ stop_owned_runtime_processes() {
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         kill -KILL "$pid" 2>/dev/null || true
     done < <(owned_process_ids)
+    deadline=$((SECONDS + 2))
+    while (( SECONDS < deadline )); do
+        [[ -z "$(owned_process_ids)" ]] && return 0
+        sleep 0.1
+    done
+    remaining="$(owned_process_ids)"
+    if [[ -n "$remaining" ]]; then
+        echo "error: owned runtime processes remain after SIGKILL: ${remaining//$'\n'/,}" >&2
+        return 1
+    fi
+    return 0
 }
 
 cleanup() {
-    local exit_status=$?
+    local exit_status=$? runtime_cleanup_status=0
+    local cleanup_log="$ARTIFACT_DIR/logs/campaign-exit-process-cleanup-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
     trap - EXIT INT TERM
     set +e
     if [[ -n "$CURRENT_CHILD_PID" ]] && kill -0 "$CURRENT_CHILD_PID" 2>/dev/null; then
@@ -274,7 +293,20 @@ cleanup() {
         wait "$CURRENT_CHILD_PID" 2>/dev/null
     fi
     CURRENT_CHILD_PID=""
-    stop_owned_runtime_processes
+    stop_owned_runtime_processes > "$cleanup_log" 2>&1 || runtime_cleanup_status=$?
+    if (( runtime_cleanup_status != 0 )); then
+        CAMPAIGN_EXIT_REASON="needs_triage"
+        if [[ -f "$STATE_FILE" && -f "$FAILURE_QUEUE" ]] &&
+           declare -F record_failure >/dev/null; then
+            record_failure \
+                "campaign-exit-process-cleanup" \
+                "process_cleanup" \
+                "stop_owned_runtime_processes" \
+                "$cleanup_log" \
+                "$runtime_cleanup_status"
+        fi
+        (( exit_status != 0 )) || exit_status="$runtime_cleanup_status"
+    fi
     if [[ -f "$STATE_FILE" ]]; then
         [[ -n "$CAMPAIGN_EXIT_REASON" ]] || CAMPAIGN_EXIT_REASON="interrupted"
         if [[ "$CAMPAIGN_EXIT_REASON" == "interrupted" ]]; then
