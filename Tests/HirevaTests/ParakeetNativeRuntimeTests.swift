@@ -317,6 +317,26 @@ struct ParakeetNativeRuntimeTests {
     }
 
     @Test
+    func asynchronousStopPathRejectsUnboundedFoundationProcessWait() throws {
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/Hireva/Services/LocalASRProviders.swift"),
+            encoding: .utf8
+        )
+        let stopStart = try #require(source.range(of: "    private func stop(generation"))
+        let stopAndFollowingSource = source[stopStart.lowerBound...]
+        let stopEnd = try #require(stopAndFollowingSource.range(of: "    func audioWriterDiagnostics()"))
+        let stopImplementation = stopAndFollowingSource[..<stopEnd.lowerBound]
+
+        #expect(stopImplementation.contains("stoppingProcess.terminate()"))
+        #expect(stopImplementation.contains("SIGKILL"))
+        #expect(stopImplementation.contains("killDeadline"))
+        #expect(
+            !stopImplementation.contains("waitUntilExit()"),
+            "Async Parakeet shutdown must not re-enter Foundation's unbounded run-loop wait after its bounded termination checks."
+        )
+    }
+
+    @Test
     func forcedStopDoesNotReturnWhileHelperProcessIsStillAlive() async throws {
         let pidFile = temporaryDirectory().appendingPathComponent("helper.pid")
         let escapedPIDFile = pidFile.path.replacingOccurrences(of: "'", with: "'\\''")

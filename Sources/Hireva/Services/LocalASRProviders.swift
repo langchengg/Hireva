@@ -690,9 +690,6 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
                     try? await Task.sleep(for: .milliseconds(25))
                 }
             }
-            if !stoppingProcess.isRunning {
-                stoppingProcess.waitUntilExit()
-            }
         }
     }
 
