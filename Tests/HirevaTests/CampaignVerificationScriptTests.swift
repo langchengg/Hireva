@@ -64,6 +64,11 @@ struct CampaignVerificationScriptTests {
         #expect(runner.contains("HIREVA_FIXED_USER_HOME"))
         #expect(runner.contains("trap cleanup EXIT"))
         #expect(runner.contains(".retry-"))
+        #expect(runner.contains("wc -l < \"$FAILURE_QUEUE\"") == false)
+        #expect(runner.contains("max // 0"))
+        #expect(runner.contains("HIREVA_DB_DIAGNOSTICS_DB_PATH"))
+        #expect(runner.contains("HIREVA_DB_DIAGNOSTICS_TRACE_PATH"))
+        #expect(runner.contains("env HOME=") == false)
         #expect(runner.contains("git reset --hard") == false)
         #expect(runner.contains("git clean") == false)
 

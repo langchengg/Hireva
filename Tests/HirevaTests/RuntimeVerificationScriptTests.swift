@@ -648,12 +648,32 @@ struct RuntimeVerificationScriptTests {
     @Test
     func databaseDiagnosticsScriptExistsIsExecutableAndUsesReadOnlySQLite() throws {
         let url = repositoryRoot.appendingPathComponent("scripts/db_diagnostics.sh")
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("db-diagnostics-paths-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        let database = sandbox.appendingPathComponent("isolated hireva.sqlite")
+        let trace = sandbox.appendingPathComponent("isolated runtime trace.jsonl")
 
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(FileManager.default.isExecutableFile(atPath: url.path))
 
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.contains("sqlite3 -readonly"))
+        #expect(contents.contains("HIREVA_DB_DIAGNOSTICS_DB_PATH"))
+        #expect(contents.contains("HIREVA_DB_DIAGNOSTICS_TRACE_PATH"))
+
+        let result = try runScript(
+            at: url,
+            currentDirectory: repositoryRoot,
+            environment: [
+                "HIREVA_DB_DIAGNOSTICS_DB_PATH": database.path,
+                "HIREVA_DB_DIAGNOSTICS_TRACE_PATH": trace.path
+            ]
+        )
+        #expect(result.status == 0)
+        #expect(result.output.contains("Expected DB path: \(database.path)"))
+        #expect(result.output.contains("Trace path: \(trace.path)"))
     }
 
     @Test

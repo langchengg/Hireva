@@ -403,8 +403,18 @@ load_local_integration_environment() {
 
 record_failure() {
     local step_id="$1" category="$2" reproduction="$3" log_path="$4" exit_code="$5"
-    local failure_id
-    failure_id="H24-$(printf '%04d' "$(( $(wc -l < "$FAILURE_QUEUE") + 1 ))")"
+    local failure_id failure_number
+    failure_number="$(jq -rs '
+        [
+          .[]
+          | (.id? // "")
+          | select(test("^H24-[0-9]+$"))
+          | sub("^H24-"; "")
+          | tonumber
+        ]
+        | ((max // 0) + 1)
+    ' "$FAILURE_QUEUE")"
+    failure_id="$(printf 'H24-%04d' "$failure_number")"
     jq -cn \
         --arg id "$failure_id" \
         --arg first_seen "$(utc_timestamp)" \
@@ -561,7 +571,10 @@ run_step final-stability stability final-stability.log env "${INTEGRATION_ENV[@]
     HIREVA_RECONCILIATION_OUTPUT_DIRECTORY="$FINAL_RECONCILIATION_OUTPUT" \
     ./scripts/verify_runtime_stability.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 run_step final-app-verify app final-app-verify.log env HIREVA_FIXED_USER_HOME="$APP_HOME" ./script/build_and_run.sh --verify || FINAL_FAILURES=$((FINAL_FAILURES + 1))
-run_step final-db-diagnostics persistence final-db-diagnostics.log env HOME="$APP_HOME" ./scripts/db_diagnostics.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
+run_step final-db-diagnostics persistence final-db-diagnostics.log env \
+    HIREVA_DB_DIAGNOSTICS_DB_PATH="$APP_SUPPORT_DIR/hireva.sqlite" \
+    HIREVA_DB_DIAGNOSTICS_TRACE_PATH="$APP_SUPPORT_DIR/runtime_transcript_trace.jsonl" \
+    ./scripts/db_diagnostics.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 run_step final-release-status release final-release-status.log env \
     RELEASE_STATUS_DB_PATH="$APP_SUPPORT_DIR/hireva.sqlite" \
     RELEASE_STATUS_TRACE_PATH="$APP_SUPPORT_DIR/runtime_transcript_trace.jsonl" \

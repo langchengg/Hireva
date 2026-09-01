@@ -9,8 +9,8 @@ elif [[ $# -gt 0 ]]; then
     exit 2
 fi
 
-DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
-TRACE_PATH="$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl"
+DB_PATH="${HIREVA_DB_DIAGNOSTICS_DB_PATH:-$HOME/Library/Application Support/Hireva/hireva.sqlite}"
+TRACE_PATH="${HIREVA_DB_DIAGNOSTICS_TRACE_PATH:-$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl}"
 
 print_trace_events() {
     echo ""
