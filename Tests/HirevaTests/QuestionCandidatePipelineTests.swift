@@ -41,6 +41,50 @@ struct QuestionCandidatePipelineTests {
     }
 
     @Test
+    func singleLeadingASRNoiseTokenBeforeStrongQuestionIsRecoveredWithoutPromotingEmbeddedClauses() throws {
+        let transcript = "Thumb, what evidence from your reproducible ranking pipeline best prepares you for this machine learning engineer role?"
+        let expected = "What evidence from your reproducible ranking pipeline best prepares you for this machine learning engineer role?"
+
+        let candidates = QuestionCandidatePipeline.extract(from: transcript)
+        let candidate = try #require(candidates.first)
+        #expect(candidates.count == 1)
+        #expect(candidate.text == expected)
+        #expect(candidate.sourceStartUTF16 == ("Thumb, " as NSString).length)
+        #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: transcript).accepted)
+
+        let paraphrases = [
+            (
+                raw: "Wellness: how did you verify that the recovery path preserved the current question?",
+                expected: "How did you verify that the recovery path preserved the current question?"
+            ),
+            (
+                raw: "Sew; which failure mode mattered most during the evaluation?",
+                expected: "Which failure mode mattered most during the evaluation?"
+            ),
+        ]
+        for paraphrase in paraphrases {
+            #expect(QuestionCandidatePipeline.extract(from: paraphrase.raw).map(\.text) == [paraphrase.expected])
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: paraphrase.raw).accepted)
+        }
+
+        let explicitQuestionAfterReportingContext = "You said the system improved, what evidence supports that result?"
+        #expect(QuestionCandidatePipeline.extract(from: explicitQuestionAfterReportingContext).map(\.text) == [
+            "What evidence supports that result?"
+        ])
+
+        let nonQuestions = [
+            "Thumb drive documentation explains what evidence was collected.",
+            "Thumb, the report explains what evidence was collected.",
+            "The report says, what evidence was collected.",
+            "Thumb, what evidence",
+        ]
+        for nonQuestion in nonQuestions {
+            #expect(QuestionCandidatePipeline.extract(from: nonQuestion).isEmpty, "False trigger for: \(nonQuestion)")
+            #expect(!QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: nonQuestion).accepted)
+        }
+    }
+
+    @Test
     func campaignImperativeAndLongWHQuestionFamiliesAreAcceptedWithoutNarrativeFalsePositives() {
         let questions = [
             "Compare pairwise and listwise ranking under the same evaluation constraint.",

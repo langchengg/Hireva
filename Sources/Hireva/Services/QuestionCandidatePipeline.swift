@@ -357,6 +357,18 @@ enum MultiQuestionSplitter {
                 starts.insert(match.range.location)
             }
         }
+        if let recoveredStart = questionStartAfterSingleLeadingNoiseToken(
+            in: source,
+            questionPatterns: patterns
+        ) {
+            starts.insert(recoveredStart)
+        }
+        if let explicitQuestionStart = questionStartAfterExplicitPunctuatedPrelude(
+            in: source,
+            questionPatterns: patterns
+        ) {
+            starts.insert(explicitQuestionStart)
+        }
 
         var filtered: [Int] = []
         for start in starts.sorted() {
@@ -479,6 +491,73 @@ enum MultiQuestionSplitter {
         return filtered
     }
 
+    /// Recovers a substantive question when ASR turns a leading filled pause
+    /// into one lexical token, for example `Um,` -> `Thumb,`. The recognizer
+    /// text remains unchanged: only the source span begins after the bounded
+    /// punctuation boundary, and the existing question patterns must accept
+    /// the complete suffix from its first character.
+    private static func questionStartAfterSingleLeadingNoiseToken(
+        in source: String,
+        questionPatterns: [String]
+    ) -> Int? {
+        let prefixPattern = #"^\s*[\p{L}\p{M}][\p{L}\p{M}'’\-]{0,19}\s*[,;:]\s*"#
+        guard let prefixRegex = try? NSRegularExpression(pattern: prefixPattern),
+              let prefixMatch = prefixRegex.firstMatch(
+                in: source,
+                range: NSRange(location: 0, length: (source as NSString).length)
+              ) else {
+            return nil
+        }
+
+        let questionStart = NSMaxRange(prefixMatch.range)
+        let sourceLength = (source as NSString).length
+        guard questionStart < sourceLength else { return nil }
+        let suffix = (source as NSString).substring(from: questionStart)
+        return startsWithQuestionPattern(suffix, questionPatterns: questionPatterns) ? questionStart : nil
+    }
+
+    /// A longer spoken prelude is recoverable only when punctuation clearly
+    /// introduces a question that terminates with a question mark. This keeps
+    /// unpunctuated narrative complements out of the permissive ASR path.
+    private static func questionStartAfterExplicitPunctuatedPrelude(
+        in source: String,
+        questionPatterns: [String]
+    ) -> Int? {
+        let sourceLength = (source as NSString).length
+        guard let boundaryRegex = try? NSRegularExpression(pattern: #"[,;:]\s*"#) else {
+            return nil
+        }
+        let boundaries = boundaryRegex.matches(
+            in: source,
+            range: NSRange(location: 0, length: sourceLength)
+        )
+        for boundary in boundaries {
+            let questionStart = NSMaxRange(boundary.range)
+            guard questionStart < sourceLength else { continue }
+            let suffix = (source as NSString).substring(from: questionStart)
+            guard suffix.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
+                  startsWithQuestionPattern(suffix, questionPatterns: questionPatterns) else {
+                continue
+            }
+            return questionStart
+        }
+        return nil
+    }
+
+    private static func startsWithQuestionPattern(
+        _ text: String,
+        questionPatterns: [String]
+    ) -> Bool {
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        return questionPatterns.contains { pattern in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: text, options: [], range: range) else {
+                return false
+            }
+            return match.range.location == 0
+        }
+    }
+
     private static func isCoordinatedCompoundContinuation(
         previousClause: String,
         currentClause: String
@@ -529,22 +608,35 @@ enum MultiQuestionSplitter {
         guard whPrefixes.contains(where: current.hasPrefix) else { return false }
 
         let preceding = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !preceding.isEmpty,
-              preceding.last.map({ !".?!,".contains($0) }) == true else {
-            return false
-        }
+        guard !preceding.isEmpty else { return false }
         if clauseAlreadyStartedQuestion(preceding) {
             return false
         }
         let reportingVerbs = [
-            " explained", " explains",
-            " described", " describes",
-            " discussed", " discusses",
-            " stated", " states",
-            " showed", " shows",
-            " knew", " knows",
+            "explained", "explains",
+            "described", "describes",
+            "discussed", "discusses",
+            "stated", "states",
+            "showed", "shows",
+            "knew", "knows",
+            "said", "says",
+            "reported", "reports",
         ]
-        return reportingVerbs.contains { preceding.contains($0) }
+        let containsReportingVerb = reportingVerbs.contains {
+            preceding == $0 || preceding.contains(" \($0)")
+        }
+        if preceding.hasSuffix(",") {
+            let beforeComma = preceding.dropLast()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let endsInReportingVerb = reportingVerbs.contains {
+                beforeComma == $0 || beforeComma.hasSuffix(" \($0)")
+            }
+            return endsInReportingVerb && !current.contains("?")
+        }
+        guard preceding.last.map({ !".?!".contains($0) }) == true else {
+            return false
+        }
+        return containsReportingVerb
     }
 
     private static func isConditionalAntecedent(_ clause: String) -> Bool {
