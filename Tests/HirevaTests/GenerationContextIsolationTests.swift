@@ -61,7 +61,11 @@ struct GenerationContextIsolationTests {
     @Test
     func fragilityThenDiffusionQuestionUsesCurrentSnapshotAndIntentContext() async throws {
         let client = ContextIsolationLLMClient()
-        let retrieval = ContextIsolationRetrievalService()
+        let retrievalGate = ContextIsolationOneShotAsyncGate()
+        let retrieval = ContextIsolationRetrievalService(
+            blockingQuestionNeedle: "diffusion-based policy",
+            gate: retrievalGate
+        )
         let (appState, _, session) = try makeAppState(client: client, retrievalService: retrieval)
         let first = try saveQuestion(
             "Which part of the synthetic event-processing pipeline was most fragile when moving from a clean demo to production deployment?",
@@ -82,6 +86,9 @@ struct GenerationContextIsolationTests {
         try await waitUntil(timeout: 8.0) {
             appState.currentSuggestion?.detectedQuestionID == first.id || appState.activeQuestionID == first.id
         }
+        try await waitUntil(timeout: 8.0) {
+            client.stageAPrompts.last?.localizedCaseInsensitiveContains(first.questionText) == true
+        }
 
         let secondTask = Task {
             try await appState.generateSuggestion(
@@ -92,16 +99,24 @@ struct GenerationContextIsolationTests {
             )
         }
         defer {
+            retrievalGate.open()
             firstTask.cancel()
             secondTask.cancel()
         }
 
         try await waitUntil(timeout: 8.0) {
+            retrieval.queries.last?.question == second.questionText
+        }
+        try await waitUntil(timeout: 8.0) {
             appState.currentSuggestion?.detectedQuestionID == second.id &&
             appState.currentQABinding.bindingStatus == .matched
         }
+        retrievalGate.open()
         try await waitUntil(timeout: 8.0) {
-            client.stageAPrompts.last?.hasPrefix("CURRENT QUESTION TO ANSWER:") == true
+            client.stageAPrompts.last?.localizedCaseInsensitiveContains(second.questionText) == true &&
+            appState.currentPromptContextPreviews
+                .joined(separator: " ")
+                .localizedCaseInsensitiveContains("diffusion")
         }
 
         let card = try #require(appState.currentSuggestion)
@@ -114,8 +129,14 @@ struct GenerationContextIsolationTests {
         #expect(card.sayFirst.localizedCaseInsensitiveContains("pipeline was most fragile") == false)
         #expect(appState.currentPromptContextPreviews.joined(separator: " ").localizedCaseInsensitiveContains("diffusion"))
         #expect(appState.currentPromptContextPreviews.joined(separator: " ").localizedCaseInsensitiveContains("pipeline was most fragile") == false)
-        #expect(client.stageAPrompts.last?.hasPrefix("CURRENT QUESTION TO ANSWER:") == true)
+        #expect(client.stageAPrompts.last?.localizedCaseInsensitiveContains(second.questionText) == true)
+        #expect(client.stageAPrompts.last?.localizedCaseInsensitiveContains(first.questionText) == false)
         #expect(retrieval.queries.suffix(2).map(\.question) == [first.questionText, second.questionText])
+
+        firstTask.cancel()
+        secondTask.cancel()
+        _ = await firstTask.result
+        _ = await secondTask.result
     }
 
     @Test
@@ -523,6 +544,28 @@ private final class ContextIsolationLLMClient: LLMClientProtocol, @unchecked Sen
     }
 }
 
+private final class ContextIsolationOneShotAsyncGate: @unchecked Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let pair = AsyncStream<Void>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func wait() async {
+        for await _ in stream {
+            return
+        }
+    }
+
+    func open() {
+        continuation.yield(())
+        continuation.finish()
+    }
+}
+
 private final class ContextIsolationRetrievalService: ContextRetrievalService, @unchecked Sendable {
     struct Query: Equatable {
         var question: String
@@ -531,6 +574,16 @@ private final class ContextIsolationRetrievalService: ContextRetrievalService, @
 
     private let lock = NSLock()
     private var recordedQueries: [Query] = []
+    private let blockingQuestionNeedle: String?
+    private let gate: ContextIsolationOneShotAsyncGate?
+
+    init(
+        blockingQuestionNeedle: String? = nil,
+        gate: ContextIsolationOneShotAsyncGate? = nil
+    ) {
+        self.blockingQuestionNeedle = blockingQuestionNeedle
+        self.gate = gate
+    }
 
     var queries: [Query] {
         lock.withLock { recordedQueries }
@@ -555,6 +608,11 @@ private final class ContextIsolationRetrievalService: ContextRetrievalService, @
     ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
         lock.withLock {
             recordedQueries.append(Query(question: question, intent: intent))
+        }
+        if let blockingQuestionNeedle,
+           question.localizedCaseInsensitiveContains(blockingQuestionNeedle),
+           let gate {
+            await gate.wait()
         }
         let retrieved = Self.context
         let ranked = retrieved.cvChunks.map { chunk in
