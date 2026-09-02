@@ -618,12 +618,14 @@ enum VerificationAnswerRubricEvaluator {
         butNot candidateEvidence: [String]
     ) -> Bool {
         guard !evidence.isEmpty else { return false }
-        let pastPattern = #"\b(?:i|we|my|our)\b[^.!?\n]{0,100}\b(?:built|developed|implemented|led|owned|worked|used|designed|delivered|improved|reduced|completed|published|deployed|trained|evaluated|validated|tested|integrated|contributed|achieved|demonstrated)\b"#
+        let personalPastPatterns = [
+            #"\b(?:i|we)(?:['’](?:ve|d))?\b\s+(?:(?:personally|directly|successfully|also)\s+)?(?:(?:have|had)\s+)?(?:built|developed|implemented|led|owned|worked|used|designed|delivered|improved|reduced|completed|published|deployed|trained|evaluated|validated|tested|integrated|contributed|achieved|demonstrated)\b"#,
+            #"\b(?:my|our)\b\s+(?:team|work|project|system|implementation|contribution|model|pipeline)\b[^.!?\n]{0,40}\b(?:built|developed|implemented|led|owned|worked|used|designed|delivered|improved|reduced|completed|published|deployed|trained|evaluated|validated|tested|integrated|contributed|achieved|demonstrated)\b"#,
+        ]
         let sentences = answer.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
-        for sentence in sentences where sentence.range(
-            of: pastPattern,
-            options: [.regularExpression, .caseInsensitive]
-        ) != nil {
+        for sentence in sentences where personalPastPatterns.contains(where: {
+            sentence.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
+        }) {
             let claimTokens = meaningfulTokens(sentence)
             let evidenceOverlap = evidence.map(meaningfulTokens).map { claimTokens.intersection($0).count }.max() ?? 0
             let candidateOverlap = candidateEvidence.map(meaningfulTokens).map { claimTokens.intersection($0).count }.max() ?? 0

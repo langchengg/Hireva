@@ -330,6 +330,11 @@ struct InterviewCampaignFixtureTests {
         #expect(persistenceLedger.count == 800)
         #expect(persistenceLedger.values.allSatisfy { $0 == 1 })
         #expect(rubricRecords.count == 800)
+        let hardFailures = rubricRecords.filter(\.hardFail)
+        #expect(
+            hardFailures.isEmpty,
+            "Answer-quality hard failures: \(hardFailures.prefix(20).map(\.scenarioID).joined(separator: ", "))"
+        )
         try writeAnswerQualityEvidenceIfRequested(rubricRecords)
         let semanticAlignmentRate = Double(alignedAnswerCount) / Double(questionIDs.count)
         let alignmentSamples = alignmentFailures.prefix(20).joined(separator: " | ")

@@ -443,7 +443,7 @@ wake_pid=$!
 wait "$wake_pid"
 
 run_preflight() {
-    local preflight_number preflight_root prep_args helper_path audio_path provenance_path harness_path
+    local preflight_number preflight_root prep_args helper_path audio_path provenance_path answer_quality_path harness_path
     preflight_number="$(printf '%03d' "$(( $(jq -r '.resume_count' "$STATE_FILE") + 1 ))")"
     preflight_root="$ARTIFACT_DIR/preflight/attempt-$preflight_number"
     /bin/mkdir -m 700 "$preflight_root" "$preflight_root/build-home" "$preflight_root/app-support"
@@ -475,10 +475,22 @@ run_preflight() {
         return 1
     }
 
-    HIREVA_ANSWER_QUALITY_JSONL="$preflight_root/answer_quality.jsonl" \
+    answer_quality_path="$preflight_root/answer_quality.jsonl"
+    HIREVA_ANSWER_QUALITY_JSONL="$answer_quality_path" \
         swift test --filter InterviewCampaignFixtureTests.answersRemainEvidenceBoundAndIdentitySafe \
         > "$ARTIFACT_DIR/logs/preflight-answer-quality-$preflight_number.log" 2>&1
-    [[ "$(wc -l < "$preflight_root/answer_quality.jsonl" | tr -d ' ')" -eq 800 ]] || return 1
+    [[ "$(wc -l < "$answer_quality_path" | tr -d ' ')" -eq 800 ]] || return 1
+    jq -e -s \
+        'length == 800 and all(.[]; has("hardFail") and ([
+            .unsupportedPersonalClaim, .wrongProfileEvidence, .wrongJobContext,
+            .staleAnswer, .duplicatePersistence, .providerSourceMislabel,
+            .answerQuestionIdentityMismatch, .contextBleed, .jdToExperience,
+            .futureToPast, .hardFail
+        ] | all(. == false)))' \
+        "$answer_quality_path" >/dev/null || {
+            echo "error: curated answer-quality evidence contains a hard failure" >&2
+            return 1
+        }
 
     harness_path="$preflight_root/harness_metrics.jsonl"
     HIREVA_HARNESS_METRICS_JSONL="$harness_path" \

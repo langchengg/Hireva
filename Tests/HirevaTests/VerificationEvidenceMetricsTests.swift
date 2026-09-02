@@ -144,6 +144,44 @@ struct VerificationEvidenceMetricsTests {
         #expect(safe.completeness == 3)
         #expect(!safe.hardFail)
 
+        let deniedMissingExperience = VerificationAnswerRubricEvaluator.evaluate(
+            VerificationAnswerRubricInput(
+                scenarioID: "denied-missing-experience",
+                expectedSessionID: "session-1",
+                actualSessionID: "session-1",
+                expectedQuestionID: "question-2",
+                actualQuestionID: "question-2",
+                expectedGenerationID: "generation-2",
+                actualGenerationID: "generation-2",
+                expectedContextSnapshotID: "snapshot-2",
+                actualContextSnapshotID: "snapshot-2",
+                expectedCandidateProfileID: "profile-1",
+                actualCandidateProfileID: "profile-1",
+                expectedOpportunityContextID: "role-1",
+                actualOpportunityContextID: "role-1",
+                questionText: "Tell me about a difficult decision involving simulation and real-robot evaluation.",
+                answerText: "I do not have evidence for a completed difficult decision about the requirement to compare simulation and real-robot behavior, so I would not invent one. I would test the options, choose an action, and measure the result before answering with a documented example.",
+                candidateEvidence: [],
+                opportunityEvidence: [evidence(
+                    id: "role.requirement",
+                    statement: "Compare simulation and real-robot behavior with a documented evaluation"
+                )],
+                futurePlans: [],
+                allowedCandidateEvidenceIDs: [],
+                allowedOpportunityEvidenceIDs: ["role.requirement"],
+                actualCandidateEvidenceIDs: [],
+                actualOpportunityEvidenceIDs: ["role.requirement"],
+                requiredConcepts: ["do not have evidence", "decision"],
+                forbiddenClaims: [],
+                expectedProviderSource: "ollama_qwen",
+                actualProviderSource: "ollama_qwen",
+                persistenceCount: 1,
+                maximumSentences: 4
+            )
+        )
+        #expect(!deniedMissingExperience.jdToExperience)
+        #expect(!deniedMissingExperience.hardFail)
+
         let unsafe = VerificationAnswerRubricEvaluator.evaluate(VerificationAnswerRubricInput(
             scenarioID: "unsafe",
             expectedSessionID: "session-1",
@@ -185,6 +223,51 @@ struct VerificationEvidenceMetricsTests {
         #expect(unsafe.jdToExperience)
         #expect(unsafe.futureToPast)
         #expect(unsafe.hardFail)
+    }
+
+    @Test
+    func personalPastClaimRequiresAnExplicitPredicateAndKeepsCommonParaphrases() {
+        #expect(roleClaimRecord("I've built and deployed production observability.").jdToExperience)
+        #expect(roleClaimRecord("My team built and deployed production observability.").jdToExperience)
+        #expect(!roleClaimRecord(
+            "I have not built or deployed production observability. I would validate it before making that claim."
+        ).jdToExperience)
+    }
+
+    private func roleClaimRecord(_ answer: String) -> VerificationAnswerRubricRecord {
+        VerificationAnswerRubricEvaluator.evaluate(VerificationAnswerRubricInput(
+            scenarioID: "role-claim",
+            expectedSessionID: "session-1",
+            actualSessionID: "session-1",
+            expectedQuestionID: "question-1",
+            actualQuestionID: "question-1",
+            expectedGenerationID: "generation-1",
+            actualGenerationID: "generation-1",
+            expectedContextSnapshotID: "snapshot-1",
+            actualContextSnapshotID: "snapshot-1",
+            expectedCandidateProfileID: "profile-1",
+            actualCandidateProfileID: "profile-1",
+            expectedOpportunityContextID: "role-1",
+            actualOpportunityContextID: "role-1",
+            questionText: "Tell me about your production observability experience.",
+            answerText: answer,
+            candidateEvidence: [],
+            opportunityEvidence: [evidence(
+                id: "role.observability",
+                statement: "Built and deployed production observability"
+            )],
+            futurePlans: [],
+            allowedCandidateEvidenceIDs: [],
+            allowedOpportunityEvidenceIDs: ["role.observability"],
+            actualCandidateEvidenceIDs: [],
+            actualOpportunityEvidenceIDs: ["role.observability"],
+            requiredConcepts: [],
+            forbiddenClaims: [],
+            expectedProviderSource: "ollama_qwen",
+            actualProviderSource: "ollama_qwen",
+            persistenceCount: 1,
+            maximumSentences: 4
+        ))
     }
 
     private func evidence(id: String, statement: String) -> ProfileEvidence {

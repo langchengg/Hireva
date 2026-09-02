@@ -539,6 +539,7 @@ struct SoakResourceMetricsTests {
         #expect(runner.contains("console_session_is_locked"))
         #expect(runner.contains("CGSSessionScreenIsLocked"))
         #expect(runner.contains("console_session_locked"))
+        #expect(runner.contains("all(.[]; has(\"hardFail\")"))
         #expect(!runner.contains("$HOME/Library/Application Support/Hireva"))
         #expect(!runner.contains("pkill"))
         #expect(!runner.contains("killall"))
