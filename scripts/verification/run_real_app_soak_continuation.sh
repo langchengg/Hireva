@@ -103,6 +103,16 @@ production_support_guard() {
     return 0
 }
 
+console_session_is_locked() {
+    local locked_state
+    locked_state="$(
+        /usr/sbin/ioreg -n Root -d1 -a 2>/dev/null \
+            | /usr/bin/plutil -extract 'IOConsoleUsers.0.CGSSessionScreenIsLocked' raw - 2>/dev/null \
+            || true
+    )"
+    [[ "$locked_state" == "true" ]]
+}
+
 exact_process_pids() {
     local executable_path="$1" pid command
     /bin/ps -ax -o pid=,command= | while read -r pid command; do
@@ -333,6 +343,15 @@ save_patch() {
 record_failure() {
     local scenario="$1" category="$2" symptom="$3" command="$4"
     local current_max failure_number failure_id
+    if jq -e \
+        --arg scenarioID "$scenario" \
+        --arg category "$category" \
+        --arg symptom "$symptom" \
+        'select(.status == "open" and .scenarioID == $scenarioID
+                and .category == $category and .symptom == $symptom)' \
+        "$STATE_DIR/failure_queue.jsonl" >/dev/null 2>&1; then
+        return 0
+    fi
     current_max="$(jq -r '.id // empty' "$STATE_DIR/failure_queue.jsonl" 2>/dev/null \
         | /usr/bin/sed -n 's/^H24C-\([0-9][0-9]*\)$/\1/p' \
         | /usr/bin/sort -n \
@@ -399,6 +418,19 @@ cleanup() {
 trap cleanup EXIT
 trap 'FINAL_STATUS="interrupted"; EXIT_REASON="signal_int"; exit 130' INT
 trap 'FINAL_STATUS="interrupted"; EXIT_REASON="signal_term"; exit 143' TERM
+
+if console_session_is_locked; then
+    lock_symptom="The active macOS console session is locked; real ScreenCaptureKit validation requires an unlocked logged-in GUI session."
+    record_failure \
+        "real-app-continuation-preflight" \
+        "environment" \
+        "$lock_symptom" \
+        "$ROOT_DIR/scripts/verification/resume_real_app_soak_continuation.sh --state-dir \"$STATE_DIR\""
+    FINAL_STATUS="blocked"
+    EXIT_REASON="console_session_locked"
+    echo "error: $lock_symptom" >&2
+    exit 75
+fi
 
 # The real ScreenCaptureKit lane requires an awake display. Keep a bounded
 # assertion owned by this foreground supervisor and generate one user-activity
