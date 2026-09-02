@@ -148,6 +148,41 @@ struct VerificationBootstrapTests {
     }
 
     @Test
+    func verificationEvidenceAllowsOnlyNumericAccuracyQualityAndLatencyPayloads() {
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "asr.accuracy",
+            fields: [
+                "sessionID": "session-1", "segmentID": "segment-1", "matchedTurnID": "turn-1",
+                "normalizationVersion": "hireva-verification-v1", "referenceWordCount": 4,
+                "hypothesisWordCount": 4, "substitutions": 0, "deletions": 0,
+                "insertions": 0, "wordEditDistance": 0, "wordErrorRate": 0.0,
+                "referenceCharacterCount": 22, "hypothesisCharacterCount": 22,
+                "characterEditDistance": 0, "normalizedCharacterEditDistance": 0.0,
+                "semanticAccepted": true,
+            ]
+        ))
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "answer.quality",
+            fields: VerificationAnswerRubricRecord.safeEventFieldsForTesting
+        ))
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "pipeline.latency",
+            fields: [
+                "sessionID": "session-1", "questionID": "question-1", "generationID": "generation-1",
+                "contextSnapshotID": "snapshot-1", "suggestionID": "suggestion-1",
+                "ragRetrievalMS": 4, "providerFirstAnswerContentMS": 10,
+                "providerCompletedMS": 20, "firstVisibleAnswerMS": 21,
+                "fullCardVisibleMS": 22, "persistenceCompletedMS": 23,
+            ]
+        ))
+        #expect(!HirevaVerificationEventPolicy.allows(
+            event: "asr.accuracy",
+            fields: ["referenceText": "private synthetic sentence"]
+        ))
+        #expect(HirevaVerificationEventPolicy.timestampUTC(Date(timeIntervalSince1970: 0)).contains(".000"))
+    }
+
+    @Test
     func ollamaFailureEvidenceUsesOnlyClosedDiagnosticCodesAndCounts() throws {
         let canary = "HIREVA_PRIVATE_PROVIDER_DIAGNOSTIC_CANARY"
         let lifecycle = OllamaLifecycleEvent(

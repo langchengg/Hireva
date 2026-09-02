@@ -362,9 +362,9 @@ evidence_unexpected_event_count() {
         "bootstrap.started", "bootstrap.configured", "bootstrap.failed",
         "control.next_session.requested", "control.next_session.failed",
         "control.stopped", "verification.finished", "control.rejected",
-        "bootstrap.ready", "sck.first_buffer", "asr.transcript",
+        "bootstrap.ready", "sck.first_buffer", "asr.transcript", "asr.accuracy",
         "question.accepted", "generation.started", "ollama.attempt_rejected",
-        "ollama.generation_failed", "suggestion.visible",
+        "ollama.generation_failed", "suggestion.visible", "answer.quality", "pipeline.latency",
         "dialogue.decision", "sqlite.suggestion_count", "app.error", "status"
     ] | index($event) | not) | .event // "invalid"' "$events_path" | wc -l | tr -d ' '
 }
@@ -422,6 +422,13 @@ evidence_schema_error_count() {
                 (.textCharacters | nonnegative_integer | not) or
                 (.textWords | nonnegative_integer | not) or
                 (.isFinal | boolean | not)
+             elif .event == "asr.accuracy" then
+                (exact(["sessionID", "segmentID", "matchedTurnID", "normalizationVersion", "referenceWordCount", "hypothesisWordCount", "substitutions", "deletions", "insertions", "wordEditDistance", "wordErrorRate", "referenceCharacterCount", "hypothesisCharacterCount", "characterEditDistance", "normalizedCharacterEditDistance", "semanticAccepted"]) | not) or
+                ([.sessionID, .segmentID, .matchedTurnID, .normalizationVersion] | all(safe_id) | not) or
+                ([.referenceWordCount, .hypothesisWordCount, .substitutions, .deletions, .insertions, .wordEditDistance, .referenceCharacterCount, .hypothesisCharacterCount, .characterEditDistance] | all(nonnegative_integer) | not) or
+                (.wordErrorRate | type != "number") or (.wordErrorRate < 0) or
+                (.normalizedCharacterEditDistance | type != "number") or (.normalizedCharacterEditDistance < 0) or
+                (.semanticAccepted | boolean | not)
              elif .event == "question.accepted" then
                 (exact(["sessionID", "questionID", "questionCharacters", "contextSnapshotID"]) | not) or
                 ([.sessionID, .questionID, .contextSnapshotID] | all(safe_id) | not) or
@@ -456,6 +463,18 @@ evidence_schema_error_count() {
                 (exact(["sessionID", "suggestionID", "questionID", "generationID", "contextSnapshotID", "matchedTurnID", "answerCharacters", "answerProvider", "alignmentVerdict"]) | not) or
                 ([.sessionID, .suggestionID, .questionID, .generationID, .contextSnapshotID, .matchedTurnID, .answerProvider, .alignmentVerdict] | all(safe_id) | not) or
                 (.answerCharacters | nonnegative_integer | not)
+             elif .event == "answer.quality" then
+                (exact(["scenarioID", "sessionID", "questionID", "generationID", "contextSnapshotID", "relevance", "evidenceGrounding", "directness", "spokenFluency", "completeness", "roleFit", "alignmentScore", "requiredConceptHits", "requiredConceptTotal", "forbiddenClaimHits", "candidateEvidenceUsedCount", "opportunityEvidenceUsedCount", "persistenceCount", "unsupportedPersonalClaim", "wrongProfileEvidence", "wrongJobContext", "staleAnswer", "duplicatePersistence", "providerSourceMislabel", "answerQuestionIdentityMismatch", "contextBleed", "jdToExperience", "futureToPast", "hardFail"]) | not) or
+                ([.scenarioID, .sessionID, .questionID, .generationID, .contextSnapshotID] | all(safe_id) | not) or
+                ([.relevance, .evidenceGrounding, .directness, .spokenFluency, .completeness, .roleFit, .requiredConceptHits, .requiredConceptTotal, .forbiddenClaimHits, .candidateEvidenceUsedCount, .opportunityEvidenceUsedCount, .persistenceCount] | all(nonnegative_integer) | not) or
+                (.relevance > 5) or (.evidenceGrounding > 5) or (.directness > 3) or
+                (.spokenFluency > 3) or (.completeness > 3) or (.roleFit > 3) or
+                (.alignmentScore | type != "number") or (.alignmentScore < 0) or (.alignmentScore > 1) or
+                ([.unsupportedPersonalClaim, .wrongProfileEvidence, .wrongJobContext, .staleAnswer, .duplicatePersistence, .providerSourceMislabel, .answerQuestionIdentityMismatch, .contextBleed, .jdToExperience, .futureToPast, .hardFail] | all(boolean) | not)
+             elif .event == "pipeline.latency" then
+                (exact(["sessionID", "questionID", "generationID", "contextSnapshotID", "suggestionID", "ragRetrievalMS", "providerFirstAnswerContentMS", "providerCompletedMS", "firstVisibleAnswerMS", "fullCardVisibleMS", "persistenceCompletedMS"]) | not) or
+                ([.sessionID, .questionID, .generationID, .contextSnapshotID, .suggestionID] | all(safe_id) | not) or
+                ([.ragRetrievalMS, .providerFirstAnswerContentMS, .providerCompletedMS, .firstVisibleAnswerMS, .fullCardVisibleMS, .persistenceCompletedMS] | all(. == null or nonnegative_integer) | not)
              elif .event == "dialogue.decision" then
                 (exact(["sessionID", "segmentID", "triggerDecision", "questionID", "generationID", "speaker", "source", "asrProvider"]) | not) or
                 ([.sessionID, .segmentID, .triggerDecision, .questionID, .generationID, .speaker, .source, .asrProvider] | all(safe_id) | not)
@@ -489,6 +508,27 @@ evidence_scenario_digest_count() {
 evidence_event_count() {
     local events_path="$1" event="$2"
     jq -r --arg event "$event" 'select(.event == $event) | .event' "$events_path" | wc -l | tr -d ' '
+}
+
+evidence_quality_hard_fail_count() {
+    local events_path="$1"
+    jq -r 'select(.event == "answer.quality" and .hardFail == true) | .event' "$events_path" |
+        wc -l | tr -d ' '
+}
+
+evidence_latency_missing_count() {
+    local events_path="$1"
+    jq -r 'select(
+        .event == "pipeline.latency" and
+        ([.ragRetrievalMS, .providerFirstAnswerContentMS, .providerCompletedMS,
+          .firstVisibleAnswerMS, .fullCardVisibleMS, .persistenceCompletedMS] | any(. == null))
+    ) | .event' "$events_path" | wc -l | tr -d ' '
+}
+
+evidence_semantic_asr_failure_count() {
+    local events_path="$1"
+    jq -r 'select(.event == "asr.accuracy" and .semanticAccepted == false) | .event' "$events_path" |
+        wc -l | tr -d ' '
 }
 
 evidence_rapid_metrics() {
@@ -574,9 +614,15 @@ if [[ "$EVIDENCE_ONLY" == "true" ]]; then
     ready_count="$(evidence_event_count "$EVIDENCE_PATH" bootstrap.ready)"
     buffer_count="$(evidence_event_count "$EVIDENCE_PATH" sck.first_buffer)"
     transcript_count="$(evidence_event_count "$EVIDENCE_PATH" asr.transcript)"
+    accuracy_count="$(evidence_event_count "$EVIDENCE_PATH" asr.accuracy)"
     question_count="$(evidence_event_count "$EVIDENCE_PATH" question.accepted)"
     generation_count="$(evidence_event_count "$EVIDENCE_PATH" generation.started)"
     visible_count="$(evidence_event_count "$EVIDENCE_PATH" suggestion.visible)"
+    quality_count="$(evidence_event_count "$EVIDENCE_PATH" answer.quality)"
+    latency_count="$(evidence_event_count "$EVIDENCE_PATH" pipeline.latency)"
+    quality_hard_fail_count="$(evidence_quality_hard_fail_count "$EVIDENCE_PATH")"
+    latency_missing_count="$(evidence_latency_missing_count "$EVIDENCE_PATH")"
+    semantic_asr_failure_count="$(evidence_semantic_asr_failure_count "$EVIDENCE_PATH")"
     finished_count="$(evidence_event_count "$EVIDENCE_PATH" verification.finished)"
     digest_count="$(evidence_scenario_digest_count "$EVIDENCE_PATH")"
     failure_count="$(evidence_failure_count "$EVIDENCE_PATH")"
@@ -592,13 +638,18 @@ if [[ "$EVIDENCE_ONLY" == "true" ]]; then
     stale_rapid_visible_count="$(metric_value "$rapid_metrics" stale_rapid_visible)"
     rapid_disposition_count=$((rapid_completed_before_followup_count + rapid_cancellation_count))
     expected_visible_count=$((EXPECTED_VISIBLE_MINIMUM + rapid_completed_before_followup_count))
-    echo "evidence_valid ready=$ready_count buffers=$buffer_count transcripts=$transcript_count questions=$question_count generations=$generation_count visible=$visible_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count $rapid_metrics"
+    echo "evidence_valid ready=$ready_count buffers=$buffer_count transcripts=$transcript_count accuracy=$accuracy_count semantic_asr_failures=$semantic_asr_failure_count questions=$question_count generations=$generation_count visible=$visible_count quality=$quality_count quality_hard_fails=$quality_hard_fail_count latency=$latency_count latency_missing=$latency_missing_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count $rapid_metrics"
     require_equal ready "$ready_count" "$EXPECTED_SESSION_COUNT"
     require_equal buffers "$buffer_count" "$EXPECTED_SESSION_COUNT"
     require_equal transcripts "$transcript_count" "$EXPECTED_TURN_COUNT"
+    require_equal accuracy "$accuracy_count" "$transcript_count"
     require_equal questions "$question_count" "$EXPECTED_TRIGGER_COUNT"
     require_equal generations "$generation_count" "$EXPECTED_TRIGGER_COUNT"
     require_between visible "$visible_count" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM"
+    require_equal quality "$quality_count" "$visible_count"
+    require_equal quality_hard_fails "$quality_hard_fail_count" 0
+    require_equal latency "$latency_count" "$visible_count"
+    require_equal latency_missing "$latency_missing_count" 0
     require_equal visible_from_rapid_disposition "$visible_count" "$expected_visible_count"
     require_equal finished "$finished_count" 1
     require_equal scenario_digest "$digest_count" 1
@@ -884,9 +935,15 @@ fi
 ready_count="$(event_count bootstrap.ready)"
 buffer_count="$(event_count sck.first_buffer)"
 transcript_count="$(event_count asr.transcript)"
+accuracy_count="$(event_count asr.accuracy)"
 question_count="$(event_count question.accepted)"
 generation_count="$(event_count generation.started)"
 visible_count="$(event_count suggestion.visible)"
+quality_count="$(event_count answer.quality)"
+latency_count="$(event_count pipeline.latency)"
+quality_hard_fail_count="$(evidence_quality_hard_fail_count "$EVENTS")"
+latency_missing_count="$(evidence_latency_missing_count "$EVENTS")"
+semantic_asr_failure_count="$(evidence_semantic_asr_failure_count "$EVENTS")"
 false_trigger_count="$(awk -F '\t' 'NR > 1 && $15 == "true" { count++ } END { print count + 0 }' "$RESULTS")"
 finished_count="$(event_count verification.finished)"
 digest_count="$(evidence_scenario_digest_count "$EVENTS")"
@@ -902,14 +959,19 @@ rapid_cancellation_count="$(metric_value "$rapid_metrics" rapid_cancellations)"
 stale_rapid_visible_count="$(metric_value "$rapid_metrics" stale_rapid_visible)"
 rapid_disposition_count=$((rapid_completed_before_followup_count + rapid_cancellation_count))
 expected_visible_count=$((EXPECTED_VISIBLE_MINIMUM + rapid_completed_before_followup_count))
-echo "ready=$ready_count buffers=$buffer_count transcripts=$transcript_count questions=$question_count generations=$generation_count visible=$visible_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count false_triggers=$false_trigger_count $rapid_metrics missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
+echo "ready=$ready_count buffers=$buffer_count transcripts=$transcript_count accuracy=$accuracy_count semantic_asr_failures=$semantic_asr_failure_count questions=$question_count generations=$generation_count visible=$visible_count quality=$quality_count quality_hard_fails=$quality_hard_fail_count latency=$latency_count latency_missing=$latency_missing_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count false_triggers=$false_trigger_count $rapid_metrics missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
 echo "app_count=$app_count helper_count=$helper_count"
 require_equal ready "$ready_count" "$EXPECTED_SESSION_COUNT"
 require_equal buffers "$buffer_count" "$EXPECTED_SESSION_COUNT"
 require_equal transcripts "$transcript_count" "$EXPECTED_TURN_COUNT"
+require_equal accuracy "$accuracy_count" "$transcript_count"
 require_equal questions "$question_count" "$EXPECTED_TRIGGER_COUNT"
 require_equal generations "$generation_count" "$EXPECTED_TRIGGER_COUNT"
 require_between visible "$visible_count" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM"
+require_equal quality "$quality_count" "$visible_count"
+require_equal quality_hard_fails "$quality_hard_fail_count" 0
+require_equal latency "$latency_count" "$visible_count"
+require_equal latency_missing "$latency_missing_count" 0
 require_equal visible_from_rapid_disposition "$visible_count" "$expected_visible_count"
 require_equal finished "$finished_count" 1
 require_equal scenario_digest "$digest_count" 1

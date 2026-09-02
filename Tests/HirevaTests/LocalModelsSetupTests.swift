@@ -1077,19 +1077,44 @@ struct LocalModelsSetupTests {
         let health = await provider.healthCheck(modelName: "qwen3.5:4b")
         try #require(health.isReady == true, "The required qwen3.5:4b model must be ready")
 
-        let stream = try await provider.generateAnswer(request: LocalLLMRequest(
-            prompt: "Answer in one sentence: what is the role of routing in an event-processing pipeline?",
-            systemPrompt: "You are a concise interview answer helper.",
-            modelName: "qwen3.5:4b",
-            temperature: 0.1,
-            numPredict: 48
-        ))
-        var answer = ""
-        for try await token in stream {
-            #expect(token.source == .ollamaQwen)
-            answer += token.text
+        let environment = ProcessInfo.processInfo.environment
+        let iterations = min(20, max(1, Int(environment["HIREVA_PROVIDER_ONLY_ITERATIONS"] ?? "1") ?? 1))
+        let clock = ContinuousClock()
+        var metrics: [ProviderOnlyVerificationMetric] = []
+        for iteration in 1...iterations {
+            let startedAt = clock.now
+            let stream = try await provider.generateAnswer(request: LocalLLMRequest(
+                prompt: "Answer in one sentence: what is the role of routing in a synthetic event-processing pipeline?",
+                systemPrompt: "You are a concise interview answer helper.",
+                modelName: "qwen3.5:4b",
+                temperature: 0.1,
+                numPredict: 48
+            ))
+            var answer = ""
+            var chunkCount = 0
+            var firstAnswerContentMS: Double?
+            for try await token in stream {
+                #expect(token.source == .ollamaQwen)
+                chunkCount += 1
+                if firstAnswerContentMS == nil,
+                   !token.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    firstAnswerContentMS = verificationMilliseconds(clock.now - startedAt)
+                }
+                answer += token.text
+            }
+            let completedMS = verificationMilliseconds(clock.now - startedAt)
+            #expect(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            metrics.append(ProviderOnlyVerificationMetric(
+                iteration: iteration,
+                providerSource: AnswerSource.ollamaQwen.rawValue,
+                modelName: "qwen3.5:4b",
+                firstAnswerContentMS: firstAnswerContentMS,
+                completedMS: completedMS,
+                chunkCount: chunkCount,
+                contentCharacters: answer.count
+            ))
         }
-        #expect(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        try writeProviderOnlyVerificationMetricsIfRequested(metrics)
     }
 
     private func temporaryDirectory() -> URL {
@@ -1332,6 +1357,46 @@ private final class MockLocalLLMProvider: LocalLLMProvider {
             continuation.finish()
         }
     }
+}
+
+private struct ProviderOnlyVerificationMetric: Codable {
+    let iteration: Int
+    let providerSource: String
+    let modelName: String
+    let firstAnswerContentMS: Double?
+    let completedMS: Double
+    let chunkCount: Int
+    let contentCharacters: Int
+}
+
+private func verificationMilliseconds(_ duration: Duration) -> Double {
+    let components = duration.components
+    return (Double(components.seconds) * 1_000) +
+        (Double(components.attoseconds) / 1_000_000_000_000_000)
+}
+
+private func writeProviderOnlyVerificationMetricsIfRequested(
+    _ metrics: [ProviderOnlyVerificationMetric]
+) throws {
+    guard let path = ProcessInfo.processInfo.environment["HIREVA_PROVIDER_ONLY_METRICS_JSONL"],
+          !path.isEmpty else { return }
+    let outputURL = URL(fileURLWithPath: path).standardizedFileURL
+    let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .standardizedFileURL
+    guard path.hasPrefix("/"),
+          !outputURL.path.hasPrefix(repositoryRoot.path + "/"),
+          FileManager.default.fileExists(atPath: outputURL.deletingLastPathComponent().path),
+          !FileManager.default.fileExists(atPath: outputURL.path) else {
+        throw NSError(
+            domain: "LocalModelsSetupTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Provider-only metrics require a fresh absolute path outside the repository."]
+        )
+    }
+    try VerificationEvidenceFileWriter.writeFreshJSONLines(metrics, to: outputURL)
 }
 
 private final class SequencedMockLocalLLMProvider: LocalLLMProvider {

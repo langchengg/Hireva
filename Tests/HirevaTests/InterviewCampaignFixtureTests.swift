@@ -182,6 +182,7 @@ struct InterviewCampaignFixtureTests {
         var persistenceLedger: [String: Int] = [:]
         var alignedAnswerCount = 0
         var alignmentFailures: [String] = []
+        var rubricRecords: [VerificationAnswerRubricRecord] = []
 
         for turn in fixture.turns.turns {
             let profile = try #require(profiles[turn.candidateProfileID])
@@ -266,6 +267,53 @@ struct InterviewCampaignFixtureTests {
                 grounding.unsupportedClaims.isEmpty,
                 "Unsupported personal claim in \(turn.scenarioID): \(grounding.unsupportedClaims)"
             )
+            let opportunityEvidence = turn.allowedOpportunityEvidenceIDs.compactMap { evidenceID -> ProfileEvidence? in
+                guard let evidence = opportunity.opportunityEvidence.first(where: { $0.id == evidenceID }) else {
+                    return nil
+                }
+                return ProfileEvidence(
+                    id: evidence.id,
+                    statement: evidence.statement,
+                    sourceDocumentID: "synthetic-interview-campaign",
+                    sourceChunkID: turn.scenarioID,
+                    sourceSpan: nil,
+                    confidence: 1,
+                    evidenceType: EvidenceType(rawValue: evidence.type) ?? .other,
+                    explicitness: .explicit
+                )
+            }
+            rubricRecords.append(VerificationAnswerRubricEvaluator.evaluate(
+                VerificationAnswerRubricInput(
+                    scenarioID: turn.scenarioID,
+                    expectedSessionID: identity.sessionID,
+                    actualSessionID: identity.sessionID,
+                    expectedQuestionID: identity.questionID,
+                    actualQuestionID: identity.questionID,
+                    expectedGenerationID: identity.generationID,
+                    actualGenerationID: identity.generationID,
+                    expectedContextSnapshotID: identity.contextSnapshotID,
+                    actualContextSnapshotID: identity.contextSnapshotID,
+                    expectedCandidateProfileID: turn.candidateProfileID,
+                    actualCandidateProfileID: turn.candidateProfileID,
+                    expectedOpportunityContextID: turn.opportunityContextID,
+                    actualOpportunityContextID: turn.opportunityContextID,
+                    questionText: try #require(turn.expectedPrimaryQuestion),
+                    answerText: answer,
+                    candidateEvidence: candidateEvidence,
+                    opportunityEvidence: opportunityEvidence,
+                    futurePlans: profile.futurePlans,
+                    allowedCandidateEvidenceIDs: Set(turn.allowedCandidateEvidenceIDs),
+                    allowedOpportunityEvidenceIDs: Set(turn.allowedOpportunityEvidenceIDs),
+                    actualCandidateEvidenceIDs: Set(turn.allowedCandidateEvidenceIDs),
+                    actualOpportunityEvidenceIDs: Set(turn.allowedOpportunityEvidenceIDs),
+                    requiredConcepts: turn.requiredConcepts,
+                    forbiddenClaims: turn.forbiddenClaims + profile.forbiddenClaims,
+                    expectedProviderSource: "ollama_qwen",
+                    actualProviderSource: turn.expectedProviderSource ?? "",
+                    persistenceCount: turn.expectedPersistenceCount,
+                    maximumSentences: turn.answerStyle.maxSentences
+                )
+            ))
 
             if turn.dialoguePhenomena.contains("missing_evidence") {
                 #expect(answer.localizedCaseInsensitiveContains("do not have evidence"))
@@ -281,6 +329,8 @@ struct InterviewCampaignFixtureTests {
         #expect(generationIDs.count == 800)
         #expect(persistenceLedger.count == 800)
         #expect(persistenceLedger.values.allSatisfy { $0 == 1 })
+        #expect(rubricRecords.count == 800)
+        try writeAnswerQualityEvidenceIfRequested(rubricRecords)
         let semanticAlignmentRate = Double(alignedAnswerCount) / Double(questionIDs.count)
         let alignmentSamples = alignmentFailures.prefix(20).joined(separator: " | ")
         print(
@@ -350,6 +400,37 @@ struct InterviewCampaignFixtureTests {
             recognitionIsFinal: final
         )
     }
+}
+
+private func writeAnswerQualityEvidenceIfRequested(
+    _ records: [VerificationAnswerRubricRecord]
+) throws {
+    guard let path = ProcessInfo.processInfo.environment["HIREVA_ANSWER_QUALITY_JSONL"],
+          !path.isEmpty else { return }
+    guard path.hasPrefix("/") else {
+        throw NSError(
+            domain: "InterviewCampaignFixtureTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Answer-quality evidence path must be absolute."]
+        )
+    }
+    let outputURL = URL(fileURLWithPath: path).standardizedFileURL
+    let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .standardizedFileURL
+    guard !outputURL.path.hasPrefix(repositoryRoot.path + "/"),
+          FileManager.default.fileExists(atPath: outputURL.deletingLastPathComponent().path),
+          !FileManager.default.fileExists(atPath: outputURL.path) else {
+        throw NSError(
+            domain: "InterviewCampaignFixtureTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Answer-quality evidence requires a fresh path outside the repository."]
+        )
+    }
+
+    try VerificationEvidenceFileWriter.writeFreshJSONLines(records, to: outputURL)
 }
 
 private struct CampaignFixture {

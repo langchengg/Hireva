@@ -406,14 +406,19 @@ struct ParakeetNativeRuntimeTests {
         let runtime = ParakeetSidecarRuntimeClient(
             executableURLProvider: { URL(fileURLWithPath: helperPath) }
         )
+        let clock = ContinuousClock()
+        let decodeStartedAt = clock.now
         let stream = try await runtime.startTranscription(
             modelDirectory: URL(fileURLWithPath: modelPath),
             config: ASRConfig(sessionID: "real-multi-utterance", captureMode: .systemAudioOnly)
         )
-        let collector = Task { () throws -> [ParakeetTranscriptEvent] in
-            var events: [ParakeetTranscriptEvent] = []
+        let collector = Task { () throws -> [(event: ParakeetTranscriptEvent, finalMS: Double)] in
+            var events: [(event: ParakeetTranscriptEvent, finalMS: Double)] = []
             for try await event in stream {
-                events.append(event)
+                events.append((
+                    event: event,
+                    finalMS: parakeetVerificationMilliseconds(clock.now - decodeStartedAt)
+                ))
             }
             return events
         }
@@ -437,7 +442,9 @@ struct ParakeetNativeRuntimeTests {
 
         try await Task.sleep(for: .seconds(15))
         await runtime.stop()
-        let events = try await collector.value
+        let timedEvents = try await collector.value
+        let events = timedEvents.map(\.event)
+        let decodeCompletedMS = parakeetVerificationMilliseconds(clock.now - decodeStartedAt)
         #expect(events.count == 3)
         #expect(events.allSatisfy { $0.isFinal })
         #expect(events.allSatisfy { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
@@ -454,6 +461,31 @@ struct ParakeetNativeRuntimeTests {
                 "ASR event \(event.segmentId) did not preserve synthetic utterance \(expected.id): \(event.text)"
             )
         }
+        let directMetrics = zip(timedEvents, provenance.utterances).map { timed, expected in
+            let textMetrics = VerificationTextMetrics.compare(
+                reference: expected.text,
+                hypothesis: timed.event.text
+            )
+            return DirectASRVerificationMetric(
+                utteranceID: expected.id,
+                providerSource: timed.event.source ?? "unknown",
+                firstFinalMS: timed.finalMS,
+                decodeCompletedMS: decodeCompletedMS,
+                normalizationVersion: textMetrics.normalizationVersion,
+                referenceWordCount: textMetrics.referenceWordCount,
+                hypothesisWordCount: textMetrics.hypothesisWordCount,
+                substitutions: textMetrics.substitutions,
+                deletions: textMetrics.deletions,
+                insertions: textMetrics.insertions,
+                wordEditDistance: textMetrics.wordEditDistance,
+                wordErrorRate: textMetrics.wordErrorRate,
+                referenceCharacterCount: textMetrics.referenceCharacterCount,
+                hypothesisCharacterCount: textMetrics.hypothesisCharacterCount,
+                characterEditDistance: textMetrics.characterEditDistance,
+                normalizedCharacterEditDistance: textMetrics.normalizedCharacterEditDistance
+            )
+        }
+        try writeDirectASRVerificationMetricsIfRequested(directMetrics)
         #expect(runtime.audioWriterDiagnostics().droppedChunks == 0)
     }
 
@@ -537,4 +569,53 @@ struct ParakeetNativeRuntimeTests {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
+}
+
+private struct DirectASRVerificationMetric: Codable {
+    let utteranceID: String
+    let providerSource: String
+    let firstFinalMS: Double
+    let decodeCompletedMS: Double
+    let normalizationVersion: String
+    let referenceWordCount: Int
+    let hypothesisWordCount: Int
+    let substitutions: Int
+    let deletions: Int
+    let insertions: Int
+    let wordEditDistance: Int
+    let wordErrorRate: Double
+    let referenceCharacterCount: Int
+    let hypothesisCharacterCount: Int
+    let characterEditDistance: Int
+    let normalizedCharacterEditDistance: Double
+}
+
+private func parakeetVerificationMilliseconds(_ duration: Duration) -> Double {
+    let components = duration.components
+    return (Double(components.seconds) * 1_000) +
+        (Double(components.attoseconds) / 1_000_000_000_000_000)
+}
+
+private func writeDirectASRVerificationMetricsIfRequested(
+    _ metrics: [DirectASRVerificationMetric]
+) throws {
+    guard let path = ProcessInfo.processInfo.environment["HIREVA_DIRECT_ASR_METRICS_JSONL"],
+          !path.isEmpty else { return }
+    let outputURL = URL(fileURLWithPath: path).standardizedFileURL
+    let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .standardizedFileURL
+    guard path.hasPrefix("/"),
+          !outputURL.path.hasPrefix(repositoryRoot.path + "/"),
+          FileManager.default.fileExists(atPath: outputURL.deletingLastPathComponent().path),
+          !FileManager.default.fileExists(atPath: outputURL.path) else {
+        throw NSError(
+            domain: "ParakeetNativeRuntimeTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Direct-ASR metrics require a fresh absolute path outside the repository."]
+        )
+    }
+    try VerificationEvidenceFileWriter.writeFreshJSONLines(metrics, to: outputURL)
 }

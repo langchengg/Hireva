@@ -16,11 +16,14 @@ enum HirevaVerificationEventPolicy {
         "bootstrap.ready": ["sessionID", "contextSnapshotID", "activeASRProvider", "systemCaptureRunning"],
         "sck.first_buffer": ["sessionID", "totalBuffers", "sampleRate", "channelCount", "lastBufferAt"],
         "asr.transcript": ["sessionID", "segmentID", "textCharacters", "textWords", "source", "speaker", "asrProvider", "isFinal", "finalizationReason"],
+        "asr.accuracy": ["sessionID", "segmentID", "matchedTurnID", "normalizationVersion", "referenceWordCount", "hypothesisWordCount", "substitutions", "deletions", "insertions", "wordEditDistance", "wordErrorRate", "referenceCharacterCount", "hypothesisCharacterCount", "characterEditDistance", "normalizedCharacterEditDistance", "semanticAccepted"],
         "question.accepted": ["sessionID", "questionID", "questionCharacters", "contextSnapshotID"],
         "generation.started": ["sessionID", "questionID", "generationID", "contextSnapshotID"],
         "ollama.attempt_rejected": ["sessionID", "questionID", "generationID", "contextSnapshotID", "diagnosticStage", "failureCategory", "validationCode", "responseChunkCount", "rawContentCharacters", "parsedContentCharacters"],
         "ollama.generation_failed": ["sessionID", "questionID", "generationID", "contextSnapshotID", "diagnosticStage", "failureCategory", "validationCode", "responseChunkCount", "rawContentCharacters", "parsedContentCharacters", "terminalState"],
         "suggestion.visible": ["sessionID", "suggestionID", "questionID", "generationID", "contextSnapshotID", "matchedTurnID", "answerCharacters", "answerProvider", "alignmentVerdict"],
+        "answer.quality": ["scenarioID", "sessionID", "questionID", "generationID", "contextSnapshotID", "relevance", "evidenceGrounding", "directness", "spokenFluency", "completeness", "roleFit", "alignmentScore", "requiredConceptHits", "requiredConceptTotal", "forbiddenClaimHits", "candidateEvidenceUsedCount", "opportunityEvidenceUsedCount", "persistenceCount", "unsupportedPersonalClaim", "wrongProfileEvidence", "wrongJobContext", "staleAnswer", "duplicatePersistence", "providerSourceMislabel", "answerQuestionIdentityMismatch", "contextBleed", "jdToExperience", "futureToPast", "hardFail"],
+        "pipeline.latency": ["sessionID", "questionID", "generationID", "contextSnapshotID", "suggestionID", "ragRetrievalMS", "providerFirstAnswerContentMS", "providerCompletedMS", "firstVisibleAnswerMS", "fullCardVisibleMS", "persistenceCompletedMS"],
         "dialogue.decision": ["sessionID", "segmentID", "triggerDecision", "questionID", "generationID", "speaker", "source", "asrProvider"],
         "sqlite.suggestion_count": ["sessionID", "count", "latestQuestionCharacters"],
         "app.error": ["errorCode", "sessionID"],
@@ -55,6 +58,13 @@ enum HirevaVerificationEventPolicy {
     static func allows(event: String, fields: [String: Any]) -> Bool {
         guard let allowedFields = allowedFieldsByEvent[event] else { return false }
         return Set(fields.keys) == allowedFields
+    }
+
+    static func timestampUTC(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 
     static func ollamaFailureFields(
@@ -308,16 +318,22 @@ private final class HirevaVerificationCoordinator {
     private var bootstrapTask: Task<Void, Never>?
     private var started = false
     private var seenTranscriptIDs = Set<String>()
+    private var seenAccuracyTranscriptIDs = Set<String>()
     private var seenQuestionIDs = Set<String>()
     private var seenGenerationIDs = Set<String>()
     private var seenOllamaFailureEventIDs = Set<String>()
     private var seenOllamaTerminalGenerationIDs = Set<String>()
     private var seenSuggestionIDs = Set<String>()
+    private var seenQualitySuggestionIDs = Set<String>()
+    private var seenLatencySuggestionIDs = Set<String>()
     private var firstBufferSessionIDs = Set<String>()
     private var lastTraceKey = ""
     private var lastPersistenceCount = 0
     private var lastError = ""
     private var expectedVisibleQuestionMatches: [(turnID: String, needle: String)] = []
+    private var expectedAudioTurns: [VerificationExpectedAudioTurn] = []
+    private var nextExpectedAudioTurnIndex = 0
+    private var scenarioRunID = ""
 
     func start(appState: AppState, configuration: HirevaVerificationConfiguration) {
         guard !started else { return }
@@ -381,6 +397,20 @@ private final class HirevaVerificationCoordinator {
             }
             guard scenario.diagnosticTraceMode == "metadataOnly" else {
                 throw VerificationBootstrapError.invalidScenario("Verification evidence requires metadata-only diagnostic traces.")
+            }
+            scenarioRunID = scenario.runID
+            expectedAudioTurns = scenario.sessions.flatMap { session in
+                session.turns.enumerated().map { turnIndex, turn in
+                    VerificationExpectedAudioTurn(
+                        turnID: HirevaVerificationEventPolicy.verificationTurnID(
+                            sessionID: session.id,
+                            turnIndex: turnIndex
+                        ),
+                        text: turn.text,
+                        expectedShouldTrigger: turn.expectedShouldTrigger,
+                        expectedQuestionNeedle: turn.expectedQuestionNeedle
+                    )
+                }
             }
             expectedVisibleQuestionMatches = scenario.sessions.flatMap { session in
                 session.turns.enumerated().compactMap { turnIndex, turn in
@@ -548,6 +578,43 @@ private final class HirevaVerificationCoordinator {
                     segment.asrFinalizationReason
                 ),
             ])
+            if seenAccuracyTranscriptIDs.insert(segment.id).inserted,
+               nextExpectedAudioTurnIndex < expectedAudioTurns.count {
+                let expectedTurn = expectedAudioTurns[nextExpectedAudioTurnIndex]
+                nextExpectedAudioTurnIndex += 1
+                let metrics = VerificationTextMetrics.compare(
+                    reference: expectedTurn.text,
+                    hypothesis: segment.text
+                )
+                let semanticAccepted: Bool
+                if let needle = expectedTurn.expectedQuestionNeedle {
+                    semanticAccepted = HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
+                        question: segment.text,
+                        needle: needle
+                    )
+                } else {
+                    semanticAccepted = metrics.wordErrorRate <= 0.5 ||
+                        metrics.normalizedCharacterEditDistance <= 0.35
+                }
+                emit("asr.accuracy", [
+                    "sessionID": segment.sessionID,
+                    "segmentID": segment.id,
+                    "matchedTurnID": expectedTurn.turnID,
+                    "normalizationVersion": metrics.normalizationVersion,
+                    "referenceWordCount": metrics.referenceWordCount,
+                    "hypothesisWordCount": metrics.hypothesisWordCount,
+                    "substitutions": metrics.substitutions,
+                    "deletions": metrics.deletions,
+                    "insertions": metrics.insertions,
+                    "wordEditDistance": metrics.wordEditDistance,
+                    "wordErrorRate": metrics.wordErrorRate,
+                    "referenceCharacterCount": metrics.referenceCharacterCount,
+                    "hypothesisCharacterCount": metrics.hypothesisCharacterCount,
+                    "characterEditDistance": metrics.characterEditDistance,
+                    "normalizedCharacterEditDistance": metrics.normalizedCharacterEditDistance,
+                    "semanticAccepted": semanticAccepted,
+                ])
+            }
         }
 
         if let questionID = appState.activeQuestionID,
@@ -623,6 +690,10 @@ private final class HirevaVerificationCoordinator {
                 ),
             ])
         }
+        captureAnswerEvidence(
+            appState: appState,
+            visibleSuggestions: visibleSuggestions
+        )
 
         let trace = appState.lastTranscriptQuestionGenerationTrace
         let traceKey = "\(trace.transcriptSegmentID)|\(trace.triggerDecision)|\(trace.detectedQuestionID ?? "")|\(trace.generationID ?? "")"
@@ -692,9 +763,99 @@ private final class HirevaVerificationCoordinator {
         }?.turnID ?? ""
     }
 
+    private func captureAnswerEvidence(
+        appState: AppState,
+        visibleSuggestions: [SuggestionCard]
+    ) {
+        for visible in visibleSuggestions where HirevaVerificationEventPolicy.recordsVisibleSuggestion(
+            stageBStatus: visible.stageBStatus,
+            finalVisibleSource: visible.finalVisibleSource
+        ) {
+            guard let persistedRows = try? appState.suggestionRepository.suggestions(
+                sessionID: visible.sessionID
+            ) else { continue }
+            let matchingRows = persistedRows.filter { $0.id == visible.id }
+            guard let persisted = matchingRows.first,
+                  let snapshotID = persisted.contextSnapshotID,
+                  let snapshot = try? appState.interviewContextRepository.snapshot(id: snapshotID) else {
+                continue
+            }
+
+            if seenQualitySuggestionIDs.insert(visible.id).inserted {
+                let providerSource = visible.finalVisibleSource ?? visible.sayFirstSource ?? ""
+                let matchedTurnID = matchingTurnID(for: persisted.questionText ?? "")
+                let record = VerificationAnswerRubricEvaluator.evaluate(
+                    VerificationAnswerRubricInput(
+                        scenarioID: matchedTurnID.isEmpty ? scenarioRunID : matchedTurnID,
+                        expectedSessionID: persisted.sessionID,
+                        actualSessionID: visible.sessionID,
+                        expectedQuestionID: persisted.detectedQuestionID ?? "",
+                        actualQuestionID: visible.detectedQuestionID ?? "",
+                        expectedGenerationID: persisted.generationID ?? "",
+                        actualGenerationID: visible.generationID ?? "",
+                        expectedContextSnapshotID: snapshot.id,
+                        actualContextSnapshotID: visible.contextSnapshotID ?? "",
+                        expectedCandidateProfileID: snapshot.candidateProfileID ?? "",
+                        actualCandidateProfileID: visible.candidateProfileID ?? "",
+                        expectedOpportunityContextID: snapshot.opportunityContextID ?? "",
+                        actualOpportunityContextID: visible.opportunityContextID ?? "",
+                        questionText: persisted.questionText ?? visible.questionText ?? "",
+                        answerText: visible.sayFirst,
+                        candidateEvidence: snapshot.candidateEvidence,
+                        opportunityEvidence: snapshot.opportunityEvidence,
+                        futurePlans: snapshot.candidateEvidence
+                            .filter { $0.evidenceType == .goal }
+                            .map(\.statement),
+                        allowedCandidateEvidenceIDs: Set(snapshot.candidateEvidence.map(\.id)),
+                        allowedOpportunityEvidenceIDs: Set(snapshot.opportunityEvidence.map(\.id)),
+                        actualCandidateEvidenceIDs: Set(visible.candidateEvidenceIDs),
+                        actualOpportunityEvidenceIDs: Set(visible.opportunityEvidenceIDs),
+                        requiredConcepts: [],
+                        forbiddenClaims: [
+                            "one million users",
+                            "thousands of production users",
+                            "led a team of twenty",
+                            "trained the foundation model from scratch",
+                            "generated production revenue",
+                        ],
+                        expectedProviderSource: AnswerSource.ollamaQwen.rawValue,
+                        actualProviderSource: providerSource,
+                        persistenceCount: matchingRows.count,
+                        maximumSentences: 4
+                    )
+                )
+                emit("answer.quality", record.eventFields)
+            }
+
+            if seenLatencySuggestionIDs.insert(visible.id).inserted {
+                emit("pipeline.latency", [
+                    "sessionID": persisted.sessionID,
+                    "questionID": persisted.detectedQuestionID ?? "",
+                    "generationID": persisted.generationID ?? "",
+                    "contextSnapshotID": snapshot.id,
+                    "suggestionID": persisted.id,
+                    "ragRetrievalMS": numericOrNull(persisted.ragRetrievalLatencyMS),
+                    "providerFirstAnswerContentMS": numericOrNull(persisted.latencyFirstTokenMS),
+                    "providerCompletedMS": numericOrNull(persisted.latencyMS),
+                    "firstVisibleAnswerMS": numericOrNull(
+                        persisted.firstVisibleAnswerMS ?? persisted.latencyFirstVisibleMS
+                    ),
+                    "fullCardVisibleMS": numericOrNull(
+                        persisted.fullCardVisibleMS ?? persisted.latencyFullCardMS
+                    ),
+                    "persistenceCompletedMS": numericOrNull(persisted.dbPersistedMS),
+                ])
+            }
+        }
+    }
+
+    private func numericOrNull(_ value: Int?) -> Any {
+        value.map { max(0, $0) } ?? NSNull()
+    }
+
     private func iso8601(_ date: Date?) -> String {
         guard let date else { return "" }
-        return ISO8601DateFormatter().string(from: date)
+        return HirevaVerificationEventPolicy.timestampUTC(date)
     }
 }
 
@@ -716,7 +877,7 @@ private final class HirevaVerificationEventWriter {
         guard HirevaVerificationEventPolicy.allows(event: event, fields: fields) else { return }
         var payload = fields
         payload["event"] = event
-        payload["timestamp"] = ISO8601DateFormatter().string(from: Date())
+        payload["timestamp"] = HirevaVerificationEventPolicy.timestampUTC(Date())
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
             return
@@ -754,8 +915,16 @@ private struct VerificationSession: Decodable {
 }
 
 private struct VerificationTurn: Decodable {
+    let text: String
     let expectedShouldTrigger: Bool
     let rapid: Bool?
+    let expectedQuestionNeedle: String?
+}
+
+private struct VerificationExpectedAudioTurn {
+    let turnID: String
+    let text: String
+    let expectedShouldTrigger: Bool
     let expectedQuestionNeedle: String?
 }
 

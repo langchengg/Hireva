@@ -235,6 +235,44 @@ func hermeticJSONString(_ value: String) -> String {
     return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
 }
 
+private struct HarnessVerificationMetric: Codable {
+    let caseID: String
+    let category: String
+    let shouldTrigger: Bool
+    let outcome: String
+    let elapsedMS: Double
+}
+
+private func runtimeSmokeVerificationMilliseconds(_ duration: Duration) -> Double {
+    let components = duration.components
+    return (Double(components.seconds) * 1_000) +
+        (Double(components.attoseconds) / 1_000_000_000_000_000)
+}
+
+private func writeHarnessVerificationMetricsIfRequested(
+    _ metrics: [HarnessVerificationMetric]
+) throws {
+    guard let path = ProcessInfo.processInfo.environment["HIREVA_HARNESS_METRICS_JSONL"],
+          !path.isEmpty else { return }
+    let outputURL = URL(fileURLWithPath: path).standardizedFileURL
+    let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .standardizedFileURL
+    guard path.hasPrefix("/"),
+          !outputURL.path.hasPrefix(repositoryRoot.path + "/"),
+          FileManager.default.fileExists(atPath: outputURL.deletingLastPathComponent().path),
+          !FileManager.default.fileExists(atPath: outputURL.path) else {
+        throw NSError(
+            domain: "RuntimeSmokeHarnessTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Harness metrics require a fresh absolute path outside the repository."]
+        )
+    }
+    try VerificationEvidenceFileWriter.writeFreshJSONLines(metrics, to: outputURL)
+}
+
 @Suite(.serialized, .sharedRuntimeResources)
 @MainActor
 struct RuntimeSmokeHarnessTests {
@@ -263,8 +301,10 @@ struct RuntimeSmokeHarnessTests {
 
         var groupedHarnesses: [String: RuntimeSmokeHarness] = [:]
         var latenciesMS: [Double] = []
+        var harnessMetrics: [HarnessVerificationMetric] = []
         var triggered = 0
         var rejected = 0
+        let clock = ContinuousClock()
 
         for (index, item) in manifest.cases.enumerated() {
             let harnessKey = item.sequenceGroup ?? item.id
@@ -279,7 +319,7 @@ struct RuntimeSmokeHarnessTests {
             let runtimeEventIDsBeforeFeed = harness.runtimeEventIDs
             let source = AudioSourceType(rawValue: item.source ?? AudioSourceType.systemAudio.rawValue) ?? .systemAudio
             let speaker = SpeakerRole(rawValue: item.expectedSpeaker) ?? .unknown
-            let startedAt = Date()
+            let startedAt = clock.now
 
             await harness.feed(
                 text: item.spokenText,
@@ -328,22 +368,43 @@ struct RuntimeSmokeHarnessTests {
 
                 try await harness.waitBriefly()
                 #expect(try harness.rows().count == rowsBefore.count + 1)
-                latenciesMS.append(Date().timeIntervalSince(startedAt) * 1_000)
+                let latencyMS = runtimeSmokeVerificationMilliseconds(clock.now - startedAt)
+                latenciesMS.append(latencyMS)
+                harnessMetrics.append(HarnessVerificationMetric(
+                    caseID: item.id,
+                    category: item.category,
+                    shouldTrigger: true,
+                    outcome: "persisted",
+                    elapsedMS: latencyMS
+                ))
             } else {
                 rejected += 1
                 try await harness.waitBriefly()
                 #expect(try harness.rows().count == rowsBefore.count)
                 #expect(harness.appState.currentSpinnerVisible == false)
+                harnessMetrics.append(HarnessVerificationMetric(
+                    caseID: item.id,
+                    category: item.category,
+                    shouldTrigger: false,
+                    outcome: "rejected",
+                    elapsedMS: runtimeSmokeVerificationMilliseconds(clock.now - startedAt)
+                ))
             }
         }
 
-        let sorted = latenciesMS.sorted()
-        let percentile: (Double) -> Double = { percentile in
-            guard !sorted.isEmpty else { return 0 }
-            let index = min(sorted.count - 1, max(0, Int(ceil(Double(sorted.count) * percentile)) - 1))
-            return sorted[index]
-        }
-        print(String(format: "release_64_summary total=%d triggered=%d rejected=%d p50_ms=%.1f p95_ms=%.1f max_ms=%.1f", manifest.cases.count, triggered, rejected, percentile(0.50), percentile(0.95), sorted.last ?? 0))
+        let summary = VerificationPercentiles.nearestRank(latenciesMS)
+        print(String(
+            format: "release_64_summary total=%d triggered=%d rejected=%d p50_ms=%.1f p90_ms=%.1f p95_ms=%.1f p99_ms=%.1f max_ms=%.1f",
+            manifest.cases.count,
+            triggered,
+            rejected,
+            summary.p50 ?? 0,
+            summary.p90 ?? 0,
+            summary.p95 ?? 0,
+            summary.p99 ?? 0,
+            summary.maximum ?? 0
+        ))
+        try writeHarnessVerificationMetricsIfRequested(harnessMetrics)
         #expect(triggered > 0)
         #expect(rejected > 0)
     }

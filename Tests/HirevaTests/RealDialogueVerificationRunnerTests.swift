@@ -219,7 +219,7 @@ struct RealDialogueVerificationRunnerTests {
         )
         let accepted = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
         #expect(accepted.status == 0)
-        #expect(accepted.output.contains("transcripts=1 questions=1 generations=1 visible=1"))
+        #expect(accepted.output.contains("transcripts=1 accuracy=1 semantic_asr_failures=0 questions=1 generations=1 visible=1 quality=1 quality_hard_fails=0 latency=1 latency_missing=0"))
         #expect(accepted.output.contains("schema_errors=0 missing_visible_matches=0 invalid_visible=0"))
         #expect(!HirevaVerificationEventPolicy.recordsVisibleSuggestion(
             stageBStatus: "superseded",
@@ -548,6 +548,7 @@ struct RealDialogueVerificationRunnerTests {
                 "isFinal": true,
                 "finalizationReason": "final_accepted",
             ]),
+            asrAccuracyEvent(segmentID: "segment-1", turnID: "session-0.0"),
             event("question.accepted", [
                 "sessionID": "session-0",
                 "questionID": "question-1",
@@ -571,6 +572,17 @@ struct RealDialogueVerificationRunnerTests {
                 "answerProvider": answerProvider,
                 "alignmentVerdict": "aligned",
             ]),
+            answerQualityEvent(
+                scenarioID: "session-0.0",
+                questionID: "question-1",
+                generationID: "generation-1",
+                suggestionID: "suggestion-1"
+            ),
+            pipelineLatencyEvent(
+                questionID: "question-1",
+                generationID: "generation-1",
+                suggestionID: "suggestion-1"
+            ),
             event("verification.finished", [
                 "suggestionRows": 1,
                 "databaseLocation": "isolated_verification_support",
@@ -630,6 +642,7 @@ struct RealDialogueVerificationRunnerTests {
                 "isFinal": true,
                 "finalizationReason": "final_accepted",
             ]),
+            asrAccuracyEvent(segmentID: "segment-rapid", turnID: "session-0.0"),
             event("question.accepted", [
                 "sessionID": "session-0",
                 "questionID": "question-rapid",
@@ -643,7 +656,20 @@ struct RealDialogueVerificationRunnerTests {
                 "contextSnapshotID": "snapshot-1",
             ]),
         ]
-        if !rapidSuggestionAfterFollowUpAccepted { events.append(rapidSuggestion) }
+        if !rapidSuggestionAfterFollowUpAccepted {
+            events.append(rapidSuggestion)
+            events.append(answerQualityEvent(
+                scenarioID: "session-0.0",
+                questionID: "question-rapid",
+                generationID: "generation-rapid",
+                suggestionID: "suggestion-rapid"
+            ))
+            events.append(pipelineLatencyEvent(
+                questionID: "question-rapid",
+                generationID: "generation-rapid",
+                suggestionID: "suggestion-rapid"
+            ))
+        }
         events.append(contentsOf: [
             event("asr.transcript", [
                 "sessionID": "session-0",
@@ -656,6 +682,7 @@ struct RealDialogueVerificationRunnerTests {
                 "isFinal": true,
                 "finalizationReason": "final_accepted",
             ]),
+            asrAccuracyEvent(segmentID: "segment-follow-up", turnID: "session-0.1"),
             event("question.accepted", [
                 "sessionID": "session-0",
                 "questionID": "question-follow-up",
@@ -663,7 +690,20 @@ struct RealDialogueVerificationRunnerTests {
                 "contextSnapshotID": "snapshot-1",
             ]),
         ])
-        if rapidSuggestionAfterFollowUpAccepted { events.append(rapidSuggestion) }
+        if rapidSuggestionAfterFollowUpAccepted {
+            events.append(rapidSuggestion)
+            events.append(answerQualityEvent(
+                scenarioID: "session-0.0",
+                questionID: "question-rapid",
+                generationID: "generation-rapid",
+                suggestionID: "suggestion-rapid"
+            ))
+            events.append(pipelineLatencyEvent(
+                questionID: "question-rapid",
+                generationID: "generation-rapid",
+                suggestionID: "suggestion-rapid"
+            ))
+        }
         events.append(followUpGeneration)
         events.append(contentsOf: [
             event("suggestion.visible", [
@@ -677,6 +717,17 @@ struct RealDialogueVerificationRunnerTests {
                 "answerProvider": "ollama_qwen",
                 "alignmentVerdict": "aligned",
             ]),
+            answerQualityEvent(
+                scenarioID: "session-0.1",
+                questionID: "question-follow-up",
+                generationID: "generation-follow-up",
+                suggestionID: "suggestion-follow-up"
+            ),
+            pipelineLatencyEvent(
+                questionID: "question-follow-up",
+                generationID: "generation-follow-up",
+                suggestionID: "suggestion-follow-up"
+            ),
             event("verification.finished", [
                 "suggestionRows": 2,
                 "databaseLocation": "isolated_verification_support",
@@ -691,6 +742,86 @@ struct RealDialogueVerificationRunnerTests {
         payload["event"] = name
         payload["timestamp"] = "2026-08-27T12:00:00Z"
         return payload
+    }
+
+    private func asrAccuracyEvent(segmentID: String, turnID: String) -> [String: Any] {
+        event("asr.accuracy", [
+            "sessionID": "session-0",
+            "segmentID": segmentID,
+            "matchedTurnID": turnID,
+            "normalizationVersion": "hireva-verification-v1",
+            "referenceWordCount": 4,
+            "hypothesisWordCount": 4,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "wordEditDistance": 0,
+            "wordErrorRate": 0.0,
+            "referenceCharacterCount": 20,
+            "hypothesisCharacterCount": 20,
+            "characterEditDistance": 0,
+            "normalizedCharacterEditDistance": 0.0,
+            "semanticAccepted": true,
+        ])
+    }
+
+    private func answerQualityEvent(
+        scenarioID: String,
+        questionID: String,
+        generationID: String,
+        suggestionID _: String
+    ) -> [String: Any] {
+        event("answer.quality", [
+            "scenarioID": scenarioID,
+            "sessionID": "session-0",
+            "questionID": questionID,
+            "generationID": generationID,
+            "contextSnapshotID": "snapshot-1",
+            "relevance": 5,
+            "evidenceGrounding": 5,
+            "directness": 3,
+            "spokenFluency": 3,
+            "completeness": 3,
+            "roleFit": 3,
+            "alignmentScore": 1.0,
+            "requiredConceptHits": 0,
+            "requiredConceptTotal": 0,
+            "forbiddenClaimHits": 0,
+            "candidateEvidenceUsedCount": 1,
+            "opportunityEvidenceUsedCount": 0,
+            "persistenceCount": 1,
+            "unsupportedPersonalClaim": false,
+            "wrongProfileEvidence": false,
+            "wrongJobContext": false,
+            "staleAnswer": false,
+            "duplicatePersistence": false,
+            "providerSourceMislabel": false,
+            "answerQuestionIdentityMismatch": false,
+            "contextBleed": false,
+            "jdToExperience": false,
+            "futureToPast": false,
+            "hardFail": false,
+        ])
+    }
+
+    private func pipelineLatencyEvent(
+        questionID: String,
+        generationID: String,
+        suggestionID: String
+    ) -> [String: Any] {
+        event("pipeline.latency", [
+            "sessionID": "session-0",
+            "questionID": questionID,
+            "generationID": generationID,
+            "contextSnapshotID": "snapshot-1",
+            "suggestionID": suggestionID,
+            "ragRetrievalMS": 5,
+            "providerFirstAnswerContentMS": 10,
+            "providerCompletedMS": 20,
+            "firstVisibleAnswerMS": 21,
+            "fullCardVisibleMS": 22,
+            "persistenceCompletedMS": 23,
+        ])
     }
 
     private func ollamaFailureEvent(
