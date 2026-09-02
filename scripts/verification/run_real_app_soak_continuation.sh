@@ -27,6 +27,7 @@ CURRENT_SCENARIO=""
 CURRENT_RUNNER_PID=""
 RESOURCE_PID=""
 RESOURCE_EXIT_STATUS=""
+CAFFEINATE_PID=""
 FINAL_STATUS="interrupted"
 EXIT_REASON="campaign_interrupted"
 CAMPAIGN_COMPLETE=false
@@ -329,6 +330,31 @@ save_patch() {
     git -C "$ROOT_DIR" status --short > "$ARTIFACT_DIR/patches/last-status.txt" || true
 }
 
+record_failure() {
+    local scenario="$1" category="$2" symptom="$3" command="$4"
+    local current_max failure_number failure_id
+    current_max="$(jq -r '.id // empty' "$STATE_DIR/failure_queue.jsonl" 2>/dev/null \
+        | /usr/bin/sed -n 's/^H24C-\([0-9][0-9]*\)$/\1/p' \
+        | /usr/bin/sort -n \
+        | /usr/bin/tail -n 1)"
+    failure_number=$(( 10#${current_max:-0} + 1 ))
+    failure_id="H24C-$(printf '%04d' "$failure_number")"
+    jq -cn \
+        --arg id "$failure_id" \
+        --arg firstSeenAt "$(timestamp_utc)" \
+        --arg scenarioID "$scenario" \
+        --arg category "$category" \
+        --arg symptom "$symptom" \
+        --arg reproductionCommand "$command" \
+        '{id: $id, severity: "P1", firstSeenAt: $firstSeenAt, scenarioID: $scenarioID,
+          category: $category, symptom: $symptom,
+          expected: "The real app cycle and its privacy-safe evidence gates complete successfully.",
+          actual: $symptom, reproductionCommand: $reproductionCommand,
+          reproducedCount: 1, researchSourceIDs: [], rootCause: null,
+          regressionTest: null, fixCommit: null, status: "open"}' \
+        >> "$STATE_DIR/failure_queue.jsonl"
+}
+
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -340,6 +366,10 @@ cleanup() {
     if [[ -n "$RESOURCE_PID" ]] && kill -0 "$RESOURCE_PID" >/dev/null 2>&1; then
         kill -TERM "$RESOURCE_PID" >/dev/null 2>&1 || true
         wait "$RESOURCE_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$CAFFEINATE_PID" ]] && kill -0 "$CAFFEINATE_PID" >/dev/null 2>&1; then
+        kill -TERM "$CAFFEINATE_PID" >/dev/null 2>&1 || true
+        wait "$CAFFEINATE_PID" >/dev/null 2>&1 || true
     fi
     stop_exact_app_bundle
     if [[ "$COUNTING_ACTIVE" == "true" ]]; then
@@ -369,6 +399,16 @@ cleanup() {
 trap cleanup EXIT
 trap 'FINAL_STATUS="interrupted"; EXIT_REASON="signal_int"; exit 130' INT
 trap 'FINAL_STATUS="interrupted"; EXIT_REASON="signal_term"; exit 143' TERM
+
+# The real ScreenCaptureKit lane requires an awake display. Keep a bounded
+# assertion owned by this foreground supervisor and generate one user-activity
+# pulse so a display that was already asleep can become capture-capable. This
+# starts only after cleanup traps are armed, so early failures cannot leak it.
+/usr/bin/caffeinate -dims -w "$$" >/dev/null 2>&1 &
+CAFFEINATE_PID=$!
+/usr/bin/caffeinate -u -t 5 >/dev/null 2>&1 &
+wake_pid=$!
+wait "$wake_pid"
 
 run_preflight() {
     local preflight_number preflight_root prep_args helper_path audio_path provenance_path harness_path
@@ -444,7 +484,23 @@ run_preflight() {
 }
 
 if [[ "$(jq -r '.preflight_complete' "$STATE_FILE")" != "true" ]]; then
-    run_preflight
+    set +e
+    (
+        set -euo pipefail
+        run_preflight
+    )
+    preflight_status=$?
+    set -e
+    if [[ "$preflight_status" -ne 0 ]]; then
+        record_failure \
+            "real-app-continuation-preflight" \
+            "preflight" \
+            "Continuation preflight exited nonzero before the active soak timer started." \
+            "$ROOT_DIR/scripts/verification/resume_real_app_soak_continuation.sh --state-dir $STATE_DIR"
+        FINAL_STATUS="failed"
+        EXIT_REASON="preflight_failed"
+        exit "$preflight_status"
+    fi
 fi
 
 MODEL_ROOT="$(jq -er '.model_root' "$STATE_FILE")"
@@ -492,26 +548,6 @@ resource_log="$ARTIFACT_DIR/logs/resource_metrics_attempt_$(printf '%03d' "$ATTE
 RESOURCE_PID=$!
 write_heartbeat
 write_checkpoint
-
-record_failure() {
-    local scenario="$1" category="$2" symptom="$3" command="$4"
-    local failure_id
-    failure_id="H24C-$(printf '%04d' "$(( $(wc -l < "$STATE_DIR/failure_queue.jsonl" | tr -d ' ') + 1 ))")"
-    jq -cn \
-        --arg id "$failure_id" \
-        --arg firstSeenAt "$(timestamp_utc)" \
-        --arg scenarioID "$scenario" \
-        --arg category "$category" \
-        --arg symptom "$symptom" \
-        --arg reproductionCommand "$command" \
-        '{id: $id, severity: "P1", firstSeenAt: $firstSeenAt, scenarioID: $scenarioID,
-          category: $category, symptom: $symptom,
-          expected: "The real app cycle and its privacy-safe evidence gates complete successfully.",
-          actual: $symptom, reproductionCommand: $reproductionCommand,
-          reproducedCount: 1, researchSourceIDs: [], rootCause: null,
-          regressionTest: null, fixCommit: null, status: "open"}' \
-        >> "$STATE_DIR/failure_queue.jsonl"
-}
 
 collect_cycle_database_metrics() {
     local database_path="$1"
