@@ -50,11 +50,14 @@ struct SoakResourceMetricsConfiguration: Equatable {
 
     let outputURL: URL
     let processName: String
+    let processExecutablePath: String?
     let helperProcessNames: Set<String>
+    let helperExecutablePaths: Set<String>
     let databaseURL: URL?
     let traceURL: URL?
     let lifecycleMetricsURL: URL?
     let sqliteExecutableURL: URL?
+    let lsofExecutableURL: URL?
     let intervalSeconds: Double
     let durationSeconds: Double
     let maximumFileSizeBytes: Int
@@ -66,11 +69,14 @@ struct SoakResourceMetricsConfiguration: Equatable {
     init(
         outputURL: URL,
         processName: String,
+        processExecutablePath: String? = nil,
         helperProcessNames: Set<String> = [],
+        helperExecutablePaths: Set<String> = [],
         databaseURL: URL? = nil,
         traceURL: URL? = nil,
         lifecycleMetricsURL: URL? = nil,
         sqliteExecutableURL: URL? = nil,
+        lsofExecutableURL: URL? = nil,
         intervalSeconds: Double = 5,
         durationSeconds: Double = 300,
         maximumFileSizeBytes: Int = 5 * 1_024 * 1_024,
@@ -84,6 +90,13 @@ struct SoakResourceMetricsConfiguration: Equatable {
         }
         guard !processName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw SoakResourceMetricsError.invalidConfiguration("Resource metrics process name must not be empty.")
+        }
+        if let processExecutablePath,
+           !processExecutablePath.hasPrefix("/") {
+            throw SoakResourceMetricsError.invalidConfiguration("Resource metrics process path must be absolute.")
+        }
+        guard helperExecutablePaths.allSatisfy({ $0.hasPrefix("/") }) else {
+            throw SoakResourceMetricsError.invalidConfiguration("Resource metrics helper paths must be absolute.")
         }
         guard Self.minimumIntervalSeconds...Self.maximumIntervalSeconds ~= intervalSeconds else {
             throw SoakResourceMetricsError.invalidConfiguration("Resource metrics interval must be between 5 and 10 seconds.")
@@ -110,11 +123,18 @@ struct SoakResourceMetricsConfiguration: Equatable {
 
         self.outputURL = outputURL
         self.processName = processName
+        self.processExecutablePath = processExecutablePath.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        }
         self.helperProcessNames = helperProcessNames
+        self.helperExecutablePaths = Set(helperExecutablePaths.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        })
         self.databaseURL = databaseURL
         self.traceURL = traceURL
         self.lifecycleMetricsURL = lifecycleMetricsURL
         self.sqliteExecutableURL = sqliteExecutableURL
+        self.lsofExecutableURL = lsofExecutableURL
         self.intervalSeconds = intervalSeconds
         self.durationSeconds = durationSeconds
         self.maximumFileSizeBytes = maximumFileSizeBytes
@@ -131,6 +151,7 @@ struct SoakProcessRecord: Equatable {
     let cpuPercent: Double
     let residentBytes: UInt64
     let executableName: String
+    let executablePath: String
 }
 
 enum SoakProcessListParser {
@@ -153,12 +174,14 @@ enum SoakProcessListParser {
             let multiplied = residentKiB.multipliedReportingOverflow(by: 1_024)
             residentBytes = multiplied.overflow ? UInt64.max : multiplied.partialValue
 
+            let executablePath = URL(fileURLWithPath: String(fields[4])).standardizedFileURL.path
             return SoakProcessRecord(
                 processID: processID,
                 parentProcessID: parentProcessID,
                 cpuPercent: cpuPercent,
                 residentBytes: residentBytes,
-                executableName: URL(fileURLWithPath: String(fields[4])).lastPathComponent
+                executableName: URL(fileURLWithPath: executablePath).lastPathComponent,
+                executablePath: executablePath
             )
         }
     }
@@ -180,9 +203,17 @@ struct SoakProcessSnapshot: Equatable {
     static func make(
         records: [SoakProcessRecord],
         processName: String,
-        helperProcessNames: Set<String>
+        processExecutablePath: String? = nil,
+        helperProcessNames: Set<String>,
+        helperExecutablePaths: Set<String> = []
     ) -> SoakProcessSnapshot {
-        let appRecords = records.filter { $0.executableName == processName }
+        let standardizedProcessPath = processExecutablePath.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        }
+        let appRecords = records.filter { record in
+            guard record.executableName == processName else { return false }
+            return standardizedProcessPath == nil || record.executablePath == standardizedProcessPath
+        }
         let appProcessIDs = Set(appRecords.map(\.processID))
         let ollamaRecords = records.filter { $0.executableName == "ollama" }
         let ollamaProcessIDs = Set(ollamaRecords.map(\.processID))
@@ -203,7 +234,9 @@ struct SoakProcessSnapshot: Equatable {
         let helperRecords = records.filter { record in
             !appProcessIDs.contains(record.processID) &&
                 !ollamaProcessIDs.contains(record.processID) &&
-                (descendantProcessIDs.contains(record.processID) || helperProcessNames.contains(record.executableName))
+                (descendantProcessIDs.contains(record.processID) ||
+                    helperProcessNames.contains(record.executableName) ||
+                    helperExecutablePaths.contains(record.executablePath))
         }
 
         return SoakProcessSnapshot(
@@ -224,6 +257,51 @@ struct SoakProcessSnapshot: Equatable {
             let sum = total.addingReportingOverflow(record.residentBytes)
             return sum.overflow ? UInt64.max : sum.partialValue
         }
+    }
+}
+
+/// Parses `lsof -Ff` output without retaining file paths or descriptor types.
+enum SoakOpenFileCountParser {
+    static func countNumericDescriptors(_ output: String) -> Int {
+        output.split(whereSeparator: \.isNewline).reduce(into: 0) { count, line in
+            guard line.first == "f", line.count > 1,
+                  line.dropFirst().allSatisfy(\.isNumber) else {
+                return
+            }
+            count += 1
+        }
+    }
+}
+
+struct SoakOpenFileCounts: Equatable {
+    static let unavailable = SoakOpenFileCounts(app: nil, helper: nil)
+
+    let app: Int?
+    let helper: Int?
+}
+
+struct SoakOpenFileCounter {
+    let runner: any SoakCommandRunning
+
+    func count(
+        processIDs: Set<Int32>,
+        lsofExecutableURL: URL?
+    ) throws -> Int? {
+        guard let lsofExecutableURL else { return nil }
+        guard !processIDs.isEmpty else { return 0 }
+
+        var total = 0
+        for processID in processIDs.sorted() {
+            let result = try runner.run(
+                executableURL: lsofExecutableURL,
+                arguments: ["-nP", "-a", "-p", String(processID), "-Ff"]
+            )
+            guard result.status == 0 else {
+                throw SoakResourceMetricsError.commandFailed(lsofExecutableURL.lastPathComponent)
+            }
+            total += SoakOpenFileCountParser.countNumericDescriptors(result.standardOutput)
+        }
+        return total
     }
 }
 
@@ -603,9 +681,11 @@ struct SoakResourceMetricsSample: Equatable {
         "app_process_count",
         "app_cpu_percent",
         "app_rss_bytes",
+        "app_open_file_count",
         "helper_process_count",
         "helper_cpu_percent",
         "helper_rss_bytes",
+        "helper_open_file_count",
         "ollama_process_count",
         "ollama_cpu_percent",
         "ollama_rss_bytes",
@@ -635,10 +715,31 @@ struct SoakResourceMetricsSample: Equatable {
     let timestamp: Date
     let elapsedSeconds: Double
     let processSnapshot: SoakProcessSnapshot
+    let openFileCounts: SoakOpenFileCounts
     let fileMetrics: SoakFileMetrics
     let databaseCounts: SoakDatabaseCounts
     let lifecycleCounts: SoakLifecycleCounts
     let collectionErrorCount: Int
+
+    init(
+        timestamp: Date,
+        elapsedSeconds: Double,
+        processSnapshot: SoakProcessSnapshot,
+        openFileCounts: SoakOpenFileCounts = .unavailable,
+        fileMetrics: SoakFileMetrics,
+        databaseCounts: SoakDatabaseCounts,
+        lifecycleCounts: SoakLifecycleCounts,
+        collectionErrorCount: Int
+    ) {
+        self.timestamp = timestamp
+        self.elapsedSeconds = elapsedSeconds
+        self.processSnapshot = processSnapshot
+        self.openFileCounts = openFileCounts
+        self.fileMetrics = fileMetrics
+        self.databaseCounts = databaseCounts
+        self.lifecycleCounts = lifecycleCounts
+        self.collectionErrorCount = collectionErrorCount
+    }
 
     static var csvHeader: String { csvColumns.joined(separator: ",") }
 
@@ -651,9 +752,11 @@ struct SoakResourceMetricsSample: Equatable {
         values.append(String(processSnapshot.appProcessIDs.count))
         values.append(Self.decimal(processSnapshot.appCPUPercent))
         values.append(String(processSnapshot.appResidentBytes))
+        values.append(openFileCounts.app.map(String.init) ?? "")
         values.append(String(processSnapshot.helperProcessIDs.count))
         values.append(Self.decimal(processSnapshot.helperCPUPercent))
         values.append(String(processSnapshot.helperResidentBytes))
+        values.append(openFileCounts.helper.map(String.init) ?? "")
         values.append(String(processSnapshot.ollamaProcessIDs.count))
         values.append(Self.decimal(processSnapshot.ollamaCPUPercent))
         values.append(String(processSnapshot.ollamaResidentBytes))
@@ -918,6 +1021,7 @@ final class SoakResourceMetricsCollector {
             maximumFileCount: configuration.maximumFileCount
         )
         let databaseCounter = SoakDatabaseCounter(runner: runner)
+        let openFileCounter = SoakOpenFileCounter(runner: runner)
         var lifecycleTracker = SoakProcessLifecycleTracker()
         var collectionErrorCount = 0
         var sampleCount = 0
@@ -976,8 +1080,28 @@ final class SoakResourceMetricsCollector {
             let processSnapshot = SoakProcessSnapshot.make(
                 records: processRecords,
                 processName: configuration.processName,
-                helperProcessNames: configuration.helperProcessNames
+                processExecutablePath: configuration.processExecutablePath,
+                helperProcessNames: configuration.helperProcessNames,
+                helperExecutablePaths: configuration.helperExecutablePaths
             )
+            var appOpenFileCount: Int?
+            var helperOpenFileCount: Int?
+            do {
+                appOpenFileCount = try openFileCounter.count(
+                    processIDs: processSnapshot.appProcessIDs,
+                    lsofExecutableURL: configuration.lsofExecutableURL
+                )
+            } catch {
+                collectionErrorCount += 1
+            }
+            do {
+                helperOpenFileCount = try openFileCounter.count(
+                    processIDs: processSnapshot.helperProcessIDs,
+                    lsofExecutableURL: configuration.lsofExecutableURL
+                )
+            } catch {
+                collectionErrorCount += 1
+            }
             let databaseCounts: SoakDatabaseCounts
             do {
                 databaseCounts = try databaseCounter.read(
@@ -1028,6 +1152,10 @@ final class SoakResourceMetricsCollector {
                 timestamp: Date(),
                 elapsedSeconds: elapsed,
                 processSnapshot: processSnapshot,
+                openFileCounts: SoakOpenFileCounts(
+                    app: appOpenFileCount,
+                    helper: helperOpenFileCount
+                ),
                 fileMetrics: SoakFileMetrics.collect(
                     databaseURL: configuration.databaseURL,
                     traceURL: configuration.traceURL,
@@ -1081,14 +1209,22 @@ enum SoakResourceMetricsCLI {
 
       --duration SECONDS      Total sampling duration (one interval to 86400; default: 300)
       --interval SECONDS      Sampling interval from 5 through 10 (default: 5)
+      --process-path PATH     Exact executable path for the target app bundle
       --database PATH         SQLite database to count in read-only mode
       --trace PATH            Runtime trace base file to measure by size only
       --lifecycle-metrics PATH
                               Bounded numeric capture lifecycle summary
       --helper-name NAME      Helper executable basename; may be repeated
+      --helper-path PATH      Exact helper executable path; may be repeated
       --sqlite3 PATH          sqlite3 executable used for predefined count-only queries
+      --lsof PATH             lsof executable used for descriptor counts only
       --max-bytes BYTES       Per-file CSV limit from 1024 through 67108864
       --max-files COUNT       Total active plus rotated CSV files from 1 through 10
+      --minimum-coverage N    Required exact-target sample ratio (default: 0.9)
+      --max-collection-errors COUNT
+                              Maximum command/read failures (default: 3)
+      --missing-app-limit COUNT
+                              Consecutive missing samples before failure (default: 3)
       --help                  Show this message
 
     A valid run requires exactly one target process in at least 90% of expected
@@ -1103,15 +1239,21 @@ enum SoakResourceMetricsCLI {
     static func parse(arguments: [String]) throws -> SoakResourceMetricsConfiguration {
         var outputURL: URL?
         var processName: String?
+        var processExecutablePath: String?
         var helperProcessNames = Set<String>()
+        var helperExecutablePaths = Set<String>()
         var databaseURL: URL?
         var traceURL: URL?
         var lifecycleMetricsURL: URL?
         var sqliteExecutableURL: URL?
+        var lsofExecutableURL: URL?
         var intervalSeconds = 5.0
         var durationSeconds = 300.0
         var maximumFileSizeBytes = 5 * 1_024 * 1_024
         var maximumFileCount = 4
+        var minimumSampleCoverage = SoakResourceMetricsConfiguration.defaultMinimumSampleCoverage
+        var maximumCollectionErrorCount = SoakResourceMetricsConfiguration.defaultMaximumCollectionErrorCount
+        var maximumConsecutiveMissingAppSamples = SoakResourceMetricsConfiguration.defaultMaximumConsecutiveMissingAppSamples
         var index = 0
 
         func value(after option: String) throws -> String {
@@ -1128,8 +1270,12 @@ enum SoakResourceMetricsCLI {
                 outputURL = URL(fileURLWithPath: try value(after: option))
             case "--process-name":
                 processName = try value(after: option)
+            case "--process-path":
+                processExecutablePath = try value(after: option)
             case "--helper-name":
                 helperProcessNames.insert(try value(after: option))
+            case "--helper-path":
+                helperExecutablePaths.insert(try value(after: option))
             case "--database":
                 databaseURL = URL(fileURLWithPath: try value(after: option))
             case "--trace":
@@ -1138,6 +1284,8 @@ enum SoakResourceMetricsCLI {
                 lifecycleMetricsURL = URL(fileURLWithPath: try value(after: option))
             case "--sqlite3":
                 sqliteExecutableURL = URL(fileURLWithPath: try value(after: option))
+            case "--lsof":
+                lsofExecutableURL = URL(fileURLWithPath: try value(after: option))
             case "--interval":
                 guard let parsed = Double(try value(after: option)) else {
                     throw SoakResourceMetricsError.invalidArguments("Invalid numeric value after \(option).")
@@ -1158,6 +1306,21 @@ enum SoakResourceMetricsCLI {
                     throw SoakResourceMetricsError.invalidArguments("Invalid integer value after \(option).")
                 }
                 maximumFileCount = parsed
+            case "--minimum-coverage":
+                guard let parsed = Double(try value(after: option)) else {
+                    throw SoakResourceMetricsError.invalidArguments("Invalid numeric value after \(option).")
+                }
+                minimumSampleCoverage = parsed
+            case "--max-collection-errors":
+                guard let parsed = Int(try value(after: option)) else {
+                    throw SoakResourceMetricsError.invalidArguments("Invalid integer value after \(option).")
+                }
+                maximumCollectionErrorCount = parsed
+            case "--missing-app-limit":
+                guard let parsed = Int(try value(after: option)) else {
+                    throw SoakResourceMetricsError.invalidArguments("Invalid integer value after \(option).")
+                }
+                maximumConsecutiveMissingAppSamples = parsed
             case "--help":
                 throw SoakResourceMetricsError.invalidArguments(helpText)
             default:
@@ -1175,15 +1338,21 @@ enum SoakResourceMetricsCLI {
         return try SoakResourceMetricsConfiguration(
             outputURL: outputURL,
             processName: processName,
+            processExecutablePath: processExecutablePath,
             helperProcessNames: helperProcessNames,
+            helperExecutablePaths: helperExecutablePaths,
             databaseURL: databaseURL,
             traceURL: traceURL,
             lifecycleMetricsURL: lifecycleMetricsURL,
             sqliteExecutableURL: sqliteExecutableURL,
+            lsofExecutableURL: lsofExecutableURL,
             intervalSeconds: intervalSeconds,
             durationSeconds: durationSeconds,
             maximumFileSizeBytes: maximumFileSizeBytes,
-            maximumFileCount: maximumFileCount
+            maximumFileCount: maximumFileCount,
+            minimumSampleCoverage: minimumSampleCoverage,
+            maximumCollectionErrorCount: maximumCollectionErrorCount,
+            maximumConsecutiveMissingAppSamples: maximumConsecutiveMissingAppSamples
         )
     }
 }

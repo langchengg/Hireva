@@ -43,6 +43,15 @@ struct SoakResourceMetricsTests {
                 durationSeconds: 11
             )
         }
+        #expect(throws: SoakResourceMetricsError.self) {
+            try SoakResourceMetricsConfiguration(
+                outputURL: outputURL,
+                processName: "Hireva",
+                helperExecutablePaths: ["relative/parakeet_asr_helper"],
+                intervalSeconds: 5,
+                durationSeconds: 5
+            )
+        }
     }
 
     @Test
@@ -70,6 +79,65 @@ struct SoakResourceMetricsTests {
     }
 
     @Test
+    func processSnapshotCanBindTheExactVerificationBundlePath() {
+        let records = SoakProcessListParser.parse("""
+          100     1  12.5  2048 /verified/dist/Hireva.app/Contents/MacOS/Hireva
+          200     1   3.0  4096 /Applications/Hireva.app/Contents/MacOS/Hireva
+          300     1   1.0   512 /verified/dist/Hireva.app/Contents/Helpers/parakeet_asr_helper
+          400     1   1.0   512 /tmp/parakeet_asr_helper
+        """)
+        let snapshot = SoakProcessSnapshot.make(
+            records: records,
+            processName: "Hireva",
+            processExecutablePath: "/verified/dist/Hireva.app/Contents/MacOS/Hireva",
+            helperProcessNames: [],
+            helperExecutablePaths: [
+                "/verified/dist/Hireva.app/Contents/Helpers/parakeet_asr_helper"
+            ]
+        )
+
+        #expect(snapshot.appProcessIDs == [100])
+        #expect(snapshot.helperProcessIDs == [300])
+    }
+
+    @Test
+    func processSnapshotPreservesExactBundlePathsContainingSpaces() {
+        let appPath = "/verified/Hireva Build/dist/Hireva.app/Contents/MacOS/Hireva"
+        let helperPath = "/verified/Hireva Build/dist/Hireva.app/Contents/Helpers/parakeet_asr_helper"
+        let records = SoakProcessListParser.parse("""
+          100     1  12.5  2048 \(appPath)
+          101   100   2.0  1024 \(helperPath)
+        """)
+        let snapshot = SoakProcessSnapshot.make(
+            records: records,
+            processName: "Hireva",
+            processExecutablePath: appPath,
+            helperProcessNames: [],
+            helperExecutablePaths: [helperPath]
+        )
+
+        #expect(records.map(\.executablePath) == [appPath, helperPath])
+        #expect(snapshot.appProcessIDs == [100])
+        #expect(snapshot.helperProcessIDs == [101])
+    }
+
+    @Test
+    func openFileParserCountsOnlyNumericDescriptorsWithoutPaths() {
+        let output = """
+        p100
+        fcwd
+        frtd
+        ftxt
+        f0
+        f1
+        f12
+        """
+
+        #expect(SoakOpenFileCountParser.countNumericDescriptors(output) == 3)
+        #expect(SoakOpenFileCountParser.countNumericDescriptors("private/path/to/file") == 0)
+    }
+
+    @Test
     func lifecycleTrackerCountsRestartsAndHelperCleanup() {
         var tracker = SoakProcessLifecycleTracker()
         let first = tracker.update(with: snapshot(app: [100], helpers: [101], ollama: [200]))
@@ -91,6 +159,8 @@ struct SoakResourceMetricsTests {
         #expect(fields.dropFirst().allSatisfy { $0.isEmpty || Double($0) != nil })
         #expect(SoakResourceMetricsSample.csvHeader.contains("app_cpu_percent"))
         #expect(SoakResourceMetricsSample.csvHeader.contains("wal_bytes"))
+        #expect(SoakResourceMetricsSample.csvHeader.contains("app_open_file_count"))
+        #expect(SoakResourceMetricsSample.csvHeader.contains("helper_open_file_count"))
         #expect(SoakResourceMetricsSample.csvHeader.contains("helper_cleanup_count"))
         #expect(!SoakResourceMetricsSample.csvHeader.contains("transcript_text"))
         #expect(!SoakResourceMetricsSample.csvHeader.contains("question_text"))
@@ -427,6 +497,51 @@ struct SoakResourceMetricsTests {
         #expect(script.contains("--max-bytes"))
         #expect(!script.contains("pkill"))
         #expect(!script.contains("killall"))
+    }
+
+    @Test
+    func realAppSoakContinuationIsResumableIsolatedAndBoundToReviewedScenarios() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let runnerURL = repositoryRoot.appendingPathComponent(
+            "scripts/verification/run_real_app_soak_continuation.sh"
+        )
+        let resumeURL = repositoryRoot.appendingPathComponent(
+            "scripts/verification/resume_real_app_soak_continuation.sh"
+        )
+        let analyzerURL = repositoryRoot.appendingPathComponent(
+            "scripts/verification/analyze_real_app_soak_continuation.py"
+        )
+        let runner = try String(contentsOf: runnerURL, encoding: .utf8)
+        let resume = try String(contentsOf: resumeURL, encoding: .utf8)
+        let analyzer = try String(contentsOf: analyzerURL, encoding: .utf8)
+
+        #expect(runner.contains("TARGET_ACTIVE_SECONDS=21600"))
+        #expect(runner.contains("run_real_dialogue_verification.sh"))
+        #expect(runner.contains("scripts/fixtures/real_audio_campaign/manifest.json"))
+        #expect(runner.contains("app_verification_events.jsonl"))
+        #expect(runner.contains("answer.quality"))
+        #expect(runner.contains("asr.accuracy"))
+        #expect(runner.contains("pipeline.latency"))
+        #expect(runner.contains("--process-path"))
+        #expect(runner.contains("--helper-path"))
+        #expect(runner.contains("heartbeat.json"))
+        #expect(runner.contains("checkpoints.jsonl"))
+        #expect(runner.contains("active_elapsed_seconds"))
+        #expect(runner.contains("sqlite3 -readonly"))
+        #expect(!runner.contains("$HOME/Library/Application Support/Hireva"))
+        #expect(!runner.contains("pkill"))
+        #expect(!runner.contains("killall"))
+
+        #expect(resume.contains("run_real_app_soak_continuation.sh"))
+        #expect(resume.contains("--state-dir"))
+        #expect(analyzer.contains("word_error_rate"))
+        #expect(analyzer.contains("normalized_character_edit_distance"))
+        #expect(analyzer.contains("provider_first_answer_content_ms"))
+        #expect(analyzer.contains("app_rss_bytes"))
+        #expect(analyzer.contains("app_open_file_count"))
     }
 
     private func collectorConfiguration(
