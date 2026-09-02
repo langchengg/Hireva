@@ -103,6 +103,24 @@ struct CampaignVerificationScriptTests {
     }
 
     @Test
+    func campaignPersistsTerminalStatusBeforeGeneratingReports() throws {
+        let runner = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/verification/run_24h_campaign.sh"),
+            encoding: .utf8
+        )
+        let expectedFinalizationOrder = """
+        if (( FINAL_FAILURES == 0 )); then
+            CAMPAIGN_EXIT_REASON="completed"
+        else
+            CAMPAIGN_EXIT_REASON="completed_with_failures"
+        fi
+        persist_state
+        python3 "$ROOT_DIR/scripts/verification/analyze_campaign_results.py"
+        """
+        #expect(runner.contains(expectedFinalizationOrder))
+    }
+
+    @Test
     func campaignAnalyzerDoesNotTreatMissingEvidenceAsPassing() throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("HirevaCampaignAnalyzer-\(UUID().uuidString)")

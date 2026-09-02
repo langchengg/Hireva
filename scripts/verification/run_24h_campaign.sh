@@ -614,12 +614,12 @@ run_step final-release-status release final-release-status.log env \
 run_step final-signing-status signing final-signing-status.log ./scripts/signing_status.sh || FINAL_FAILURES=$((FINAL_FAILURES + 1))
 
 CURRENT_PHASE="reporting"
-python3 "$ROOT_DIR/scripts/verification/analyze_campaign_results.py" \
-    --state-dir "$STATE_DIR" --artifact-dir "$ARTIFACT_DIR"
 if (( FINAL_FAILURES == 0 )); then
     CAMPAIGN_EXIT_REASON="completed"
 else
     CAMPAIGN_EXIT_REASON="completed_with_failures"
 fi
 persist_state
+python3 "$ROOT_DIR/scripts/verification/analyze_campaign_results.py" \
+    --state-dir "$STATE_DIR" --artifact-dir "$ARTIFACT_DIR"
 echo "[campaign] finished active_seconds=$(current_active_seconds) final_failures=$FINAL_FAILURES"
