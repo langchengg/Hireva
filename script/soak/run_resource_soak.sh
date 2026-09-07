@@ -141,11 +141,15 @@ fi
 if [[ -n "$LSOF_PATH" ]]; then
     COLLECTOR_ARGS+=(--lsof "$LSOF_PATH")
 fi
-for helper_name in "${HELPER_NAMES[@]}"; do
-    COLLECTOR_ARGS+=(--helper-name "$helper_name")
-done
-for helper_path in "${HELPER_PATHS[@]}"; do
-    COLLECTOR_ARGS+=(--helper-path "$helper_path")
-done
+if (( ${#HELPER_NAMES[@]} > 0 )); then
+    for helper_name in "${HELPER_NAMES[@]}"; do
+        COLLECTOR_ARGS+=(--helper-name "$helper_name")
+    done
+fi
+if (( ${#HELPER_PATHS[@]} > 0 )); then
+    for helper_path in "${HELPER_PATHS[@]}"; do
+        COLLECTOR_ARGS+=(--helper-path "$helper_path")
+    done
+fi
 
 "$COLLECTOR" "${COLLECTOR_ARGS[@]}"

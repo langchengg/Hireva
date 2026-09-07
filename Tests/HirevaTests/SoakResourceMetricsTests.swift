@@ -495,6 +495,8 @@ struct SoakResourceMetricsTests {
         #expect(script.contains("--interval"))
         #expect(script.contains("--lifecycle-metrics"))
         #expect(script.contains("--max-bytes"))
+        #expect(script.contains("if (( ${#HELPER_NAMES[@]} > 0 )); then"))
+        #expect(script.contains("if (( ${#HELPER_PATHS[@]} > 0 )); then"))
         #expect(!script.contains("pkill"))
         #expect(!script.contains("killall"))
     }
