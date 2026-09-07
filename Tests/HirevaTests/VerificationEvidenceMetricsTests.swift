@@ -284,6 +284,61 @@ struct VerificationEvidenceMetricsTests {
         ).jdToExperience)
     }
 
+    @Test
+    func personalPastClaimDoesNotRejectCandidateGroundedWorkThatAddressesRoleRequirements() {
+        let candidateEvidence = [
+            evidence(
+                id: "candidate.identity-checks",
+                statement: "Added deterministic question, generation, session, and context identity checks"
+            ),
+            evidence(
+                id: "candidate.app-cleanup",
+                statement: "Tested bundled-app process cleanup and isolated a stale callback after cancellation"
+            ),
+            evidence(
+                id: "candidate.swift-prototype",
+                statement: "Built a local Swift prototype that reconciles transcript events and isolates test data"
+            ),
+        ]
+        let record = VerificationAnswerRubricEvaluator.evaluate(VerificationAnswerRubricInput(
+            scenarioID: "macos-grounded-role-alignment",
+            expectedSessionID: "session-1",
+            actualSessionID: "session-1",
+            expectedQuestionID: "question-1",
+            actualQuestionID: "question-1",
+            expectedGenerationID: "generation-1",
+            actualGenerationID: "generation-1",
+            expectedContextSnapshotID: "snapshot-1",
+            actualContextSnapshotID: "snapshot-1",
+            expectedCandidateProfileID: "profile-1",
+            actualCandidateProfileID: "profile-1",
+            expectedOpportunityContextID: "role-1",
+            actualOpportunityContextID: "role-1",
+            questionText: "How did you evaluate your work against the requirement to ship native macOS features in the local Swift prototype?",
+            answerText: "I evaluated my work by implementing deterministic identity checks and testing bundled-app process cleanup to ensure reproducible reasoning. This approach directly addressed the requirement to ship native macOS features by isolating stale callbacks and reconciling transcript events in the local Swift prototype.",
+            candidateEvidence: candidateEvidence,
+            opportunityEvidence: [evidence(
+                id: "role.delivery",
+                statement: "Success requires reproducible reasoning about deterministic identity tests and bundled-app verification while shipping native macOS features"
+            )],
+            futurePlans: [],
+            allowedCandidateEvidenceIDs: Set(candidateEvidence.map(\.id)),
+            allowedOpportunityEvidenceIDs: ["role.delivery"],
+            actualCandidateEvidenceIDs: Set(candidateEvidence.map(\.id)),
+            actualOpportunityEvidenceIDs: ["role.delivery"],
+            requiredConcepts: [],
+            forbiddenClaims: [],
+            expectedProviderSource: "ollama_qwen",
+            actualProviderSource: "ollama_qwen",
+            persistenceCount: 1,
+            maximumSentences: 4
+        ))
+
+        #expect(!record.unsupportedPersonalClaim)
+        #expect(!record.jdToExperience)
+        #expect(!record.hardFail)
+    }
+
     private func roleClaimRecord(_ answer: String) -> VerificationAnswerRubricRecord {
         VerificationAnswerRubricEvaluator.evaluate(VerificationAnswerRubricInput(
             scenarioID: "role-claim",

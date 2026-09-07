@@ -520,12 +520,12 @@ enum VerificationAnswerRubricEvaluator {
         let jdToExperience = personalPastClaim(
             in: input.answerText,
             overlaps: input.opportunityEvidence.map(\.statement),
-            butNot: input.candidateEvidence.map(\.statement)
+            butNot: input.candidateEvidence
         )
         let futureToPast = personalPastClaim(
             in: input.answerText,
             overlaps: input.futurePlans,
-            butNot: input.candidateEvidence.map(\.statement)
+            butNot: input.candidateEvidence
         )
         let complete = QuestionAnswerAlignmentEvaluator.isAnswerComplete(input.answerText)
         let firstPerson = containsFirstPerson(input.answerText)
@@ -617,7 +617,7 @@ enum VerificationAnswerRubricEvaluator {
     private static func personalPastClaim(
         in answer: String,
         overlaps evidence: [String],
-        butNot candidateEvidence: [String]
+        butNot candidateEvidence: [ProfileEvidence]
     ) -> Bool {
         guard !evidence.isEmpty else { return false }
         let personalPastPatterns = [
@@ -628,9 +628,18 @@ enum VerificationAnswerRubricEvaluator {
         for sentence in sentences where personalPastPatterns.contains(where: {
             sentence.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
         }) {
+            let grounding = AnswerClaimValidator().validate(
+                answer: sentence,
+                candidateEvidence: candidateEvidence,
+                opportunityEvidence: [],
+                domainKnowledge: []
+            )
+            guard !grounding.unsupportedClaims.isEmpty else { continue }
             let claimTokens = meaningfulTokens(sentence)
             let evidenceOverlap = evidence.map(meaningfulTokens).map { claimTokens.intersection($0).count }.max() ?? 0
-            let candidateOverlap = candidateEvidence.map(meaningfulTokens).map { claimTokens.intersection($0).count }.max() ?? 0
+            let candidateOverlap = candidateEvidence.map(\.statement).map(meaningfulTokens).map {
+                claimTokens.intersection($0).count
+            }.max() ?? 0
             if evidenceOverlap >= 2, candidateOverlap < evidenceOverlap {
                 return true
             }
