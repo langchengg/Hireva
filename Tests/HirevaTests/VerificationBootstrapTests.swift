@@ -84,6 +84,53 @@ struct VerificationBootstrapTests {
     }
 
     @Test
+    func transcriptMatcherDoesNotAdvanceForAnUnrelatedExtraSegment() throws {
+        let expectations = [
+            VerificationTranscriptExpectation(
+                referenceText: "How did you make the model deployment reproducible?",
+                expectedQuestionNeedle: "model deployment reproducible"
+            ),
+            VerificationTranscriptExpectation(
+                referenceText: "Great, thank you. Let us discuss rollback next.",
+                expectedQuestionNeedle: nil
+            ),
+        ]
+
+        #expect(HirevaVerificationEventPolicy.bestExpectedTranscriptMatch(
+            hypothesis: "Oh.",
+            remaining: expectations
+        ) == nil)
+
+        let match = try #require(HirevaVerificationEventPolicy.bestExpectedTranscriptMatch(
+            hypothesis: "How did you make model deployment reproducible?",
+            remaining: expectations
+        ))
+        #expect(match.offset == 0)
+        #expect(match.metrics.wordErrorRate <= 0.5)
+    }
+
+    @Test
+    func transcriptMatcherCanResynchronizeWithoutConcealingASkippedFixture() throws {
+        let expectations = [
+            VerificationTranscriptExpectation(
+                referenceText: "Describe the monitoring signal you chose.",
+                expectedQuestionNeedle: "monitoring signal"
+            ),
+            VerificationTranscriptExpectation(
+                referenceText: "What rollback condition did you define?",
+                expectedQuestionNeedle: "rollback condition"
+            ),
+        ]
+
+        let match = try #require(HirevaVerificationEventPolicy.bestExpectedTranscriptMatch(
+            hypothesis: "What rollback condition did you define?",
+            remaining: expectations
+        ))
+        #expect(match.offset == 1)
+        #expect(match.metrics.wordErrorRate == 0)
+    }
+
+    @Test
     func visibleEvidenceMatchingNormalizesSafeInflections() {
         #expect(HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
             question: "What was the hardest failure when you apply that approach to robot integration?",
@@ -149,6 +196,14 @@ struct VerificationBootstrapTests {
 
     @Test
     func verificationEvidenceAllowsOnlyNumericAccuracyQualityAndLatencyPayloads() {
+        #expect(HirevaVerificationEventPolicy.allows(
+            event: "asr.unmatched_transcript",
+            fields: [
+                "sessionID": "session-1", "segmentID": "segment-extra",
+                "textCharacters": 3, "textWords": 1,
+                "reasonCode": "no_fixture_semantic_match",
+            ]
+        ))
         #expect(HirevaVerificationEventPolicy.allows(
             event: "asr.accuracy",
             fields: [

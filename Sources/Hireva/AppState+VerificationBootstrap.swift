@@ -3,6 +3,16 @@ import CryptoKit
 import Foundation
 import NaturalLanguage
 
+struct VerificationTranscriptExpectation {
+    let referenceText: String
+    let expectedQuestionNeedle: String?
+}
+
+struct VerificationTranscriptMatch {
+    let offset: Int
+    let metrics: VerificationTextMetrics
+}
+
 enum HirevaVerificationEventPolicy {
     private static let allowedFieldsByEvent: [String: Set<String>] = [
         "bootstrap.started": ["runID", "databaseLocation", "scenarioSHA256"],
@@ -16,6 +26,7 @@ enum HirevaVerificationEventPolicy {
         "bootstrap.ready": ["sessionID", "contextSnapshotID", "activeASRProvider", "systemCaptureRunning"],
         "sck.first_buffer": ["sessionID", "totalBuffers", "sampleRate", "channelCount", "lastBufferAt"],
         "asr.transcript": ["sessionID", "segmentID", "textCharacters", "textWords", "source", "speaker", "asrProvider", "isFinal", "finalizationReason"],
+        "asr.unmatched_transcript": ["sessionID", "segmentID", "textCharacters", "textWords", "reasonCode"],
         "asr.accuracy": ["sessionID", "segmentID", "matchedTurnID", "normalizationVersion", "referenceWordCount", "hypothesisWordCount", "substitutions", "deletions", "insertions", "wordEditDistance", "wordErrorRate", "referenceCharacterCount", "hypothesisCharacterCount", "characterEditDistance", "normalizedCharacterEditDistance", "semanticAccepted"],
         "question.accepted": ["sessionID", "questionID", "questionCharacters", "contextSnapshotID"],
         "generation.started": ["sessionID", "questionID", "generationID", "contextSnapshotID"],
@@ -169,6 +180,38 @@ enum HirevaVerificationEventPolicy {
             }
         }
         return false
+    }
+
+    static func bestExpectedTranscriptMatch(
+        hypothesis: String,
+        remaining: [VerificationTranscriptExpectation]
+    ) -> VerificationTranscriptMatch? {
+        var best: VerificationTranscriptMatch?
+        for (offset, expectation) in remaining.enumerated() {
+            let metrics = VerificationTextMetrics.compare(
+                reference: expectation.referenceText,
+                hypothesis: hypothesis
+            )
+            let needleMatches = expectation.expectedQuestionNeedle.map {
+                questionContainsExpectedNeedle(question: hypothesis, needle: $0)
+            } ?? false
+            guard needleMatches || metrics.wordErrorRate <= 0.5 ||
+                    metrics.normalizedCharacterEditDistance <= 0.35 else {
+                continue
+            }
+
+            let candidate = VerificationTranscriptMatch(offset: offset, metrics: metrics)
+            guard let current = best else {
+                best = candidate
+                continue
+            }
+            if metrics.normalizedCharacterEditDistance < current.metrics.normalizedCharacterEditDistance ||
+                (metrics.normalizedCharacterEditDistance == current.metrics.normalizedCharacterEditDistance &&
+                    metrics.wordErrorRate < current.metrics.wordErrorRate) {
+                best = candidate
+            }
+        }
+        return best
     }
 
     private static func verificationComparisonTokens(_ text: String) -> [String] {
@@ -578,42 +621,49 @@ private final class HirevaVerificationCoordinator {
                     segment.asrFinalizationReason
                 ),
             ])
-            if seenAccuracyTranscriptIDs.insert(segment.id).inserted,
-               nextExpectedAudioTurnIndex < expectedAudioTurns.count {
-                let expectedTurn = expectedAudioTurns[nextExpectedAudioTurnIndex]
-                nextExpectedAudioTurnIndex += 1
-                let metrics = VerificationTextMetrics.compare(
-                    reference: expectedTurn.text,
-                    hypothesis: segment.text
-                )
-                let semanticAccepted: Bool
-                if let needle = expectedTurn.expectedQuestionNeedle {
-                    semanticAccepted = HirevaVerificationEventPolicy.questionContainsExpectedNeedle(
-                        question: segment.text,
-                        needle: needle
+            if seenAccuracyTranscriptIDs.insert(segment.id).inserted {
+                let remainingTurns = expectedAudioTurns.dropFirst(nextExpectedAudioTurnIndex)
+                let expectations = remainingTurns.map {
+                    VerificationTranscriptExpectation(
+                        referenceText: $0.text,
+                        expectedQuestionNeedle: $0.expectedQuestionNeedle
                     )
-                } else {
-                    semanticAccepted = metrics.wordErrorRate <= 0.5 ||
-                        metrics.normalizedCharacterEditDistance <= 0.35
                 }
-                emit("asr.accuracy", [
-                    "sessionID": segment.sessionID,
-                    "segmentID": segment.id,
-                    "matchedTurnID": expectedTurn.turnID,
-                    "normalizationVersion": metrics.normalizationVersion,
-                    "referenceWordCount": metrics.referenceWordCount,
-                    "hypothesisWordCount": metrics.hypothesisWordCount,
-                    "substitutions": metrics.substitutions,
-                    "deletions": metrics.deletions,
-                    "insertions": metrics.insertions,
-                    "wordEditDistance": metrics.wordEditDistance,
-                    "wordErrorRate": metrics.wordErrorRate,
-                    "referenceCharacterCount": metrics.referenceCharacterCount,
-                    "hypothesisCharacterCount": metrics.hypothesisCharacterCount,
-                    "characterEditDistance": metrics.characterEditDistance,
-                    "normalizedCharacterEditDistance": metrics.normalizedCharacterEditDistance,
-                    "semanticAccepted": semanticAccepted,
-                ])
+                if let match = HirevaVerificationEventPolicy.bestExpectedTranscriptMatch(
+                    hypothesis: segment.text,
+                    remaining: expectations
+                ) {
+                    let matchedIndex = nextExpectedAudioTurnIndex + match.offset
+                    let expectedTurn = expectedAudioTurns[matchedIndex]
+                    nextExpectedAudioTurnIndex = matchedIndex + 1
+                    let metrics = match.metrics
+                    emit("asr.accuracy", [
+                        "sessionID": segment.sessionID,
+                        "segmentID": segment.id,
+                        "matchedTurnID": expectedTurn.turnID,
+                        "normalizationVersion": metrics.normalizationVersion,
+                        "referenceWordCount": metrics.referenceWordCount,
+                        "hypothesisWordCount": metrics.hypothesisWordCount,
+                        "substitutions": metrics.substitutions,
+                        "deletions": metrics.deletions,
+                        "insertions": metrics.insertions,
+                        "wordEditDistance": metrics.wordEditDistance,
+                        "wordErrorRate": metrics.wordErrorRate,
+                        "referenceCharacterCount": metrics.referenceCharacterCount,
+                        "hypothesisCharacterCount": metrics.hypothesisCharacterCount,
+                        "characterEditDistance": metrics.characterEditDistance,
+                        "normalizedCharacterEditDistance": metrics.normalizedCharacterEditDistance,
+                        "semanticAccepted": true,
+                    ])
+                } else {
+                    emit("asr.unmatched_transcript", [
+                        "sessionID": segment.sessionID,
+                        "segmentID": segment.id,
+                        "textCharacters": segment.text.count,
+                        "textWords": segment.text.split(whereSeparator: \.isWhitespace).count,
+                        "reasonCode": "no_fixture_semantic_match",
+                    ])
+                }
             }
         }
 

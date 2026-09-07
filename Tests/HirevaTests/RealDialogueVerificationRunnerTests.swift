@@ -231,12 +231,46 @@ struct RealDialogueVerificationRunnerTests {
         )
         let accepted = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
         #expect(accepted.status == 0)
-        #expect(accepted.output.contains("transcripts=1 accuracy=1 semantic_asr_failures=0 questions=1 generations=1 visible=1 quality=1 quality_hard_fails=0 latency=1 latency_missing=0"))
+        #expect(accepted.output.contains("transcripts=1 accuracy=1 unmatched_transcripts=0 semantic_asr_failures=0 questions=1 generations=1 visible=1 quality=1 quality_hard_fails=0 latency=1 latency_missing=0"))
         #expect(accepted.output.contains("schema_errors=0 missing_visible_matches=0 invalid_visible=0"))
         #expect(!HirevaVerificationEventPolicy.recordsVisibleSuggestion(
             stageBStatus: "superseded",
             finalVisibleSource: "local_superseded_question_snapshot"
         ))
+    }
+
+    @Test
+    func testEvidenceValidationAllowsOneAuditedUnmatchedTranscriptButRejectsTwo() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let scenarioURL = temporaryDirectory.appendingPathComponent("scenario.json")
+        let eventsURL = temporaryDirectory.appendingPathComponent("events.jsonl")
+        let scenario = scenarioPayload(
+            sessions: [[turn("What did you build?", trigger: true, needle: "did you build")]],
+            expectedTurns: 1,
+            expectedTriggers: 1,
+            expectedRejects: 0
+        )
+        let scenarioData = try JSONSerialization.data(withJSONObject: scenario, options: [.sortedKeys])
+        try scenarioData.write(to: scenarioURL)
+        var events = evidenceEvents(scenarioSHA256: digest(scenarioData), answerProvider: "ollama_qwen")
+        events.insert(unmatchedTranscriptEvent(segmentID: "segment-extra-1"), at: 3)
+        events.insert(transcriptEvent(segmentID: "segment-extra-1", characters: 3, words: 1), at: 3)
+        try writeJSONLines(events, to: eventsURL)
+
+        let accepted = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
+        #expect(accepted.status == 0, Comment(rawValue: accepted.output))
+        #expect(accepted.output.contains("transcripts=2 accuracy=1 unmatched_transcripts=1"))
+
+        events.insert(unmatchedTranscriptEvent(segmentID: "segment-extra-2"), at: 5)
+        events.insert(transcriptEvent(segmentID: "segment-extra-2", characters: 4, words: 1), at: 5)
+        try writeJSONLines(events, to: eventsURL)
+        let rejected = try runRunner(["--validate-evidence", scenarioURL.path, eventsURL.path])
+        #expect(rejected.status != 0)
+        #expect(rejected.output.contains("unmatched_transcripts count outside range"))
     }
 
     @Test
@@ -774,6 +808,30 @@ struct RealDialogueVerificationRunnerTests {
             "characterEditDistance": 0,
             "normalizedCharacterEditDistance": 0.0,
             "semanticAccepted": true,
+        ])
+    }
+
+    private func transcriptEvent(segmentID: String, characters: Int, words: Int) -> [String: Any] {
+        event("asr.transcript", [
+            "sessionID": "session-0",
+            "segmentID": segmentID,
+            "textCharacters": characters,
+            "textWords": words,
+            "source": "systemAudio",
+            "speaker": "interviewer",
+            "asrProvider": "local_parakeet",
+            "isFinal": true,
+            "finalizationReason": "final_accepted",
+        ])
+    }
+
+    private func unmatchedTranscriptEvent(segmentID: String) -> [String: Any] {
+        event("asr.unmatched_transcript", [
+            "sessionID": "session-0",
+            "segmentID": segmentID,
+            "textCharacters": 3,
+            "textWords": 1,
+            "reasonCode": "no_fixture_semantic_match",
         ])
     }
 

@@ -387,7 +387,7 @@ evidence_unexpected_event_count() {
         "bootstrap.started", "bootstrap.configured", "bootstrap.failed",
         "control.next_session.requested", "control.next_session.failed",
         "control.stopped", "verification.finished", "control.rejected",
-        "bootstrap.ready", "sck.first_buffer", "asr.transcript", "asr.accuracy",
+        "bootstrap.ready", "sck.first_buffer", "asr.transcript", "asr.unmatched_transcript", "asr.accuracy",
         "question.accepted", "generation.started", "ollama.attempt_rejected",
         "ollama.generation_failed", "suggestion.visible", "answer.quality", "pipeline.latency",
         "dialogue.decision", "sqlite.suggestion_count", "app.error", "status"
@@ -447,6 +447,12 @@ evidence_schema_error_count() {
                 (.textCharacters | nonnegative_integer | not) or
                 (.textWords | nonnegative_integer | not) or
                 (.isFinal | boolean | not)
+             elif .event == "asr.unmatched_transcript" then
+                (exact(["sessionID", "segmentID", "textCharacters", "textWords", "reasonCode"]) | not) or
+                ([.sessionID, .segmentID, .reasonCode] | all(safe_id) | not) or
+                (.reasonCode != "no_fixture_semantic_match") or
+                (.textCharacters | nonnegative_integer | not) or
+                (.textWords | nonnegative_integer | not)
              elif .event == "asr.accuracy" then
                 (exact(["sessionID", "segmentID", "matchedTurnID", "normalizationVersion", "referenceWordCount", "hypothesisWordCount", "substitutions", "deletions", "insertions", "wordEditDistance", "wordErrorRate", "referenceCharacterCount", "hypothesisCharacterCount", "characterEditDistance", "normalizedCharacterEditDistance", "semanticAccepted"]) | not) or
                 ([.sessionID, .segmentID, .matchedTurnID, .normalizationVersion] | all(safe_id) | not) or
@@ -640,6 +646,7 @@ if [[ "$EVIDENCE_ONLY" == "true" ]]; then
     buffer_count="$(evidence_event_count "$EVIDENCE_PATH" sck.first_buffer)"
     transcript_count="$(evidence_event_count "$EVIDENCE_PATH" asr.transcript)"
     accuracy_count="$(evidence_event_count "$EVIDENCE_PATH" asr.accuracy)"
+    unmatched_transcript_count="$(evidence_event_count "$EVIDENCE_PATH" asr.unmatched_transcript)"
     question_count="$(evidence_event_count "$EVIDENCE_PATH" question.accepted)"
     generation_count="$(evidence_event_count "$EVIDENCE_PATH" generation.started)"
     visible_count="$(evidence_event_count "$EVIDENCE_PATH" suggestion.visible)"
@@ -663,11 +670,13 @@ if [[ "$EVIDENCE_ONLY" == "true" ]]; then
     stale_rapid_visible_count="$(metric_value "$rapid_metrics" stale_rapid_visible)"
     rapid_disposition_count=$((rapid_completed_before_followup_count + rapid_cancellation_count))
     expected_visible_count=$((EXPECTED_VISIBLE_MINIMUM + rapid_completed_before_followup_count))
-    echo "evidence_valid ready=$ready_count buffers=$buffer_count transcripts=$transcript_count accuracy=$accuracy_count semantic_asr_failures=$semantic_asr_failure_count questions=$question_count generations=$generation_count visible=$visible_count quality=$quality_count quality_hard_fails=$quality_hard_fail_count latency=$latency_count latency_missing=$latency_missing_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count $rapid_metrics"
+    accounted_transcript_count=$((accuracy_count + unmatched_transcript_count))
+    echo "evidence_valid ready=$ready_count buffers=$buffer_count transcripts=$transcript_count accuracy=$accuracy_count unmatched_transcripts=$unmatched_transcript_count semantic_asr_failures=$semantic_asr_failure_count questions=$question_count generations=$generation_count visible=$visible_count quality=$quality_count quality_hard_fails=$quality_hard_fail_count latency=$latency_count latency_missing=$latency_missing_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count $rapid_metrics"
     require_equal ready "$ready_count" "$EXPECTED_SESSION_COUNT"
     require_equal buffers "$buffer_count" "$EXPECTED_SESSION_COUNT"
-    require_equal transcripts "$transcript_count" "$EXPECTED_TURN_COUNT"
-    require_equal accuracy "$accuracy_count" "$transcript_count"
+    require_equal accuracy "$accuracy_count" "$EXPECTED_TURN_COUNT"
+    require_equal transcript_audit "$transcript_count" "$accounted_transcript_count"
+    require_between unmatched_transcripts "$unmatched_transcript_count" 0 1
     require_equal questions "$question_count" "$EXPECTED_TRIGGER_COUNT"
     require_equal generations "$generation_count" "$EXPECTED_TRIGGER_COUNT"
     require_between visible "$visible_count" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM"
@@ -961,6 +970,7 @@ ready_count="$(event_count bootstrap.ready)"
 buffer_count="$(event_count sck.first_buffer)"
 transcript_count="$(event_count asr.transcript)"
 accuracy_count="$(event_count asr.accuracy)"
+unmatched_transcript_count="$(event_count asr.unmatched_transcript)"
 question_count="$(event_count question.accepted)"
 generation_count="$(event_count generation.started)"
 visible_count="$(event_count suggestion.visible)"
@@ -984,12 +994,14 @@ rapid_cancellation_count="$(metric_value "$rapid_metrics" rapid_cancellations)"
 stale_rapid_visible_count="$(metric_value "$rapid_metrics" stale_rapid_visible)"
 rapid_disposition_count=$((rapid_completed_before_followup_count + rapid_cancellation_count))
 expected_visible_count=$((EXPECTED_VISIBLE_MINIMUM + rapid_completed_before_followup_count))
-echo "ready=$ready_count buffers=$buffer_count transcripts=$transcript_count accuracy=$accuracy_count semantic_asr_failures=$semantic_asr_failure_count questions=$question_count generations=$generation_count visible=$visible_count quality=$quality_count quality_hard_fails=$quality_hard_fail_count latency=$latency_count latency_missing=$latency_missing_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count false_triggers=$false_trigger_count $rapid_metrics missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
+accounted_transcript_count=$((accuracy_count + unmatched_transcript_count))
+echo "ready=$ready_count buffers=$buffer_count transcripts=$transcript_count accuracy=$accuracy_count unmatched_transcripts=$unmatched_transcript_count semantic_asr_failures=$semantic_asr_failure_count questions=$question_count generations=$generation_count visible=$visible_count quality=$quality_count quality_hard_fails=$quality_hard_fail_count latency=$latency_count latency_missing=$latency_missing_count finished=$finished_count digest=$digest_count failures=$failure_count forbidden_fields=$forbidden_field_count unexpected_events=$unexpected_event_count schema_errors=$schema_error_count false_triggers=$false_trigger_count $rapid_metrics missing_visible_matches=$missing_visible_match_count invalid_visible=$invalid_visible_count"
 echo "app_count=$app_count helper_count=$helper_count"
 require_equal ready "$ready_count" "$EXPECTED_SESSION_COUNT"
 require_equal buffers "$buffer_count" "$EXPECTED_SESSION_COUNT"
-require_equal transcripts "$transcript_count" "$EXPECTED_TURN_COUNT"
-require_equal accuracy "$accuracy_count" "$transcript_count"
+require_equal accuracy "$accuracy_count" "$EXPECTED_TURN_COUNT"
+require_equal transcript_audit "$transcript_count" "$accounted_transcript_count"
+require_between unmatched_transcripts "$unmatched_transcript_count" 0 1
 require_equal questions "$question_count" "$EXPECTED_TRIGGER_COUNT"
 require_equal generations "$generation_count" "$EXPECTED_TRIGGER_COUNT"
 require_between visible "$visible_count" "$EXPECTED_VISIBLE_MINIMUM" "$EXPECTED_VISIBLE_MAXIMUM"
