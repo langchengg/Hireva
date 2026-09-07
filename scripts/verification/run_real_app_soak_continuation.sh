@@ -120,9 +120,9 @@ console_session_is_locked() {
 }
 
 exact_process_pids() {
-    local executable_path="$1" pid command
-    /bin/ps -ax -o pid=,command= | while read -r pid command; do
-        [[ "$command" == "$executable_path" || "$command" == "$executable_path "* ]] || continue
+    local executable_path="$1" pid executable
+    /bin/ps -ax -o pid=,comm= | while read -r pid executable; do
+        [[ "$executable" == "$executable_path" ]] || continue
         printf '%s\n' "$pid"
     done
 }
@@ -793,7 +793,7 @@ while (( $(current_active_seconds) < TARGET_ACTIVE_SECONDS )); do
           helper_count_after_cleanup: $helperCount}' \
         >> "$ARTIFACT_DIR/results/cycle_results.jsonl"
     [[ "$app_count" -eq 0 && "$helper_count" -eq 0 ]] || {
-        record_failure "$scenario_filename" process_cleanup "Cycle left a residual exact-path app or helper process." "ps -ax -o pid=,command="
+        record_failure "$scenario_filename" process_cleanup "Cycle left a residual exact-path app or helper process." "ps -ax -o pid=,comm="
         FINAL_STATUS="failed"
         EXIT_REASON="process_cleanup_failed"
         exit 1
