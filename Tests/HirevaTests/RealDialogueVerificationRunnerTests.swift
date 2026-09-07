@@ -7,8 +7,11 @@ import Testing
 struct RealDialogueVerificationRunnerTests {
     @Test
     func testRuntimeCompatibilityProbeProtectsEmptyProcessTrackingAndExitStatus() throws {
+        let runner = try String(contentsOf: runnerURL, encoding: .utf8)
         let result = try runRunner(["--validate-runtime-compatibility"])
 
+        #expect(runner.contains("-o comm="))
+        #expect(!runner.contains("-o command="))
         #expect(result.status == 0)
         #expect(result.output.contains("runtime_compatibility_valid empty_helper_tracking=true"))
         #expect(result.output.contains("substring_decoy_ignored=true"))

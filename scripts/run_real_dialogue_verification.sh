@@ -74,14 +74,14 @@ wait_for_pid_exit() {
     return 1
 }
 
-process_command() {
-    /bin/ps -p "$1" -o command= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+process_executable() {
+    /bin/ps -p "$1" -o comm= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 process_matches_app() {
-    local command
-    command="$(process_command "$1")"
-    [[ "$command" == "$APP_BINARY" || "$command" == "$APP_BINARY "* ]]
+    local executable
+    executable="$(process_executable "$1")"
+    [[ "$executable" == "$APP_BINARY" ]]
 }
 
 app_process_pids() {
@@ -94,10 +94,9 @@ app_process_pids() {
 }
 
 process_matches_bundled_helper() {
-    local command
-    command="$(process_command "$1")"
-    [[ "$command" == "$APP_BUNDLE/Contents/Helpers/parakeet_asr_helper" ||
-       "$command" == "$APP_BUNDLE/Contents/Helpers/parakeet_asr_helper "* ]]
+    local executable
+    executable="$(process_executable "$1")"
+    [[ "$executable" == "$APP_BUNDLE/Contents/Helpers/parakeet_asr_helper" ]]
 }
 
 capture_owned_helper_pids() {
@@ -205,8 +204,8 @@ if [[ "$RUNTIME_COMPATIBILITY_ONLY" == "true" ]]; then
     OWNED_HELPER_PIDS=()
     /bin/sh -c 'sleep 2; :' "$APP_BINARY" &
     decoy_pid=$!
-    decoy_command="$(process_command "$decoy_pid")"
-    [[ "$decoy_command" == *"$APP_BINARY"* ]] || {
+    decoy_arguments="$(/bin/ps -p "$decoy_pid" -o args= 2>/dev/null)"
+    [[ "$decoy_arguments" == *"$APP_BINARY"* ]] || {
         kill -TERM "$decoy_pid" >/dev/null 2>&1 || true
         wait "$decoy_pid" >/dev/null 2>&1 || true
         echo "runtime compatibility process decoy was not observable" >&2
