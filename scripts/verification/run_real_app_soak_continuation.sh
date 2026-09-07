@@ -204,7 +204,8 @@ if [[ "$MODE" == "new" ]]; then
           base_commit: $base_commit, branch: $branch, last_good_commit: $base_commit,
           target_active_seconds: $target_active_seconds, active_elapsed_seconds: 0,
           fixed_seed: $fixed_seed, completed_cycles: 0, resume_count: 0,
-          preflight_complete: false, requested_model_path: $requested_model_path,
+          preflight_complete: false, preflight_commit: null,
+          requested_model_path: $requested_model_path,
           model_root: null, parakeet_model_path: null,
           current_scenario: null, last_cycle_status: null,
           resource_attempts: 0, last_heartbeat: null, exit_reason: null}' \
@@ -552,13 +553,29 @@ run_preflight() {
     state_temp="$(/usr/bin/mktemp "$STATE_DIR/.state.XXXXXX")"
     jq --arg model_root "$MODEL_ROOT" --arg parakeet_model_path "$parakeet_model_path" \
         --arg preflight_attempt "attempt-$preflight_number" \
+        --arg preflight_commit "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
         '.preflight_complete = true | .model_root = $model_root
          | .parakeet_model_path = $parakeet_model_path
-         | .preflight_attempt = $preflight_attempt | .status = "ready_for_soak"' \
+         | .preflight_attempt = $preflight_attempt
+         | .preflight_commit = $preflight_commit | .status = "ready_for_soak"' \
         "$STATE_FILE" > "$state_temp"
     /bin/mv "$state_temp" "$STATE_FILE"
     write_checkpoint
 }
+
+current_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+recorded_preflight_commit="$(jq -r '.preflight_commit // ""' "$STATE_FILE")"
+if [[ "$(jq -r '.preflight_complete' "$STATE_FILE")" == "true" &&
+      "$recorded_preflight_commit" != "$current_commit" ]]; then
+    state_temp="$(/usr/bin/mktemp "$STATE_DIR/.state.XXXXXX")"
+    jq --arg current_commit "$current_commit" \
+        '.preflight_complete = false
+         | .preflight_invalidated_from_commit = (.preflight_commit // null)
+         | .preflight_invalidated_by_commit = $current_commit
+         | .status = "preflight_required"' \
+        "$STATE_FILE" > "$state_temp"
+    /bin/mv "$state_temp" "$STATE_FILE"
+fi
 
 if [[ "$(jq -r '.preflight_complete' "$STATE_FILE")" != "true" ]]; then
     set +e

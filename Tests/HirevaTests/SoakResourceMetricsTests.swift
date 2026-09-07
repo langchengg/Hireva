@@ -539,6 +539,8 @@ struct SoakResourceMetricsTests {
         #expect(runner.contains("caffeinate -dims -w"))
         #expect(runner.contains("caffeinate -u -t 5"))
         #expect(runner.contains("preflight_failed"))
+        #expect(runner.contains("preflight_commit"))
+        #expect(runner.contains(".preflight_complete = false"))
         #expect(runner.contains("/bin/ps -ax -o pid=,comm="))
         #expect(!runner.contains("/bin/ps -ax -o pid=,command="))
         #expect(runner.contains("current_max"))
