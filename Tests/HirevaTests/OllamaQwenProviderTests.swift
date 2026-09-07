@@ -228,12 +228,27 @@ struct OllamaQwenProviderTests {
             #"{"failure":"rare-lighting false positives","evidence":"I isolated rare-lighting false positives through profiling."}"#,
             candidateEvidence: ["I isolated rare-lighting false positives through profiling."]
         )
+        let noDocumentedFailure = LocalQwenGroundedFailureParser.parse(
+            #"{"failure":"","evidence":"Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests."}"#,
+            candidateEvidence: ["Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests."]
+        )
+        let omittedDocumentedFailure = LocalQwenGroundedFailureParser.parse(
+            #"{"failure":"","evidence":"Instrumented timing and recovery outcomes in repeatable bench tests."}"#,
+            candidateEvidence: [
+                "Instrumented timing and recovery outcomes in repeatable bench tests.",
+                "Isolated rare-lighting false positives through inference profiling.",
+                "Encountered a crash.",
+            ]
+        )
 
         #expect(valid.sayFirst == "I can support rare-lighting false positives as the closest documented failure. I isolated rare-lighting false positives through inference profiling and annotation checks.")
         #expect(valid.sectionParserResult == "grounded_failure_json")
         #expect(valid.failureCategory == nil)
         #expect(alreadyFirstPerson.sayFirst == "I can support rare-lighting false positives as the closest documented failure. I isolated rare-lighting false positives through profiling.")
-        for rejected in [opportunityOnly, rewrittenEvidence, extraField, truncatedDenial, polarityStrippedFailure, partialEvidence, unsafeSubjectRewrite] {
+        #expect(noDocumentedFailure.sayFirst == "For the system or pipeline under discussion, I do not have evidence documenting a specific failure. I instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests.")
+        #expect(noDocumentedFailure.sectionParserResult == "grounded_failure_json_missing_failure")
+        #expect(noDocumentedFailure.failureCategory == nil)
+        for rejected in [opportunityOnly, rewrittenEvidence, extraField, truncatedDenial, polarityStrippedFailure, partialEvidence, unsafeSubjectRewrite, omittedDocumentedFailure] {
             #expect(rejected.sayFirst.isEmpty)
             #expect(rejected.sectionParserResult == "grounded_failure_json_rejected")
             #expect(rejected.failureCategory == .answerSectionParserRejectedContent)
@@ -629,6 +644,54 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.ollamaLifecycleEvents.filter {
             $0.name == "answer.alignment.completed" && $0.failureCategory != nil
         }.count == 3)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
+    func ollamaDebuggingRecoveryAdmitsWhenNoSpecificFailureIsDocumented() async throws {
+        let question = "What was the hardest failure when you applied that approach to the requirement to integrate robot software modules?"
+        let supportedCandidateEvidence = "Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests."
+        let unsupportedAnswer = "The hardest failure was a production sensor outage that I fixed with automatic failover."
+        let structuredSelection = #"{"failure":"","evidence":"Instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests."}"#
+        let expectedAnswer = "For the system or pipeline under discussion, I do not have evidence documenting a specific failure. I instrumented timing, sensor confidence, and recovery outcomes in repeatable bench tests."
+        let runtime = try makeRuntime(
+            evidence: supportedCandidateEvidence,
+            opportunityEvidence: "Own integrate robot software modules.",
+            question: question
+        )
+        let guidanceNeedle = "Set \"failure\" to an empty string when no specific failure is stated"
+        let provider = InstructionConditionedDiagnosticMockLocalLLMProvider(
+            requiredInstruction: guidanceNeedle,
+            requiredResponseFormat: "json",
+            answerWithoutInstruction: unsupportedAnswer,
+            answerWithInstruction: structuredSelection
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: supportedCandidateEvidence,
+            jdSummary: "Own integrate robot software modules.",
+            generationID: runtime.generationID,
+            cardID: "missing-failure-recovery-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 4)
+        #expect(provider.requests.last?.responseFormat == "json")
+        #expect(provider.requests.last?.prompt.contains(guidanceNeedle) == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == expectedAnswer)
+        #expect(runtime.appState.currentSuggestion?.promptVersion == "ollama-qwen-grounded-failure-v1")
         #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
     }
 

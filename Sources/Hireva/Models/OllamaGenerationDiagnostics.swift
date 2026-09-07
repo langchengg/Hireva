@@ -332,19 +332,30 @@ enum LocalQwenGroundedFailureParser {
 
         let failure = requestedFailure.trimmingCharacters(in: .whitespacesAndNewlines)
         let evidence = requestedEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !failure.isEmpty,
-              !evidence.isEmpty,
-              failure.count <= 160,
+        guard !evidence.isEmpty,
               evidence.count <= 800,
-              failure.rangeOfCharacter(from: CharacterSet(charactersIn: ".?!;:\n")) == nil,
-              let matchedEvidence = exactSupportedStatement(evidence, in: candidateEvidence),
-              let matchedFailure = exactSupportedSubstring(failure, in: [matchedEvidence]),
-              preservesFailurePolarity(failure: matchedFailure, evidence: matchedEvidence) else {
+              let matchedEvidence = exactSupportedStatement(evidence, in: candidateEvidence) else {
             return rejected()
         }
 
         let evidenceSentence = firstPersonSentence(from: matchedEvidence)
         guard !evidenceSentence.isEmpty else { return rejected() }
+        if failure.isEmpty {
+            guard !containsDocumentedFailure(in: candidateEvidence) else { return rejected() }
+            return LocalQwenParsedAnswer(
+                sayFirst: "For the system or pipeline under discussion, I do not have evidence documenting a specific failure. \(evidenceSentence)",
+                sectionParserResult: "grounded_failure_json_missing_failure",
+                failureCategory: nil
+            )
+        }
+
+        guard failure.count <= 160,
+              failure.rangeOfCharacter(from: CharacterSet(charactersIn: ".?!;:\n")) == nil,
+              let matchedFailure = exactSupportedSubstring(failure, in: [matchedEvidence]),
+              preservesFailurePolarity(failure: matchedFailure, evidence: matchedEvidence) else {
+            return rejected()
+        }
+
         let answer = "I can support \(matchedFailure) as the closest documented failure. \(evidenceSentence)"
         return LocalQwenParsedAnswer(
             sayFirst: answer,
@@ -401,6 +412,24 @@ enum LocalQwenGroundedFailureParser {
         polarityMarkers(in: evidence).isSubset(of: polarityMarkers(in: failure))
     }
 
+    private static func containsDocumentedFailure(in evidence: [String]) -> Bool {
+        let singleTokenTerms: Set<String> = [
+            "bug", "bugs", "challenge", "challenges", "crash", "crashes", "defect", "defects",
+            "drift", "error", "errors", "failed", "failure", "failures", "incident", "incidents",
+            "mismatch", "mismatches", "missing", "outage", "outages", "problem", "problems",
+            "timeout", "timeouts", "unable",
+        ]
+        return evidence.contains { statement in
+            let tokens = TextChunker.tokenize(statement.replacingOccurrences(of: "-", with: " "))
+            if !Set(tokens).isDisjoint(with: singleTokenTerms) {
+                return true
+            }
+            let pairs = zip(tokens, tokens.dropFirst()).map { "\($0.0) \($0.1)" }
+            return pairs.contains("false positive") || pairs.contains("false positives") ||
+                pairs.contains("false negative") || pairs.contains("false negatives")
+        }
+    }
+
     private static func polarityMarkers(in text: String) -> Set<String> {
         let standaloneMarkers: Set<String> = [
             "not", "never", "no", "without", "cannot", "failed", "unable", "lacked", "missing"
@@ -438,7 +467,7 @@ enum LocalQwenGroundedFailureParser {
         "addressed", "analysed", "analyzed", "built", "completed", "compared", "contributed",
         "coordinated", "created", "debugged", "delivered", "demonstrated", "designed", "detected",
         "developed", "diagnosed", "encountered", "established", "evaluated", "experienced", "fixed",
-        "handled", "identified", "implemented", "improved", "integrated", "investigated", "isolated",
+        "handled", "identified", "implemented", "improved", "instrumented", "integrated", "investigated", "isolated",
         "launched", "led", "maintained", "measured", "migrated", "mitigated", "observed", "operated",
         "owned", "published", "recovered", "reduced", "resolved", "studied", "tested", "traced",
         "trained", "used", "validated", "worked"

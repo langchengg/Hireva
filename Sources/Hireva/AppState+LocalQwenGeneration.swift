@@ -772,7 +772,8 @@ extension AppState {
             </opportunity_context>
 
             Return exactly one JSON object with the keys "failure" and "evidence".
-            "failure" must be a short failure or challenge phrase copied exactly and contiguously from <candidate_evidence>.
+            When <candidate_evidence> explicitly states a failure or challenge, "failure" must be a short phrase copied exactly and contiguously from that evidence.
+            Set "failure" to an empty string when no specific failure is stated anywhere in <candidate_evidence>; the local validator will construct an honest limitation statement.
             "evidence" must be one complete sentence copied exactly and contiguously from <candidate_evidence> that states the supported action or check.
             Never copy from <opportunity_context>. Do not paraphrase, infer, rank, explain, or add facts.
             Use exactly this JSON shape and no other keys: {"failure":"exact candidate-evidence phrase","evidence":"exact candidate-evidence sentence"}
