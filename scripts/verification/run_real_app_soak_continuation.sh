@@ -33,6 +33,9 @@ EXIT_REASON="campaign_interrupted"
 CAMPAIGN_COMPLETE=false
 LAST_HEARTBEAT_MONOTONIC=0
 LAST_CHECKPOINT_MONOTONIC=0
+LOCKED_CONSOLE_SCENARIO="real-app-continuation-preflight"
+LOCKED_CONSOLE_CATEGORY="environment"
+LOCKED_CONSOLE_SYMPTOM="The active macOS console session is locked; real ScreenCaptureKit validation requires an unlocked logged-in GUI session."
 
 usage() {
     printf '%s\n' \
@@ -374,6 +377,26 @@ record_failure() {
         >> "$STATE_DIR/failure_queue.jsonl"
 }
 
+resolve_failure() {
+    local scenario="$1" category="$2" symptom="$3" resolution_code="$4"
+    local failure_temp
+    [[ -s "$STATE_DIR/failure_queue.jsonl" ]] || return 0
+    failure_temp="$(/usr/bin/mktemp "$STATE_DIR/.failures.XXXXXX")"
+    jq -c \
+        --arg scenarioID "$scenario" \
+        --arg category "$category" \
+        --arg symptom "$symptom" \
+        --arg resolvedAt "$(timestamp_utc)" \
+        --arg resolutionCode "$resolution_code" \
+        'if .status == "open" and .scenarioID == $scenarioID
+            and .category == $category and .symptom == $symptom
+         then .status = "fixed" | .resolvedAt = $resolvedAt
+            | .resolutionCode = $resolutionCode
+         else . end' \
+        "$STATE_DIR/failure_queue.jsonl" > "$failure_temp"
+    /bin/mv "$failure_temp" "$STATE_DIR/failure_queue.jsonl"
+}
+
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -420,15 +443,14 @@ trap 'FINAL_STATUS="interrupted"; EXIT_REASON="signal_int"; exit 130' INT
 trap 'FINAL_STATUS="interrupted"; EXIT_REASON="signal_term"; exit 143' TERM
 
 if console_session_is_locked; then
-    lock_symptom="The active macOS console session is locked; real ScreenCaptureKit validation requires an unlocked logged-in GUI session."
     record_failure \
-        "real-app-continuation-preflight" \
-        "environment" \
-        "$lock_symptom" \
+        "$LOCKED_CONSOLE_SCENARIO" \
+        "$LOCKED_CONSOLE_CATEGORY" \
+        "$LOCKED_CONSOLE_SYMPTOM" \
         "$ROOT_DIR/scripts/verification/resume_real_app_soak_continuation.sh --state-dir \"$STATE_DIR\""
     FINAL_STATUS="blocked"
     EXIT_REASON="console_session_locked"
-    echo "error: $lock_symptom" >&2
+    echo "error: $LOCKED_CONSOLE_SYMPTOM" >&2
     exit 75
 fi
 
@@ -546,6 +568,12 @@ if [[ "$(jq -r '.preflight_complete' "$STATE_FILE")" != "true" ]]; then
         exit "$preflight_status"
     fi
 fi
+
+resolve_failure \
+    "$LOCKED_CONSOLE_SCENARIO" \
+    "$LOCKED_CONSOLE_CATEGORY" \
+    "$LOCKED_CONSOLE_SYMPTOM" \
+    "console_unlocked_and_preflight_complete"
 
 MODEL_ROOT="$(jq -er '.model_root' "$STATE_FILE")"
 [[ -d "$MODEL_ROOT" && ! -L "$MODEL_ROOT" ]] || { echo "error: recorded model root is unavailable" >&2; exit 2; }
