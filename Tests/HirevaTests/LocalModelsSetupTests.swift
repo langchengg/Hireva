@@ -1048,6 +1048,9 @@ struct LocalModelsSetupTests {
         #expect(provider.generateCallCount == 2)
         #expect(appState.currentSuggestion?.sayFirst == correctedAnswer)
         #expect(provider.requests.first?.systemPrompt?.localizedCaseInsensitiveContains("unverified premise") == true)
+        #expect(provider.requests.allSatisfy {
+            $0.systemPrompt?.contains("I do not have evidence for that claim.") == true
+        })
     }
 
     @Test @MainActor

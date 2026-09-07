@@ -875,7 +875,7 @@ extension AppState {
     private func localQwenFalsePremiseGuidance(for question: DetectedQuestion) -> String {
         guard IntentRouter.isDeclarativeConfirmationQuestion(question.questionText) else { return "" }
         return """
-        Treat the interviewer's statement as an unverified premise. Confirm only facts stated explicitly inside the selected candidate evidence. If any premise is unsupported, correct it directly, then bridge only to the closest supported candidate evidence without inventing a metric, deployment, user, revenue, team, or outcome.
+        Treat the interviewer's statement as an unverified premise. Confirm only facts stated explicitly inside the selected candidate evidence. If any premise is unsupported, start the correction with exactly: "I do not have evidence for that claim." Then bridge only to the closest supported candidate evidence without restating the unsupported premise as personal experience or inventing a metric, deployment, user, revenue, team, or outcome.
         """
     }
 
