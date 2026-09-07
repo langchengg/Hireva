@@ -98,7 +98,7 @@ struct AnswerClaimValidator {
         if prospectivePlan && !referencesPastExperience && !completedExperienceVerb {
             return false
         }
-        let firstPerson = [" i ", " i've ", " i’ve ", " my ", " we ", " our "].contains { lower.contains($0) }
+        let firstPerson = [" i ", " i've ", " i’ve ", " my ", " we ", " our ", " us "].contains { lower.contains($0) }
         let claimVerb = completedExperienceVerb || [" background ", " experience ", " evidence "]
             .contains { lower.contains($0) }
         let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model "]
@@ -108,8 +108,10 @@ struct AnswerClaimValidator {
     }
 
     private func containsPastPersonalAction(_ text: String) -> Bool {
-        let pattern = #"\b(?:i|we|i['’]ve|we['’]ve)\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\s+){0,3}(?:[a-z]+ed|built|led|sold|wrote|made|ran|saw|taught)\b"#
-        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        let directPattern = #"\b(?:i|we|i['’]ve|we['’]ve)\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\s+){0,3}(?:[a-z]+ed|built|led|sold|wrote|made|ran|saw|taught)\b"#
+        let causativePattern = #"\b(?:allowed|enabled)\s+us\s+to\s+[a-z]+\b"#
+        return text.range(of: directPattern, options: [.regularExpression, .caseInsensitive]) != nil ||
+            text.range(of: causativePattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private func personalExperienceEventIsSupported(claim: String, evidence: String) -> Bool {
@@ -191,8 +193,10 @@ struct AnswerClaimValidator {
 
     private func containsPersonalAction(_ text: String, verbs: [String]) -> Bool {
         let alternatives = verbs.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
-        let pattern = "\\b(?:i|we|i['’]ve|we['’]ve)\\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\\s+){0,3}(?:\(alternatives))\\b"
-        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        let directPattern = "\\b(?:i|we|i['’]ve|we['’]ve)\\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\\s+){0,3}(?:\(alternatives))\\b"
+        let causativePattern = "\\b(?:allowed|enabled)\\s+us\\s+to\\s+(?:\(alternatives))\\b"
+        return text.range(of: directPattern, options: [.regularExpression, .caseInsensitive]) != nil ||
+            text.range(of: causativePattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private func containsPersonalFactReference(_ text: String) -> Bool {

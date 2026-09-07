@@ -522,6 +522,53 @@ struct DynamicCandidateContextTests {
     }
 
     @Test
+    func causativeFirstPersonPluralDeploymentRequiresEvidence() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "This approach allowed us to deploy the model promotion pipeline to one million users.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Built a model promotion pipeline with immutable artifact identifiers.",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func documentedCausativeFirstPersonPluralDeploymentRemainsSupported() {
+        let evidence = SyntheticContextFixtures.evidence(
+            "This approach allowed us to deploy the model promotion pipeline to one million users.",
+            type: .project
+        )
+        let decision = AnswerClaimValidator().validate(
+            answer: "This approach allowed us to deploy the model promotion pipeline to one million users.",
+            candidateEvidence: [evidence],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs == [evidence.id])
+    }
+
+    @Test
+    func thirdPartyCausativeDeploymentIsNotCandidateExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "This approach allowed them to deploy the pipeline to one million users.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
     func productionClaimCannotBorrowTheSameActionFromSimulationEvidence() {
         let decision = AnswerClaimValidator().validate(
             answer: "I ran the manipulation pipeline in production.",
