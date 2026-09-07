@@ -534,6 +534,7 @@ struct SoakResourceMetricsTests {
         #expect(runner.contains("heartbeat.json"))
         #expect(runner.contains("checkpoints.jsonl"))
         #expect(runner.contains("active_elapsed_seconds"))
+        #expect(runner.contains("-$role_family-attempt-$(printf '%03d' \"$ATTEMPT_NUMBER\")"))
         #expect(runner.contains("sqlite3 -readonly"))
         #expect(runner.contains("caffeinate -dims -w"))
         #expect(runner.contains("caffeinate -u -t 5"))

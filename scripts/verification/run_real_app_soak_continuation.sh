@@ -664,7 +664,7 @@ while (( $(current_active_seconds) < TARGET_ACTIVE_SECONDS )); do
     scenario_filename="$(jq -er ".scenarios[$scenario_index].filename" "$MANIFEST_PATH")"
     role_family="$(jq -er ".scenarios[$scenario_index].roleFamilyID" "$MANIFEST_PATH")"
     cycle_number=$((completed_cycles + 1))
-    cycle_label="cycle-$(printf '%06d' "$cycle_number")-$role_family"
+    cycle_label="cycle-$(printf '%06d' "$cycle_number")-$role_family-attempt-$(printf '%03d' "$ATTEMPT_NUMBER")"
     run_output="$ARTIFACT_DIR/runs/$cycle_label"
     run_support="$ARTIFACT_DIR/app-support/$cycle_label"
     run_log="$ARTIFACT_DIR/logs/$cycle_label.log"
