@@ -153,6 +153,7 @@ extension AppState {
         var firstContentRecorded = false
         var firstProviderTokenMS: Int?
         var usedGroundedFailureJSON = false
+        var usedGroundedFalsePremiseJSON = false
         let groundedFailureCandidateEvidence = localQwenGroundedFailureCandidateEvidence(
             promptSnapshot: promptSnapshot,
             interviewContextSnapshot: interviewContextSnapshot
@@ -247,7 +248,13 @@ extension AppState {
                 )
 
                 let parsed: LocalQwenParsedAnswer
-                if request.responseFormat == "json" {
+                if request.responseFormat == "json",
+                   localQwenUsesGroundedFalsePremiseJSON(for: question) {
+                    parsed = LocalQwenGroundedFailureParser.parseFalsePremise(
+                        answer,
+                        candidateEvidence: groundedFailureCandidateEvidence
+                    )
+                } else if request.responseFormat == "json" {
                     parsed = LocalQwenGroundedFailureParser.parse(
                         answer,
                         candidateEvidence: groundedFailureCandidateEvidence
@@ -311,7 +318,10 @@ extension AppState {
                         cleanedAnswer = ""
                         continue
                     }
-                    usedGroundedFailureJSON = request.responseFormat == "json"
+                    usedGroundedFalsePremiseJSON = request.responseFormat == "json" &&
+                        localQwenUsesGroundedFalsePremiseJSON(for: question)
+                    usedGroundedFailureJSON = request.responseFormat == "json" &&
+                        !usedGroundedFalsePremiseJSON
                     break
                 }
                 if attempt < maxAttempts {
@@ -355,7 +365,9 @@ extension AppState {
             evidenceUsed: localRetrievedChunks.map(\.id),
             riskLevel: .low,
             modelName: modelName,
-            promptVersion: usedGroundedFailureJSON ? "ollama-qwen-grounded-failure-v1" : "ollama-qwen-v1",
+            promptVersion: usedGroundedFalsePremiseJSON
+                ? "ollama-qwen-grounded-false-premise-v1"
+                : (usedGroundedFailureJSON ? "ollama-qwen-grounded-failure-v1" : "ollama-qwen-v1"),
             providerKind: .ollamaLocal,
             providerName: "Ollama Qwen",
             providerBaseURL: "http://localhost:11434",
@@ -707,6 +719,39 @@ extension AppState {
             maxWords: 80,
             emptyMessage: "No opportunity context is available."
         )
+        if localQwenUsesGroundedFalsePremiseJSON(for: question) {
+            let prompt = """
+            /no_think
+            Current interview question:
+            \(question.questionText)
+
+            Previous question context, only for resolving pronouns:
+            \(previousContext)
+
+            Candidate evidence allowed for personal claims:
+            <candidate_evidence>
+            \(candidateEvidence)
+            </candidate_evidence>
+
+            Opportunity context is not candidate evidence and must never be presented as personal experience:
+            <opportunity_context>
+            \(opportunityContext)
+            </opportunity_context>
+
+            The question contains an unverified premise. Return exactly one JSON object with the key "evidence".
+            "evidence" must be one complete sentence copied exactly and contiguously from <candidate_evidence> that gives the closest supported fact.
+            Never copy from <opportunity_context>. Do not repeat, confirm, deny, paraphrase, infer, explain, or add facts; the local validator will construct the correction.
+            Use exactly this JSON shape and no other keys: {"evidence":"exact candidate-evidence sentence"}
+            """
+            return LocalLLMRequest(
+                prompt: prompt,
+                systemPrompt: "/no_think Return one JSON object only, selecting one exact complete sentence from candidate evidence and never opportunity context.",
+                modelName: modelName,
+                temperature: 0,
+                numPredict: 180,
+                responseFormat: "json"
+            )
+        }
         if localQwenUsesGroundedFailureJSON(for: question) {
             let prompt = """
             /no_think
@@ -785,6 +830,10 @@ extension AppState {
         default:
             return false
         }
+    }
+
+    private func localQwenUsesGroundedFalsePremiseJSON(for question: DetectedQuestion) -> Bool {
+        IntentRouter.isDeclarativeConfirmationQuestion(question.questionText)
     }
 
     private func localQwenGroundedFailureCandidateEvidence(

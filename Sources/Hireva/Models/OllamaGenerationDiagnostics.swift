@@ -287,6 +287,36 @@ enum LocalQwenAnswerParser {
 }
 
 enum LocalQwenGroundedFailureParser {
+    static func parseFalsePremise(
+        _ raw: String,
+        candidateEvidence: [String]
+    ) -> LocalQwenParsedAnswer {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set(["evidence"]),
+              let requestedEvidence = object["evidence"] as? String else {
+            return rejected(result: "grounded_false_premise_json_rejected")
+        }
+
+        let evidence = requestedEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !evidence.isEmpty,
+              evidence.count <= 800,
+              let matchedEvidence = exactSupportedStatement(evidence, in: candidateEvidence) else {
+            return rejected(result: "grounded_false_premise_json_rejected")
+        }
+
+        let evidenceSentence = firstPersonSentence(from: matchedEvidence)
+        guard !evidenceSentence.isEmpty else {
+            return rejected(result: "grounded_false_premise_json_rejected")
+        }
+        return LocalQwenParsedAnswer(
+            sayFirst: "I do not have evidence for that claim. \(evidenceSentence)",
+            sectionParserResult: "grounded_false_premise_json",
+            failureCategory: nil
+        )
+    }
+
     static func parse(
         _ raw: String,
         candidateEvidence: [String]
@@ -414,10 +444,10 @@ enum LocalQwenGroundedFailureParser {
         "trained", "used", "validated", "worked"
     ]
 
-    private static func rejected() -> LocalQwenParsedAnswer {
+    private static func rejected(result: String = "grounded_failure_json_rejected") -> LocalQwenParsedAnswer {
         LocalQwenParsedAnswer(
             sayFirst: "",
-            sectionParserResult: "grounded_failure_json_rejected",
+            sectionParserResult: result,
             failureCategory: .answerSectionParserRejectedContent
         )
     }

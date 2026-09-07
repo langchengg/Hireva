@@ -241,6 +241,40 @@ struct OllamaQwenProviderTests {
     }
 
     @Test
+    func groundedFalsePremiseSelectionRequiresOneExactCandidateEvidenceSentence() {
+        let candidateEvidence = "Built a local Swift prototype that reconciles transcript events and isolates test data."
+        let valid = LocalQwenGroundedFailureParser.parseFalsePremise(
+            #"{"evidence":"Built a local Swift prototype that reconciles transcript events and isolates test data."}"#,
+            candidateEvidence: [candidateEvidence]
+        )
+        let opportunityOnly = LocalQwenGroundedFailureParser.parseFalsePremise(
+            #"{"evidence":"Owned and shipped native macOS features."}"#,
+            candidateEvidence: [candidateEvidence]
+        )
+        let rewritten = LocalQwenGroundedFailureParser.parseFalsePremise(
+            #"{"evidence":"Built and deployed a local Swift prototype to production users."}"#,
+            candidateEvidence: [candidateEvidence]
+        )
+        let extraField = LocalQwenGroundedFailureParser.parseFalsePremise(
+            #"{"evidence":"Built a local Swift prototype that reconciles transcript events and isolates test data.","users":"one million"}"#,
+            candidateEvidence: [candidateEvidence]
+        )
+        let unsafeSubjectRewrite = LocalQwenGroundedFailureParser.parseFalsePremise(
+            #"{"evidence":"A local Swift prototype was available."}"#,
+            candidateEvidence: ["A local Swift prototype was available."]
+        )
+
+        #expect(valid.sayFirst == "I do not have evidence for that claim. I built a local Swift prototype that reconciles transcript events and isolates test data.")
+        #expect(valid.sectionParserResult == "grounded_false_premise_json")
+        #expect(valid.failureCategory == nil)
+        for rejected in [opportunityOnly, rewritten, extraField, unsafeSubjectRewrite] {
+            #expect(rejected.sayFirst.isEmpty)
+            #expect(rejected.sectionParserResult == "grounded_false_premise_json_rejected")
+            #expect(rejected.failureCategory == .answerSectionParserRejectedContent)
+        }
+    }
+
+    @Test
     func ollamaAlignmentRejectionIsNotProviderEmpty() {
         let result = LocalQwenAnswerValidationResult.rejected(
             category: .alignmentRejectedNonemptyContent,
@@ -462,6 +496,55 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
         #expect(runtime.appState.currentSuggestion?.isLocal == true)
         #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
+    }
+
+    @Test @MainActor
+    func ollamaFalsePremiseRecoverySelectsOnlyExactCandidateEvidenceAsJSON() async throws {
+        let question = "You deployed the local Swift prototype to one million production users and generated revenue while meeting the requirement to ship native macOS features, correct?"
+        let supportedCandidateEvidence = "Built a local Swift prototype that reconciles transcript events and isolates test data."
+        let unsupportedAnswer = "I deployed the local Swift prototype to one million production users and generated revenue."
+        let structuredSelection = #"{"evidence":"Built a local Swift prototype that reconciles transcript events and isolates test data."}"#
+        let expectedAnswer = "I do not have evidence for that claim. I built a local Swift prototype that reconciles transcript events and isolates test data."
+        let runtime = try makeRuntime(
+            evidence: supportedCandidateEvidence,
+            opportunityEvidence: "Own and ship native macOS features.",
+            question: question
+        )
+        let guidanceNeedle = "Return exactly one JSON object with the key \"evidence\"."
+        let provider = InstructionConditionedDiagnosticMockLocalLLMProvider(
+            requiredInstruction: guidanceNeedle,
+            requiredResponseFormat: "json",
+            answerWithoutInstruction: unsupportedAnswer,
+            answerWithInstruction: structuredSelection
+        )
+
+        let finished = try await runtime.appState.finishWithLocalQwenAnswer(
+            question: runtime.question,
+            session: runtime.session,
+            transcript: question,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: supportedCandidateEvidence,
+            jdSummary: "Own and ship native macOS features.",
+            generationID: runtime.generationID,
+            cardID: "false-premise-recovery-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: runtime.snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.requests.count == 4)
+        #expect(provider.requests.last?.responseFormat == "json")
+        #expect(provider.requests.last?.prompt.contains(guidanceNeedle) == true)
+        #expect(runtime.appState.currentSuggestion?.sayFirst == expectedAnswer)
+        #expect(runtime.appState.currentSuggestion?.promptVersion == "ollama-qwen-grounded-false-premise-v1")
+        #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
         #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
     }
 
