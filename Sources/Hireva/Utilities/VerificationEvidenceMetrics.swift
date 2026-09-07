@@ -490,7 +490,8 @@ enum VerificationAnswerRubricEvaluator {
             sayFirst: input.answerText,
             stageBCompleted: true
         )
-        let grounding = AnswerClaimValidator().validate(
+        let claimValidator = AnswerClaimValidator()
+        let grounding = claimValidator.validate(
             answer: input.answerText,
             candidateEvidence: input.candidateEvidence,
             opportunityEvidence: input.opportunityEvidence,
@@ -500,9 +501,10 @@ enum VerificationAnswerRubricEvaluator {
         let requiredHits = input.requiredConcepts.filter {
             normalizedAnswer.contains(normalize($0))
         }.count
-        let forbiddenHits = input.forbiddenClaims.filter {
-            normalizedAnswer.contains(normalize($0))
-        }.count
+        let forbiddenHits = claimValidator.assertedForbiddenClaims(
+            in: input.answerText,
+            forbiddenClaims: input.forbiddenClaims
+        ).count
         let wrongProfile = input.expectedCandidateProfileID != input.actualCandidateProfileID ||
             !input.actualCandidateEvidenceIDs.isSubset(of: input.allowedCandidateEvidenceIDs)
         let wrongJob = input.expectedOpportunityContextID != input.actualOpportunityContextID ||

@@ -43,6 +43,18 @@ struct AnswerClaimValidator {
         )
     }
 
+    func assertedForbiddenClaims(in answer: String, forbiddenClaims: [String]) -> [String] {
+        let clauses = claimSentences(answer)
+        return forbiddenClaims.filter { forbiddenClaim in
+            let normalizedClaim = normalizedClaimText(forbiddenClaim)
+            guard !normalizedClaim.isEmpty else { return false }
+            return clauses.contains { clause in
+                normalizedClaimText(clause).contains(normalizedClaim) &&
+                    !isExplicitEvidenceDenial(clause)
+            }
+        }
+    }
+
     private func claimSentences(_ text: String) -> [String] {
         text.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
             .flatMap { sentence in
@@ -58,23 +70,8 @@ struct AnswerClaimValidator {
 
     private func isPersonalClaim(_ sentence: String) -> Bool {
         let lower = " " + sentence.lowercased() + " "
-        let evidenceDenials = [
-            " i do not have evidence ",
-            " i don't have evidence ",
-            " i don’t have evidence ",
-            " i have no evidence ",
-            " i cannot substantiate ",
-            " i can't substantiate ",
-            " i can’t substantiate "
-        ]
-        if evidenceDenials.contains(where: lower.contains) {
-            let affirmativeContinuation = [
-                " but i ", " however i ", " although i ", " yet i ",
-                " and i ", "; i "
-            ].contains(where: lower.contains)
-            if !affirmativeContinuation {
-                return false
-            }
+        if isExplicitEvidenceDenial(sentence) {
+            return false
         }
         let prospectivePlan = [
             " i would ", " i'd ", " i’d ", " i will ", " i'll ", " i’ll ",
@@ -105,6 +102,37 @@ struct AnswerClaimValidator {
             .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
         let sensitiveFactPossession = containsSensitivePersonalFactReference(sentence)
         return firstPerson && (claimVerb || personalAsset || sensitiveFactPossession)
+    }
+
+    private func isExplicitEvidenceDenial(_ sentence: String) -> Bool {
+        let lower = " " + sentence.lowercased() + " "
+        let evidenceDenials = [
+            " i do not have evidence ",
+            " i don't have evidence ",
+            " i don’t have evidence ",
+            " i have no evidence ",
+            " i cannot substantiate ",
+            " i can't substantiate ",
+            " i can’t substantiate "
+        ]
+        if evidenceDenials.contains(where: lower.contains) {
+            let affirmativeContinuation = [
+                " but i ", " however i ", " although i ", " yet i ",
+                " and i ", "; i "
+            ].contains(where: lower.contains)
+            if !affirmativeContinuation {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func normalizedClaimText(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .joined(separator: " ")
     }
 
     private func containsPastPersonalAction(_ text: String) -> Bool {

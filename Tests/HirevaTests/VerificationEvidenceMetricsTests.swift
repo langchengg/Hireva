@@ -226,6 +226,56 @@ struct VerificationEvidenceMetricsTests {
     }
 
     @Test
+    func forbiddenClaimMatchingRespectsExplicitEvidenceDenialScope() {
+        let candidateEvidence = [evidence(
+            id: "candidate.scoped-features",
+            statement: "Implemented scoped features with explicit input validation and added unit and integration tests"
+        )]
+        func record(answer: String) -> VerificationAnswerRubricRecord {
+            VerificationAnswerRubricEvaluator.evaluate(VerificationAnswerRubricInput(
+                scenarioID: "false-premise-denial",
+                expectedSessionID: "session-1",
+                actualSessionID: "session-1",
+                expectedQuestionID: "question-1",
+                actualQuestionID: "question-1",
+                expectedGenerationID: "generation-1",
+                actualGenerationID: "generation-1",
+                expectedContextSnapshotID: "snapshot-1",
+                actualContextSnapshotID: "snapshot-1",
+                expectedCandidateProfileID: "profile-1",
+                actualCandidateProfileID: "profile-1",
+                expectedOpportunityContextID: "role-1",
+                actualOpportunityContextID: "role-1",
+                questionText: "You deployed to one million users and generated revenue, correct?",
+                answerText: answer,
+                candidateEvidence: candidateEvidence,
+                opportunityEvidence: [],
+                futurePlans: [],
+                allowedCandidateEvidenceIDs: ["candidate.scoped-features"],
+                allowedOpportunityEvidenceIDs: [],
+                actualCandidateEvidenceIDs: ["candidate.scoped-features"],
+                actualOpportunityEvidenceIDs: [],
+                requiredConcepts: ["do not have evidence"],
+                forbiddenClaims: ["one million users", "generated production revenue"],
+                expectedProviderSource: "ollama_qwen",
+                actualProviderSource: "ollama_qwen",
+                persistenceCount: 1,
+                maximumSentences: 4
+            ))
+        }
+
+        let denial = record(answer: "I do not have evidence for that claim regarding deploying to one million users or generating revenue. I implemented scoped features with explicit input validation and added unit and integration tests.")
+        #expect(denial.forbiddenClaimHits == 0)
+        #expect(!denial.unsupportedPersonalClaim)
+        #expect(!denial.hardFail)
+
+        let hiddenAssertion = record(answer: "I do not have evidence for that revenue claim, but I deployed the service to one million users.")
+        #expect(hiddenAssertion.forbiddenClaimHits == 1)
+        #expect(hiddenAssertion.unsupportedPersonalClaim)
+        #expect(hiddenAssertion.hardFail)
+    }
+
+    @Test
     func personalPastClaimRequiresAnExplicitPredicateAndKeepsCommonParaphrases() {
         #expect(roleClaimRecord("I've built and deployed production observability.").jdToExperience)
         #expect(roleClaimRecord("My team built and deployed production observability.").jdToExperience)
