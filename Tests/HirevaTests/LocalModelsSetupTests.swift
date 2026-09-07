@@ -992,6 +992,65 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
+    func localQwenRejectsFalsePremiseClaimAndRetriesWithCorrectionGuidance() async throws {
+        let appState = try AppState(database: AppDatabase(inMemory: true))
+        appState.interviewContextMode = .phdRobotics
+        let session = try makeContextBoundLocalQwenSession(
+            appState: appState,
+            domain: .roboticsResearch,
+            evidenceStatements: [
+                "Built a simulated manipulation pipeline and compared two grasping approaches on the same held-out scenes."
+            ]
+        )
+        let question = localQwenQuestion(
+            id: "false-premise-qwen-question",
+            sessionID: session.id,
+            text: "You deployed the simulated manipulation pipeline to one million production users and generated revenue, correct?"
+        )
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        appState.activateGeneration(
+            question: question,
+            generationID: "false-premise-qwen-generation",
+            triggerPath: .autoDetect,
+            requestStart: Date(),
+            source: .systemAudio,
+            speaker: .interviewer
+        )
+        let unsafeAnswer = "I deployed the simulated manipulation pipeline to one million production users and generated revenue."
+        let correctedAnswer = "I do not have evidence for production users or revenue. I built a simulated manipulation pipeline and compared two grasping approaches on the same held-out scenes."
+        let provider = SequencedMockLocalLLMProvider(tokenBatches: [
+            [unsafeAnswer],
+            [correctedAnswer]
+        ])
+        let snapshotID = try #require(session.contextSnapshotID)
+        let snapshot = try #require(try appState.interviewContextRepository.snapshot(id: snapshotID))
+
+        let finished = try await appState.finishWithLocalQwenAnswer(
+            question: question,
+            session: session,
+            transcript: question.questionText,
+            context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+            retrievedChunks: [],
+            cvSummary: "",
+            jdSummary: "",
+            generationID: "false-premise-qwen-generation",
+            cardID: "false-premise-qwen-card",
+            requestStart: Date(),
+            triggerPath: .autoDetect,
+            source: .systemAudio,
+            speaker: .interviewer,
+            localProvider: provider,
+            fallbackReason: nil,
+            interviewContextSnapshot: snapshot
+        )
+
+        #expect(finished)
+        #expect(provider.generateCallCount == 2)
+        #expect(appState.currentSuggestion?.sayFirst == correctedAnswer)
+        #expect(provider.requests.first?.systemPrompt?.localizedCaseInsensitiveContains("unverified premise") == true)
+    }
+
+    @Test @MainActor
     func localQwenPrimaryRetriesAfterNonAlignedNonEmptyAnswer() async throws {
         let (appState, session, question, generationID, requestStart) = try makeLocalQwenRuntimeState()
         let provider = SequencedMockLocalLLMProvider(tokenBatches: [

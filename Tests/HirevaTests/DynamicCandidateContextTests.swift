@@ -408,6 +408,151 @@ struct DynamicCandidateContextTests {
     }
 
     @Test
+    func falsePremiseDeploymentAndRevenueCannotBorrowRelatedProjectWords() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I deployed the simulated manipulation pipeline to one million production users and generated revenue.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Built a simulated manipulation pipeline for synthetic scenes.",
+                    type: .project
+                ),
+                SyntheticContextFixtures.evidence(
+                    "Compared two grasping approaches on the same held-out scenes.",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Form testable robotics hypotheses.",
+                    type: .responsibility
+                )
+            ],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func relatedTrainingEvidenceCannotSupportFoundationModelFromScratchClaim() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I trained the foundation model from scratch.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Trained a task-specific classifier on synthetic examples.",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func relatedManagementEvidenceCannotSupportTeamLeadershipClaim() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I managed a large engineering team.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Managed model inference benchmarks.",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func falsePremiseDenialCanBridgeToSupportedProjectEvidence() {
+        let evidence = SyntheticContextFixtures.evidence(
+            "Built a simulated manipulation pipeline for synthetic scenes.",
+            type: .project
+        )
+        let decision = AnswerClaimValidator().validate(
+            answer: "I do not have evidence for production users or revenue, but I built a simulated manipulation pipeline for synthetic scenes.",
+            candidateEvidence: [evidence],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs == [evidence.id])
+    }
+
+    @Test
+    func documentedDeploymentAndRevenueRemainSupported() {
+        let evidence = SyntheticContextFixtures.evidence(
+            "Deployed the simulated manipulation pipeline to a small production pilot and generated pilot revenue.",
+            type: .project
+        )
+        let decision = AnswerClaimValidator().validate(
+            answer: "I deployed the simulated manipulation pipeline to a production pilot and generated revenue.",
+            candidateEvidence: [evidence],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs == [evidence.id])
+    }
+
+    @Test
+    func writtenScaleCannotBeAddedToOtherwiseSupportedDeploymentEvidence() {
+        let evidence = SyntheticContextFixtures.evidence(
+            "Deployed the simulated manipulation pipeline to production users and generated revenue.",
+            type: .project
+        )
+        let decision = AnswerClaimValidator().validate(
+            answer: "I deployed the simulated manipulation pipeline to one million production users and generated revenue.",
+            candidateEvidence: [evidence],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func productionClaimCannotBorrowTheSameActionFromSimulationEvidence() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I ran the manipulation pipeline in production.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Ran the manipulation pipeline in simulation.",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func firstPersonPossessionOfUsersAndScaleRequiresEvidence() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "I have one million production users.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
     func controlledAsProspectiveExperimentAdjectiveIsNotPastExperience() {
         let decision = AnswerClaimValidator().validate(
             answer: "I would use small controlled pilots and explicit rollback criteria before choosing.",

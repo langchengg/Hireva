@@ -208,7 +208,7 @@ enum IntentRouter {
         isDecisionRequirementsQuestion(text)
     }
 
-    private static func isDeclarativeConfirmationQuestion(_ text: String) -> Bool {
+    static func isDeclarativeConfirmationQuestion(_ text: String) -> Bool {
         let patterns = [
             #",\s*(?:right|correct)\s*\??\s*$"#,
             #",\s*(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|can['’]?t|couldn['’]?t|wouldn['’]?t|won['’]?t|shouldn['’]?t)\s+(?:it|you|they|he|she|we)\s*\?\s*$"#

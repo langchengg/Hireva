@@ -23,7 +23,11 @@ struct AnswerClaimValidator {
                     claim: sentence,
                     evidence: evidence.statement
                 )
-                return enoughSemanticOverlap && metricsSupported && experienceEventSupported
+                let salientFactsSupported = salientPersonalFactsAreSupported(
+                    claim: sentence,
+                    evidence: evidence.statement
+                )
+                return enoughSemanticOverlap && metricsSupported && experienceEventSupported && salientFactsSupported
             }
             if matches.isEmpty {
                 unsupported.append(sentence)
@@ -41,6 +45,13 @@ struct AnswerClaimValidator {
 
     private func claimSentences(_ text: String) -> [String] {
         text.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
+            .flatMap { sentence in
+                sentence.replacingOccurrences(
+                    of: #"\s*(?:;|\b(?:but|however|although|yet)\b|,\s*and(?=\s+(?:i|we)\b))\s*"#,
+                    with: "\n",
+                    options: [.regularExpression, .caseInsensitive]
+                ).components(separatedBy: "\n")
+            }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
@@ -80,8 +91,10 @@ struct AnswerClaimValidator {
             " worked ", " used ", " designed ", " delivered ", " improved ", " reduced ",
             " completed ", " published ", " studied ", " operated ", " trained ",
             " evaluated ", " validated ", " tested ", " integrated ", " contributed ", " achieved ",
-            " demonstrated ", " observed ", " encountered ", " experienced "
-        ].contains { lower.contains($0) } || containsPastPersonalAmbiguousAction(lower)
+            " demonstrated ", " observed ", " encountered ", " experienced ",
+            " deployed ", " launched ", " shipped ", " generated ", " produced ",
+            " served ", " sold ", " founded ", " scaled ", " maintained ", " authored ", " presented "
+        ].contains { lower.contains($0) } || containsPastPersonalAction(lower)
         if prospectivePlan && !referencesPastExperience && !completedExperienceVerb {
             return false
         }
@@ -90,11 +103,12 @@ struct AnswerClaimValidator {
             .contains { lower.contains($0) }
         let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model "]
             .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
-        return firstPerson && (claimVerb || personalAsset)
+        let sensitiveFactPossession = containsSensitivePersonalFactReference(sentence)
+        return firstPerson && (claimVerb || personalAsset || sensitiveFactPossession)
     }
 
-    private func containsPastPersonalAmbiguousAction(_ text: String) -> Bool {
-        let pattern = #"\b(?:i|we|i['’]ve|we['’]ve)\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\s+){0,3}(?:controlled|managed)\b"#
+    private func containsPastPersonalAction(_ text: String) -> Bool {
+        let pattern = #"\b(?:i|we|i['’]ve|we['’]ve)\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\s+){0,3}(?:[a-z]+ed|built|led|sold|wrote|made|ran|saw|taught)\b"#
         return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
@@ -113,6 +127,94 @@ struct AnswerClaimValidator {
         return true
     }
 
+    private func salientPersonalFactsAreSupported(claim: String, evidence: String) -> Bool {
+        let claimTokens = normalizedFactTokens(claim)
+        let evidenceTokens = normalizedFactTokens(evidence)
+        let deploymentFacts: Set<String> = [
+            "deploy", "deployed", "deploying", "deployment", "launch", "launched", "ship", "shipped", "rollout"
+        ]
+        let commercialFacts: Set<String> = [
+            "revenue", "sale", "sales", "profit", "profits", "profitable", "income", "monetized", "monetised"
+        ]
+        let audienceFacts: Set<String> = [
+            "user", "users", "customer", "customers", "client", "clients", "subscriber", "subscribers"
+        ]
+        let globalFacts: Set<String> = ["global", "globally", "worldwide", "international", "internationally"]
+        let productionFacts: Set<String> = ["production"]
+        let trainingProvenanceFacts: Set<String> = ["foundation", "scratch"]
+        let deploymentActions = ["deploy", "deployed", "launch", "launched", "ship", "shipped", "rollout"]
+        let commercialActions = ["generate", "generated", "produce", "produced", "earn", "earned", "sell", "sold", "monetize", "monetized", "monetise", "monetised"]
+        let adoptionActions = deploymentActions + commercialActions + ["serve", "served", "reach", "reached", "support", "supported", "acquire", "acquired"]
+        let trainingActions = ["train", "trained", "pretrain", "pretrained", "build", "built", "develop", "developed"]
+        let hasPersonalFactReference = containsPersonalFactReference(claim)
+
+        if !claimTokens.isDisjoint(with: deploymentFacts),
+           (containsPersonalAction(claim, verbs: deploymentActions) || hasPersonalFactReference),
+           evidenceTokens.isDisjoint(with: deploymentFacts) {
+            return false
+        }
+        if !claimTokens.isDisjoint(with: commercialFacts),
+           (containsPersonalAction(claim, verbs: commercialActions) || hasPersonalFactReference),
+           evidenceTokens.isDisjoint(with: commercialFacts) {
+            return false
+        }
+        if !claimTokens.isDisjoint(with: audienceFacts),
+           (containsPersonalAction(claim, verbs: adoptionActions) || hasPersonalFactReference),
+           evidenceTokens.isDisjoint(with: audienceFacts) {
+            return false
+        }
+        if !claimTokens.isDisjoint(with: globalFacts),
+           (containsPersonalAction(claim, verbs: adoptionActions) || hasPersonalFactReference),
+           evidenceTokens.isDisjoint(with: globalFacts) {
+            return false
+        }
+        if !claimTokens.isDisjoint(with: productionFacts),
+           (containsPastPersonalAction(claim) || hasPersonalFactReference),
+           evidenceTokens.isDisjoint(with: productionFacts) {
+            return false
+        }
+        if !claimTokens.isDisjoint(with: trainingProvenanceFacts),
+           (containsPersonalAction(claim, verbs: trainingActions) || hasPersonalFactReference),
+           !claimTokens.intersection(trainingProvenanceFacts).isSubset(of: evidenceTokens) {
+            return false
+        }
+
+        let leadershipActions: Set<String> = ["lead", "led", "manage", "managed", "supervise", "supervised"]
+        let peopleScope: Set<String> = ["team", "teams", "engineer", "engineers", "people", "staff", "reports"]
+        if !claimTokens.isDisjoint(with: leadershipActions),
+           !claimTokens.isDisjoint(with: peopleScope),
+           (evidenceTokens.isDisjoint(with: leadershipActions) || evidenceTokens.isDisjoint(with: peopleScope)) {
+            return false
+        }
+        return true
+    }
+
+    private func containsPersonalAction(_ text: String, verbs: [String]) -> Bool {
+        let alternatives = verbs.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let pattern = "\\b(?:i|we|i['’]ve|we['’]ve)\\s+(?:(?:have|had|previously|personally|directly|manually|successfully)\\s+){0,3}(?:\(alternatives))\\b"
+        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func containsPersonalFactReference(_ text: String) -> Bool {
+        let pattern = #"\b(?:(?:my|our)\s+(?:experience|background|project|pipeline|system|model|product|work|team|company|service)|(?:i|we)\s+(?:have|had))\b"#
+        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func containsSensitivePersonalFactReference(_ text: String) -> Bool {
+        guard containsPersonalFactReference(text) else { return false }
+        let sensitiveFacts: Set<String> = [
+            "production", "deploy", "deployed", "deployment", "launch", "launched", "ship", "shipped",
+            "revenue", "sales", "profit", "income", "user", "users", "customer", "customers",
+            "client", "clients", "subscriber", "subscribers", "global", "globally", "worldwide",
+            "international", "internationally", "foundation", "scratch", "team", "teams", "engineer", "engineers"
+        ]
+        return !normalizedFactTokens(text).isDisjoint(with: sensitiveFacts) || !numericTokens(text).isEmpty
+    }
+
+    private func normalizedFactTokens(_ text: String) -> Set<String> {
+        Set(TextChunker.tokenize(text).map { $0.lowercased() })
+    }
+
     private func meaningfulTokens(_ text: String) -> Set<String> {
         let stopWords: Set<String> = [
             "the", "and", "that", "with", "from", "this", "into", "for", "was", "were",
@@ -123,7 +225,31 @@ struct AnswerClaimValidator {
     }
 
     private func numericTokens(_ text: String) -> Set<String> {
-        Set(text.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty })
+        let numberWords: [String: String] = [
+            "zero": "0", "two": "2", "three": "3", "four": "4", "five": "5",
+            "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+            "eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14", "fifteen": "15",
+            "sixteen": "16", "seventeen": "17", "eighteen": "18", "nineteen": "19", "twenty": "20",
+            "thirty": "30", "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70",
+            "eighty": "80", "ninety": "90"
+        ]
+        let scaleWords: Set<String> = ["hundred", "thousand", "million", "billion", "percent", "percentage"]
+        var result = Set(text.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty })
+        for token in TextChunker.tokenize(text).map({ $0.lowercased() }) {
+            if let canonicalNumber = numberWords[token] {
+                result.insert(canonicalNumber)
+            } else if scaleWords.contains(token) {
+                result.insert(token == "percentage" ? "percent" : token)
+            }
+        }
+        if text.contains("%") {
+            result.insert("percent")
+        }
+        let quantifiedOnePattern = #"\bone\s+(?:hundred|thousand|million|billion|percent|percentage|users?|customers?|clients?|subscribers?|engineers?|people|teams?|years?|months?)\b"#
+        if text.range(of: quantifiedOnePattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            result.insert("1")
+        }
+        return result
     }
 }
 

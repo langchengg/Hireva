@@ -84,6 +84,7 @@ extension AppState {
         State past personal experience only when it is explicit in the selected candidate evidence.
         Do not turn future plans, domain knowledge, or opportunity requirements into completed work or observed events.
         Do not add implementation mechanisms, intermediate steps, tools, metrics, or causal links that are absent from the selected candidate evidence.
+        \(localQwenFalsePremiseGuidance(for: question))
         """
         let userPrompt = promptSnapshot.prompt +
             "\n\nAnswer the current question now:"
@@ -830,6 +831,10 @@ extension AppState {
 
     private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
         let lower = question.questionText.lowercased()
+        let falsePremiseGuidance = localQwenFalsePremiseGuidance(for: question)
+        if !falsePremiseGuidance.isEmpty {
+            return falsePremiseGuidance
+        }
         if lower.contains("weakness") || lower.contains("development area") {
             return """
             This asks for a weakness or development area. Name that topic explicitly in the first sentence.
@@ -865,6 +870,13 @@ extension AppState {
         default:
             return ""
         }
+    }
+
+    private func localQwenFalsePremiseGuidance(for question: DetectedQuestion) -> String {
+        guard IntentRouter.isDeclarativeConfirmationQuestion(question.questionText) else { return "" }
+        return """
+        Treat the interviewer's statement as an unverified premise. Confirm only facts stated explicitly inside the selected candidate evidence. If any premise is unsupported, correct it directly, then bridge only to the closest supported candidate evidence without inventing a metric, deployment, user, revenue, team, or outcome.
+        """
     }
 
 }
