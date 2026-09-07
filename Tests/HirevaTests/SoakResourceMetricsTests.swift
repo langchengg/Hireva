@@ -527,6 +527,8 @@ struct SoakResourceMetricsTests {
         #expect(runner.contains("pipeline.latency"))
         #expect(runner.contains("--process-path"))
         #expect(runner.contains("--helper-path"))
+        #expect(runner.contains("/bin/bash \"$RESOURCE_RUNNER\""))
+        #expect(runner.contains("/bin/bash \\\"$RESOURCE_RUNNER\\\" --output \\\"$resource_csv\\\""))
         #expect(runner.contains("heartbeat.json"))
         #expect(runner.contains("checkpoints.jsonl"))
         #expect(runner.contains("active_elapsed_seconds"))

@@ -620,7 +620,7 @@ jq --argjson attempts "$ATTEMPT_NUMBER" '.resource_attempts = $attempts | .statu
 remaining_seconds=$((TARGET_ACTIVE_SECONDS - BASE_ACTIVE_SECONDS))
 resource_csv="$ARTIFACT_DIR/resources/resource_metrics_attempt_$(printf '%03d' "$ATTEMPT_NUMBER").csv"
 resource_log="$ARTIFACT_DIR/logs/resource_metrics_attempt_$(printf '%03d' "$ATTEMPT_NUMBER").log"
-"$RESOURCE_RUNNER" \
+/bin/bash "$RESOURCE_RUNNER" \
     --output "$resource_csv" \
     --process-name Hireva \
     --process-path "$APP_BINARY" \
@@ -690,7 +690,7 @@ while (( $(current_active_seconds) < TARGET_ACTIVE_SECONDS )); do
                 kill -TERM "$CURRENT_RUNNER_PID" >/dev/null 2>&1 || true
                 wait "$CURRENT_RUNNER_PID" >/dev/null 2>&1 || true
                 CURRENT_RUNNER_PID=""
-                record_failure "$scenario_filename" resource_sampling "Resource collector stopped before the active-duration target." "$RESOURCE_RUNNER --output $resource_csv"
+                record_failure "$scenario_filename" resource_sampling "Resource collector stopped before the active-duration target." "/bin/bash \"$RESOURCE_RUNNER\" --output \"$resource_csv\""
                 FINAL_STATUS="failed"
                 EXIT_REASON="resource_collector_failed"
                 exit 1
@@ -816,7 +816,7 @@ if [[ -n "$RESOURCE_PID" ]]; then
     RESOURCE_PID=""
 fi
 [[ "${RESOURCE_EXIT_STATUS:-0}" -eq 0 ]] || {
-    record_failure "$CURRENT_SCENARIO" resource_sampling "Resource collector failed its coverage gate." "$RESOURCE_RUNNER --output $resource_csv"
+    record_failure "$CURRENT_SCENARIO" resource_sampling "Resource collector failed its coverage gate." "/bin/bash \"$RESOURCE_RUNNER\" --output \"$resource_csv\""
     FINAL_STATUS="failed"
     EXIT_REASON="resource_coverage_failed"
     exit 1
