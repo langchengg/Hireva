@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import Hireva
 
 struct CampaignVerificationScriptTests {
     private struct ProcessResult {
@@ -89,6 +90,8 @@ struct CampaignVerificationScriptTests {
         #expect(integrationPreflight.contains("validate_synthetic_audio_provenance.rb"))
         #expect(integrationPreflight.contains("--probe-model"))
         #expect(integrationPreflight.contains("qwen3.5:4b"))
+        #expect(integrationPreflight.contains("local_models_root"))
+        #expect(integrationPreflight.contains(LocalModelDescriptor.defaultParakeetASR.storageRelativePath))
         for requiredEnvironment in [
             "HIREVA_REAL_OLLAMA_SMOKE=1",
             "RUN_LOCAL_QWEN_EXTRACTION_TEST=1",

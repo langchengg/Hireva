@@ -36,6 +36,9 @@ LAST_CHECKPOINT_MONOTONIC=0
 LOCKED_CONSOLE_SCENARIO="real-app-continuation-preflight"
 LOCKED_CONSOLE_CATEGORY="environment"
 LOCKED_CONSOLE_SYMPTOM="The active macOS console session is locked; real ScreenCaptureKit validation requires an unlocked logged-in GUI session."
+PREFLIGHT_FAILURE_SCENARIO="real-app-continuation-preflight"
+PREFLIGHT_FAILURE_CATEGORY="preflight"
+PREFLIGHT_FAILURE_SYMPTOM="Continuation preflight exited nonzero before the active soak timer started."
 
 usage() {
     printf '%s\n' \
@@ -202,7 +205,8 @@ if [[ "$MODE" == "new" ]]; then
           target_active_seconds: $target_active_seconds, active_elapsed_seconds: 0,
           fixed_seed: $fixed_seed, completed_cycles: 0, resume_count: 0,
           preflight_complete: false, requested_model_path: $requested_model_path,
-          model_root: null, current_scenario: null, last_cycle_status: null,
+          model_root: null, parakeet_model_path: null,
+          current_scenario: null, last_cycle_status: null,
           resource_attempts: 0, last_heartbeat: null, exit_reason: null}' \
         > "$STATE_DIR/campaign_state.json"
     : > "$STATE_DIR/checkpoints.jsonl"
@@ -388,10 +392,12 @@ resolve_failure() {
         --arg symptom "$symptom" \
         --arg resolvedAt "$(timestamp_utc)" \
         --arg resolutionCode "$resolution_code" \
+        --arg fixCommit "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
         'if .status == "open" and .scenarioID == $scenarioID
             and .category == $category and .symptom == $symptom
          then .status = "fixed" | .resolvedAt = $resolvedAt
             | .resolutionCode = $resolutionCode
+            | .fixCommit = (.fixCommit // $fixCommit)
          else . end' \
         "$STATE_DIR/failure_queue.jsonl" > "$failure_temp"
     /bin/mv "$failure_temp" "$STATE_DIR/failure_queue.jsonl"
@@ -465,7 +471,7 @@ wake_pid=$!
 wait "$wake_pid"
 
 run_preflight() {
-    local preflight_number preflight_root prep_args helper_path audio_path provenance_path answer_quality_path harness_path
+    local preflight_number preflight_root prep_args helper_path parakeet_model_path audio_path provenance_path answer_quality_path harness_path
     preflight_number="$(printf '%03d' "$(( $(jq -r '.resume_count' "$STATE_FILE") + 1 ))")"
     preflight_root="$ARTIFACT_DIR/preflight/attempt-$preflight_number"
     /bin/mkdir -m 700 "$preflight_root" "$preflight_root/build-home" "$preflight_root/app-support"
@@ -488,11 +494,14 @@ run_preflight() {
     fi
     "$ROOT_DIR/scripts/verification/prepare_local_integration.sh" "${prep_args[@]}" \
         > "$ARTIFACT_DIR/logs/preflight-local-integration-$preflight_number.log" 2>&1
-    MODEL_ROOT="$(jq -er '.model_path' "$STATE_DIR/local_integration_environment.json")"
+    MODEL_ROOT="$(jq -er '.local_models_root' "$STATE_DIR/local_integration_environment.json")"
+    parakeet_model_path="$(jq -er '.model_path' "$STATE_DIR/local_integration_environment.json")"
     helper_path="$(jq -er '.helper_path' "$STATE_DIR/local_integration_environment.json")"
     audio_path="$(jq -er '.audio_path' "$STATE_DIR/local_integration_environment.json")"
     provenance_path="$(jq -er '.provenance_path' "$STATE_DIR/local_integration_environment.json")"
-    [[ -d "$MODEL_ROOT" && ! -L "$MODEL_ROOT" && -x "$helper_path" && -f "$audio_path" && -f "$provenance_path" ]] || {
+    [[ -d "$MODEL_ROOT" && ! -L "$MODEL_ROOT" &&
+       -d "$parakeet_model_path" && ! -L "$parakeet_model_path" &&
+       -x "$helper_path" && -f "$audio_path" && -f "$provenance_path" ]] || {
         echo "error: prepared local integration contract is incomplete" >&2
         return 1
     }
@@ -528,7 +537,7 @@ run_preflight() {
 
     HIREVA_REAL_PARAKEET_STREAM_TEST=1 \
     HIREVA_PARAKEET_HELPER_PATH="$helper_path" \
-    HIREVA_PARAKEET_MODEL_PATH="$MODEL_ROOT" \
+    HIREVA_PARAKEET_MODEL_PATH="$parakeet_model_path" \
     HIREVA_PARAKEET_TEST_AUDIO="$audio_path" \
     HIREVA_PARAKEET_TEST_AUDIO_PROVENANCE="$provenance_path" \
     HIREVA_DIRECT_ASR_METRICS_JSONL="$preflight_root/direct_asr_metrics.jsonl" \
@@ -541,8 +550,10 @@ run_preflight() {
         > "$ARTIFACT_DIR/logs/preflight-real-dialogue-$preflight_number.log" 2>&1
 
     state_temp="$(/usr/bin/mktemp "$STATE_DIR/.state.XXXXXX")"
-    jq --arg model_root "$MODEL_ROOT" --arg preflight_attempt "attempt-$preflight_number" \
+    jq --arg model_root "$MODEL_ROOT" --arg parakeet_model_path "$parakeet_model_path" \
+        --arg preflight_attempt "attempt-$preflight_number" \
         '.preflight_complete = true | .model_root = $model_root
+         | .parakeet_model_path = $parakeet_model_path
          | .preflight_attempt = $preflight_attempt | .status = "ready_for_soak"' \
         "$STATE_FILE" > "$state_temp"
     /bin/mv "$state_temp" "$STATE_FILE"
@@ -559,9 +570,9 @@ if [[ "$(jq -r '.preflight_complete' "$STATE_FILE")" != "true" ]]; then
     set -e
     if [[ "$preflight_status" -ne 0 ]]; then
         record_failure \
-            "real-app-continuation-preflight" \
-            "preflight" \
-            "Continuation preflight exited nonzero before the active soak timer started." \
+            "$PREFLIGHT_FAILURE_SCENARIO" \
+            "$PREFLIGHT_FAILURE_CATEGORY" \
+            "$PREFLIGHT_FAILURE_SYMPTOM" \
             "$ROOT_DIR/scripts/verification/resume_real_app_soak_continuation.sh --state-dir $STATE_DIR"
         FINAL_STATUS="failed"
         EXIT_REASON="preflight_failed"
@@ -574,6 +585,11 @@ resolve_failure \
     "$LOCKED_CONSOLE_CATEGORY" \
     "$LOCKED_CONSOLE_SYMPTOM" \
     "console_unlocked_and_preflight_complete"
+resolve_failure \
+    "$PREFLIGHT_FAILURE_SCENARIO" \
+    "$PREFLIGHT_FAILURE_CATEGORY" \
+    "$PREFLIGHT_FAILURE_SYMPTOM" \
+    "preflight_failure_resolved"
 
 MODEL_ROOT="$(jq -er '.model_root' "$STATE_FILE")"
 [[ -d "$MODEL_ROOT" && ! -L "$MODEL_ROOT" ]] || { echo "error: recorded model root is unavailable" >&2; exit 2; }

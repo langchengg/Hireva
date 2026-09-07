@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 ARTIFACT_DIR=""
 STATE_DIR=""
 REQUESTED_MODEL_PATH="${HIREVA_CAMPAIGN_PARAKEET_MODEL_PATH:-}"
+MODEL_STORAGE_RELATIVE_PATH="asr/parakeet-tdt-0.6b-v3-int8/asr-models-5793d0fd397c5778"
 
 usage() {
     cat <<'USAGE'
@@ -144,6 +145,21 @@ else
     exit 1
 fi
 
+case "$MODEL_PATH" in
+    */"$MODEL_STORAGE_RELATIVE_PATH")
+        LOCAL_MODELS_ROOT="${MODEL_PATH%/$MODEL_STORAGE_RELATIVE_PATH}"
+        ;;
+    *)
+        echo "error: Parakeet model is not installed at the app's canonical storage-relative path" >&2
+        exit 1
+        ;;
+esac
+[[ -d "$LOCAL_MODELS_ROOT" && ! -L "$LOCAL_MODELS_ROOT" &&
+   "$MODEL_PATH" == "$LOCAL_MODELS_ROOT/$MODEL_STORAGE_RELATIVE_PATH" ]] || {
+    echo "error: local model root does not resolve to the verified Parakeet model" >&2
+    exit 1
+}
+
 if [[ -n "$MODEL_MIGRATION_FILE" ]]; then
     for model_name in encoder.int8.onnx decoder.int8.onnx joiner.int8.onnx tokens.txt; do
         expected_hash="$(jq -r --arg name "$model_name" '.verifiedFileHashes[$name] // empty' "$MODEL_MIGRATION_FILE")"
@@ -194,13 +210,15 @@ ENVIRONMENT_TEMP="$(/usr/bin/mktemp "$STATE_DIR/.local-integration.XXXXXX")"
 jq -n \
     --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg helper_path "$HELPER_PATH" \
+    --arg local_models_root "$LOCAL_MODELS_ROOT" \
     --arg model_path "$MODEL_PATH" \
     --arg audio_path "$AUDIO_PATH" \
     --arg provenance_path "$PROVENANCE_PATH" \
     --arg ollama_model "qwen3.5:4b" \
     '{schema_version: 1, prepared_at_utc: $prepared_at,
       synthetic_audio: true, contains_real_personal_data: false,
-      helper_path: $helper_path, model_path: $model_path,
+      helper_path: $helper_path, local_models_root: $local_models_root,
+      model_path: $model_path,
       audio_path: $audio_path, provenance_path: $provenance_path,
       ollama_model: $ollama_model}' > "$ENVIRONMENT_TEMP"
 /bin/mv "$ENVIRONMENT_TEMP" "$ENVIRONMENT_FILE"
