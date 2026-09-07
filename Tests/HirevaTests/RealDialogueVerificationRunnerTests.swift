@@ -11,6 +11,7 @@ struct RealDialogueVerificationRunnerTests {
 
         #expect(result.status == 0)
         #expect(result.output.contains("runtime_compatibility_valid empty_helper_tracking=true"))
+        #expect(result.output.contains("substring_decoy_ignored=true"))
         #expect(result.output.contains("incomplete_real_run_status=1"))
     }
 

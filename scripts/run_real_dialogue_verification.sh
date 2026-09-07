@@ -84,6 +84,15 @@ process_matches_app() {
     [[ "$command" == "$APP_BINARY" || "$command" == "$APP_BINARY "* ]]
 }
 
+app_process_pids() {
+    local pid
+    while IFS= read -r pid; do
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        process_matches_app "$pid" || continue
+        printf '%s\n' "$pid"
+    done < <(/bin/ps -ax -o pid=)
+}
+
 process_matches_bundled_helper() {
     local command
     command="$(process_command "$1")"
@@ -194,7 +203,24 @@ if [[ "$RUNTIME_COMPATIBILITY_ONLY" == "true" ]]; then
     }
     RUN_REQUIRES_COMPLETION=false
     OWNED_HELPER_PIDS=()
-    echo "runtime_compatibility_valid empty_helper_tracking=true incomplete_real_run_status=$incomplete_status"
+    /bin/sh -c 'sleep 2; :' "$APP_BINARY" &
+    decoy_pid=$!
+    decoy_command="$(process_command "$decoy_pid")"
+    [[ "$decoy_command" == *"$APP_BINARY"* ]] || {
+        kill -TERM "$decoy_pid" >/dev/null 2>&1 || true
+        wait "$decoy_pid" >/dev/null 2>&1 || true
+        echo "runtime compatibility process decoy was not observable" >&2
+        exit 1
+    }
+    if app_process_pids | /usr/bin/grep -qx "$decoy_pid"; then
+        kill -TERM "$decoy_pid" >/dev/null 2>&1 || true
+        wait "$decoy_pid" >/dev/null 2>&1 || true
+        echo "runtime compatibility process identity admitted an argument-only match" >&2
+        exit 1
+    fi
+    kill -TERM "$decoy_pid" >/dev/null 2>&1 || true
+    wait "$decoy_pid" >/dev/null 2>&1 || true
+    echo "runtime_compatibility_valid empty_helper_tracking=true substring_decoy_ignored=true incomplete_real_run_status=$incomplete_status"
     exit 0
 fi
 
@@ -791,10 +817,10 @@ PRELAUNCH_QUIT_PID=$!
 wait_for_pid_exit "$PRELAUNCH_QUIT_PID" 20 || kill -TERM "$PRELAUNCH_QUIT_PID" >/dev/null 2>&1
 wait "$PRELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
 for _ in {1..20}; do
-    pgrep -f "$APP_BINARY" >/dev/null || break
+    [[ -n "$(app_process_pids)" ]] || break
     sleep 0.25
 done
-if pgrep -f "$APP_BINARY" >/dev/null; then
+if [[ -n "$(app_process_pids)" ]]; then
     echo "an existing Hireva process is still using the verification bundle" >&2
     exit 1
 fi
@@ -811,7 +837,7 @@ fi
 APP_LAUNCHED=true
 
 for _ in {1..80}; do
-    APP_PID_LIST="$(pgrep -f "$APP_BINARY" 2>/dev/null || true)"
+    APP_PID_LIST="$(app_process_pids)"
     APP_PID_COUNT="$(printf '%s\n' "$APP_PID_LIST" | awk 'NF { count++ } END { print count + 0 }')"
     if [[ "$APP_PID_COUNT" -eq 1 ]]; then
         OWNED_APP_PID="$APP_PID_LIST"
