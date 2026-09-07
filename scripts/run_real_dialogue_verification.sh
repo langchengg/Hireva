@@ -85,12 +85,12 @@ process_matches_app() {
 }
 
 app_process_pids() {
-    local pid
-    while IFS= read -r pid; do
+    local pid executable
+    while read -r pid executable; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        process_matches_app "$pid" || continue
+        [[ "$executable" == "$APP_BINARY" ]] || continue
         printf '%s\n' "$pid"
-    done < <(/bin/ps -ax -o pid=)
+    done < <(/bin/ps -ax -o pid=,comm=)
 }
 
 process_matches_bundled_helper() {

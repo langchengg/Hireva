@@ -19,6 +19,14 @@ struct RealDialogueVerificationRunnerTests {
     }
 
     @Test
+    func testAppDiscoveryUsesOneProcessTableSnapshot() throws {
+        let runner = try String(contentsOf: runnerURL, encoding: .utf8)
+
+        #expect(runner.contains("done < <(/bin/ps -ax -o pid=,comm=)"))
+        #expect(!runner.contains("done < <(/bin/ps -ax -o pid=)"))
+    }
+
+    @Test
     func testScenarioValidationAcceptsExplicitSmallMatrixCounts() throws {
         let result = try validateScenario(
             sessions: [[
