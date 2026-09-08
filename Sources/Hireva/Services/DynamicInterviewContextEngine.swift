@@ -101,7 +101,23 @@ struct AnswerClaimValidator {
         let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model "]
             .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
         let sensitiveFactPossession = containsSensitivePersonalFactReference(sentence)
-        return firstPerson && (claimVerb || personalAsset || sensitiveFactPossession)
+        let implicitCandidateOutcome = isImplicitCompletedCandidateOutcome(sentence)
+        return implicitCandidateOutcome || (firstPerson && (claimVerb || personalAsset || sensitiveFactPossession))
+    }
+
+    private func isImplicitCompletedCandidateOutcome(_ sentence: String) -> Bool {
+        let lower = sentence.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let outcomeSubjectPattern = #"^(?:the|this|that)\s+(?:result|outcome)\b"#
+        guard lower.range(of: outcomeSubjectPattern, options: .regularExpression) != nil else {
+            return false
+        }
+        let prospectivePattern = #"\b(?:would|will|could|should|may|might)\b"#
+        guard lower.range(of: prospectivePattern, options: .regularExpression) == nil else {
+            return false
+        }
+        let completedOutcomePattern = #"\b(?:was|were|has\s+been|had\s+been|achieved|generated|produced|served|reached|improved|reduced|deployed|launched|shipped|scaled)\b"#
+        return lower.range(of: completedOutcomePattern, options: .regularExpression) != nil
     }
 
     private func isExplicitEvidenceDenial(_ sentence: String) -> Bool {

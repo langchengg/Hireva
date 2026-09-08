@@ -540,6 +540,79 @@ struct DynamicCandidateContextTests {
     }
 
     @Test
+    func implicitCandidateOutcomeCannotAddUnsupportedAudienceScale() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "The result was a stable system that successfully served one million users while meeting the requirement to build shared platform primitives.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Built a model promotion pipeline with immutable artifact identifiers.",
+                    type: .project
+                ),
+                SyntheticContextFixtures.evidence(
+                    "Used staged checks for reproducibility, serving health, and rollback readiness.",
+                    type: .experience
+                ),
+                SyntheticContextFixtures.evidence(
+                    "Tested rollback recovery after an unversioned feature artifact caused failure.",
+                    type: .skill
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func implicitCandidateOutcomeParaphraseRequiresEvidence() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "That outcome reached twenty customers after launch.",
+            candidateEvidence: [
+                SyntheticContextFixtures.evidence(
+                    "Built a model promotion pipeline with immutable artifact identifiers.",
+                    type: .project
+                )
+            ],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.count == 1)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func documentedImplicitCandidateOutcomeRemainsSupported() {
+        let evidence = SyntheticContextFixtures.evidence(
+            "The outcome was a stable system that served one million users.",
+            type: .project
+        )
+        let decision = AnswerClaimValidator().validate(
+            answer: "The outcome was a stable system that served one million users.",
+            candidateEvidence: [evidence],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs == [evidence.id])
+    }
+
+    @Test
+    func prospectiveOutcomeIsNotReclassifiedAsCompletedExperience() {
+        let decision = AnswerClaimValidator().validate(
+            answer: "The result would be a stable system capable of serving one million users after controlled validation.",
+            candidateEvidence: [],
+            opportunityEvidence: [],
+            domainKnowledge: []
+        )
+
+        #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
     func documentedCausativeFirstPersonPluralDeploymentRemainsSupported() {
         let evidence = SyntheticContextFixtures.evidence(
             "This approach allowed us to deploy the model promotion pipeline to one million users.",
