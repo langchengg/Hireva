@@ -440,6 +440,18 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         let modelStatus: String
     }
 
+    private struct PendingAudioWrite {
+        let generation: Int
+        let sequence: Int
+        let inputHandle: FileHandle
+        let reservedByteCount: Int
+    }
+
+    private struct MonoAudioChunk {
+        let samples: [Float]
+        let sampleRate: Double
+    }
+
     private let executableURLProvider: () -> URL?
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -610,22 +622,23 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
     }
 
     func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime, source: AudioSourceType) {
-        guard let reservation = reserveAudioSequence() else { return }
-        guard let audioEvent = Self.audioEventData(
-            from: buffer,
-            sequence: reservation.sequence,
-            source: source
-        ) else { return }
-        var audioLine = audioEvent
-        audioLine.append(0x0A)
-        guard let inputHandle = commitAudioWrite(
-            generation: reservation.generation,
-            byteCount: audioLine.count
-        ) else { return }
+        guard let reservedByteCount = Self.pendingAudioByteEstimate(for: buffer),
+              let reservation = reserveAudioWrite(byteCount: reservedByteCount) else { return }
+        guard let chunk = Self.monoAudioChunk(from: buffer) else {
+            releaseAudioWrite(byteCount: reservation.reservedByteCount)
+            return
+        }
         inputQueue.async { [self] in
-            defer { self.releaseAudioWrite(byteCount: audioLine.count) }
+            defer { self.releaseAudioWrite(byteCount: reservation.reservedByteCount) }
+            guard let audioEvent = Self.audioEventData(
+                from: chunk,
+                sequence: reservation.sequence,
+                source: source
+            ) else { return }
+            var audioLine = audioEvent
+            audioLine.append(0x0A)
             do {
-                try inputHandle.write(contentsOf: audioLine)
+                try reservation.inputHandle.write(contentsOf: audioLine)
             } catch {
                 let currentStreamStillOwnsInput = self.withInputStateLock {
                     self.acceptsAudio && reservation.generation == self.streamGeneration
@@ -705,28 +718,24 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         }
     }
 
-    private func reserveAudioSequence() -> (generation: Int, sequence: Int)? {
+    private func reserveAudioWrite(byteCount: Int) -> PendingAudioWrite? {
         withInputStateLock {
-            guard acceptsAudio, stdinHandle != nil else { return nil }
-            audioSequence += 1
-            return (streamGeneration, audioSequence)
-        }
-    }
-
-    private func commitAudioWrite(generation: Int, byteCount: Int) -> FileHandle? {
-        withInputStateLock {
-            guard acceptsAudio,
-                  generation == streamGeneration,
-                  let stdinHandle,
-                  byteCount <= Self.maximumPendingAudioBytes,
+            guard acceptsAudio, let stdinHandle else { return nil }
+            guard byteCount <= Self.maximumPendingAudioBytes,
                   pendingAudioChunks < Self.maximumPendingAudioChunks,
                   pendingAudioBytes <= Self.maximumPendingAudioBytes - byteCount else {
                 droppedAudioChunks += 1
                 return nil
             }
+            audioSequence += 1
             pendingAudioChunks += 1
             pendingAudioBytes += byteCount
-            return stdinHandle
+            return PendingAudioWrite(
+                generation: streamGeneration,
+                sequence: audioSequence,
+                inputHandle: stdinHandle,
+                reservedByteCount: byteCount
+            )
         }
     }
 
@@ -743,11 +752,16 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
         return try operation()
     }
 
-    private static func audioEventData(
-        from buffer: AVAudioPCMBuffer,
-        sequence: Int,
-        source: AudioSourceType
-    ) -> Data? {
+    private static func pendingAudioByteEstimate(for buffer: AVAudioPCMBuffer) -> Int? {
+        let frameLength = Int(buffer.frameLength)
+        guard buffer.floatChannelData != nil, frameLength > 0,
+              frameLength <= (maximumPendingAudioBytes - 2_048) / 12 else { return nil }
+        let rawMonoBytes = frameLength * MemoryLayout<Float>.size
+        let base64Bytes = ((rawMonoBytes + 2) / 3) * 4
+        return rawMonoBytes + (base64Bytes * 2) + 2_048
+    }
+
+    private static func monoAudioChunk(from buffer: AVAudioPCMBuffer) -> MonoAudioChunk? {
         guard let channelData = buffer.floatChannelData else { return nil }
         let channelCount = Int(buffer.format.channelCount)
         let frameLength = Int(buffer.frameLength)
@@ -762,14 +776,21 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
             }
             monoSamples.append(sample / Float(channelCount))
         }
+        return MonoAudioChunk(samples: monoSamples, sampleRate: buffer.format.sampleRate)
+    }
 
-        let audioData = monoSamples.withUnsafeBufferPointer { pointer in
+    private static func audioEventData(
+        from chunk: MonoAudioChunk,
+        sequence: Int,
+        source: AudioSourceType
+    ) -> Data? {
+        let audioData = chunk.samples.withUnsafeBufferPointer { pointer in
             Data(buffer: pointer)
         }
         let payload: [String: Any] = [
             "type": "audio",
             "sequence": sequence,
-            "sampleRate": buffer.format.sampleRate,
+            "sampleRate": chunk.sampleRate,
             "channels": 1,
             "encoding": "float32le",
             "audioSource": source.rawValue,

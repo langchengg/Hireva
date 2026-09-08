@@ -317,6 +317,31 @@ struct ParakeetNativeRuntimeTests {
     }
 
     @Test
+    func audioSerializationDoesNotRunOnTheCaptureCallbackCallStack() throws {
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/Hireva/Services/LocalASRProviders.swift"),
+            encoding: .utf8
+        )
+        let runtimeStart = try #require(source.range(of: "final class ParakeetSidecarRuntimeClient"))
+        let runtimeAndFollowingSource = source[runtimeStart.lowerBound...]
+        let appendStart = try #require(runtimeAndFollowingSource.range(
+            of: "    func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime, source: AudioSourceType)"
+        ))
+        let appendAndFollowingSource = runtimeAndFollowingSource[appendStart.lowerBound...]
+        let appendEnd = try #require(appendAndFollowingSource.range(of: "\n    func stop() async"))
+        let appendImplementation = appendAndFollowingSource[..<appendEnd.lowerBound]
+        let asynchronousWrite = try #require(appendImplementation.range(of: "inputQueue.async"))
+        let captureCallbackWork = appendImplementation[..<asynchronousWrite.lowerBound]
+        let queuedWork = appendImplementation[asynchronousWrite.lowerBound...]
+
+        #expect(
+            !captureCallbackWork.contains("audioEventData("),
+            "Base64 and JSON serialization must not block ScreenCaptureKit's sample handler queue."
+        )
+        #expect(queuedWork.contains("audioEventData("))
+    }
+
+    @Test
     func asynchronousStopPathRejectsUnboundedFoundationProcessWait() throws {
         let source = try String(
             contentsOf: repositoryRoot.appendingPathComponent("Sources/Hireva/Services/LocalASRProviders.swift"),
