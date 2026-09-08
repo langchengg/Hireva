@@ -531,6 +531,8 @@ struct SoakResourceMetricsTests {
         #expect(runner.contains("--helper-path"))
         #expect(runner.contains("/bin/bash \"$RESOURCE_RUNNER\""))
         #expect(runner.contains("/bin/bash \\\"$RESOURCE_RUNNER\\\" --output \\\"$resource_csv\\\""))
+        #expect(runner.contains("if [[ -n \"$RESOURCE_PID\" ]] && ! kill -0 \"$RESOURCE_PID\" >/dev/null 2>&1; then"))
+        #expect(!runner.contains("if ! kill -0 \"$RESOURCE_PID\" >/dev/null 2>&1; then"))
         #expect(runner.contains("heartbeat.json"))
         #expect(runner.contains("checkpoints.jsonl"))
         #expect(runner.contains("active_elapsed_seconds"))
@@ -550,6 +552,9 @@ struct SoakResourceMetricsTests {
         #expect(runner.contains("console_session_locked"))
         #expect(runner.contains("resolve_failure"))
         #expect(runner.contains("console_unlocked_and_preflight_complete"))
+        #expect(runner.contains("finalize_campaign()"))
+        #expect(runner.contains("finalize_campaign \"target_already_recorded_analysis_running\""))
+        #expect(!runner.contains("target active duration is already recorded; no additional time was added"))
         #expect(runner.contains(".local_models_root"))
         #expect(runner.contains("parakeet_model_path"))
         #expect(runner.contains("preflight_failure_resolved"))
@@ -565,6 +570,68 @@ struct SoakResourceMetricsTests {
         #expect(analyzer.contains("provider_first_answer_content_ms"))
         #expect(analyzer.contains("app_rss_bytes"))
         #expect(analyzer.contains("app_open_file_count"))
+    }
+
+    @Test
+    func continuationAnalyzerSeparatesCompletedResourceEvidenceFromFailedAttempts() throws {
+        let directory = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let resources = directory.appendingPathComponent("resources", isDirectory: true)
+        let logs = directory.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+
+        let header = "timestamp_utc,app_process_count\n"
+        try Data((header + "2026-09-08T00:00:00Z,0\n").utf8).write(
+            to: resources.appendingPathComponent("resource_metrics_attempt_001.csv")
+        )
+        try Data((header + "2026-09-08T00:01:00Z,1\n").utf8).write(
+            to: resources.appendingPathComponent("resource_metrics_attempt_002.csv")
+        )
+        try Data((header + "2026-09-08T00:02:00Z,0\n").utf8).write(
+            to: resources.appendingPathComponent("resource_metrics_attempt_003.csv")
+        )
+        try Data("error: target was not observed\n".utf8).write(
+            to: logs.appendingPathComponent("resource_metrics_attempt_001.log")
+        )
+        try Data("samples=1\nexpected_samples=1\nexact_target_samples=1\ncollection_errors=0\n".utf8).write(
+            to: logs.appendingPathComponent("resource_metrics_attempt_002.log")
+        )
+        try Data("samples=1\nexpected_samples=1\nexact_target_samples=1\ncollection_errors=0\n".utf8).write(
+            to: logs.appendingPathComponent("resource_metrics_attempt_003.log")
+        )
+
+        let analyzerURL = repositoryRoot.appendingPathComponent(
+            "scripts/verification/analyze_real_app_soak_continuation.py"
+        )
+        let python = """
+        import importlib.util
+        import json
+        import pathlib
+        import sys
+        spec = importlib.util.spec_from_file_location("continuation_analyzer", sys.argv[1])
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        all_rows, completed_rows, completed_attempts = module.load_resource_evidence(
+            pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+        )
+        print(json.dumps({
+            "all": len(all_rows),
+            "completed": len(completed_rows),
+            "attempts": completed_attempts,
+        }))
+        """
+        let result = try runPython(
+            arguments: ["-c", python, analyzerURL.path, resources.path, logs.path]
+        )
+        try #require(result.status == 0, Comment(rawValue: result.output))
+        let payload = try #require(result.output.data(using: .utf8))
+        let decoded = try #require(
+            JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        )
+        #expect(decoded["all"] as? Int == 3)
+        #expect(decoded["completed"] as? Int == 1)
+        #expect(decoded["attempts"] as? [String] == ["attempt_002"])
     }
 
     private func collectorConfiguration(
@@ -692,5 +759,27 @@ struct SoakResourceMetricsTests {
 
     private func fileSize(_ url: URL) throws -> Int {
         try #require(url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func runPython(arguments: [String]) throws -> (status: Int32, output: String) {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = arguments
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        process.waitUntilExit()
+        return (
+            process.terminationStatus,
+            String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
     }
 }

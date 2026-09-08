@@ -404,6 +404,31 @@ resolve_failure() {
     /bin/mv "$failure_temp" "$STATE_DIR/failure_queue.jsonl"
 }
 
+finalize_campaign() {
+    local analysis_reason="$1"
+    FINAL_STATUS="analyzing"
+    EXIT_REASON="$analysis_reason"
+    write_state "$FINAL_STATUS" "$EXIT_REASON"
+    if ! python3 "$ANALYZER" --state-dir "$STATE_DIR" --artifact-dir "$ARTIFACT_DIR" \
+        > "$ARTIFACT_DIR/logs/final-analysis.log" 2>&1; then
+        FINAL_STATUS="failed"
+        EXIT_REASON="final_analysis_failed"
+        return 1
+    fi
+    FINAL_STATUS="completed"
+    EXIT_REASON="target_active_duration_reached"
+    write_state "$FINAL_STATUS" "$EXIT_REASON"
+    if ! python3 "$ANALYZER" --state-dir "$STATE_DIR" --artifact-dir "$ARTIFACT_DIR" \
+        >> "$ARTIFACT_DIR/logs/final-analysis.log" 2>&1; then
+        FINAL_STATUS="failed"
+        EXIT_REASON="final_report_refresh_failed"
+        return 1
+    fi
+    CAMPAIGN_COMPLETE=true
+    printf 'REAL_APP_SOAK_CONTINUATION=completed active_seconds=%s cycles=%s artifact_dir=%s\n' \
+        "$BASE_ACTIVE_SECONDS" "$(jq -r '.completed_cycles' "$STATE_FILE")" "$ARTIFACT_DIR"
+}
+
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -616,10 +641,7 @@ MODEL_ROOT="$(jq -er '.model_root' "$STATE_FILE")"
 
 BASE_ACTIVE_SECONDS="$(jq -r '.active_elapsed_seconds' "$STATE_FILE")"
 if (( BASE_ACTIVE_SECONDS >= TARGET_ACTIVE_SECONDS )); then
-    CAMPAIGN_COMPLETE=true
-    FINAL_STATUS="completed"
-    EXIT_REASON="target_already_recorded_no_time_added"
-    echo "target active duration is already recorded; no additional time was added"
+    finalize_campaign "target_already_recorded_analysis_running"
     exit 0
 fi
 ATTEMPT_STARTED_MONOTONIC="$(monotonic_seconds)"
@@ -697,7 +719,7 @@ while (( $(current_active_seconds) < TARGET_ACTIVE_SECONDS )); do
         now="$(monotonic_seconds)"
         if (( now - LAST_HEARTBEAT_MONOTONIC >= 300 )); then write_heartbeat; fi
         if (( now - LAST_CHECKPOINT_MONOTONIC >= 1800 )); then write_checkpoint; fi
-        if ! kill -0 "$RESOURCE_PID" >/dev/null 2>&1; then
+        if [[ -n "$RESOURCE_PID" ]] && ! kill -0 "$RESOURCE_PID" >/dev/null 2>&1; then
             set +e
             wait "$RESOURCE_PID"
             RESOURCE_EXIT_STATUS=$?
@@ -846,24 +868,4 @@ COUNTING_ACTIVE=false
     EXIT_REASON="active_duration_not_reached"
     exit 1
 }
-FINAL_STATUS="analyzing"
-EXIT_REASON="target_reached_analysis_running"
-write_state "$FINAL_STATUS" "$EXIT_REASON"
-if ! python3 "$ANALYZER" --state-dir "$STATE_DIR" --artifact-dir "$ARTIFACT_DIR" \
-    > "$ARTIFACT_DIR/logs/final-analysis.log" 2>&1; then
-    FINAL_STATUS="failed"
-    EXIT_REASON="final_analysis_failed"
-    exit 1
-fi
-FINAL_STATUS="completed"
-EXIT_REASON="target_active_duration_reached"
-write_state "$FINAL_STATUS" "$EXIT_REASON"
-if ! python3 "$ANALYZER" --state-dir "$STATE_DIR" --artifact-dir "$ARTIFACT_DIR" \
-    >> "$ARTIFACT_DIR/logs/final-analysis.log" 2>&1; then
-    FINAL_STATUS="failed"
-    EXIT_REASON="final_report_refresh_failed"
-    exit 1
-fi
-CAMPAIGN_COMPLETE=true
-printf 'REAL_APP_SOAK_CONTINUATION=completed active_seconds=%s cycles=%s artifact_dir=%s\n' \
-    "$BASE_ACTIVE_SECONDS" "$(jq -r '.completed_cycles' "$STATE_FILE")" "$ARTIFACT_DIR"
+finalize_campaign "target_reached_analysis_running"

@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import re
 from pathlib import Path
 from statistics import fmean
 from typing import Any, Iterable
@@ -139,6 +140,54 @@ def load_resource_rows(resource_root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def load_resource_evidence(
+    resource_root: Path, log_root: Path
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    all_rows = load_resource_rows(resource_root)
+    completed_summaries: dict[str, dict[str, int]] = {}
+    required_summary_fields = {
+        "samples",
+        "expected_samples",
+        "exact_target_samples",
+        "collection_errors",
+    }
+    for log_path in sorted(log_root.glob("resource_metrics_attempt_*.log")):
+        match = re.fullmatch(r"resource_metrics_(attempt_\d+)\.log", log_path.name)
+        if match is None:
+            continue
+        values: dict[str, int] = {}
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key in required_summary_fields and value.isdigit():
+                values[key] = int(value)
+        if required_summary_fields.issubset(values) and values["samples"] > 0:
+            completed_summaries[match.group(1)] = values
+
+    rows_by_attempt: dict[str, list[dict[str, Any]]] = {}
+    for row in all_rows:
+        match = re.fullmatch(
+            r"resource_metrics_(attempt_\d+)(?:\.\d+)?\.csv",
+            str(row.get("resource_file", "")),
+        )
+        if match is not None:
+            rows_by_attempt.setdefault(match.group(1), []).append(row)
+
+    completed_attempts: list[str] = []
+    completed_rows: list[dict[str, Any]] = []
+    for attempt, summary in sorted(completed_summaries.items()):
+        attempt_rows = rows_by_attempt.get(attempt, [])
+        exact_target_samples = sum(
+            row.get("app_process_count") == 1.0 for row in attempt_rows
+        )
+        if (
+            len(attempt_rows) == summary["samples"]
+            and exact_target_samples == summary["exact_target_samples"]
+        ):
+            completed_attempts.append(attempt)
+            completed_rows.extend(attempt_rows)
+    return all_rows, completed_rows, completed_attempts
+
+
 def score_summary(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
     values = numeric(rows, field)
     return {
@@ -168,7 +217,9 @@ def main() -> int:
     asr_rows = load_jsonl(artifact_dir / "results/asr_accuracy.jsonl")
     answer_rows = load_jsonl(artifact_dir / "results/answer_quality.jsonl")
     real_latency_rows = load_jsonl(artifact_dir / "results/pipeline_latency.jsonl")
-    resource_rows = load_resource_rows(artifact_dir / "resources")
+    all_resource_rows, resource_rows, completed_resource_attempts = load_resource_evidence(
+        artifact_dir / "resources", artifact_dir / "logs"
+    )
     recorded_preflight = state.get("preflight_attempt")
     if isinstance(recorded_preflight, str) and recorded_preflight:
         preflight_roots = [artifact_dir / "preflight" / recorded_preflight]
@@ -179,11 +230,18 @@ def main() -> int:
     provider_rows = load_globbed_jsonl(root / "provider_only_metrics.jsonl" for root in preflight_roots)
     direct_asr_rows = load_globbed_jsonl(root / "direct_asr_metrics.jsonl" for root in preflight_roots)
 
+    all_app_rows = [row for row in all_resource_rows if row.get("app_process_count") == 1.0]
     app_rows = [row for row in resource_rows if row.get("app_process_count") == 1.0]
     resource_metrics = {
         "samples": len(resource_rows),
         "exact_app_samples": len(app_rows),
         "exact_app_sample_coverage": (len(app_rows) / len(resource_rows)) if resource_rows else 0.0,
+        "completed_attempts": completed_resource_attempts,
+        "all_attempt_samples": len(all_resource_rows),
+        "all_attempt_exact_app_samples": len(all_app_rows),
+        "all_attempt_exact_app_sample_coverage": (
+            len(all_app_rows) / len(all_resource_rows) if all_resource_rows else 0.0
+        ),
         "app_rss_bytes": nearest_rank(numeric(app_rows, "app_rss_bytes")),
         "app_open_file_count": nearest_rank(numeric(app_rows, "app_open_file_count")),
         "helper_rss_bytes": nearest_rank(numeric(resource_rows, "helper_rss_bytes")),
@@ -336,6 +394,8 @@ def main() -> int:
 - Real answers scored: {answer_quality['real_app_records']}
 - Resource samples: {resource_metrics['samples']}
 - Exact-app sample coverage: {resource_metrics['exact_app_sample_coverage']:.3%}
+- All-attempt resource samples (including failed/interrupted collectors): {resource_metrics['all_attempt_samples']}
+- All-attempt exact-app sample coverage: {resource_metrics['all_attempt_exact_app_sample_coverage']:.3%}
 - Corpus WER: {metrics['asr']['real_screencapturekit']['word_error_rate']:.6f}
 - Normalized character edit distance: {metrics['asr']['real_screencapturekit']['normalized_character_edit_distance']:.6f}
 - Unsupported personal claims: {answer_quality['hard_failures']['unsupportedPersonalClaim']}
