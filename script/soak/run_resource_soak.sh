@@ -89,15 +89,26 @@ LSOF_PATH="$(command -v lsof || true)"
 
 BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hireva-resource-metrics.XXXXXX")"
 COLLECTOR="$BUILD_DIR/resource_metrics"
+COLLECTOR_PID=""
 COMMAND_PID=""
 
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
+    if [[ -n "$COLLECTOR_PID" ]]; then
+        if kill -0 "$COLLECTOR_PID" 2>/dev/null; then
+            kill -TERM "$COLLECTOR_PID" 2>/dev/null || true
+        fi
+    fi
     if [[ -n "$COMMAND_PID" ]]; then
         if kill -0 "$COMMAND_PID" 2>/dev/null; then
-            kill "$COMMAND_PID" 2>/dev/null || true
+            kill -TERM "$COMMAND_PID" 2>/dev/null || true
         fi
+    fi
+    if [[ -n "$COLLECTOR_PID" ]]; then
+        wait "$COLLECTOR_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$COMMAND_PID" ]]; then
         wait "$COMMAND_PID" 2>/dev/null || true
     fi
     rm -rf "$BUILD_DIR"
@@ -152,4 +163,11 @@ if (( ${#HELPER_PATHS[@]} > 0 )); then
     done
 fi
 
-"$COLLECTOR" "${COLLECTOR_ARGS[@]}"
+"$COLLECTOR" "${COLLECTOR_ARGS[@]}" &
+COLLECTOR_PID=$!
+set +e
+wait "$COLLECTOR_PID"
+collector_status=$?
+set -e
+COLLECTOR_PID=""
+exit "$collector_status"
