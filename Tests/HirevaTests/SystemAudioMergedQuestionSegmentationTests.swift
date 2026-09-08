@@ -621,7 +621,7 @@ private final class MergedQuestionLLMClient: LLMClientProtocol, @unchecked Senda
             return "The most fragile challenge was production delivery and response latency across the ingestion and storage handoff. I debugged it using trace identifiers, per-stage timestamps, and schema validation, then applied staged fixes and rollback verification."
         }
         if lower.contains("join our team") {
-            return "I want to join this team because the role aligns with my experience building reliable deployed distributed systems, and I am motivated to contribute to its engineering responsibilities."
+            return "I want a product-engineering role focused on reliable local-first systems. I built an event-intake service connecting ingestion, validation, storage, notification, and recovery."
         }
         return "I would answer the latest interviewer question directly with a specific distributed-systems example."
     }

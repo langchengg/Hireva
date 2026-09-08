@@ -773,7 +773,7 @@ private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
             return "I used a modular system architecture with ingestion, validation, storage, and notification components connected by explicit interfaces; trace-based validation and recovery tests covered each execution handoff."
         }
         if lower.contains("operated a production system") {
-            return "I have not operated a customer production system; I operated an isolated staging service, where my role covered validation and failure testing within that limited scope."
+            return "I have not operated a production system. I operated an isolated staging service with a modular ingestion, validation, storage, and notification architecture."
         }
         return "Before the current project, I completed a software engineering programme and built programming, database, and API skills; that earlier background led me into event-processing work."
     }

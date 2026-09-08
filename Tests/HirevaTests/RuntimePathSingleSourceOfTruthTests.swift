@@ -2511,8 +2511,8 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
             content = """
             {
               "strategy": "Improvement plan",
-              "say_first": "If I had one more month to improve SyntheticEventService, I would first strengthen the production-service evaluation pipeline with more objects, more initial positions, and more failure cases, then improve classification robustness under schema drift and occlusion, spatial consistency checks, schema validation diagnostics, and closed-loop recovery.",
-              "key_points": ["Broaden SyntheticEventService evaluation with more objects and initial positions.", "Add more failure-case testing for the full retrieval pipeline.", "Improve robust classification, spatial consistency, schema validation diagnostics, and recovery after missed classifications or failed deliveries."],
+              "say_first": "If I had one more month to improve SyntheticEventService, I would first extend its evaluation using the documented schema drift and occlusion tests, then validate its recovery behavior.",
+              "key_points": ["Extend SyntheticEventService evaluation using documented schema drift and occlusion tests.", "Validate recovery behavior."],
               "follow_up_ready": ["I can also explain how I would measure whether those changes improved production-service reliability."],
               "confidence": 0.9,
               "caution": "None",
@@ -2716,16 +2716,15 @@ private final class RuntimePathLLMClient: LLMClientProtocol, @unchecked Sendable
                 currentQuestion.localizedCaseInsensitiveContains("improve your Synthetic Event Service") {
                 if isFullCardPrompt {
                     text = """
-                    SAY_FIRST: If I had one more month to improve SyntheticEventService, I would first strengthen the production-service evaluation pipeline with more objects, more initial positions, and more failure cases, then improve classification robustness under schema drift and occlusion, spatial consistency checks, schema validation diagnostics, and closed-loop recovery.
+                    SAY_FIRST: If I had one more month to improve SyntheticEventService, I would first extend its evaluation using the documented schema drift and occlusion tests, then validate its recovery behavior.
                     KEY_POINTS:
-                    - Broaden SyntheticEventService evaluation with more objects and initial positions.
-                    - Add more failure-case testing for the full retrieval pipeline.
-                    - Improve robust classification, spatial consistency, schema validation diagnostics, and recovery after missed classifications or failed deliveries.
+                    - Extend SyntheticEventService evaluation using documented schema drift and occlusion tests.
+                    - Validate recovery behavior.
                     FOLLOW_UP:
                     - I can also explain how I would measure whether those changes improved production-service reliability.
                     """
                 } else {
-                    text = "If I had one more month to improve SyntheticEventService, I would first strengthen the production-service evaluation pipeline with more objects, more initial positions, and more failure cases, then improve classification robustness under schema drift and occlusion, spatial consistency checks, schema validation diagnostics, and closed-loop recovery."
+                    text = "If I had one more month to improve SyntheticEventService, I would first extend its evaluation using the documented schema drift and occlusion tests, then validate its recovery behavior."
                 }
             } else if currentQuestion.localizedCaseInsensitiveContains("difference between your batch-policy project") ||
                 currentQuestion.localizedCaseInsensitiveContains("difference between your villa project") ||
