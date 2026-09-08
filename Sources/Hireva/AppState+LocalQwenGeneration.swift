@@ -140,13 +140,6 @@ extension AppState {
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
-        let groundedRecoveryRequest = groundedLocalQwenRecoveryRequest(
-            question: question,
-            context: promptSnapshot.ragContextSnapshot,
-            modelName: modelName,
-            previousQuestionContext: previousQuestionContext
-        )
-
         var cleanedAnswer = ""
         var lastFailureCategory: OllamaFailureCategory = .providerReturnedNoContent
         var lastFailureDiagnostic = lastFailureCategory.rawValue
@@ -157,6 +150,13 @@ extension AppState {
         let groundedFailureCandidateEvidence = localQwenGroundedFailureCandidateEvidence(
             promptSnapshot: promptSnapshot,
             interviewContextSnapshot: interviewContextSnapshot
+        )
+        let groundedRecoveryRequest = groundedLocalQwenRecoveryRequest(
+            question: question,
+            context: promptSnapshot.ragContextSnapshot,
+            modelName: modelName,
+            previousQuestionContext: previousQuestionContext,
+            candidateEvidenceStatements: groundedFailureCandidateEvidence
         )
         let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
         for requestIndex in requests.indices {
@@ -254,8 +254,9 @@ extension AppState {
                         answer,
                         candidateEvidence: groundedFailureCandidateEvidence
                     )
-                } else if request.responseFormat == "json" {
-                    parsed = LocalQwenGroundedFailureParser.parse(
+                } else if request.responseFormat == "json",
+                          localQwenUsesGroundedFailureJSON(for: question) {
+                    parsed = LocalQwenGroundedFailureParser.parseEvidenceSelection(
                         answer,
                         candidateEvidence: groundedFailureCandidateEvidence
                     )
@@ -367,7 +368,7 @@ extension AppState {
             modelName: modelName,
             promptVersion: usedGroundedFalsePremiseJSON
                 ? "ollama-qwen-grounded-false-premise-v1"
-                : (usedGroundedFailureJSON ? "ollama-qwen-grounded-failure-v1" : "ollama-qwen-v1"),
+                : (usedGroundedFailureJSON ? "ollama-qwen-grounded-failure-v2" : "ollama-qwen-v1"),
             providerKind: .ollamaLocal,
             providerName: "Ollama Qwen",
             providerBaseURL: "http://localhost:11434",
@@ -702,7 +703,8 @@ extension AppState {
         question: DetectedQuestion,
         context: RetrievedContext,
         modelName: String,
-        previousQuestionContext: String?
+        previousQuestionContext: String?,
+        candidateEvidenceStatements: [String]
     ) -> LocalLLMRequest {
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
@@ -753,6 +755,20 @@ extension AppState {
             )
         }
         if localQwenUsesGroundedFailureJSON(for: question) {
+            let documentedFailureEvidence = LocalQwenGroundedFailureParser.documentedFailureEvidence(
+                in: candidateEvidenceStatements
+            )
+            let selectionEvidence = documentedFailureEvidence.isEmpty
+                ? candidateEvidenceStatements
+                : documentedFailureEvidence
+            let selectionEvidenceText = localQwenRecoveryEvidence(
+                statements: selectionEvidence,
+                maxWords: 180,
+                emptyMessage: "No selected candidate evidence is available."
+            )
+            let selectionGuidance = documentedFailureEvidence.isEmpty
+                ? "No candidate evidence documents a specific failure. Select one exact candidate-evidence sentence that states the closest supported action or check; the local validator will construct an honest limitation statement."
+                : "The candidate evidence below is limited to statements that explicitly document a failure or challenge. Select the one exact sentence closest to the current question; the local validator will construct the spoken answer."
             let prompt = """
             /no_think
             Current interview question:
@@ -763,7 +779,7 @@ extension AppState {
 
             Candidate evidence allowed for personal claims:
             <candidate_evidence>
-            \(candidateEvidence)
+            \(selectionEvidenceText)
             </candidate_evidence>
 
             Opportunity context is not candidate evidence and must never be presented as personal experience:
@@ -771,16 +787,15 @@ extension AppState {
             \(opportunityContext)
             </opportunity_context>
 
-            Return exactly one JSON object with the keys "failure" and "evidence".
-            When <candidate_evidence> explicitly states a failure or challenge, "failure" must be a short phrase copied exactly and contiguously from that evidence.
-            Set "failure" to an empty string when no specific failure is stated anywhere in <candidate_evidence>; the local validator will construct an honest limitation statement.
-            "evidence" must be one complete sentence copied exactly and contiguously from <candidate_evidence> that states the supported action or check.
-            Never copy from <opportunity_context>. Do not paraphrase, infer, rank, explain, or add facts.
-            Use exactly this JSON shape and no other keys: {"failure":"exact candidate-evidence phrase","evidence":"exact candidate-evidence sentence"}
+            \(selectionGuidance)
+            Return exactly one JSON object with the key "evidence".
+            "evidence" must be one complete sentence copied exactly and contiguously from <candidate_evidence>.
+            Never copy from <opportunity_context>. Do not paraphrase, infer, explain, or add facts.
+            Use exactly this JSON shape and no other keys: {"evidence":"exact candidate-evidence sentence"}
             """
             return LocalLLMRequest(
                 prompt: prompt,
-                systemPrompt: "/no_think Return one JSON object only, using exact substrings from candidate evidence and never opportunity context.",
+                systemPrompt: "/no_think Return one JSON object only, selecting one exact complete sentence from candidate evidence and never opportunity context.",
                 modelName: modelName,
                 temperature: 0,
                 numPredict: 180,
@@ -870,6 +885,21 @@ extension AppState {
             : selected
         guard !source.isEmpty else { return emptyMessage }
         return ContextBudgeter.limitWords(source, maxWords: maxWords)
+    }
+
+    private func localQwenRecoveryEvidence(
+        statements: [String],
+        maxWords: Int,
+        emptyMessage: String
+    ) -> String {
+        let selected = statements
+            .map {
+                "- \(localQwenEscapedRecoveryEvidence($0.trimmingCharacters(in: .whitespacesAndNewlines)))"
+            }
+            .filter { $0 != "- " }
+            .joined(separator: "\n")
+        guard !selected.isEmpty else { return emptyMessage }
+        return ContextBudgeter.limitWords(selected, maxWords: maxWords)
     }
 
     private func localQwenEscapedRecoveryEvidence(_ text: String) -> String {

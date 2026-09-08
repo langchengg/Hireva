@@ -364,6 +364,51 @@ enum LocalQwenGroundedFailureParser {
         )
     }
 
+    static func parseEvidenceSelection(
+        _ raw: String,
+        candidateEvidence: [String]
+    ) -> LocalQwenParsedAnswer {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == Set(["evidence"]),
+              let requestedEvidence = object["evidence"] as? String else {
+            return rejected(result: "grounded_failure_evidence_json_rejected")
+        }
+
+        let evidence = requestedEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !evidence.isEmpty,
+              evidence.count <= 800,
+              let matchedEvidence = exactSupportedStatement(evidence, in: candidateEvidence) else {
+            return rejected(result: "grounded_failure_evidence_json_rejected")
+        }
+
+        let evidenceSentence = firstPersonSentence(from: matchedEvidence)
+        guard !evidenceSentence.isEmpty else {
+            return rejected(result: "grounded_failure_evidence_json_rejected")
+        }
+        let failureEvidence = documentedFailureEvidence(in: candidateEvidence)
+        if failureEvidence.isEmpty {
+            return LocalQwenParsedAnswer(
+                sayFirst: "For the system or pipeline under discussion, I do not have evidence documenting a specific failure. \(evidenceSentence)",
+                sectionParserResult: "grounded_failure_evidence_json_missing_failure",
+                failureCategory: nil
+            )
+        }
+        guard exactSupportedStatement(matchedEvidence, in: failureEvidence) != nil else {
+            return rejected(result: "grounded_failure_evidence_json_rejected")
+        }
+        return LocalQwenParsedAnswer(
+            sayFirst: "The closest documented failure I can support is this: \(evidenceSentence)",
+            sectionParserResult: "grounded_failure_evidence_json",
+            failureCategory: nil
+        )
+    }
+
+    static func documentedFailureEvidence(in evidence: [String]) -> [String] {
+        evidence.filter { containsDocumentedFailure(in: [$0]) }
+    }
+
     private static func exactSupportedSubstring(
         _ requested: String,
         in evidence: [String]
@@ -421,10 +466,15 @@ enum LocalQwenGroundedFailureParser {
         ]
         return evidence.contains { statement in
             let tokens = TextChunker.tokenize(statement.replacingOccurrences(of: "-", with: " "))
-            if !Set(tokens).isDisjoint(with: singleTokenTerms) {
+            let pairs = zip(tokens, tokens.dropFirst()).map { "\($0.0) \($0.1)" }
+            var matchedSingleTokenTerms = Set(tokens).intersection(singleTokenTerms)
+            if pairs.contains("defect detection") || pairs.contains("defects detection") {
+                matchedSingleTokenTerms.remove("defect")
+                matchedSingleTokenTerms.remove("defects")
+            }
+            if !matchedSingleTokenTerms.isEmpty {
                 return true
             }
-            let pairs = zip(tokens, tokens.dropFirst()).map { "\($0.0) \($0.1)" }
             return pairs.contains("false positive") || pairs.contains("false positives") ||
                 pairs.contains("false negative") || pairs.contains("false negatives")
         }
