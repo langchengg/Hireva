@@ -129,7 +129,10 @@ struct AnswerClaimValidator {
             " i have no evidence ",
             " i cannot substantiate ",
             " i can't substantiate ",
-            " i can’t substantiate "
+            " i can’t substantiate ",
+            " i cannot confirm ",
+            " i can't confirm ",
+            " i can’t confirm "
         ]
         if evidenceDenials.contains(where: lower.contains) {
             let affirmativeContinuation = [

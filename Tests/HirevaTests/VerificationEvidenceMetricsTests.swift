@@ -269,6 +269,13 @@ struct VerificationEvidenceMetricsTests {
         #expect(!denial.unsupportedPersonalClaim)
         #expect(!denial.hardFail)
 
+        let confirmationDenial = record(
+            answer: "I do not have evidence for that claim. I implemented scoped features with explicit input validation and added unit and integration tests, but I cannot confirm deployment to one million users or revenue generation."
+        )
+        #expect(confirmationDenial.forbiddenClaimHits == 0)
+        #expect(!confirmationDenial.unsupportedPersonalClaim)
+        #expect(!confirmationDenial.hardFail)
+
         let hiddenAssertion = record(answer: "I do not have evidence for that revenue claim, but I deployed the service to one million users.")
         #expect(hiddenAssertion.forbiddenClaimHits == 1)
         #expect(hiddenAssertion.unsupportedPersonalClaim)
