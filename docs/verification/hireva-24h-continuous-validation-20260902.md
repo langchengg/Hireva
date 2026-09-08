@@ -3,16 +3,17 @@
 ## Executive Summary
 
 - Campaign: `hireva-24h-20260831T152152Z`
-- UTC wall span: 2026-08-31 15:21:52 to 2026-09-02 01:12:57.
+- Original UTC wall span: 2026-08-31 15:21:52 to 2026-09-02 01:12:57.
+- Corrective campaign UTC wall span: 2026-09-02 07:19:49 to 2026-09-08 14:18:52; only 6:02:01 of active execution inside that interrupted span was counted.
 - Counted active execution: 88,305 seconds (`24:31:45`), above the 86,400-second target. Manual investigation and inactive interruption time were conservatively excluded.
-- Duration result: the full 24-hour active-duration requirement was reached. The final status is `completed_with_failures`, not an unconditional release pass.
-- Verified core result: the isolated System Audio + local Parakeet + local Qwen configuration passed a real `Hireva.app` matrix of 16 sessions and 128 synthetic audio turns, with 80/80 expected questions accepted, 48/48 non-questions rejected, 80 aligned visible/persisted answers, and zero observed false trigger, stale visible answer, unsupported claim, duplicate question group, identity mismatch, source/speaker mismatch, SQLite integrity failure, or residual app/helper process.
-- Automated result: 903 tests passed three consecutive ordinary runs, then passed full TSan and ASan runs; RuntimeSmoke passed 12/12; the complete stability gate passed.
-- Answer result: deterministic semantic alignment was 781/800 (`97.625%`), deterministic grounding was 800/800, and real-audio final visible answers were aligned and candidate-grounded 80/80. This is not a claim that every possible interview answer is correct.
-- Defects: 30 recorded defects were fixed and verified. Two campaign-evidence gaps remain open: H24-0035 (the long soak was automated test rotation, not a continuous real-app interview/resource soak) and H24-0036 (incomplete per-answer, WER, and separated latency telemetry).
-- Primary risk: the campaign does not provide longitudinal real-app RSS/open-file/disk evidence or complete provider-only/direct-ASR/first-token metrics. This blocks an Overall Local GO even though the tested System Audio + Parakeet + Qwen slice is suitable for controlled synthetic use.
+- Duration result: the original campaign reached the full 24-hour active-duration requirement. A resumable corrective campaign then added 21,721 seconds (`6:02:01`) of real-app soak, bringing counted active engineering and validation time to 110,026 seconds (`30:33:46`). Interrupted wall-clock time was never counted.
+- Verified core result: System Audio + local Parakeet + local Qwen passed 170 real `Hireva.app` sessions and 1,360 synthetic system-audio turns across the original and corrective matrices. The corrective soak alone completed 154 sessions, 1,232 turns, 770 accepted questions/answers, and 1,640 completed-attempt resource samples.
+- Automated result at code commit `b804190`: three consecutive 943-test full suites passed, followed by full TSan and ASan passes, RuntimeSmoke 12/12, the reconciled stability gate, an independent signed-app launch, and metadata-only DB diagnostics.
+- Answer result: the corrective real-app corpus scored mean relevance 4.932/5, evidence grounding 5/5, directness 2.969/3, completeness 3/3, spoken fluency 3/3, and role fit 3/3 across 770 answers. All recorded hard-failure counts were zero. This is not a claim that every possible interview answer is correct.
+- Defects: all 32 original H24 records are fixed. H24-0035 and H24-0036 were closed by the corrective campaign; its own 32 H24C failure records are also fixed with zero open failures.
+- Primary risk: Apple Speech, physical microphone, simultaneous dual-source capture, optional DeepSeek, and public notarized distribution remain unverified or NO-GO. The GO verdict is limited to the real System Audio + Parakeet + Qwen local configuration.
 - Capabilities used: repository scripts, Swift Package Manager, Swift Testing, real bundled `Hireva.app`, ScreenCaptureKit, local Parakeet/sherpa-onnx/ONNX Runtime, local Ollama Qwen, GRDB/SQLite, macOS `say`/audio playback, Git, `jq`, `curl`, GitHub/official documentation research, sanitizers, and code-signing diagnostics. No write-capable external connector, optional plugin, subagent, real third-party interview recording, or private CV was used.
-- Reuse decision: 112 external sources informed behavior and design; `codeCopied=true` is zero. External implementations were reference-only, with license checks recorded before independent Hireva-specific fixes.
+- Reuse decision: 151 source-ledger entries informed behavior and design across both campaigns; `codeCopied=true` is zero. External implementations were reference-only, with license checks recorded before independent Hireva-specific fixes.
 
 ## Git Safety
 
@@ -20,8 +21,8 @@
 - Backup branch: `backup/hireva-pre-24h-20260831-161121`.
 - Backup tag: `backup-hireva-pre-24h-20260831-161121`.
 - Working branch: `codex/hireva-24h-continuous-validation-20260831-161121`.
-- Last verified code commit before this report: `6f01307249e1ba254d829926e5adf500c7525814`.
-- Push status: ordinary, non-force pushes succeeded through `6f01307`; the report commit is also pushed before final handoff.
+- Last fully verified code commit before this report: `b8041906ab82f0a49b7fdea4252a0de385395d3a`.
+- Push status: ordinary, non-force pushes succeeded through `b804190`; the final report-only commit is pushed before handoff.
 - Main status: local `main` and `origin/main` both remained at `005e06187d40bf11f6a0b3f4b4a19a325b411e61`. No main merge, reset, force-push, or destructive cleanup was performed.
 - Generated databases, traces, audio, logs, models, and result JSONL remain outside the repository under the campaign artifact root.
 
@@ -35,11 +36,13 @@ The active durations below are derived from persisted checkpoints. They exclude 
 | Research, regression construction, fixes, corpus, real audio | 01:24:45 | 112-source research log, 1,280-turn corpus, question/grounding fixes, real `.app` audio matrix, SQLite tie-out | 16 roles and 128 real system-audio turns passed after fail-first repair cycles |
 | Automated soak and periodic gates | 22:11:45 | 8 focused suites rotated over 8,220 cycles; `.app` verification every 20 cycles; full stability every 100 cycles | All resumed cycles passed; this was not the specified continuous real-app interview/resource soak (H24-0035) |
 | Final gates and terminal reporting | 00:31:38 | Three full suites, TSan, ASan, RuntimeSmoke, stability, app, DB, release, signing, report reconciliation | Correctness gates passed; signing remained ad hoc; reporting-order defect H24-0034 was fixed afterward |
-| **Total counted active execution** | **24:31:45** | 72 persisted checkpoints, one recorded interruption, three resumes | **24-hour duration reached; 30 fixed defects; 2 evidence gaps open** |
+| Corrective real-app soak | 06:02:01 | 154 signed-app sessions, 1,232 real system-audio turns, resource sampling, WER, answer rubrics, separated latency, failure-first repair | H24-0035/H24-0036 closed; 32/32 H24C records fixed |
+| Post-closure final gates | 00:00:00 campaign time | Three full suites, TSan, ASan, RuntimeSmoke, reconciled stability, signed app, DB/release/signing diagnostics | All correctness gates passed at `b804190`; this verification time was not added to the persisted campaign counters |
+| **Total persisted active execution** | **30:33:46** | Original campaign plus resumable corrective campaign; inactive wall time excluded | **24-hour target and six-hour corrective real-app soak reached; zero open campaign failures** |
 
 ## Online And GitHub Research
 
-The research ledger contains 112 entries: 73 official sources, 31 repository sources, and 8 issue reports. Issue reports were used only as hypotheses. No external code was copied.
+The original and corrective research ledgers contain 151 entries in total. Issue reports were used only as hypotheses. No external code was copied.
 
 | Problem | Official Source | GitHub Cases | Applied Finding | License Check |
 |---|---|---|---|---|
@@ -53,6 +56,7 @@ The research ledger contains 112 entries: 73 official sources, 31 repository sou
 | Async test synchronization | [Swift Testing parallelization](https://developer.apple.com/documentation/Testing/Parallelization), [Swift concurrency](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/) | [Swift Testing confirmation](https://github.com/swiftlang/swift-testing/blob/1dea52cdf305f7a8f33d5b3c6adc14dfacb5b004/Sources/Testing/Issues/Confirmation.swift), [issue 978](https://github.com/swiftlang/swift-testing/issues/978) | Await exact question-specific events and task results instead of generic prefixes or sleeps | Apache-2.0 with runtime exception; no code copied |
 | Process paths containing spaces | [Apple Darwin ps](https://github.com/apple-oss-distributions/adv_cmds/blob/6bed8737a34dbb54782a18f47dccf933a9967a12/ps/ps.1), [GNU Bash read](https://www.gnu.org/software/bash/manual/bash.html#Bash-Builtins) | [Darwin pgrep/pkill](https://github.com/apple-oss-distributions/adv_cmds/blob/6bed8737a34dbb54782a18f47dccf933a9967a12/pkill/pkill.1) | Parse `ps ... comm` into PID plus the remaining command value; use bounded TERM/KILL convergence | BSD-3-Clause/GNU docs; no code copied |
 | Terminal report ordering | [GNU Bash command lists](https://www.gnu.org/software/bash/manual/html_node/Lists.html) | Local fail-first contract test; no external implementation reused | Persist terminal state before invoking the synchronous analyzer | GNU FDL documentation; behavior paraphrased; no code copied |
+| Capture-callback serialization/backpressure | [Apple ScreenCaptureKit capture flow](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos), [AVCaptureAudioDataOutput delegate queue](https://developer.apple.com/documentation/avfoundation/avcaptureaudiodataoutput/setsamplebufferdelegate(_:queue:)) | [Recordly recorder](https://github.com/Jan-Eichhorn/Recordly/tree/a5bb4263b6a30d979ea6c5e5da86ef4553273dd3), [listnr SystemAudioCapture](https://github.com/rokib16x/listnr/tree/c17bab7554b54429e527015f8f4c50bad3e6ee67) | Keep the ownership-safe audio copy on the capture callback, but reserve bounded capacity first and move Base64/JSON serialization plus pipe writes to the bounded serial writer queue | Recordly AGPL-3.0 reference-only; listnr MIT reference-only; no code copied |
 
 ## Coverage
 
@@ -63,20 +67,20 @@ The research ledger contains 112 entries: 73 official sources, 31 repository sou
 | Synthetic candidate profiles | 10 |
 | Opportunity contexts | 48 |
 | Automated interview sessions | 160 |
-| Real `.app` interview sessions | 16 |
-| Total distinct sessions across those two matrices | 176 |
+| Real `.app` interview sessions | 170 (16 original + 154 corrective) |
+| Total sessions across automated and real matrices | 330 |
 | Automated dialogue turns | 1,280 |
-| Real system-audio turns | 128 |
+| Real system-audio turns | 1,360 (128 original + 1,232 corrective) |
 | Automated positive / negative turns | 800 / 480 |
-| Real-audio positive / negative turns | 80 / 48 |
-| Combined expected positive / negative turns | 880 / 528 |
+| Real-audio positive / negative turns | 850 / 510 |
+| Combined automated + real positive / negative turns | 1,650 / 990 |
 | Rapid/cancellation turns in deterministic manifest | 160 |
 | Partial/final/replay turns in deterministic manifest | 160 |
 | Missing-evidence/adversarial turns | 160 |
-| Real-audio rapid transitions | 16 |
-| Real-audio unique audio SHA-256 values | 128 |
-| Failure records | 32 total: 30 fixed, 2 open |
-| Consolidated injected-failure turn count | Not recorded; automated fault suites ran, but no auditable aggregate counter was emitted |
+| Real-audio rapid transitions | At least 170 scenario-level rapid-generation-supersession injections across both matrices |
+| Corrective completed-attempt resource samples | 1,640; 1,555 exact-app samples (`94.817%`) |
+| Failure records | Original: 32 fixed / 0 open; corrective: 32 fixed / 0 open |
+| Consolidated injected-failure turn count | Not emitted as a single cross-campaign count; per-cycle injection identity is retained in `cycle_results.jsonl` |
 
 The corpus is deterministic with seed `20260831`, contains no real personal data, and has 1,181 distinct normalized utterances. Each core role has three seniority contexts, ten sessions, eighty automated turns, and at least three independent public source hosts.
 
@@ -102,6 +106,27 @@ Each row combines ten deterministic sessions (80 turns: 50 trigger, 30 reject) w
 | Graduate Software Engineer | 11 | 88 | 88/88 | 55/55 | 0 hard final failures |
 | Founding Engineer / Startup AI Engineer | 11 | 88 | 88/88 | 55/55 | 0 hard final failures |
 | Security / Privacy Engineer | 11 | 88 | 88/88 | 55/55 | 0 hard final failures |
+
+The corrective soak added the following real-app-only coverage. Every turn was semantically accepted as its reviewed scenario expected; each accepted question produced one aligned, grounded, exactly-once suggestion.
+
+| Role Family | Sessions | Turns | Trigger Accuracy | Grounded Answers | Failures |
+|---|---:|---:|---:|---:|---:|
+| Robotics Research Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| Robotics Software Engineer | 9 | 72 | 72/72 | 45/45 | 0 |
+| Embodied AI / VLA Engineer | 9 | 72 | 72/72 | 45/45 | 0 |
+| Computer Vision Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| Machine Learning Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| Applied Scientist | 10 | 80 | 80/80 | 50/50 | 0 |
+| AI Research Scientist / PhD Interview | 10 | 80 | 80/80 | 50/50 | 0 |
+| AI Infrastructure / MLOps Engineer | 9 | 72 | 72/72 | 45/45 | 0 |
+| Backend Software Engineer | 9 | 72 | 72/72 | 45/45 | 0 |
+| Distributed Systems Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| macOS / Swift Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| Systems / Platform Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| Data Scientist | 9 | 72 | 72/72 | 45/45 | 0 |
+| Graduate Software Engineer | 9 | 72 | 72/72 | 45/45 | 0 |
+| Founding Engineer / Startup AI Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
+| Security / Privacy Engineer | 10 | 80 | 80/80 | 50/50 | 0 |
 
 ## Dialogue Results
 
@@ -154,8 +179,9 @@ Each row combines ten deterministic sessions (80 turns: 50 trigger, 30 reject) w
 | H24-0032 | P1 | Context test intermittently observed an empty second prompt | Test waited for a generic first-question prefix, not exact second retrieval completion | Swift Testing/concurrency/issue 978 | One-shot gate, exact question waits, awaited tasks | `c50a61b` | Fixed |
 | H24-0033 | P1 | Cleanup missed app path containing spaces | `awk $2` truncated the executable path; first replacement also hit pipefail | Darwin ps/pgrep, Bash read | Path-safe process contract + real app | `342fb05` | Fixed |
 | H24-0034 | P2 | First terminal report still said `running` | Analyzer ran before terminal state persistence | GNU Bash command ordering | Fail-first finalization-order test | `6f01307` | Fixed |
-| H24-0035 | P1 | Long soak lacks continuous real-app turn/resource evidence | Supervisor rotates test filters and discrete app launches | User campaign specification and local script inspection | Not yet written | — | **Open** |
-| H24-0036 | P2 | Per-answer rubric, WER, and separated latency streams are incomplete | Runners did not serialize the requested measurements | Local artifact/schema inspection | Not yet written | — | **Open** |
+| H24-0035 | P1 | Long soak lacked continuous real-app turn/resource evidence | Original supervisor rotated test filters and discrete app launches | Campaign specification and local script inspection | Corrective continuation gates for duration, exact-app sampling, cleanup, and SQLite identity | `2d824d4` plus corrective evidence at `b804190` | **Fixed** — 6:02:01, 154 sessions, 1,232 turns, 1,640 samples |
+| H24-0036 | P2 | Per-answer rubric, WER, and separated latency streams were incomplete | Original runners did not serialize the requested measurements | Local artifact/schema inspection | Analyzer tests for missing fields, answer quality, WER, and separated paths | `c47995a` plus corrective evidence at `b804190` | **Fixed** — complete corrective metrics emitted |
+| H24C-0032 | P1 | Replayed rapid follow-up degraded to “You too” under real app load | Base64/JSON audio serialization and pipe preparation ran synchronously on the serial ScreenCaptureKit callback queue, producing `coreaudiod` client-timeout overloads | Apple capture/delegate-queue docs; Recordly and listnr compared as reference-only | `audioSerializationDoesNotRunOnTheCaptureCallbackCallStack` plus real signed-app replay | `b804190` | **Fixed** — 8/8 transcripts, 5/5 Q/G/visible/DB, no residue |
 
 ## Answer Quality
 
@@ -165,29 +191,30 @@ Each row combines ten deterministic sessions (80 turns: 50 trigger, 30 reject) w
 | Deterministic candidate-evidence grounding | 800/800 (`100%`) | Every triggering fixture passed `AnswerClaimValidator` with its allowed candidate evidence |
 | Required concepts | 800/800 | Deterministic exact concept checks |
 | First-person, spoken, maximum four sentences | 800/800 | Deterministic shape checks |
-| Real final answer alignment/grounding | 80/80 | Independent event and SQLite tie-outs |
-| Unsupported personal claims | 0 observed | Hard gate in deterministic corpus and real SQLite tie-out |
-| Wrong-profile evidence | 0 observed | Frozen snapshot and cross-profile tests; forbidden evidence checks |
-| JD-to-experience conversion | 0 observed | Opportunity evidence partition and candidate-only personal claim validation |
-| Future-to-past conversion | 0 observed | Prospective/denial regressions and candidate evidence validation |
-| Stale visible answer | 0 observed in final automated and 16-session real matrix | Question/generation/session/context identity and visible-event tie-out |
-| Duplicate successful persistence | 0 observed | 800 deterministic ledger entries exactly once; 80 real rows with no duplicate question groups |
-| Rubric scores for relevance 0–5, directness 0–3, fluency 0–3, completeness 0–3, role fit 0–3 | Not recorded | `answer_quality_results.jsonl` remained empty; H24-0036 |
+| Corrective real-app answers | 770/770 aligned, grounded, and exactly once | Structured per-answer evidence joined to app events and SQLite |
+| Relevance | mean 4.932/5; p50/p90/p95/p99 5/5 | 770 corrective real-app answers |
+| Evidence grounding | mean 5/5; p50/p90/p95/p99 5/5 | 770 corrective real-app answers |
+| Directness | mean 2.969/3; p50/p90/p95/p99 3/3 | 770 corrective real-app answers |
+| Spoken fluency / completeness / role fit | mean 3/3 for each | 770 corrective real-app answers |
+| Unsupported personal claims | 0 | Deterministic and corrective hard gate |
+| Wrong profile/job evidence | 0 / 0 | Frozen snapshot and per-answer identity checks |
+| JD-to-experience / future-to-past | 0 / 0 | Candidate/opportunity partition and tense/claim validators |
+| Stale answer / answer-question mismatch / context bleed | 0 / 0 / 0 | Question, generation, session, and context identity joins |
+| Duplicate successful persistence / provider source mislabel | 0 / 0 | Per-cycle SQLite and source metadata tie-outs |
 
-Ten unsafe or mis-shaped real Qwen candidates across five frozen identities were rejected by alignment; each identity later produced exactly one aligned visible and persisted answer. No independent second-model judge result was recorded, so deterministic validators and human-readable evidence remain the only audited quality layers.
+The quality layer combines deterministic validators, structured rubric scoring, and retained human-readable reports. No independent second-model judge was used, so the report does not describe these scores as an omniscient quality judgment.
 
 ## ASR And Audio
 
 - Apple Speech: automated permission, cumulative replay, source metadata, and failure-path tests passed. No real `.app` Apple Speech audio session was run; this configuration is `NOT VERIFIED`.
-- Parakeet: the real `.app` matrix observed 128/128 final transcripts, accepted 80/80 expected questions, rejected 48/48 non-questions, and produced zero false trigger or source/speaker mismatch.
-- ScreenCaptureKit: all 16 sessions emitted a first-buffer event and used the real bundled app with independent synthetic system-audio playback. Probe teardown races were reproduced and fixed before the final matrix.
+- Parakeet: the original and corrective real-app matrices observed 1,360/1,360 final transcripts. The corrective corpus WER was `0.032073` and normalized character edit distance was `0.010298`; direct-WAV WER was 0 across three utterances.
+- ScreenCaptureKit: 170 sessions used the real bundled app with independent synthetic system-audio playback. Corrective semantic acceptance was 1,232/1,232, including a critical-clean subset of 251/251; false triggers were zero.
 - Voices/locales: Daniel (`en_GB`), Karen (`en_AU`), Samantha (`en_US`), and Tingting (`zh_CN`); three English voices and four locale slots.
 - Rates: 145, 175, and 210 words per minute.
-- Audio profiles: 26 clean, 20 low-volume, 21 high-volume-limited, 20 synthetic white-noise, 21 synthetic café-noise, and 20 mild-echo utterances; all 128 audio hashes were unique.
+- Audio profiles: clean, low-volume, high-volume-limited, synthetic white-noise, synthetic café-noise, mild echo, rapid follow-up, pauses, fillers, corrections, acronyms, numbers, and mixed Chinese/English. All media remained locally generated and synthetic.
 - Dialogue phenomena in the real matrix include direct questions, false premises, missing evidence, system design, panel transitions, candidate speech, partial/final, and rapid follow-ups.
-- WER and normalized edit distance: not recorded because the privacy-safe event stream retained transcript counts and acceptance evidence rather than recognized/reference text pairs. H24-0036 remains open.
-- Semantic question acceptance: 80/80 (`100%`) for expected triggers; rejection accuracy 48/48 (`100%`); false trigger 0.
-- Source attribution: 128/128 observed transcripts remained `systemAudio` / interviewer / local Parakeet in the independent tie-out.
+- Semantic question acceptance: original expected triggers 80/80 and rejections 48/48; corrective turns 1,232/1,232 matched their reviewed semantic expectation. False trigger, wrong source, and wrong speaker counts were zero.
+- Source attribution: real transcripts remained `systemAudio` / interviewer / local Parakeet in the independent tie-outs. Apple Speech was never mislabeled as Parakeet in automated source tests.
 - Real physical microphone and simultaneous dual-source capture were not revalidated.
 
 ## Real App Verification
@@ -199,84 +226,84 @@ Ten unsafe or mis-shaped real Qwen candidates across five frozen identities were
 - ASR: local Parakeet helper with source metadata and bounded lifecycle.
 - Question/RAG: accepted questions were bound to frozen session/profile/opportunity/context identities; contextual follow-up and cache identity regressions passed.
 - Provider: local Ollama Qwen; provider candidates remained subject to alignment and deterministic candidate-evidence validation.
-- UI/persistence: 80 distinct final visible suggestions matched 80 question, generation, session, context, and SQLite records.
-- SQLite: 16/16 isolated databases returned `quick_check=ok`; no foreign-key, duplicate, unsupported-claim, context, or source mismatch was observed.
+- UI/persistence: the original 80 and corrective 770 final visible suggestions matched their question, generation, session, context, and SQLite records.
+- SQLite: the corrective 154 isolated databases contained 770 suggestions with zero null or duplicate identities; the final metadata-only diagnostic sampled 5 rows with 5 distinct suggestion and question IDs, all aligned/completed.
 - Cleanup: final independent app count 0 and helper count 0.
-- Final launch-only DB diagnostics correctly showed zero suggestion rows because that final gate did not inject an interview; the separate real-audio matrix contains the 80-row tie-out.
+- The final launch-only gate used an isolated home; the explicit DB diagnostic targeted the completed corrective cycle 154 database rather than production Application Support.
 - Signing: internal code-signature verification passed in ad-hoc mode. This is not public-distribution evidence.
 
 ## Performance
 
-Real-audio values below were reconstructed with nearest-rank percentiles from persisted playback timestamps and privacy-safe event timestamps. App events have one-second timestamp granularity, so sub-second provider/UI distinctions must not be inferred.
+Corrective-campaign values use persisted monotonic interval measurements. Paths remain separate; sanitizer timing is excluded from product performance judgments.
 
 | Path / interval | n | p50 | p90 | p95 | p99 | max |
 |---|---:|---:|---:|---:|---:|---:|
-| Deterministic RuntimeSmoke 64-case turn-to-persist harness | 59 triggers | 274.0 ms | Not emitted | 303.9 ms | Not emitted | 324.4 ms |
-| Provider-only | — | Not recorded | Not recorded | Not recorded | Not recorded | Not recorded |
-| Direct WAV ASR | — | Not recorded | Not recorded | Not recorded | Not recorded | Not recorded |
-| Real audio end → ASR final | 128 | 0.554 s | 1.151 s | 1.259 s | 1.631 s | 1.836 s |
-| Real ASR final → question accepted | 80 | 0.000 s | 0.000 s | 0.000 s | 1.000 s | 1.000 s |
-| Real question accepted → visible answer | 80 | 3.000 s | 4.000 s | 5.000 s | 9.000 s | 9.000 s |
-| Real question accepted → persistence event | 80 | 3.000 s | 4.000 s | 5.000 s | 9.000 s | 9.000 s |
-| Real audio end → visible answer | 80 | 3.343 s | 4.295 s | 5.562 s | 9.308 s | 9.308 s |
-| Real audio end → persistence event | 80 | 3.460 s | 4.295 s | 5.562 s | 9.308 s | 9.308 s |
+| Deterministic 64-case harness elapsed | 64 | 291.7 ms | 337.7 ms | 343.4 ms | 471.0 ms | 471.0 ms |
+| Provider-only → first answer content | 5 | 247.2 ms | 3267.6 ms | 3267.6 ms | 3267.6 ms | 3267.6 ms |
+| Provider-only → complete | 5 | 1483.6 ms | 4451.5 ms | 4451.5 ms | 4451.5 ms | 4451.5 ms |
+| Direct WAV ASR → first final | 3 | 11988.5 ms | 32777.5 ms | 32777.5 ms | 32777.5 ms | 32777.5 ms |
+| Direct WAV ASR → decode complete | 3 | 32851.9 ms | 32851.9 ms | 32851.9 ms | 32851.9 ms | 32851.9 ms |
+| Real SCK question accepted → RAG complete | 770 | 1 ms | 1 ms | 1 ms | 2 ms | 4 ms |
+| Real SCK question accepted → provider first content | 770 | 1243 ms | 1416 ms | 1488 ms | 1569 ms | 4232 ms |
+| Real SCK question accepted → first/full visible | 770 | 2731 ms | 5090 ms | 7443 ms | 8707 ms | 9627 ms |
+| Real SCK question accepted → persistence complete | 770 | 2811 ms | 5185 ms | 7511 ms | 8777 ms | 9702 ms |
 
-Per-utterance playback-start → first ScreenCaptureKit buffer, provider first-content, first-token versus full-card, RAG completion, and direct-ASR percentile series were not persisted. They are part of H24-0036 and must not be inferred from `suggestion.visible`.
+“Provider first content” is the earliest non-empty answer-content event exported by the provider boundary. It is not a lower-level tokenizer callback and is not relabeled as one.
 
 ## Soak Results
 
 | Measure | Result |
 |---|---|
-| Counted long-loop active duration | 22:11:45 |
-| Focused test cycles | 8,220 passed |
-| Focused suite families | 8 |
-| Periodic app verification | 411 loop launches; 414 total app scenario records including baseline/final |
-| Periodic full stability | 82 loop gates; 84 total stability records including baseline/final |
-| Real-app soak sessions / turns inside long loop | Not recorded; discrete verification launches did not drive 3–10 real turns per cycle |
-| Post-fix crashes | 0 observed |
-| Historical hangs | 2 occurrences under H24-0021; root cause fixed; none observed in the resumed loop |
-| `SQLITE_BUSY` | 0 observed in passing stress/stability gates |
+| Original automated-loop active duration / cycles | 22:11:45 / 8,220 passed |
+| Corrective real-app active duration | 6:02:01; six-hour target reached |
+| Corrective real-app cycles / sessions / turns | 154 / 154 / 1,232 |
+| Accepted questions / persisted suggestions | 770 / 770 |
+| Crashes / hangs / `SQLITE_BUSY` | 0 / 0 / 0 in completed corrective cycles |
 | Orphan helpers/apps at finish | 0 / 0 |
-| Memory trend | Not recorded longitudinally |
-| Disk/DB/trace growth trend | Not recorded longitudinally |
-| Privacy leaks | 0 observed in automated privacy gates and final repository/artifact scans |
+| Completed-attempt samples | 1,640 total; 1,555 exact-app (`94.817%`) |
+| App RSS | first 136,331,264 B; last 148,258,816 B; delta +11,927,552 B; p50 147,390,464 B; max 837,402,624 B |
+| App open files | p50 31; p95 32; max 33 |
+| Helper RSS / open files | p50 966,311,936 B / 4; max 1,196,032,000 B / 4 |
+| Ollama RSS | p50 5,114,707,968 B; max 5,137,612,800 B |
+| Per-session DB / trace / WAL max | 208,896 B / 50,404 B / 0 B |
+| Artifact-root disk growth | p50 436,789,248 B; max 766,083,072 B across retained evidence |
+| Privacy leaks | 0 observed in privacy gates and final scans |
 
-The elapsed time and regression volume exceed six hours, but this does **not** satisfy the specified six-hour continuous real-app interview/resource soak. H24-0035 remains a P1 validation gap.
+RSS is the resident-set value sampled by `ps`, not macOS physical footprint. The transient app maximum coincided with model/runtime transitions; first-to-last RSS increased by about 11.4 MiB, while open-file, per-session DB, trace, and WAL series remained bounded. This is evidence against an observed unbounded leak, not a proof that no leak can exist.
 
 ## Automated Gates
 
 | Gate | Result |
 |---|---|
-| Full suite run 1 | PASS — 903/903, coverage enabled, 218.224 s |
-| Full suite run 2 | PASS — 903/903, 216.318 s |
-| Full suite run 3 | PASS — 903/903, 213.593 s |
-| Full TSan | PASS — 903/903, 294.172 s; no race diagnostic observed |
-| Full ASan | PASS — 903/903, 357.247 s; no ASan/LeakSanitizer diagnostic observed |
-| RuntimeSmoke | PASS — 12/12, 32.146 s |
-| Stability gate | PASS — build, reconciled full suite, RuntimeSmoke, and app verification; 354 s |
-| Real app verification | PASS — correct bundle path/ID/architecture and live PID |
-| Privacy canary | PASS for recorded automated gates and final scans; no literal secret value retained |
-| DB tie-out | PASS — 16/16 `quick_check=ok`, 80 aligned rows, zero duplicate/identity/source/foreign-key failure |
+| Full suite run 1 | PASS — 943/943, coverage enabled, 231.829 s |
+| Full suite run 2 | PASS — 943/943, 232.880 s |
+| Full suite run 3 | PASS — 943/943, 224.991 s |
+| Full TSan | PASS — 943/943, 306.593 s; exit 0 and no ThreadSanitizer race diagnostic |
+| Full ASan | PASS — 943/943, 397.114 s; exit 0 and no AddressSanitizer/LeakSanitizer diagnostic |
+| RuntimeSmoke | PASS — 12/12, 33.130 s |
+| Stability gate | PASS — build, fresh-scratch reconciled 943/943, RuntimeSmoke, and app verification; 378 s |
+| Real app verification | PASS — `dist/Hireva.app`, `com.langcheng.Hireva`, arm64, nested signatures valid, isolated launch, clean exit |
+| Privacy canary | PASS — automated privacy gates and final source/artifact scans found no retained canary value or credential |
+| DB tie-out | PASS — sampled corrective DB had 5/5 distinct question/suggestion identities, all aligned/completed; campaign aggregate 770/770 |
 | Release status script | PASS |
 | Signing/Gatekeeper | `AD_HOC_ONLY`; Gatekeeper rejected — public distribution gate failed |
-| Post-final H24-0034 regression | PASS — 3/3 campaign script tests, shell syntax, diff check, and RuntimeSmoke 12/12 |
+| Exact process cleanup | PASS — app 0, helper 0 |
 
-The aggregate analyzer has 8,739 scenario records: 8,733 pass and six historical baseline/fail-first records fail. Those six are retained evidence, not unresolved final failures.
+The first post-closure coverage attempt intentionally remains in the evidence log as invalid because three mandatory local-integration environment variables were absent. It executed 943 tests but exited non-zero on those three fail-closed checks; the correctly configured coverage run then passed 943/943 and is the gate result reported above.
 
 ## Remaining Risks
 
-1. H24-0035: no six-hour continuous real-app multi-turn resource soak, and no longitudinal RSS/open-file/DB/trace/disk series.
-2. H24-0036: the per-answer rubric JSONL is empty; WER, normalized edit distance, provider-only, direct-WAV ASR, first-token, and several required latency stages are absent.
-3. Nineteen of 800 deterministic answer fixtures were not classified aligned by the semantic evaluator. The aggregate 97.625% passes the configured 95% gate, but the individual disagreement list was not persisted for human review.
-4. Apple Speech + Qwen, physical microphone-only, simultaneous microphone + system audio, and optional real DeepSeek were not exercised end to end.
-5. The real matrix has six explicit audio profiles rather than a separately labeled record for every requested audio-condition category; some dialogue phenomena were covered in text, but unrecorded distinctions cannot be claimed.
-6. The app has only an ad-hoc signature: no Developer ID Application identity, accepted notarization, stapled ticket, or passing Gatekeeper assessment.
+1. Apple Speech + Qwen, physical microphone-only, simultaneous microphone + system audio, and optional real DeepSeek were not exercised end to end.
+2. The audio corpus is authorized synthetic playback. It does not establish behavior on every accent, device, acoustic environment, or real interview platform.
+3. “Provider first content” is instrumented, but a lower-level tokenizer-first-token event is not separately exposed.
+4. RSS is sampled resident set rather than Instruments physical-footprint/leak analysis; no unbounded trend was observed, but the maximum transient app RSS warrants future profiling if model loading changes.
+5. The app has only an ad-hoc signature: no Developer ID Application identity, accepted notarization, stapled ticket, or passing Gatekeeper assessment.
 
 ## Final Verdict
 
 **Parakeet + Qwen Controlled-Use: GO**
 
-Evidence: 16 real bundled-app sessions, 128 synthetic system-audio turns, 80/80 accepted questions, 80 aligned/grounded visible and persisted answers, zero false trigger, stale answer, wrong evidence, duplicate group, SQLite integrity failure, or process leak. Scope is supervised synthetic System Audio use; it does not include the missing long-lived resource soak.
+Evidence: 170 real bundled-app sessions and 1,360 synthetic system-audio turns across both matrices; the corrective soak added 154 sessions, 1,232 turns, 770 aligned/grounded answers, 6:02:01 active duration, complete resource/latency/ASR evidence, and zero open failures.
 
 **Apple Speech + Qwen Controlled-Use: NOT VERIFIED**
 
@@ -284,7 +311,7 @@ Blocker: automated paths passed, but no real `.app` Apple Speech audio session w
 
 **System Audio Controlled-Use: GO**
 
-Evidence: real ScreenCaptureKit capture passed the 16-role, 128-turn matrix with semantic trigger/rejection accuracy 100% and clean final process counts.
+Evidence: real ScreenCaptureKit capture passed all 1,232 corrective turns, including the 251/251 critical-clean subset, with zero false trigger, stale answer, wrong evidence, duplicate persistence, or process leak.
 
 **Microphone Controlled-Use: NOT VERIFIED**
 
@@ -298,9 +325,9 @@ Blocker: automated source-isolation tests passed, but real simultaneous micropho
 
 Blocker: no safely configured real cloud-provider run was recorded; mock/provider-contract tests do not establish end-to-end cloud behavior.
 
-**Overall Local Controlled-Use: NO-GO**
+**Overall Local Controlled-Use: GO**
 
-Blocker: H24-0035 and H24-0036 leave mandatory long-soak resource and measurement evidence incomplete. The narrower System Audio + Parakeet + Qwen slice remains GO as stated above.
+Evidence: the verified local System Audio + Parakeet + Qwen scope passed the six-hour corrective soak and all current automated gates. This does not promote the separately unverified Apple Speech, microphone, dual-source, or DeepSeek configurations.
 
 **Public Distribution: NO-GO**
 
@@ -308,4 +335,4 @@ Blocker: `Signature=adhoc`, `TeamIdentifier=not set`, Gatekeeper rejected, and t
 
 ## Resume Instructions
 
-Not applicable: 88,305 active seconds reached the 24-hour target, so the completed campaign must not be resumed merely to inflate elapsed time. Closing H24-0035 and H24-0036 requires a new, explicitly scoped verification campaign with real-app resource sampling and complete metrics emission.
+Not applicable: the original campaign reached 88,305 active seconds and the corrective campaign reached 21,721 active seconds. Both states are `completed`; no resume command is required and elapsed time must not be inflated.
