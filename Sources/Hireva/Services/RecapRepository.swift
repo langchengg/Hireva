@@ -10,6 +10,7 @@ final class RecapRepository {
 
     func saveRecap(_ recap: RecapReport) throws {
         try database.dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM recap_reports WHERE session_id = ?", arguments: [recap.sessionID])
             try db.execute(
                 sql: """
                 INSERT INTO recap_reports (
@@ -52,7 +53,9 @@ final class RecapRepository {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
-        let filename = "\(safeTitle.isEmpty ? "interview-recap" : safeTitle)-\(recap.id.prefix(8)).md"
+        // Practice recap IDs share the "practice-recap-" prefix. A short prefix
+        // would collide across sessions and overwrite a previous user export.
+        let filename = "\(safeTitle.isEmpty ? "interview-recap" : safeTitle)-\(UUID().uuidString).md"
         let url = AppPaths.exportsDirectory.appendingPathComponent(filename)
         try recap.markdown.write(to: url, atomically: true, encoding: .utf8)
         return url

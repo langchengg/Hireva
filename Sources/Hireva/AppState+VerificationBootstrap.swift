@@ -2,6 +2,26 @@ import AppKit
 import Foundation
 
 enum HirevaVerificationEventPolicy {
+    static func fieldsForLogging(_ fields: [String: Any], settings: AppSettings) -> [String: Any]? {
+        switch settings.effectiveDiagnosticTraceMode {
+        case .off: return nil
+        case .fullText: return fields
+        case .metadataOnly:
+            // Explicit allowlist: future diagnostic strings must not silently
+            // become another transcript/answer persistence channel.
+            let allowed: Set<String> = [
+                "runID", "synthetic", "sessionID", "segmentID", "questionID",
+                "generationID", "suggestionID", "contextSnapshotID",
+                "candidateProfileID", "opportunityContextID", "totalBuffers",
+                "sampleRate", "channelCount", "lastBufferAt", "source", "speaker",
+                "asrProvider", "answerProvider", "isFinal", "finalizationReason",
+                "alignmentVerdict", "triggerDecision", "count", "captureState",
+                "systemCaptureRunning", "activeASRProvider", "suggestionRows"
+            ]
+            return fields.filter { allowed.contains($0.key) }
+        }
+    }
+
     static func recordsTranscript(isSystemSpeaker: Bool, isFinal: Bool = true) -> Bool {
         !isSystemSpeaker && isFinal
     }
@@ -133,6 +153,11 @@ private final class HirevaVerificationCoordinator {
     private func configureAndStart() async {
         guard let appState, let configuration else { return }
         do {
+            let scenarioData = try Data(contentsOf: configuration.scenarioURL)
+            if let object = try JSONSerialization.jsonObject(with: scenarioData) as? [String: Any], object["manualUI"] as? Bool == true {
+                emit("bootstrap.manual_ui_ready", ["synthetic": true])
+                return
+            }
             let scenario = try JSONDecoder().decode(
                 HirevaAppVerificationScenario.self,
                 from: Data(contentsOf: configuration.scenarioURL)
@@ -384,7 +409,9 @@ private final class HirevaVerificationCoordinator {
     }
 
     private func emit(_ event: String, _ fields: [String: Any] = [:]) {
-        writer?.write(event: event, fields: fields)
+        guard let settings = appState?.settings,
+              let permitted = HirevaVerificationEventPolicy.fieldsForLogging(fields, settings: settings) else { return }
+        writer?.write(event: event, fields: permitted)
     }
 
     private func iso8601(_ date: Date?) -> String {

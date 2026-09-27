@@ -26,7 +26,7 @@ public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
     public var displayName: String {
         switch self {
         case .microphoneOnly:
-            return "Microphone Only (Candidate Only)"
+            return "Microphone Only"
         case .systemAudioOnly:
             return "System Audio Only (Interviewer Only)"
         case .microphoneAndSystem:
@@ -50,7 +50,7 @@ public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
         case .systemAudioOnly:
             return "Best for testing or when only interviewer audio is needed."
         case .microphoneAndSystem:
-            return "Best with headphones. Separates interviewer and candidate."
+            return "Best with headphones. Separates audio channels, not speaker identities."
         case .microphoneOnly:
             return "Practice / voice note mode."
         }

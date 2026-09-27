@@ -41,6 +41,7 @@ enum QuestionIntentPromptPolicy {
         case .whyRole: return "target need -> supported candidate evidence -> motivation"
         case .skillComfort: return "supported experience -> scope -> limitation or next step"
         case .candidateQuestions, .interviewerQuestions: return "concise questions about success, constraints, team, and evaluation"
+        case .systemDesign: return "requirements -> assumptions -> components and data flow -> bottlenecks -> reliability -> trade-offs"
         case .generic: return "direct answer -> supported example -> result or limitation"
         }
     }
@@ -58,6 +59,7 @@ enum QuestionIntentPromptPolicy {
         case .whyRole: return candidate ? ["experience", "project", "skill", "goal"] : ["role", "team", "responsibility", "required", "preferred"]
         case .skillComfort: return candidate ? ["skill", "tool", "used", "experience"] : ["required", "preferred", "skill"]
         case .candidateQuestions, .interviewerQuestions: return candidate ? [] : ["success", "team", "constraint", "evaluation", "ownership"]
+        case .systemDesign: return ["requirement", "constraint", "scale", "reliability", "architecture"]
         case .generic: return []
         }
     }

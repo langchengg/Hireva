@@ -413,7 +413,7 @@ extension AppState {
         if segment.speaker == .interviewer {
             return true
         }
-        return settings.audioCaptureMode == .systemAudioOnly && segment.source == .systemAudio
+        return (segment.source == .systemAudio || segment.source == .processAudio) && segment.speaker != .candidate
     }
 
     // internal for AppState extension access only
@@ -588,7 +588,7 @@ extension AppState {
             self.lastDetectionSkipReason = ""
             self.lastDetectionQuestionComplete = question.questionComplete
             self.lastDetectionAnswerStrategy = question.answerStrategy.displayName
-            self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Confidence: \(Int(question.confidence * 100))%"
+            self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Heuristic score (uncalibrated): \(question.confidence)"
 
             let isFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
             // Duplicate suppression must not become a global "generation is
@@ -629,7 +629,7 @@ extension AppState {
                 } else if !question.questionComplete {
                     skipMsg = "Question is not complete"
                 } else if question.confidence < autoSuggestionConfidenceThreshold {
-                    skipMsg = "Confidence (\(Int(question.confidence * 100))%) below threshold (\(Int(autoSuggestionConfidenceThreshold * 100))%)"
+                    skipMsg = "Uncalibrated heuristic score (\(question.confidence)) below threshold (\(autoSuggestionConfidenceThreshold))"
                 } else if duplicateQuestion {
                     skipMsg = "Duplicate of recently answered question"
                     recordDuplicateSuppression()

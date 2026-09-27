@@ -327,7 +327,7 @@ enum InterviewDialogueTriggerPolicy {
 
         if currentState.resolvedSessionPhase == .candidateQuestions {
             if sessionMode != .candidateQuestions,
-               role == .interviewer,
+               (role == .interviewer || (role == .ambiguous && segment.source == .systemAudio)),
                isPanelQuestionResumption(normalized) {
                 let turnType: DialogueTurnType = isClarification(normalized) ? .clarificationQuestion : .substantiveQuestion
                 return allowed(
@@ -398,12 +398,7 @@ enum InterviewDialogueTriggerPolicy {
         case .interviewer: return .interviewer
         case .candidate: return .candidate
         case .speakerA, .speakerB, .system: return .ambiguous
-        case .unknown:
-            switch segment.source {
-            case .systemAudio, .processAudio: return .interviewer
-            case .microphone: return .candidate
-            case .mixed, .mock: return .ambiguous
-            }
+        case .unknown: return .ambiguous
         }
     }
 

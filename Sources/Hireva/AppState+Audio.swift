@@ -26,6 +26,8 @@ extension AppState {
             warnAction(actionID, title: "Already running", message: "Stop listening before starting a new interview.")
             return
         }
+        practiceController.pause()
+        pausePreparationForLive()
         beginAction(actionID, title: "Starting audio", message: "Starting \(settings.audioCaptureMode.shortDisplayName) capture...")
         errorMessage = nil
         possibleQuestion = nil
@@ -51,6 +53,21 @@ extension AppState {
         }
     }
 
+    func pausePreparationForLive() {
+        if materialImportTask != nil { cancelMaterialImport() }
+        automaticContextBuildTask?.cancel()
+        automaticContextBuildID = UUID()
+        automaticContextReadiness = automaticContextBuildResult?.readiness ?? .noDocuments
+        clearActionFeedback(ActionID.buildInterviewContext)
+        activeEmbeddingRebuildTask?.cancel()
+        clearActionFeedback(ActionID.rebuildEmbeddings)
+        recapTask?.cancel()
+        recapTask = nil
+        recapSessionID = nil
+        isGeneratingRecap = false
+        clearActionFeedback(ActionID.sessionRecap)
+    }
+
     // MARK: - Capture Startup
 
     /// Coordinates permissions, session creation, Apple Speech startup, and
@@ -60,6 +77,7 @@ extension AppState {
     /// permission. Microphone Only must not start system audio capture. Mic +
     /// System starts both streams through AppleSpeechTranscriptionService.
     private func startListeningAsync(mode: InterviewMode, startupID: UUID) async {
+        await practiceController.finishStoppingAudio()
         guard captureStartupIsCurrent(startupID) else { return }
         currentCaptureRuntimeState = .starting
         self.stopReason = nil

@@ -1019,9 +1019,9 @@ struct PermissionsDiagnosticView: View {
                             .font(.caption)
                     }
                     GridRow {
-                        Text("Confidence")
+                        Text("Heuristic score (uncalibrated)")
                             .font(.caption.weight(.semibold))
-                        Text(String(format: "%.1f%%", appState.lastDetectionConfidence * 100))
+                        Text(String(format: "%.2f", appState.lastDetectionConfidence))
                             .font(.caption.monospacedDigit())
                     }
                     GridRow {

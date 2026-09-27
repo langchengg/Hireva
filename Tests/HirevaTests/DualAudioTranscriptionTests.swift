@@ -284,10 +284,10 @@ struct DualAudioTranscriptionTests {
         try await waitUntil("microphone and system transcript segments") { segments.count == 2 }
 
         #expect(segments[0].source == .microphone)
-        #expect(segments[0].speaker == .candidate)
+        #expect(segments[0].speaker == .unknown)
         #expect(segments[0].text == "Hello from Microphone")
         #expect(segments[1].source == .systemAudio)
-        #expect(segments[1].speaker == .interviewer)
+        #expect(segments[1].speaker == .unknown)
         #expect(segments[1].text == "Hello from System Audio")
     }
 
@@ -308,10 +308,10 @@ struct DualAudioTranscriptionTests {
         try await waitUntil("system and microphone transcript segments") { segments.count == 2 }
 
         #expect(segments[0].source == .systemAudio)
-        #expect(segments[0].speaker == .interviewer)
+        #expect(segments[0].speaker == .unknown)
         #expect(segments[0].text == "Hello from System Audio")
         #expect(segments[1].source == .microphone)
-        #expect(segments[1].speaker == .candidate)
+        #expect(segments[1].speaker == .unknown)
         #expect(segments[1].text == "Hello from Microphone")
     }
 

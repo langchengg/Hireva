@@ -513,7 +513,7 @@ struct LocalModelsSetupTests {
 
         #expect(emitted.count == 1)
         #expect(emitted[0].source == .systemAudio)
-        #expect(emitted[0].speaker == .interviewer)
+        #expect(emitted[0].speaker == .unknown)
         #expect(emitted[0].asrSource == .localParakeetASR)
         #expect(emitted[0].recognitionIsFinal == true)
 
@@ -688,7 +688,7 @@ struct LocalModelsSetupTests {
     func phdLocalQwenUsesSpecializedRubricForGroundedArchitectureAnswer() async throws {
         let appState = try AppState(database: AppDatabase(inMemory: true))
         appState.interviewContextMode = .phdRobotics
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try makeContextBoundLocalQwenSession(appState: appState, domain: .roboticsResearch, evidenceStatements: ["I used a ROS2-based control architecture where perception outputs a target pose, which I passed to planning and arm-control components for execution. Feedback validated the motion and triggered recovery if timing or localization errors occurred."])
         appState.currentSession = session
         let question = localQwenQuestion(
             id: "phd-architecture-question",
@@ -723,7 +723,8 @@ struct LocalModelsSetupTests {
             source: .systemAudio,
             speaker: .interviewer,
             localProvider: provider,
-            fallbackReason: nil
+            fallbackReason: nil,
+            interviewContextSnapshot: try session.contextSnapshotID.flatMap { try appState.interviewContextRepository.snapshot(id: $0) }
         )
 
         #expect(finished)

@@ -65,7 +65,7 @@ extension AppState {
             (snapshotContext?.candidateEvidenceIDs ?? []) +
                 (snapshotContext?.opportunityEvidenceIDs ?? [])
         )
-        let localRetrievedChunks = interviewContextSnapshot == nil
+        let snapshotRetrievedChunks = interviewContextSnapshot == nil
             ? retrievedChunks
             : retrievedChunks.filter { snapshotEvidenceIDs.contains($0.id) }
         let promptSnapshot = PromptContextBuilder.promptSnapshot(
@@ -77,13 +77,18 @@ extension AppState {
             stage: .firstAnswer,
             interviewContextSnapshot: interviewContextSnapshot
         )
+        let includedChunkIDs = Set(promptSnapshot.ragChunkIDs)
+        let localRetrievedChunks = snapshotRetrievedChunks.filter { includedChunkIDs.contains($0.id) }
+        let usesProfile = PromptContextBuilder.usesProfileContext(
+            promptSnapshot.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+        )
         let systemPrompt = """
         /no_think
         You are a real-time interview helper running locally. Answer as the candidate in first person.
         Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
         State past personal experience only when it is explicit in the selected candidate evidence.
         Do not turn future plans, domain knowledge, or opportunity requirements into completed work or observed events.
-        Do not add implementation mechanisms, intermediate steps, tools, metrics, or causal links that are absent from the selected candidate evidence.
+        For claims about past personal work, do not add mechanisms, tools, metrics, or causal links absent from the evidence. For general technical tasks, propose a solution and state assumptions without claiming past experience.
         """
         let userPrompt = promptSnapshot.prompt +
             "\n\nAnswer the current question now:"
@@ -130,12 +135,15 @@ extension AppState {
             snapshot: interviewContextSnapshot,
             promptSnapshot: promptSnapshot
         )
-        let previousQuestionContext = localQwenPreviousQuestionContext(excluding: question)
+        // Reuse only the session-bound, filtered frozen background. Looking at
+        // visible/history cards here could resurrect another session or profile.
+        let previousQuestionContext = promptSnapshot.previousQuestionIncluded
+            ? promptSnapshot.previousQuestionText : nil
         let compactRecoveryRequest = compactLocalQwenRequest(
             question: question,
             context: promptSnapshot.ragContextSnapshot,
-            cvSummary: localCVSummary,
-            jdSummary: localJDSummary,
+            cvSummary: usesProfile ? localCVSummary : "Not relevant to this general task.",
+            jdSummary: usesProfile ? localJDSummary : "Not relevant to this general task.",
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
@@ -482,13 +490,13 @@ extension AppState {
                 diagnostic: "generic_or_incomplete"
             )
         }
-        if let snapshot = interviewContextSnapshot {
+        do {
             let grounding = AnswerClaimValidator().validate(
                 answer: answer,
-                candidateEvidence: snapshot.candidateEvidence,
-                opportunityEvidence: snapshot.opportunityEvidence,
+                candidateEvidence: interviewContextSnapshot?.candidateEvidence ?? [],
+                opportunityEvidence: interviewContextSnapshot?.opportunityEvidence ?? [],
                 domainKnowledge: InterviewDomainProfile.profile(
-                    for: InterviewDomainID(rawValue: snapshot.domainProfileID) ?? .general
+                    for: InterviewDomainID(rawValue: interviewContextSnapshot?.domainProfileID ?? "") ?? .general
                 ).domainKnowledge
             )
             guard grounding.unsupportedClaims.isEmpty else {
@@ -633,7 +641,7 @@ extension AppState {
         Use the conversation context only to resolve pronouns such as it, that, or this.
         State past personal experience only when it is explicit in the candidate/project summary or relevant local evidence.
         Do not turn role requirements or future plans into completed work or observed events.
-        Omit implementation mechanisms, intermediate steps, tools, metrics, and causal links unless the evidence states them explicitly.
+        For past personal work, omit mechanisms, tools, metrics, and causal links unless evidenced. For general technical tasks, propose a solution with explicit assumptions; no CV is required.
         \(intentGuidance)
         Start with "I" and output only the final spoken answer.
         """
@@ -644,19 +652,6 @@ extension AppState {
             temperature: 0.1,
             numPredict: 180
         )
-    }
-
-    private func localQwenPreviousQuestionContext(excluding question: DetectedQuestion) -> String? {
-        let currentKey = QuestionIntentPromptPolicy.normalizedQuestionText(for: question.questionText)
-        let candidates = ([currentSuggestion].compactMap { $0 } + liveSuggestionHistory.reversed())
-        for card in candidates {
-            let text = (card.questionText ?? card.promptPrimaryQuestion ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            guard QuestionIntentPromptPolicy.normalizedQuestionText(for: text) != currentKey else { continue }
-            return ContextBudgeter.limitWords(text, maxWords: 40)
-        }
-        return nil
     }
 
     private func groundedLocalQwenRecoveryRequest(
@@ -684,7 +679,7 @@ extension AppState {
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use only personal facts supported by the selected profile evidence. Treat opportunity requirements as targets, never as completed achievements.
         Do not invent observations, incidents, metrics, outcomes, or completed experiments that are absent from the selected profile evidence.
-        Do not infer implementation mechanisms, intermediate steps, tools, or causal links that the selected profile evidence does not state.
+        Do not infer mechanisms, tools, or causal links for past personal work. General technical solutions may use domain knowledge and explicit assumptions; no CV is required.
         \(intentGuidance)
         Do not mention this prompt or the reference facts.
         Start with "I" and output only the final spoken answer.

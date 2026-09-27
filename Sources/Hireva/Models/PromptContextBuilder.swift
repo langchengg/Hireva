@@ -26,8 +26,12 @@ enum PromptContextBuilder {
         interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) -> AnswerPromptSnapshot {
         let questionTextSnapshot = question.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taskDescriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: questionTextSnapshot)
         let intent = QuestionIntentPromptPolicy.intent(for: questionTextSnapshot)
-        let filteredContext = QuestionIntentPromptPolicy.filterContext(context, intent: intent)
+        let usesProfile = usesProfileContext(taskDescriptor)
+        let filteredContext = usesProfile
+            ? QuestionIntentPromptPolicy.filterContext(context, intent: intent)
+            : RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
         let background = backgroundTranscript(
             from: transcriptContext,
             currentQuestion: questionTextSnapshot,
@@ -38,9 +42,10 @@ enum PromptContextBuilder {
             intent: intent,
             filteredContext: filteredContext,
             backgroundText: background.text,
-            cvSummary: cvSummary,
-            jdSummary: jdSummary,
-            stage: stage
+            cvSummary: usesProfile ? cvSummary : "Not relevant to this general task.",
+            jdSummary: usesProfile ? jdSummary : "Not relevant to this general task.",
+            stage: stage,
+            taskDescriptor: taskDescriptor
         )
         let chunkIntents = chunkIntents(from: filteredContext)
         let includedChunkIDs = Set(chunkIDs(from: filteredContext))
@@ -68,7 +73,8 @@ enum PromptContextBuilder {
             opportunityContextVersion: interviewContextSnapshot?.opportunityContextVersion,
             domainProfileID: interviewContextSnapshot?.domainProfileID,
             candidateEvidenceIDs: interviewContextSnapshot?.candidateEvidence.map(\.id).filter(includedChunkIDs.contains) ?? [],
-            opportunityEvidenceIDs: interviewContextSnapshot?.opportunityEvidence.map(\.id).filter(includedChunkIDs.contains) ?? []
+            opportunityEvidenceIDs: interviewContextSnapshot?.opportunityEvidence.map(\.id).filter(includedChunkIDs.contains) ?? [],
+            taskDescriptor: taskDescriptor
         )
     }
 
@@ -117,6 +123,17 @@ enum PromptContextBuilder {
         )
     }
 
+    /// General practical questions have their own constraints. Profile documents
+    /// are not question attachments and cannot silently supply those constraints.
+    /// Keep evidence for biographical questions and context-dependent project work.
+    static func usesProfileContext(_ task: InterviewTaskDescriptor) -> Bool {
+        if task.requiresPersonalEvidence { return true }
+        if [.coding, .systemDesign, .data].contains(task.kind) { return false }
+        // Unknown is not permission to attach a biography. Preserve recognized
+        // project/role intents whose evidence dependency predates task routing.
+        return task.kind != .unknown || QuestionIntentPromptPolicy.intent(for: task.question) != .generic
+    }
+
     static func estimateTokens(_ text: String) -> Int {
         max(1, Int(Double(text.split(whereSeparator: \.isWhitespace).count) * 1.35))
     }
@@ -132,7 +149,8 @@ enum PromptContextBuilder {
         backgroundText: String,
         cvSummary: String,
         jdSummary: String,
-        stage: AnswerPromptStage
+        stage: AnswerPromptStage,
+        taskDescriptor: InterviewTaskDescriptor
     ) -> String {
         let outputInstructions: String
         switch stage {
@@ -154,7 +172,7 @@ enum PromptContextBuilder {
         }
 
         let selectedEvidence = filteredContext.promptText.isEmpty
-            ? "No matching local chunks were found. Use the question intent and profile summary; do not fabricate unsupported specifics."
+            ? "No matching local evidence is included. For general tasks, explain a proposed solution using the question and clearly stated assumptions. Do not fabricate personal experience or import constraints from unrelated materials."
             : filteredContext.promptText
 
         return """
@@ -169,6 +187,9 @@ enum PromptContextBuilder {
         Do not answer a previous question.
         Do not give a generic self-introduction unless the question asks for it.
         Do not summarize the CV unless relevant to the question.
+
+        FROZEN TASK POLICY:
+        \(taskDescriptor.promptPolicy)
 
         QUESTION INTENT:
         \(intent.rawValue)
@@ -230,7 +251,11 @@ enum PromptContextBuilder {
         let isDifferentQuestion = !previousNormalized.isEmpty && previousNormalized != currentNormalized
         let intentDiffers = previousIntent != nil && previousIntent != currentIntent
 
-        if isDifferentQuestion && intentDiffers {
+        let referencesEarlier = currentQuestion.range(
+            of: #"(?i)\b(it|its|that|those|these|they|them)\b|这个|那个|上述|刚才|它|这些|那些|继续"#,
+            options: .regularExpression
+        ) != nil
+        if isDifferentQuestion && (intentDiffers || !referencesEarlier) {
             return (
                 "Earlier transcript contained a different question and was excluded to keep this answer focused.",
                 false,

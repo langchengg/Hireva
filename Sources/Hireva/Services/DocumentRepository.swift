@@ -30,7 +30,7 @@ final class DocumentRepository {
         self.database = database
     }
 
-    func saveDocument(type: DocumentType, title: String, content: String) throws -> DocumentRecord {
+    func saveDocument(type: DocumentType, title: String, content: String, material: ExtractedMaterial? = nil, originalData: Data? = nil) throws -> DocumentRecord {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw DocumentIngestionError(reason: .emptyDocument)
@@ -91,6 +91,11 @@ final class DocumentRepository {
                     record.sanitizationWarnings
                 ]
             )
+            if let material, let originalData {
+                try db.execute(sql: "INSERT OR REPLACE INTO document_sources (document_id, metadata_json, original_data) VALUES (?, ?, ?)", arguments: [record.id, try JSONEncoder().encode(material), originalData])
+            } else {
+                try db.execute(sql: "DELETE FROM document_sources WHERE document_id = ?", arguments: [record.id])
+            }
             try db.execute(sql: "DELETE FROM document_chunks WHERE document_id = ?", arguments: [record.id])
             for (index, chunk) in chunks.enumerated() {
                 try db.execute(
@@ -127,6 +132,13 @@ final class DocumentRepository {
         }
         let prefix = String(content.prefix(16))
         return prefix.hasPrefix("%PDF-") || prefix.hasPrefix("PK\u{3}\u{4}")
+    }
+
+    func source(documentID: String) throws -> (material: ExtractedMaterial, data: Data)? {
+        try database.dbQueue.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM document_sources WHERE document_id = ?", arguments: [documentID]) else { return nil }
+            return (try JSONDecoder().decode(ExtractedMaterial.self, from: row["metadata_json"] as Data), row["original_data"])
+        }
     }
 
     func document(type: DocumentType) throws -> DocumentRecord? {
@@ -171,8 +183,44 @@ final class DocumentRepository {
 
     func deleteDocument(id: String) throws {
         try database.dbQueue.write { db in
+            try Self.eraseEvidenceCopies(documentID: id, db: db)
             try db.execute(sql: "DELETE FROM documents WHERE id = ?", arguments: [id])
         }
+    }
+
+    // Deletion is the privacy exception to immutable historical evidence: retain
+    // citation IDs as tombstones, but erase the requested source and its copies.
+    static func eraseEvidenceCopies(documentID: String, db: Database) throws {
+        func redact(_ value: Any) -> Any {
+            if let items = value as? [Any] { return items.map(redact) }
+            guard var object = value as? [String: Any] else { return value }
+            if object["sourceDocumentID"] as? String == documentID {
+                object["statement"] = "[Source deleted]"
+                object["sourceSpan"] = NSNull()
+                object["explicitness"] = "user_rejected"
+            }
+            if let ids = object["sourceDocumentIDs"] as? [String], ids.contains(documentID) {
+                object["sourceDocumentIDs"] = ids.filter { $0 != documentID }
+                object["generatedSummary"] = NSNull()
+            }
+            return object.mapValues(redact)
+        }
+        for table in ["candidate_profiles", "opportunity_contexts", "interview_context_snapshots"] {
+            for row in try Row.fetchAll(db, sql: "SELECT id, payload_json FROM \(table)") {
+                let data: Data = row["payload_json"]
+                let object = try JSONSerialization.jsonObject(with: data)
+                let redacted = try JSONSerialization.data(withJSONObject: redact(object), options: [.sortedKeys])
+                try db.execute(sql: "UPDATE \(table) SET payload_json = ? WHERE id = ?", arguments: [redacted, row["id"] as String])
+            }
+        }
+        for row in try Row.fetchAll(db, sql: "SELECT id, payload_json FROM preparation_records WHERE kind = 'story-draft'") {
+            let data: Data = row["payload_json"]
+            if let draft = try? JSONDecoder().decode(StoryDraft.self, from: data), draft.sourceDocumentIDs.contains(documentID) {
+                try db.execute(sql: "DELETE FROM preparation_records WHERE id = ?", arguments: [row["id"] as String])
+            }
+        }
+        try db.execute(sql: "UPDATE suggestion_cards SET prompt_context_preview = NULL WHERE id IN (SELECT suggestion_card_id FROM suggestion_card_retrieved_chunks WHERE document_id = ?)", arguments: [documentID])
+        try db.execute(sql: "UPDATE suggestion_card_retrieved_chunks SET full_content = '[Source deleted]', content_preview = '[Source deleted]', keywords_json = '[]' WHERE document_id = ?", arguments: [documentID])
     }
 
     func onboardingCompletion() throws -> (hasCV: Bool, hasJD: Bool) {
@@ -191,6 +239,10 @@ final class DocumentRepository {
 
     func deleteAllDocuments() throws {
         try database.dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM interview_context_snapshots")
+            try db.execute(sql: "DELETE FROM candidate_profiles")
+            try db.execute(sql: "DELETE FROM opportunity_contexts")
+            try db.execute(sql: "DELETE FROM preparation_records")
             try db.execute(sql: "DELETE FROM documents")
         }
     }

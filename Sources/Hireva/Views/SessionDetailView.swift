@@ -30,6 +30,12 @@ struct SessionDetailView: View {
                     }
                 }
 
+                HStack {
+                    Button("Export JSON") { appState.exportSessionJSON(session) }
+                    if (try? PracticeRepository(database: appState.database).load(sessionID: session.id)) != nil {
+                        Button("Open Practice / Resume") { appState.practiceController.restore(sessionID: session.id); appState.selectSection(.practice) }
+                    }
+                }
                 InlineStatusBanner(sessionFeedback)
 
                 VStack(alignment: .leading, spacing: 10) {

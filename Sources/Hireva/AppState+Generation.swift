@@ -1411,10 +1411,8 @@ func displaySuggestionIfAligned(
     // on its own. This is especially important for model-comparison questions
     // where generic "I would explain..." output is not usable in an interview.
     let answerText = ([boundCard.sayFirst] + boundCard.keyPoints + boundCard.followUpReady).joined(separator: " ")
-    if let snapshot = boundSnapshot {
-        let profileIndependentIntents: Set<AnswerRelevanceIntent> = [.candidateQuestions, .interviewerQuestions]
-        let answerIntent = boundCard.questionIntent ?? AnswerRelevancePolicy.intent(for: question.questionText)
-        if snapshot.candidateProfileID == nil, !profileIndependentIntents.contains(answerIntent) {
+    do {
+        if boundSnapshot?.candidateProfileID == nil, (question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)).requiresPersonalEvidence {
             boundCard.groundingDecision = "candidate_context_missing"
             boundCard.unsupportedClaimCount = 0
             recordAlignmentMismatch("Candidate-specific answer rejected because the session snapshot has no candidate profile.")
@@ -1423,10 +1421,10 @@ func displaySuggestionIfAligned(
 
         let grounding = AnswerClaimValidator().validate(
             answer: answerText,
-            candidateEvidence: snapshot.candidateEvidence,
-            opportunityEvidence: snapshot.opportunityEvidence,
+            candidateEvidence: boundSnapshot?.candidateEvidence ?? [],
+            opportunityEvidence: boundSnapshot?.opportunityEvidence ?? [],
             domainKnowledge: InterviewDomainProfile.profile(
-                for: InterviewDomainID(rawValue: snapshot.domainProfileID) ?? .general
+                for: InterviewDomainID(rawValue: boundSnapshot?.domainProfileID ?? "") ?? .general
             ).domainKnowledge
         )
         boundCard.groundingDecision = grounding.groundingDecision
@@ -3397,6 +3395,8 @@ func persistSuggestionInBackground(
     guard claimSuggestionPersistence(sanitizedCard, generationID: generationID) else {
         return
     }
+    let consent = persistenceConsent
+    let consentTicket = consent.ticket()
     let repository = suggestionRepository
     let simulateFailure = simulateSuggestionPersistenceFailure
     let simulatedDelay = simulatedSuggestionPersistenceDelayNanoseconds
@@ -3464,7 +3464,7 @@ func persistSuggestionInBackground(
                 generationID: generationID,
                 sourceCallback: "sqlite_save"
             )) else { return }
-            try repository.saveSuggestionCard(persistedCard, retrievedChunks: chunks)
+            try consent.write(ticket: consentTicket) { try repository.saveSuggestionCard(persistedCard, retrievedChunks: chunks) }
             let persistedID = persistedCard.id
             let persistedSessionID = persistedCard.sessionID
             let persistedDBMS = persistedCard.dbPersistedMS
@@ -3675,6 +3675,7 @@ private func localTimeoutFallbackForRejectedPersistence(
 // internal for AppState extension access only
 @discardableResult
 func claimSuggestionPersistence(_ card: SuggestionCard, generationID: String?) -> Bool {
+    guard settings.saveTranscriptsLocally else { return false }
     if card.stageBStatus == "cancelled" {
         recordTranscriptRuntimeEvent(.cancelledGenerationPersistenceRejected(
             sessionID: card.sessionID,

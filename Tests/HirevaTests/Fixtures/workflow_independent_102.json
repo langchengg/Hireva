@@ -1,0 +1,512 @@
+[
+  {
+    "kind": "motivation",
+    "question": "What drew you to this role, and which part of your background makes it a sensible next step?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "Why would you choose a small product company over a larger employer at this point?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "Our team spends much of its time maintaining existing services. How does that fit what you want to do?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "Give us a brief introduction focused on what is relevant to this position.",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "Which requirement in this vacancy is your strongest match, and where would you need support?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "If you joined, what would you hope to learn during the first six months?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "你为什么对这个岗位感兴趣？请联系你的经历说明，而不是复述公司介绍。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "用一分钟介绍一下自己，重点讲你能为这个团队带来什么。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "你从财务分析转向产品工作的原因是什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "如果日常工作没有宣传材料里那么多创新项目，你还愿意来吗？为什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "这份工作最吸引你的部分与最让你犹豫的部分分别是什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "motivation",
+    "question": "你希望下一份工作与你上一段经历有什么不同？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "Tell me about a time you disagreed with a colleague and still had to deliver together.",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "Describe a commitment you could not meet. What did you communicate, and when?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "Give an example of feedback that changed how you worked.",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "When have you had to make progress without clear instructions?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "Tell us about a decision you later reversed. What changed your mind?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "Can you walk through a situation where helping someone else affected your own deadline?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "讲一次你和同事对优先级有分歧的经历，你具体做了什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "有没有一次你很早就发现风险，却没能让别人重视？后来怎么办？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "举例说明你如何向没有专业背景的人解释复杂问题。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "说一次你收到负面反馈的情况，以及之后有没有改变做法。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "谈谈一个没有达到预期的合作任务：你的责任是什么，下一次会怎么做？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "behavioral",
+    "question": "你曾经怎样处理两个同样紧急的请求？请讲一件发生过的事。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "Choose a project from your portfolio. Which decisions were yours and which belonged to the wider team?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "In the forecasting project you mentioned, what did you compare the final approach against?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "What was the weakest part of your customer analytics project, and how did you discover it?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "Walk us through one result in your portfolio that looks strong at first glance but needs a caveat.",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "What did removing one component from your document search project teach you?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "For the scheduling tool you built, why did you keep some work manual rather than automate everything?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "选一个你最熟悉的项目，讲清楚你本人交付了哪些部分。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "你刚才提到的推荐项目，离线效果和实际使用效果一致吗？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "简历里写了效率提升，这个数字是怎么测出来的，比较对象是什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "你在库存预测项目里试过哪些没有奏效的方法？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "如果重新做你的教育应用，你会保留什么、替换什么？依据是什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "project",
+    "question": "你的研究原型后来被其他人使用了吗？如果没有，你验证到了哪一步？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "coding",
+    "question": "Write a function that returns the first non-repeating character in a string. What assumptions do you need about characters?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "A function sometimes returns a negative balance after two simultaneous withdrawals. How would you investigate and fix it?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "Given a sorted array, find the first and last position of a target value.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "This parser fails on one file but succeeds on the others. What information would you ask for before changing it?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "Implement a bounded queue that supports adding an item and removing the oldest item.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "Merge overlapping time intervals and explain whether intervals that only touch should merge.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "给定一个整数数组，返回和为目标值的两个不同元素的下标。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "下面的循环偶尔越界，但我还没贴代码。你需要哪些信息才能开始排查？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "实现一个按最近访问顺序淘汰元素的缓存，并解释读写操作的复杂度。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "一个异步请求取消后仍更新页面，你会怎样定位并修复？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "判断一段括号序列是否有效，输入也可能包含普通文字。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "coding",
+    "question": "把递归遍历目录改成迭代实现时，怎样处理符号链接和权限错误？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "Design a notification service for a product used across several time zones.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "How would you build a booking service that avoids selling the same seat twice?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "Sketch a shared document editing service and explain what happens when a client reconnects.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "Design a photo upload service for users on unreliable mobile connections.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "A new reporting platform must support both fast dashboards and reproducible monthly reports. How would you structure it?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "How would you design an internal feature flag service, including safe rollout and rollback?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "设计一个面向学校的作业提交平台，高峰集中在截止前十分钟。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "如果要新建一个短链接服务，你会怎样组织组件和数据流？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "设计支持离线使用的笔记同步功能，设备重新联网时怎样处理冲突？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "一个多租户应用怎样防止客户之间读取彼此的数据？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "为跨城市仓库设计库存查询服务，你会在哪里允许旧数据？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "systemDesign",
+    "question": "设计日志采集平台，并说明流量突然增长十倍时哪些部分可能先受限。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "Given orders and customers tables, return customers who placed no orders last month.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "Write a query for the second distinct highest salary in each department.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "A conversion rate increased while the total number of conversions fell. What data would you inspect?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "How would you test whether a new checkout page improved revenue per visitor?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "Two tables each contain repeated customer IDs. What could go wrong when joining them?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "Estimate the number of support agents required next week from hourly ticket arrivals.",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "有用户表和支付表，查询注册后七天内首次付费的用户占比。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "某地区平均客单价上涨，能否说明每类用户都花得更多了？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "用 SQL 计算每位客户最近三笔订单的平均金额。",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "仪表盘里销售额和财务报表对不上，你先核对哪些口径？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "一个实验点击率更高但退款也更多，你会怎样评价是否应该上线？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "data",
+    "question": "给定每天的库存快照，怎样计算月末库存和月平均库存？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "research",
+    "question": "State the research question of your dissertation and explain what your evidence can actually answer.",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "How would you distinguish a useful predictive relationship from a causal explanation?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "research",
+    "question": "Your paper reports a gain over a baseline. What alternative explanations remain?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "What observation would make you abandon your central hypothesis?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "How would you design a replication study when the original dataset cannot be shared?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "research",
+    "question": "Which claim in your thesis is least well supported, and what study would strengthen it?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "请用几句话说明你的论文解决了什么问题，以及没有解决什么。",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "如果两个研究得到相反结论，你会从哪些方面比较它们？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "research",
+    "question": "你提出的方法与最接近的已有工作相比，新增的部分到底是什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "样本量很小时，怎样表达实验结果的不确定性？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "research",
+    "question": "答辩时有人质疑你的评价指标不对应研究目标，你怎么回应？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "research",
+    "question": "如果只能再做一个实验来检验你的结论，你会选择什么，为什么？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "What notice period would you need to give, and when could you realistically start?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "This position involves two office days each week. Would that arrangement work for you?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "What compensation range would you like us to consider?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "Would you need any support or adjustments to take part in the next interview stage?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "Are you open to occasional travel, and are there limits we should discuss?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "Before accepting an offer, which working arrangements would you want clarified?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "如果我们下个月希望你入职，你目前有哪些时间上的限制？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "这个岗位需要轮值，你愿意接受什么样的频率和补偿安排？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "你的薪资期望包含奖金和其他福利吗？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "你是否愿意搬到另一个城市，做决定前还需要哪些信息？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "对于远程办公与现场办公的比例，你有什么偏好？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "arrangements",
+    "question": "如果收到录用意向，你希望有多久考虑，期间要确认哪些事项？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "unknown",
+    "question": "Can you explain how you handled that?",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "unknown",
+    "question": "What about the other option?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "unknown",
+    "question": "Could you make it better?",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "unknown",
+    "question": "那部分你怎么看？",
+    "expectedRequiresEvidence": false
+  },
+  {
+    "kind": "unknown",
+    "question": "你之前是不是也遇到过？",
+    "expectedRequiresEvidence": true
+  },
+  {
+    "kind": "unknown",
+    "question": "如果我们把那个……然后再调整，你会？",
+    "expectedRequiresEvidence": false
+  }
+]

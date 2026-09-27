@@ -65,7 +65,7 @@ public final class ManualQuestionTranscriptionService: NSObject {
                 self.onPartialCallback?(text)
                 
                 if result.isFinal {
-                    print("[ManualTranscriptionService] ASR Final result: \"\(text)\"")
+                    print("[ManualTranscriptionService] ASR final received")
                     self.isFinalized = true
                     self.onFinalCallback?(text)
                     self.completionContinuation?.resume(returning: text)

@@ -11,12 +11,16 @@ struct TestSuite1Tests {
         
         let database = try makeTemporaryDatabase()
         let appState = AppState(database: database)
+        defer { try? database.close() }
         
-        // 1.1 First launch onboarding
-        #expect(!appState.onboardingComplete, "Onboarding should NOT be complete on first launch.")
-        #expect(appState.liveBlockedReason != nil, "Live Interview entry should be blocked.")
-        print("  [1.1] Blocks entry successfully. Block reason: '\(appState.liveBlockedReason!)'")
-        
+        // Knowledge/coding practice is available without personal materials.
+        // The evidence gate applies to personal claims, not application entry.
+        #expect(appState.onboardingComplete)
+        #expect(appState.liveBlockedReason == nil)
+        #expect(!appState.hasCV)
+        #expect(InterviewTaskDescriptor(question: "Tell me about yourself").requiresPersonalEvidence)
+        #expect(!InterviewTaskDescriptor(question: "Explain binary search").requiresPersonalEvidence)
+
         // 1.2 Add CV and JD
         let cvText = "Candidate: Jane Doe\nExperience: Robotics Engineer for 5 years.\nSkills: Python, C++, ROS, Control Systems."
         let jdText = "Job: Robotics Architect\nRequirements: 3+ years experience with C++, Python, ROS, and motion planning algorithms."
@@ -46,7 +50,7 @@ struct TestSuite1Tests {
         #expect(!context.cvChunks.isEmpty, "Should retrieve relevant CV chunks.")
         #expect(!context.jobDescriptionChunks.isEmpty, "Should retrieve relevant JD chunks.")
         print("  [1.3] Context retrieval works. CV chunks: \(context.cvChunks.count), JD chunks: \(context.jobDescriptionChunks.count)")
-        print("=== Test Suite 1: ALL TESTS PASSED ===")
+        await appState.shutdownForTesting()
     }
 
     private func makeTemporaryDatabase() throws -> AppDatabase {

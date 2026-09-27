@@ -2,6 +2,8 @@ import Foundation
 
 enum AppSection: String, CaseIterable, Identifiable {
     case home
+    case preparation
+    case practice
     case documents
     case sessions
     case readinessCheck
@@ -14,6 +16,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home / Interview"
+        case .preparation: return "Prepare / Tools"
+        case .practice: return "Practice / Review"
         case .documents: return "Documents"
         case .sessions: return "Sessions"
         case .readinessCheck: return "Readiness Check"
@@ -26,6 +30,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .home: return "house"
+        case .preparation: return "wrench.and.screwdriver"
+        case .practice: return "person.bubble"
         case .documents: return "doc.text"
         case .sessions: return "clock.arrow.circlepath"
         case .readinessCheck: return "checklist.checked"

@@ -44,6 +44,28 @@ versioned copies from the official sources identified below.
 - Official release: https://github.com/groue/GRDB.swift/releases/tag/v6.29.3
 - Official license: https://github.com/groue/GRDB.swift/blob/v6.29.3/LICENSE
 
+### Workflow dependencies (SPM, exact versions)
+
+| Dependency | Pinned version / commit | Actual product call | License |
+|---|---|---|---|
+| [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) | 0.9.20 / 22787ffb59de99e5dc1fbfe80b19c97a904ad48d | `MaterialExtractionService` reads DOCX entries; replaces the previous unsupported-format path, no custom ZIP decoder | MIT |
+| [SwiftSoup](https://github.com/scinfu/SwiftSoup) | 2.13.9 / 18b80329749eca5ea29fc50211dca5c7eff5bfec | `PublicRoleBriefService` parses user-requested HTML into source excerpts | MIT, retain jsoup and SwiftSoup notices |
+| [swift-fsrs](https://github.com/open-spaced-repetition/swift-fsrs) | 4.1.0 / 1d3cd7a4e72b210b31ca47c23efe4b464673bb54 | `PracticeController.rate` schedules knowledge cards from explicit user ratings | MIT |
+
+These are dependencies, not copied implementations. `PracticeWorkflowTests` adapts the
+interval vector from swift-fsrs `Tests/FSRSTests/FSRSTests.swift` at the commit above
+(Copyright 2023 Ben Smiley, MIT). This checks adapter compatibility; it is not an
+independent evaluation of interview quality. Full copyright/permission texts for all
+three packages are hash-verified by `script/runtime/prepare_third_party_notices.sh`
+and copied by the existing bundle script. Native PDFKit/Vision extract PDF/image
+text; Foundation XMLParser interprets a bounded subset of DOCX XML. No complete DOCX
+layout or image-diagram understanding is claimed.
+
+WhisperKit was evaluated but is not a dependency: no new model was installed and
+Chinese audio has not been verified. Existing Parakeet and Apple Speech remain the
+configured ASR routes. No external multi-agent framework or generic code runtime
+was incorporated.
+
 ## Separately Downloaded Model
 
 ### NVIDIA Parakeet TDT 0.6B v3

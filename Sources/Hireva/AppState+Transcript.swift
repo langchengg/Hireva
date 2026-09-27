@@ -185,14 +185,13 @@ extension AppState {
                         intent: precomputeIntent
                     )
                     do {
-                        let (context, trace) = try await Task.detached(priority: .utility) {
-                            try await retrievalService.retrieveContextWithTrace(
-                                question: segment.text,
-                                intent: .unclear,
-                                maxCVWords: 240,
-                                maxJDWords: 120
-                            )
-                        }.value
+                        let snapshotID = self.activeContextSnapshot?.id
+                        let sessionID = self.currentSession?.id
+                        let (context, trace) = try await retrievalService.retrieveContextWithTrace(
+                            question: segment.text, intent: .unclear, maxCVWords: 240, maxJDWords: 120
+                        )
+                        guard !Task.isCancelled, self.activeContextSnapshot?.id == snapshotID,
+                              self.currentSession?.id == sessionID else { return }
                         await MainActor.run {
                             self.precomputedRAGCache[key] = RAGPrecomputeCacheItem(
                                 context: context,
@@ -201,7 +200,7 @@ extension AppState {
                                 normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(for: segment.text),
                                 questionIntent: precomputeIntent
                             )
-                            print("[PrecomputeRAG] Cached RAG context for segmentID: \(segment.id) | key: \(key)")
+                            print("[PrecomputeRAG] Context cached")
                         }
                     } catch {
                         print("[PrecomputeRAG] Background RAG precompute failed: \(error)")
@@ -248,6 +247,9 @@ extension AppState {
         if !dialogueTrigger.shouldEvaluateQuestion {
             skipReason = dialogueTrigger.suppressionReason
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = dialogueTrigger.blockedReasonCode
+        } else if segment.source == .microphone && !settings.allowQuestionDetectionFromMicrophoneOnly {
+            skipReason = "Microphone question detection requires explicit opt-in; speaker remains unknown"
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "candidateSpeech"
         } else if !settings.automaticQuestionDetectionEnabled {
             skipReason = "automatic question detection disabled in settings"
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = "autoDetectDisabled"
@@ -562,11 +564,13 @@ extension AppState {
     // MARK: - Background Persistence
 
     func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment) {
+        let consent = persistenceConsent
+        let consentTicket = consent.ticket()
         let repository = transcriptRepository
         markSQLiteOperation("Saving transcript segment in background")
         Task.detached(priority: .utility) { [weak self] in
             do {
-                try repository.saveSegment(segment)
+                try consent.write(ticket: consentTicket) { try repository.saveSegment(segment) }
                 await MainActor.run { [weak self] in
                     self?.lastSQLiteOperation = "Saved transcript segment"
                 }
@@ -579,11 +583,14 @@ extension AppState {
     }
 
     func saveDetectedQuestionInBackground(_ question: DetectedQuestion) {
+        guard settings.saveTranscriptsLocally else { return }
+        let consent = persistenceConsent
+        let consentTicket = consent.ticket()
         let repository = suggestionRepository
         markSQLiteOperation("Saving detected question in background")
         Task.detached(priority: .utility) { [weak self] in
             do {
-                try repository.saveDetectedQuestion(question)
+                try consent.write(ticket: consentTicket) { try repository.saveDetectedQuestion(question) }
                 await MainActor.run { [weak self] in
                     self?.lastSQLiteOperation = "Saved detected question"
                 }
@@ -596,13 +603,16 @@ extension AppState {
     }
 
     func saveDetectedQuestionsInBackground(_ questions: [DetectedQuestion]) {
+        guard settings.saveTranscriptsLocally else { return }
         guard !questions.isEmpty else { return }
+        let consent = persistenceConsent
+        let consentTicket = consent.ticket()
         let repository = suggestionRepository
         markSQLiteOperation("Saving extracted detected questions in background")
         Task.detached(priority: .utility) { [weak self] in
             do {
                 for question in questions {
-                    try repository.saveDetectedQuestion(question)
+                    try consent.write(ticket: consentTicket) { try repository.saveDetectedQuestion(question) }
                 }
                 await MainActor.run { [weak self] in
                     self?.lastSQLiteOperation = "Saved extracted detected questions"
@@ -616,6 +626,7 @@ extension AppState {
     }
 
     func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
+        guard settings.saveTranscriptsLocally else { return }
         guard !card.isPartial else {
             print("[Transcript] Skipping saveSuggestionSnapshotInBackground for partial card.")
             recordTranscriptRuntimeEvent(.persistenceRejected(
@@ -659,6 +670,8 @@ extension AppState {
         guard claimSuggestionPersistence(sanitizedCard, generationID: sanitizedCard.generationID) else {
             return
         }
+        let consent = persistenceConsent
+        let consentTicket = consent.ticket()
         let repository = suggestionRepository
         recordTranscriptRuntimeEvent(.persistenceStarted(
             sessionID: sanitizedCard.sessionID,
@@ -711,7 +724,7 @@ extension AppState {
                     generationID: detachedCard.generationID,
                     sourceCallback: "snapshot_sqlite_save"
                 )) else { return }
-                try repository.saveSuggestionCard(detachedCard, retrievedChunks: chunks)
+                try consent.write(ticket: consentTicket) { try repository.saveSuggestionCard(detachedCard, retrievedChunks: chunks) }
                 await MainActor.run { [weak self, detachedCard] in
                     guard let self else { return }
                     self.lastSQLiteOperation = "Saved suggestion snapshot"

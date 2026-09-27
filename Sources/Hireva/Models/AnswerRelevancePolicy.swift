@@ -26,6 +26,7 @@ enum AnswerRelevanceIntent: String, CaseIterable, Codable, Hashable, Identifiabl
     case candidateQuestions = "candidate_questions"
     case interviewerQuestions = "interviewer_questions"
     case diffusionPolicy = "diffusion_policy"
+    case systemDesign = "system_design"
     case generic
 
     var id: String { rawValue }

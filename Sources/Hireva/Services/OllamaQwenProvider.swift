@@ -25,6 +25,8 @@ struct LocalLLMRequest: Equatable {
     let temperature: Double?
     let numPredict: Int?
     let responseFormat: String?
+    let responseSchema: LocalJSONValue?
+    let thinkingEnabled: Bool
 
     init(
         prompt: String,
@@ -32,7 +34,9 @@ struct LocalLLMRequest: Equatable {
         modelName: String,
         temperature: Double?,
         numPredict: Int? = nil,
-        responseFormat: String? = nil
+        responseFormat: String? = nil,
+        responseSchema: LocalJSONValue? = nil,
+        thinkingEnabled: Bool = false
     ) {
         self.prompt = prompt
         self.systemPrompt = systemPrompt
@@ -40,6 +44,8 @@ struct LocalLLMRequest: Equatable {
         self.temperature = temperature
         self.numPredict = numPredict
         self.responseFormat = responseFormat
+        self.responseSchema = responseSchema
+        self.thinkingEnabled = thinkingEnabled
     }
 }
 
@@ -248,8 +254,8 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
             model: localRequest.modelName,
             messages: messages,
             stream: true,
-            think: false,
-            format: localRequest.responseFormat,
+            think: localRequest.thinkingEnabled,
+            format: localRequest.responseSchema ?? localRequest.responseFormat.map(LocalJSONValue.string),
             options: OllamaGenerateOptions(
                 temperature: localRequest.temperature,
                 numPredict: localRequest.numPredict
@@ -423,7 +429,7 @@ private struct OllamaChatRequest: Encodable {
     let messages: [OllamaChatMessage]
     let stream: Bool
     let think: Bool?
-    let format: String?
+    let format: LocalJSONValue?
     let options: OllamaGenerateOptions?
 }
 

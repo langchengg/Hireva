@@ -17,15 +17,15 @@ struct ProductPolishStateTests {
     }
 
     @Test
-    func homeStateMissingDocumentsRoutesToReadiness() throws {
+    func homeStateWithoutDocumentsAllowsGeneralQuestions() throws {
         let appState = try makeAppState()
         appState.keychainDeepSeekKeyExists = true
         appState.providerConfigurations = [.deepSeekDefault()]
         grantPermissions(appState)
 
-        #expect(!appState.coreInterviewReadinessPassed)
-        #expect(appState.productInterviewStatus == .needsAttention)
-        #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
+        #expect(appState.coreInterviewReadinessPassed)
+        #expect(appState.productInterviewStatus == .ready)
+        #expect(appState.primaryHomeActionTitle == "Start Interview")
         #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
     }
 
@@ -64,13 +64,13 @@ struct ProductPolishStateTests {
         grantPermissions(appState)
 
         #expect(!appState.onboardingComplete)
-        #expect(appState.liveBlockedReason == "Candidate context is still being prepared.")
+        #expect(appState.liveBlockedReason == "Context is being prepared; general practice remains available.")
         #expect(!appState.coreInterviewReadinessPassed)
         #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
     }
 
     @Test
-    func jdOnlyContextRemainsBlockedWithoutCandidateEvidence() throws {
+    func jdOnlyContextAllowsGeneralQuestions() throws {
         let appState = try makeAppState()
         appState.answerProviderModeOverride = .localQwenPrimary
         appState.hasCV = false
@@ -80,10 +80,10 @@ struct ProductPolishStateTests {
         appState.latexPollutedChunkCount = 0
         grantPermissions(appState)
 
-        #expect(!appState.onboardingComplete)
-        #expect(appState.liveBlockedReason == "Add your CV before starting an interview.")
-        #expect(!appState.coreInterviewReadinessPassed)
-        #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
+        #expect(appState.onboardingComplete)
+        #expect(appState.liveBlockedReason == nil)
+        #expect(appState.coreInterviewReadinessPassed)
+        #expect(appState.primaryHomeActionTitle == "Start Interview")
         #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
     }
 

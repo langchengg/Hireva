@@ -20,7 +20,19 @@ import SwiftUI
 @MainActor
 final class AppState: ObservableObject {
     @Published var selectedSection: AppSection = .home
-    @Published var settings: AppSettings = .default
+    let persistenceConsent = PersistenceConsent()
+    @Published var settings: AppSettings = .default {
+        didSet {
+            persistenceConsent.update(enabled: settings.saveTranscriptsLocally)
+            if oldValue.saveTranscriptsLocally && !settings.saveTranscriptsLocally {
+                practiceController.revokePersistence()
+                recapTask?.cancel()
+                recapTask = nil
+                recapSessionID = nil
+                isGeneratingRecap = false
+            }
+        }
+    }
     @Published var documents: [DocumentRecord] = []
     @Published var candidateProfiles: [CandidateProfile] = []
     @Published var opportunityContexts: [OpportunityContext] = []
@@ -646,6 +658,11 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     var precomputeDebounceTask: Task<Void, Never>? = nil
 
+    @Published var materialImportStatus = ""
+    var materialImportTask: Task<Void, Never>?
+    var materialImportID = UUID()
+
+    lazy var practiceController = PracticeController(app: self)
     let database: AppDatabase
     let documentRepository: DocumentRepository
     let interviewContextRepository: InterviewContextRepository
@@ -706,6 +723,8 @@ final class AppState: ObservableObject {
     var activeDetectionTask: Task<Void, Never>?
     // internal for AppState extension access only
     var activeAITask: Task<Void, Never>?
+    var recapTask: Task<Void, Never>?
+    var recapSessionID: String?
     var answerProviderModeOverride: AnswerProviderMode?
     var localLLMProviderOverride: (any LocalLLMProvider)?
     var automaticContextBuildTask: Task<Void, Never>?
@@ -1050,6 +1069,8 @@ final class AppState: ObservableObject {
     }
 
     deinit {
+        recapTask?.cancel()
+        materialImportTask?.cancel()
         activeEmbeddingRebuildTask?.cancel()
         automaticContextBuildTask?.cancel()
         precomputeDebounceTask?.cancel()
@@ -1116,6 +1137,9 @@ final class AppState: ObservableObject {
         activeDetectionTask = nil
         activeAITask?.cancel()
         activeAITask = nil
+        recapTask?.cancel()
+        recapTask = nil
+        recapSessionID = nil
         captureStartupID = nil
         captureStartupTask?.cancel()
         transcriptionTask?.cancel()
@@ -1171,14 +1195,11 @@ final class AppState: ObservableObject {
     // MARK: - Background Persistence (moved to AppState+Transcript.swift)
 
     var onboardingComplete: Bool {
-        hasUsableCandidateContext
+        automaticContextReadiness != .extracting
     }
 
     var liveBlockedReason: String? {
-        if !hasCV && !hasJD { return "Add your CV and job description before starting an interview." }
-        if !hasCV { return "Add your CV before starting an interview." }
-        if automaticContextReadiness == .extracting { return "Candidate context is still being prepared." }
-        if !hasUsableCandidateContext { return "Review or rebuild the CV context before starting an interview." }
+        if automaticContextReadiness == .extracting { return "Context is being prepared; general practice remains available." }
         return nil
     }
 
@@ -1426,6 +1447,12 @@ final class AppState: ObservableObject {
     func submitMockQuestion(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard !primaryHomeActionShouldStop || currentSession?.mode == .mock else {
+            showError("Stop real capture before injecting a synthetic transcript.")
+            return
+        }
+        practiceController.pause()
+
 
         if activeTranscriptionProvider === mockTranscriptionService {
             mockTranscriptionService.submit(trimmed)
@@ -1434,10 +1461,10 @@ final class AppState: ObservableObject {
                 guard let self else { return }
                 do {
                     let session: InterviewSession
-                    if let currentSession = self.currentSession {
+                    if let currentSession = self.currentSession, currentSession.mode == .mock {
                         session = currentSession
                     } else {
-                        session = try self.createContextBoundSession(mode: .mock, title: "Practice Test")
+                        session = try self.createContextBoundSession(mode: .mock, title: "Synthetic Diagnostic")
                     }
                     self.currentSession = session
                     if self.transcriptSegments.isEmpty {
@@ -1916,12 +1943,16 @@ final class AppState: ObservableObject {
             }
         }
 
-        // Helper to construct a local fallback card
+        let allowsProfileFallback = PromptContextBuilder.usesProfileContext(
+            promptSnapshot.taskDescriptor ?? InterviewTaskDescriptor(question: localQuestion.questionText)
+        )
+        // Also used as a blank card shell for provider text. General tasks must
+        // never receive a personal-story template while waiting for that text.
         func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
-            let grounded = groundedFallback(
+            let grounded = allowsProfileFallback ? groundedFallback(
                 for: localQuestion.questionText,
                 contextSnapshotID: generationSnapshot?.id
-            )
+            ) : nil
             let selectedEvidenceIDs: Set<String> = Set(grounded?.result.candidateEvidenceIDs ?? [])
             let keyPoints: [String] = grounded?.snapshot.candidateEvidence
                 .filter { selectedEvidenceIDs.contains($0.id) }
@@ -1938,7 +1969,7 @@ final class AppState: ObservableObject {
                 followUpReady: ["How does this align with the role requirements?"],
                 confidence: 0.5,
                 caution: isSoft ? "Fast local answer shown; DeepSeek still generating..." : "Fast fallback shown; DeepSeek still expanding...",
-                evidenceUsed: (optimizedContext.cvChunks + optimizedContext.jobDescriptionChunks).map { $0.id },
+                evidenceUsed: (grounded?.result.candidateEvidenceIDs ?? []) + (grounded?.result.opportunityEvidenceIDs ?? []),
                 riskLevel: .medium,
                 modelName: "rag-fallback",
                 promptVersion: "fallback-v1",
@@ -1996,7 +2027,7 @@ final class AppState: ObservableObject {
                 try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
                 guard self.currentGenerationID == generationID else { return }
                 
-                if self.streamFirstVisibleTextAt == nil {
+                if allowsProfileFallback && self.streamFirstVisibleTextAt == nil {
                     let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
                     self.softFallbackUsed = true
                     self.softFallbackLatencyMS = elapsed
@@ -3059,7 +3090,7 @@ final class AppState: ObservableObject {
         
         self.lastRetrievalTrace = trace
         
-        let mockCard = SuggestionCard(
+        var mockCard = SuggestionCard(
             id: "mock-suggestion-card-id",
             sessionID: "mock-session-id",
             questionID: nil,
@@ -3115,15 +3146,6 @@ final class AppState: ObservableObject {
         )
         self.lastDetectedQuestion = mockQuestion
         self.lastDetectedQuestionText = mockQuestion.questionText
-        _ = displaySuggestionIfAligned(
-            mockCard,
-            question: mockQuestion,
-            generationID: nil,
-            triggerPath: .manualGenerate,
-            source: .mock,
-            speaker: .interviewer,
-            allowInactiveGeneration: true
-        )
         self.currentSuggestionRetrievedChunks = cvChunks.filter { $0.isIncludedInPrompt } + jdChunks.filter { $0.isIncludedInPrompt }
         self.manualCaptureSuggestion = self.currentSuggestion
         self.manualCaptureState = .suggestionReady
@@ -3160,6 +3182,22 @@ final class AppState: ObservableObject {
                     ]
                 )
             }
+            // Verification fixtures use the same evidence gate as real cards.
+            // Synthetic source facts are scoped to this explicit mock mode.
+            let profile = try interviewContextRepository.upsertCandidateDocument(documentID: "verification-synthetic-cv", title: "Synthetic verification candidate", content: cvChunks.map(\.fullContent).joined(separator: "\n"), profileID: nil, persistedChunks: [])
+            let snapshot = try interviewContextRepository.createSnapshot(sessionID: mockSession.id, candidateProfileID: profile.id, opportunityContextID: nil, domainProfileID: InterviewDomainID.softwareEngineering.rawValue)
+            try sessionRepository.attachContextSnapshot(sessionID: mockSession.id, snapshotID: snapshot.id)
+            mockCard.contextSnapshotID = snapshot.id
+        _ = displaySuggestionIfAligned(
+            mockCard,
+            question: mockQuestion,
+            generationID: nil,
+            triggerPath: .manualGenerate,
+            source: .mock,
+            speaker: .interviewer,
+            allowInactiveGeneration: true
+        )
+            self.manualCaptureSuggestion = self.currentSuggestion
             self.sessions = try self.sessionRepository.listSessions()
             
             let mockSegment = TranscriptSegment(

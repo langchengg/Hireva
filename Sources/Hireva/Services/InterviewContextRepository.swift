@@ -444,8 +444,7 @@ private extension CandidateProfile {
         for keyPath in keyPaths {
             guard let index = self[keyPath: keyPath].firstIndex(where: { $0.id == evidenceID }) else { continue }
             self[keyPath: keyPath][index].statement = statement
-            self[keyPath: keyPath][index].sourceSpan = nil
-            self[keyPath: keyPath][index].explicitness = .userConfirmed
+            self[keyPath: keyPath][index].explicitness = .inferred
             version += 1
             updatedAt = Date()
             return true
@@ -482,8 +481,7 @@ private extension OpportunityContext {
         for keyPath in keyPaths {
             guard let index = self[keyPath: keyPath].firstIndex(where: { $0.id == evidenceID }) else { continue }
             self[keyPath: keyPath][index].statement = statement
-            self[keyPath: keyPath][index].sourceSpan = nil
-            self[keyPath: keyPath][index].explicitness = .userConfirmed
+            self[keyPath: keyPath][index].explicitness = .inferred
             version += 1
             updatedAt = Date()
             return true

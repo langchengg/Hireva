@@ -77,6 +77,8 @@ struct LocalQwenDocumentEvidenceExtractor: AutomaticDocumentEvidenceExtracting {
             let statement = fact.statement.trimmingCharacters(in: .whitespacesAndNewlines)
             guard span.count >= 2,
                   statement.count >= 2,
+                  !StructuredEvidenceExtractor.isExtractionLocationLabel(span),
+                  !StructuredEvidenceExtractor.isExtractionLocationLabel(statement),
                   content.range(of: span, options: [.caseInsensitive, .diacriticInsensitive]) != nil,
                   Self.statementIsSupported(statement, by: span),
                   !AutomaticInterviewContextBuilder.containsPromptInjection(span),
@@ -93,7 +95,9 @@ struct LocalQwenDocumentEvidenceExtractor: AutomaticDocumentEvidenceExtracting {
             }
             return ProfileEvidence(
                 id: "llm-evidence-\(StructuredEvidenceExtractor().contentHash("\(documentID)|\(statement)|\(span)"))",
-                statement: statement,
+                // Keep the actual span as the fact. A model paraphrase can drop
+                // units, negation, team attribution or experimental conditions.
+                statement: span,
                 sourceDocumentID: documentID,
                 sourceChunkID: matchingChunk?.id,
                 sourceSpan: span,
@@ -193,7 +197,10 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
             return values[key]
         }
 
+        func clear() { lock.lock(); values.removeAll(); lock.unlock() }
+
         func insert(_ value: CachedExtraction, for key: String) {
+            guard !Task.isCancelled else { return }
             lock.lock()
             values[key] = value
             lock.unlock()
@@ -201,6 +208,7 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
     }
 
     private static let extractionCache = ExtractionCache()
+    static func clearExtractionCache() { extractionCache.clear() }
 
     var evidenceExtractor: (any AutomaticDocumentEvidenceExtracting)?
     var chunkProvider: ChunkProvider
@@ -235,6 +243,7 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
         var cacheHitCount = 0
 
         for document in documents.sorted(by: { $0.updatedAt < $1.updatedAt }) {
+            try Task.checkCancellation()
             let classification = Self.classify(document)
             classifications.append(classification)
             if classification.confidence < 0.62 {
@@ -479,6 +488,7 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
     static func sanitizeUntrustedContent(_ content: String) -> (content: String, removedInstructionCount: Int) {
         var removed = 0
         let kept = content.components(separatedBy: .newlines).filter { line in
+            if StructuredEvidenceExtractor.isExtractionLocationLabel(line) { return false }
             if containsPromptInjection(line) || containsInterviewControlInstruction(line) {
                 removed += 1
                 return false

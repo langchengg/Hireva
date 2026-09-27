@@ -35,7 +35,7 @@ struct ProfileEvidence: Codable, Identifiable, Hashable {
     var explicitness: EvidenceExplicitness
 
     var isUsable: Bool {
-        explicitness != .userRejected && !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        (explicitness == .explicit || explicitness == .userConfirmed) && !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -235,8 +235,8 @@ enum DocumentClassification: String, Codable, CaseIterable, Identifiable, Hashab
 
     var isCandidateSource: Bool {
         switch self {
-        case .resume, .portfolio, .coverLetter, .interviewNotes: return true
-        case .jobDescription, .phdProjectDescription, .researchProposal, .other: return false
+        case .resume, .portfolio, .coverLetter: return true
+        case .interviewNotes, .jobDescription, .phdProjectDescription, .researchProposal, .other: return false
         }
     }
 

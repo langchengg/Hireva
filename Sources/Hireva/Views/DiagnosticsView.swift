@@ -4,6 +4,7 @@ import SwiftUI
 struct DiagnosticsView: View {
     @ObservedObject var appState: AppState
     @StateObject private var localModels = LocalModelsSetupViewModel()
+    @State private var mockQuestion = ""
     @State private var parakeetRuntimeDiagnostics = ParakeetRuntimeDiagnostics.unavailable()
 
     var body: some View {
@@ -25,6 +26,17 @@ struct DiagnosticsView: View {
 
             diagnosticsPage(title: "Current Generation") {
                 currentGenerationTab
+                DisclosureGroup("Synthetic Transcript Injection (diagnostic only)") {
+                    Text("This tests detection and generation without audio. It is not a Practice attempt. Stop real capture first; synthetic text uses a separate mock session.").font(.caption)
+                    Picker("Synthetic speaker", selection: $appState.selectedMockSpeaker) {
+                        Text("Interviewer").tag(SpeakerRole.interviewer)
+                        Text("Candidate").tag(SpeakerRole.candidate)
+                        Text("Unknown").tag(SpeakerRole.unknown)
+                    }
+                    TextField("Synthetic transcript", text: $mockQuestion, axis: .vertical)
+                    Button("Inject Synthetic Transcript") { appState.submitMockQuestion(mockQuestion); mockQuestion = "" }
+                        .disabled(mockQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (appState.primaryHomeActionShouldStop && appState.currentSession?.mode != .mock))
+                }
             }
             .tabItem { Label("Generation", systemImage: "sparkles") }
 

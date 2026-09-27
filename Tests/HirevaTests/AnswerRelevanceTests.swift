@@ -165,7 +165,7 @@ struct AnswerRelevanceTests {
         #expect(appState.applySuggestionIfAlignedForTesting(wrongProviderCard, question: question, generationID: nil) == false)
         #expect(appState.currentSuggestion?.id == "candidate-question-fallback")
         #expect(appState.currentSuggestion?.sayFirst == acceptedCard.sayFirst)
-        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("using fallback"))
+        #expect(appState.lastAlignmentError.localizedCaseInsensitiveContains("unsupported personal claims"))
     }
 
     @Test
@@ -176,10 +176,10 @@ struct AnswerRelevanceTests {
     }
 
     @Test
-    func syntheticSystemArchitectureAnswerAlignsWithSystemIntegrationIntent() {
+    func syntheticSystemArchitectureAnswerAlignsWithSystemDesignIntent() {
         let questionText = "How did the system architecture connect ingestion to billing output?"
 
-        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging)
+        #expect(AnswerRelevancePolicy.intent(for: questionText) == .systemDesign)
 
         let answer = "The system architecture connected ingestion to billing through a queue interface, and I instrumented traces and validation checks to make that output reliable."
         #expect(answer.localizedCaseInsensitiveContains("ingestion"))

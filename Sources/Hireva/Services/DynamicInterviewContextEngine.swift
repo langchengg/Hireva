@@ -35,18 +35,27 @@ struct AnswerClaimValidator {
         return AnswerGroundingDecision(
             unsupportedClaims: unsupported,
             supportingCandidateEvidenceIDs: supportingIDs.sorted(),
-            groundingDecision: unsupported.isEmpty ? "supported_by_candidate_evidence" : "unsupported_personal_claim"
+            groundingDecision: unsupported.isEmpty ? (supportingIDs.isEmpty ? "no_personal_fact_detected" : "supported_by_candidate_evidence") : "unsupported_personal_claim"
         )
     }
 
     private func claimSentences(_ text: String) -> [String] {
-        text.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
+        text.components(separatedBy: CharacterSet(charactersIn: ".!?。！？\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
 
     private func isPersonalClaim(_ sentence: String) -> Bool {
         let lower = " " + sentence.lowercased() + " "
+        if sentence.contains("我") || sentence.contains("我们") {
+            let planned = ["我会", "我将", "我计划", "我们将", "我建议"].contains(where: sentence.contains)
+            let past = ["曾", "已经", "完成了", "负责过", "提升了", "降低了", "开发了", "实现了"].contains(where: sentence.contains)
+            if past || (!planned && ["我的项目", "我的经验", "我负责", "我们实现"].contains(where: sentence.contains)) { return true }
+        }
+        // Preferences, qualifications and commitments require evidence just as
+        // completed achievements do. Hypothetical technical plans are separate.
+        if [" i am ", " i'm ", " i’m ", " i prefer ", " i expect ", " i need ", " i can start ", " i can relocate ", " my salary ", " my notice ", " my visa ", " my availability "].contains(where: lower.contains) { return true }
+        if ["我毕业", "我拥有", "我具有", "我希望", "我期望", "我偏好", "我需要", "我能入职", "我可以入职", "我的薪", "我的签证", "我的学历"].contains(where: sentence.contains) { return true }
         let prospectivePlan = [
             " i would ", " i'd ", " i’d ", " i will ", " i'll ", " i’ll ",
             " we would ", " we'd ", " we’d ", " we will ", " we'll ", " we’ll ",
@@ -78,6 +87,11 @@ struct AnswerClaimValidator {
     private func personalExperienceEventIsSupported(claim: String, evidence: String) -> Bool {
         let claim = " " + claim.lowercased() + " "
         let evidence = " " + evidence.lowercased() + " "
+        let future = ["plan to", "will ", "would ", "计划", "打算", "将要"]
+        let completed = ["built", "developed", "achieved", "reduced", "完成", "实现了", "降低了", "提升了"]
+        if future.contains(where: evidence.contains) && completed.contains(where: claim.contains) { return false }
+        if ["not deployed", "not evaluated", "未部署", "未验证"].contains(where: evidence.contains),
+           !["not", "未"].contains(where: claim.contains) { return false }
         let eventGroups = [
             [" observed ", " saw ", " noticed "],
             [" encountered ", " experienced ", " faced "]

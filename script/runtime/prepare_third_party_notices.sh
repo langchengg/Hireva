@@ -48,4 +48,17 @@ download_verified \
     "$CACHE_DIR/GRDB-LICENSE.txt" \
     "b9ce5b40c859a62fa6998995a9d284565aba72e92ca7c655f64777948f885139"
 
+download_verified \
+    "https://raw.githubusercontent.com/weichsel/ZIPFoundation/22787ffb59de99e5dc1fbfe80b19c97a904ad48d/LICENSE" \
+    "$CACHE_DIR/ZIPFoundation-LICENSE.txt" \
+    "93a5b6f4c4fcfbca71aaf17f5758d249cf205d5d1c237becc37f14e43af09f6b"
+download_verified \
+    "https://raw.githubusercontent.com/scinfu/SwiftSoup/18b80329749eca5ea29fc50211dca5c7eff5bfec/LICENSE" \
+    "$CACHE_DIR/SwiftSoup-LICENSE.txt" \
+    "6d9f121428f5571c4e20362fa91186c552f82648c0161dacc12e239b1544d49d"
+download_verified \
+    "https://raw.githubusercontent.com/open-spaced-repetition/swift-fsrs/1d3cd7a4e72b210b31ca47c23efe4b464673bb54/LICENSE" \
+    "$CACHE_DIR/FSRS-LICENSE.txt" \
+    "dbae7360c54f48e7cbec4c7522c70cbac712af7967b5e4b0d0ac24837b8c4c48"
+
 printf '%s\n' "$CACHE_DIR"

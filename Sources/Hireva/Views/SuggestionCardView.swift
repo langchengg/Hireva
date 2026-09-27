@@ -18,7 +18,7 @@ struct SuggestionCardView: View {
                                 .font(.title2.weight(.bold))
                             Spacer()
                             if let confidence = card.confidence {
-                                StatusPill(title: "\(Int(confidence * 100))%", systemImage: "gauge.medium", tint: confidence >= 0.75 ? .green : .orange)
+                                StatusPill(title: "Heuristic match", systemImage: "gauge.medium", tint: confidence >= 0.75 ? .green : .orange)
                             }
                         }
                         Text(card.sayFirst)

@@ -167,6 +167,56 @@ struct PromptContextBuilderTests {
         #expect(snapshot.prompt.localizedCaseInsensitiveContains("[REDACTED_API_KEY]"))
     }
 
+    @Test(arguments: [
+        "How would you design a notification service to handle duplicate deliveries and retry failures?",
+        "Design a booking system with a 300 ms response budget.",
+        "How would you build a notification service?",
+        "How should retries work for notifications?",
+        "Explain an algorithm for finding duplicate array values.",
+        "编写 SQL 统计每位客户的订单数量。"
+    ])
+    func generalPracticalTasksExcludeUnrelatedProfileConstraints(text: String) {
+        let context = RetrievedContext(
+            cvChunks: [chunk("cv-canary", "PROFILE_CANARY latency x <= 5 ms", .cv)],
+            jobDescriptionChunks: [chunk("jd-canary", "ROLE_CANARY requires five years", .jobDescription)],
+            additionalNotesChunks: [chunk("notes-canary", "NOTES_CANARY", .additionalNotes)]
+        )
+        for stage in [AnswerPromptStage.firstAnswer, .fullAnswer, .sectionStream, .jsonCard] {
+            let snapshot = PromptContextBuilder.promptSnapshot(
+                question: makeQuestion(text), context: context, transcriptContext: "",
+                cvSummary: "SUMMARY_CANARY x <= 5", jdSummary: "ROLE_SUMMARY_CANARY", stage: stage
+            )
+            #expect(!snapshot.prompt.contains("CANARY"))
+            #expect(snapshot.ragChunkIDs.isEmpty)
+            #expect(snapshot.ragContextSnapshot.promptText.isEmpty)
+            #expect(snapshot.prompt.contains(text))
+        }
+    }
+
+    @Test
+    func personalArchitectureQuestionRetainsCandidateEvidence() {
+        let snapshot = PromptContextBuilder.promptSnapshot(
+            question: makeQuestion("Explain the architecture of your project and your contribution."),
+            context: mixedContext(), transcriptContext: "", cvSummary: "PERSONAL_EVIDENCE_CANARY",
+            jdSummary: "", stage: .firstAnswer
+        )
+        #expect(snapshot.taskDescriptor?.requiresPersonalEvidence == true)
+        #expect(snapshot.prompt.contains("PERSONAL_EVIDENCE_CANARY"))
+        #expect(!snapshot.ragChunkIDs.isEmpty)
+    }
+
+    @Test
+    func independentDesignQuestionsDoNotInheritEarlierConstraints() {
+        let snapshot = PromptContextBuilder.promptSnapshot(
+            question: makeQuestion("Design a booking service with durable storage."),
+            context: mixedContext(),
+            transcriptContext: "Interviewer: Design a notification service with OLD_CONSTRAINT_CANARY and a five-second retry limit?",
+            cvSummary: "", jdSummary: "", stage: .firstAnswer
+        )
+        #expect(!snapshot.previousQuestionIncluded)
+        #expect(!snapshot.prompt.contains("OLD_CONSTRAINT_CANARY"))
+    }
+
     private func makeQuestion(_ text: String) -> DetectedQuestion {
         DetectedQuestion(
             id: "prompt-builder-\(UUID().uuidString)",

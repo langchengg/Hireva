@@ -75,7 +75,9 @@ struct GenerationExecutionContext: Equatable {
         interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) {
         self.session = session
-        self.question = question
+        var frozenQuestion = question
+        frozenQuestion.taskDescriptor = promptSnapshot.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+        self.question = frozenQuestion
         self.generationID = generationID
         self.triggerPath = triggerPath
         self.providerID = providerID

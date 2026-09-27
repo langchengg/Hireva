@@ -127,6 +127,7 @@ struct QuestionAnswerAlignmentTests {
             createdAt: Date()
         )
         alignedCard.questionText = question.questionText
+        alignedCard.contextSnapshotID = session.contextSnapshotID
         alignedCard.generationID = "generation-one-question"
         alignedCard.triggerPath = .autoDetect
 

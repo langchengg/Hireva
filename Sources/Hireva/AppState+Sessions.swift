@@ -22,8 +22,25 @@ extension AppState {
     }
 
     func deleteSession(_ session: InterviewSession) {
+        guard currentSession?.id != session.id || !primaryHomeActionShouldStop else {
+            showError("Stop this live session before deleting it.")
+            return
+        }
+        persistenceConsent.invalidate()
         guard !isActionLoading(ActionID.sessionDelete) else { return }
         beginAction(ActionID.sessionDelete, title: "Deleting session", message: "Removing \(session.title)...")
+        if practiceController.run?.sessionID == session.id {
+            practiceController.cancel()
+            practiceController.run = nil
+        }
+        practiceController.reviews.removeAll { $0.sessionID == session.id }
+        if recapSessionID == session.id {
+            recapTask?.cancel()
+            recapTask = nil
+            recapSessionID = nil
+            isGeneratingRecap = false
+            clearActionFeedback(ActionID.sessionRecap)
+        }
         do {
             try sessionRepository.deleteSession(id: session.id)
             if selectedSessionID == session.id {
@@ -42,8 +59,21 @@ extension AppState {
     }
 
     func deleteAllLocalData(includeAPIKey: Bool) {
+        persistenceConsent.invalidate()
+        cancelMaterialImport()
+        AutomaticInterviewContextBuilder.clearExtractionCache()
         guard !isActionLoading(ActionID.clearLocalData) else { return }
         beginAction(ActionID.clearLocalData, title: "Clearing local data", message: "Stopping capture and deleting local app data...")
+        pausePreparationForLive()
+        practiceController.cancel()
+        practiceController.run = nil
+        practiceController.reviews = []
+        practiceController.error = nil
+        automaticContextBuildResult = nil
+        automaticContextReadiness = .noDocuments
+        activeCandidateProfileID = nil
+        activeOpportunityContextID = nil
+        activeContextSnapshot = nil
         stopListening()
         do {
             if includeAPIKey {
@@ -64,30 +94,48 @@ extension AppState {
     }
 
     func generateRecap(for session: InterviewSession) {
+        guard settings.saveTranscriptsLocally, !primaryHomeActionShouldStop else {
+            showError("Stop live capture and enable local history before generating a saved recap.")
+            return
+        }
         guard !isActionLoading(ActionID.sessionRecap) else { return }
-        beginAction(ActionID.sessionRecap, title: "Generating recap", message: "Summarizing transcript and relevant context...")
+        if let practice = try? PracticeRepository(database: database).load(sessionID: session.id) {
+            let recap = RecapReport(id: "practice-recap-" + session.id, sessionID: session.id, markdown: RecapGenerationService.practiceMarkdown(practice), modelName: "Validated practice feedback", promptVersion: practice.task.rubricVersion, isLocal: true, createdAt: Date())
+            do {
+                try recapRepository.saveRecap(recap)
+                selectedSessionRecap = recap
+                completeAction(ActionID.sessionRecap, title: "Recap ready", message: "All attempts included with source quotes and coverage.")
+            } catch { showError(error.localizedDescription) }
+            return
+        }
+        beginAction(ActionID.sessionRecap, title: "Generating recap", message: "Processing all saved text units; unknown speakers are not graded...")
         isGeneratingRecap = true
-        activeAITask?.cancel()
-        activeAITask = Task { [weak self] in
+        recapTask?.cancel()
+        recapSessionID = session.id
+        let consentTicket = persistenceConsent.ticket()
+        recapTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if !Task.isCancelled, self.recapSessionID == session.id {
+                    self.recapTask = nil
+                    self.recapSessionID = nil
+                    self.isGeneratingRecap = false
+                }
+            }
             do {
                 let transcript = try transcriptRepository.segments(sessionID: session.id)
-                let (context, trace) = try await contextRetrievalService.retrieveContextWithTrace(
-                    question: transcript.map(\.text).joined(separator: "\n"),
-                    intent: .unclear,
-                    maxCVWords: 1_500,
-                    maxJDWords: 1_000
-                )
-                self.lastRetrievalTrace = trace
+                let context = RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: [])
                 let result = try await recapGenerationService.generate(
                     session: session,
                     transcript: transcript,
                     context: context,
+                    questions: try suggestionRepository.questions(sessionID: session.id),
                     model: activeRecapProvider?.model
                 )
                 guard !Task.isCancelled else { return }
-                try recapRepository.saveRecap(result.recap)
-                selectedSessionRecap = result.recap
+                guard settings.saveTranscriptsLocally, try sessionRepository.session(id: session.id) != nil else { return }
+                try persistenceConsent.write(ticket: consentTicket) { try recapRepository.saveRecap(result.recap) }
+                if selectedSessionID == session.id { selectedSessionRecap = result.recap }
                 updateDiagnostics {
                     $0.lastAPILatencyMS = result.response.latencyMS
                     $0.apiCallCount += 1
@@ -99,7 +147,6 @@ extension AppState {
                 failAction(ActionID.sessionRecap, title: "Recap failed", message: message)
                 showError(message)
             }
-            isGeneratingRecap = false
         }
     }
 
@@ -120,6 +167,30 @@ extension AppState {
             let message = "Could not export recap: \(error.localizedDescription)"
             failAction(ActionID.sessionExport, title: "Export failed", message: message)
             showError(message)
+        }
+    }
+
+    func exportSessionJSON(_ session: InterviewSession) {
+        guard !isActionLoading(ActionID.sessionExport) else { return }
+        beginAction(ActionID.sessionExport, title: "Exporting session", message: "Writing JSON to local Exports…")
+        do {
+            // Reuse the existing Markdown export location and reveal workflow.
+            // A fresh filename avoids replacing a previous user export.
+            try AppPaths.ensureDirectoriesExist()
+            let url = AppPaths.exportsDirectory.appendingPathComponent("hireva-session-\(UUID().uuidString).json")
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let practice = try PracticeRepository(database: database).load(sessionID: session.id) {
+                try encoder.encode(practice).write(to: url, options: .atomic)
+            } else {
+                struct Export: Encodable { var session: InterviewSession; var transcript: [TranscriptSegment]; var recap: RecapReport? }
+                try encoder.encode(Export(session: session, transcript: transcriptRepository.segments(sessionID: session.id), recap: recapRepository.recap(sessionID: session.id))).write(to: url, options: .atomic)
+            }
+            completeAction(ActionID.sessionExport, title: "Session exported", message: url.path)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            failAction(ActionID.sessionExport, title: "Export failed", message: error.localizedDescription)
+            showError(error.localizedDescription)
         }
     }
 

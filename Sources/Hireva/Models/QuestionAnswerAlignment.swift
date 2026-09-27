@@ -248,6 +248,8 @@ enum QuestionAnswerAlignmentEvaluator {
             require("isolated cause", ["isolate", "compare", "calibration", "timing", "latency", "distribution", "dynamics", "configuration"])
         case .projectComparison:
             require("explicit contrast", ["while", "whereas", "unlike", "difference", "compared", "both"])
+        case .systemDesign:
+            require("design reasoning", ["requirement", "component", "interface", "architecture", "scale", "data", "trade", "需求", "组件", "数据", "权衡"])
         case .systemIntegrationDebugging:
             require("system boundary", ["system", "pipeline", "module", "component", "handoff", "integration", "interface", "method", "deployment", "environment", "real robot"])
             require("reliability action", [

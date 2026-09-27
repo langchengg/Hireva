@@ -305,7 +305,7 @@ struct ManualCaptureTests {
         }
 
         // Create an active session so database persistence triggers
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let session = try appState.createContextBoundSession(mode: .microphone)
         appState.currentSession = session
 
         // Act

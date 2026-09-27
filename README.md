@@ -98,6 +98,53 @@ Candidate evidence and opportunity evidence are modeled separately. Validation g
 - **🪟 Floating assistant** — presents **Say First**, **Key Points**, and **Follow-up Ready** guidance in compact, normal, or diagnostic display modes.
 - **💾 Local history and diagnostics** — GRDB/SQLite stores sessions, transcript segments when enabled, detected questions, suggestion cards, context snapshots, and retrieved-evidence links. Diagnostic text capture is independently controlled.
 
+## Prepare, Practice, Live, Recap
+
+Use **Documents** to import TXT/Markdown, a text or scanned PDF, DOCX, or an image.
+PDFKit extracts PDF text; Vision OCR handles pages without useful text and images.
+ZIPFoundation reads bounded DOCX entries; paragraph, list and table locations are
+retained. Review extraction warnings and the saved original, then open **Review**
+to correct evidence and explicitly confirm facts. Saving an edited draft alone
+is not confirmation. CV/JD imports rebuild automatic context; story-card drafts
+are editable and remain separate from personal facts.
+
+Open **Practice** in the sidebar, choose a task and edit its question/rubric if
+needed. Answer and feedback languages are separate (English/Chinese). General
+knowledge, coding and system design work without a CV. Press **Answer**, type or
+use **Record Answer**, correct the transcript, then **Submit Answer**. Reference
+content appears after submission. **Hint**, **Skip**, **Answer Again**, pause and
+resume are explicit actions. Up to two follow-ups target missing rubric points.
+Feedback quotes must match the submitted answer; subjective feedback is not a
+hiring prediction. The local Qwen model must already be available; practice does
+not fall back to a cloud provider or download a model.
+
+From **Open Session / Recap**, generate a recap of saved attempts, export Markdown
+or JSON, resume practice, or delete the session. Suitable knowledge attempts can
+be saved as review cards; reveal after recall and explicitly rate Again/Hard/Good/
+Easy. FSRS schedules recall, not design quality or job fit. Live recaps process all
+saved text units and mark units without an attributed candidate answer as not
+evaluable; source IDs and exact quotations are validated before saving.
+
+Session JSON and recap Markdown exports are written to the existing local Exports folder; each export gets a unique filename.
+
+**Prepare / Practical Tools** provides an explicit public-URL fetch, isolated
+read-only SQL on the displayed synthetic schema, and a static code-review
+checklist. SQL results show actual execution/error and can be attached to a
+practice question. General code execution is unavailable without a configured
+isolated runtime. The URL tool fetches one HTTPS page plus robots.txt, caches the
+actual source, and can import excerpts as JD context. Private/reserved addresses,
+redirects and IPv6-only sites are rejected; provide the final public URL. It is
+not an internet search service.
+
+Return to **Live Interview** for the existing microphone/system/both capture
+modes, floating assistant and shortcuts. Only use live assistance where it is
+allowed and participants know about it. Starting live capture pauses practice
+and lower-priority inference. Audio source does not identify the speaker.
+
+Implementation is broader than the acceptance completed on this machine. See
+[the current workflow acceptance record](docs/workflow-acceptance.md) for exact
+verified scopes, failed cases and blocked GUI/audio checks.
+
 ## Installation
 
 ### 🍎 macOS
@@ -294,7 +341,7 @@ Interview audio is processed locally after the Parakeet model is installed. Qwen
 | Cloud embeddings | Selected text is sent to the user-configured embedding endpoint |
 | Parakeet model installation | Downloads the pinned model from trusted GitHub release hosts; interview content is not sent with the model request |
 
-Local application data is stored under `~/Library/Application Support/Hireva/`. Provider keys are stored in macOS Keychain, not in SQLite. `Save transcripts locally` controls transcript-row persistence. Diagnostic tracing is separate and offers **Off**, **Metadata only**, and explicit **Full text (sensitive)** modes; full-text tracing requires opt-in, and disabling transcript storage limits effective trace detail.
+Local application data is stored under `~/Library/Application Support/Hireva/`. Provider keys are stored in macOS Keychain, not in SQLite. `Save transcripts locally` controls transcript persistence and new practice attempts, review cards, preparation caches and query results. When disabled, these new workflow results are temporary; it does not automatically delete previously saved records or imported documents. Diagnostic tracing is separate and offers **Off**, **Metadata only**, and explicit **Full text (sensitive)** modes; full-text tracing requires opt-in, and disabling transcript storage limits effective trace detail.
 
 See [Privacy and Data Flow](docs/privacy-and-data-flow.md) for the code-derived data map and removal boundaries.
 
@@ -327,12 +374,16 @@ Useful engineering references:
 - Hireva supports macOS 14 or later; Apple Silicon `arm64` is the only packaged and validated architecture.
 - Local Parakeet is experimental and produces final utterance transcripts rather than true word-by-word partial ASR.
 - Ollama is a separately installed and operated local service; Qwen is not bundled in the DMG.
-- Apple Speech availability and on-device behavior depend on macOS and locale.
+- Apple Speech availability and on-device behavior depend on macOS and locale. Chinese text support does not imply Chinese ASR: the current Parakeet path has no verified Chinese support, and no WhisperKit adapter/model was installed in this change.
+- Automatic task routing and personal-claim checks are heuristics with documented misses, not calibrated confidence or independent verification of facts. Explicit Practice task selection is available.
+- OCR does not preserve code indentation reliably or interpret diagrams. DOCX list numbering/layout may require manual review.
+- Public URL fetching fails closed on private/reserved DNS results, including fake-IP VPN configurations; it does not modify system networking.
+- Generic code review is a checklist, not a compiler, execution sandbox or correctness proof.
 - Current DMGs are ad-hoc signed, not Developer ID signed, not notarized, and rejected by Gatekeeper as public distribution artifacts.
 - Bluetooth audio-route switching and failure recovery have not yet been validated on physical Bluetooth hardware.
 - DeepSeek and cloud embeddings require user-supplied configuration and transmit selected content off-device when enabled.
 
-The latest local dialogue validation marks the tested Parakeet + Qwen and Apple Speech + Qwen paths as suitable for controlled local use, while public distribution remains blocked. See the [Dialogue End-to-End Release Validation](docs/verification/hireva-dialogue-e2e-validation-20260809.md).
+Historical dialogue reports apply only to their recorded configurations. They are not evidence for current changes. See [current workflow acceptance](docs/workflow-acceptance.md); public distribution remains unverified.
 
 ## Contributing
 

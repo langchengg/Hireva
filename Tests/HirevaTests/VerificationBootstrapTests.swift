@@ -5,6 +5,25 @@ import Testing
 @Suite(.serialized)
 struct VerificationBootstrapTests {
     @Test
+    func verificationEventsRespectPrivacyAndExplicitFullTextOptIn() throws {
+        let fields: [String: Any] = ["sessionID": "synthetic-session", "count": 1,
+            "text": "RAW_CANARY", "questionText": "RAW_CANARY", "answer": "RAW_CANARY",
+            "latestQuestion": "RAW_CANARY", "error": "RAW_CANARY", "triggerReason": "RAW_CANARY",
+            "futureUnreviewedField": "RAW_CANARY"]
+        var settings = AppSettings.default
+        settings.diagnosticTraceMode = .metadataOnly
+        let metadata = try #require(HirevaVerificationEventPolicy.fieldsForLogging(fields, settings: settings))
+        #expect(Set(metadata.keys) == ["sessionID", "count"])
+        settings.diagnosticTraceMode = .fullText
+        settings.saveTranscriptsLocally = true
+        #expect(HirevaVerificationEventPolicy.fieldsForLogging(fields, settings: settings)?["answer"] as? String == "RAW_CANARY")
+        settings.saveTranscriptsLocally = false
+        #expect(HirevaVerificationEventPolicy.fieldsForLogging(fields, settings: settings)?["answer"] == nil)
+        settings.diagnosticTraceMode = .off
+        #expect(HirevaVerificationEventPolicy.fieldsForLogging(fields, settings: settings) == nil)
+    }
+
+    @Test
     func transcriptEvidenceExcludesSystemStatusAndRecordsInterviewSpeaker() {
         #expect(!HirevaVerificationEventPolicy.recordsTranscript(isSystemSpeaker: true))
         #expect(HirevaVerificationEventPolicy.recordsTranscript(isSystemSpeaker: false))

@@ -7,7 +7,7 @@ final class AppDatabase {
     private let closeLock = NSLock()
     private(set) var isClosed = false
 
-    init(path: URL = AppPaths.databaseURL) throws {
+    init(path: URL = AppPaths.databaseURL, migrationTarget: String? = nil) throws {
         if path.standardizedFileURL == AppPaths.databaseURL.standardizedFileURL {
             try AppPaths.ensureDirectoriesExist()
         } else {
@@ -19,7 +19,7 @@ final class AppDatabase {
         let configuration = Self.makeConfiguration()
         dbQueue = try DatabaseQueue(path: path.path, configuration: configuration)
         databaseURL = path
-        try migrator.migrate(dbQueue)
+        if let migrationTarget { try migrator.migrate(dbQueue, upTo: migrationTarget) } else { try migrator.migrate(dbQueue) }
     }
 
     init(inMemory: Bool) throws {
@@ -499,6 +499,35 @@ final class AppDatabase {
             try DynamicContextMigration.migrate(db)
         }
 
+        migrator.registerMigration("v17_material_sources") { db in
+            try db.create(table: "document_sources") { table in
+                table.column("document_id", .text).primaryKey().references("documents", onDelete: .cascade)
+                table.column("metadata_json", .blob).notNull()
+                table.column("original_data", .blob).notNull()
+            }
+        }
+        migrator.registerMigration("v18_practice_and_review") { db in
+            try db.create(table: "practice_runs") { table in
+                table.column("session_id", .text).primaryKey().references("interview_sessions", onDelete: .cascade)
+                table.column("payload_json", .blob).notNull()
+            }
+            try db.create(table: "knowledge_reviews") { table in
+                table.column("id", .text).primaryKey()
+                table.column("session_id", .text).notNull().references("interview_sessions", onDelete: .cascade)
+                table.column("payload_json", .blob).notNull()
+            }
+        }
+        migrator.registerMigration("v19_preparation_records") { db in
+            try db.create(table: "preparation_records") { table in
+                table.column("id", .text).primaryKey()
+                table.column("kind", .text).notNull()
+                table.column("created_at", .text).notNull()
+                table.column("payload_json", .blob).notNull()
+            }
+        }
+        migrator.registerMigration("v20_frozen_question_task") { db in
+            try db.alter(table: "detected_questions") { table in table.add(column: "task_descriptor_json", .blob) }
+        }
         return migrator
     }
 }

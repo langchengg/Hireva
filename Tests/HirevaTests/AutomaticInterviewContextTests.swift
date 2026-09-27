@@ -4,6 +4,29 @@ import Testing
 
 @Suite(.serialized)
 struct AutomaticInterviewContextTests {
+    @Test
+    func extractionLocationsRemainMetadataNotOpportunityFacts() async throws {
+        let labels = ["[PDF page 2]", "[DOCX paragraph 1]", "[DOCX table 1, row 2, cell 3, paragraph 4]", "[image 1]", "[text lines 1–4]"]
+        let content = labels.joined(separator: "\n") + "\nYou will review Swift tests."
+        let local = StructuredEvidenceExtractor().extract(documentID: "source-labels", classification: .jobDescription, content: content)
+        #expect(local.opportunityEvidence.map(\.statement) == ["You will review Swift tests."])
+        let sanitized = AutomaticInterviewContextBuilder.sanitizeUntrustedContent(content)
+        #expect(sanitized.content == "You will review Swift tests.")
+        #expect(sanitized.removedInstructionCount == 0)
+        let provider = PartialDocumentExtractionLocalLLMProvider(json: #"{"facts":[{"statement":"DOCX paragraph 1","source_span":"[DOCX paragraph 1]","evidence_type":"responsibility","confidence":0.99},{"statement":"You will review Swift tests.","source_span":"You will review Swift tests.","evidence_type":"responsibility","confidence":0.9}]}"#)
+        let model = try await LocalQwenDocumentEvidenceExtractor(provider: provider, modelName: "fixture").extract(documentID: "source-labels", classification: .jobDescription, content: content, persistedChunks: [])
+        #expect(model.opportunityEvidence.map(\.statement) == ["You will review Swift tests."])
+    }
+
+    @Test
+    func modelFactKeepsSourceUnitsConditionsAndNegation() async throws {
+        let source = "Our team plans to target 5 ms in simulation; not measured or deployed."
+        let provider = PartialDocumentExtractionLocalLLMProvider(json: #"{"facts":[{"statement":"Our team measured 5 in deployment.","source_span":"Our team plans to target 5 ms in simulation; not measured or deployed.","evidence_type":"project","confidence":0.99}]}"#)
+        let result = try await LocalQwenDocumentEvidenceExtractor(provider: provider, modelName: "fixture").extract(documentID: "conditions", classification: .resume, content: source, persistedChunks: [])
+        #expect(result.candidateEvidence.contains { $0.statement == source })
+        #expect(!result.candidateEvidence.contains { $0.statement == "Our team measured 5 in deployment." })
+    }
+
     @Test @MainActor
     func cvAutoGeneratesAndActivatesBackendProfile() async throws {
         let appState = AppState(database: try TestSupport.makeTemporaryDatabase(prefix: "AutoContextCV"), dialogueDefaults: nil)
@@ -133,7 +156,7 @@ struct AutomaticInterviewContextTests {
             .buildContext(from: documents, previousConfirmedProfile: nil)
         let candidateStatements = result.candidateProfile?.allEvidence.map(\.statement) ?? []
 
-        #expect(candidateStatements.contains { $0.localizedCaseInsensitiveContains("coordinated launch reviews") })
+        #expect(!candidateStatements.contains { $0.localizedCaseInsensitiveContains("coordinated launch reviews") }) // Notes are not confirmed candidate facts.
         #expect(!candidateStatements.contains { $0.localizedCaseInsensitiveContains("evidence-backed answers") })
         #expect(result.warnings.contains { $0.code == .promptInjectionIgnored })
         #expect(AutomaticInterviewContextBuilder.containsInterviewControlInstruction("Use Python for analysis.") == false)
@@ -151,7 +174,7 @@ struct AutomaticInterviewContextTests {
             Projects
             Built a Python evaluation pipeline for forecasting models.
             """, date: now),
-            Self.document(.additionalNotes, title: "Resume correction draft", content: """
+            Self.document(.cv, title: "Resume version two", content: """
             Education
             MSc Computer Science, Example University, 2025.
             Experience

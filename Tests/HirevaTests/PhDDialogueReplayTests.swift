@@ -753,7 +753,7 @@ private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
             return "I am newer to LLM and VLM robotics this year; my earlier deep-learning and NLP work gave me a foundation, and my MSc provided current VLM and robotics exposure."
         }
         if lower.contains("plan to publish") || lower.contains("publish the work") {
-            return "I am currently focused on the dissertation and benchmarking; publication is possible if the results are strong and align with my supervisor's research, but I would not promise it before that evaluation."
+            return "Publication is possible if the dissertation results are strong and suitable for a venue; I would first discuss the evidence and contribution with the supervisor, rather than promise publication before that evaluation."
         }
         if lower.contains("skill set") && lower.contains("fit this project") {
             return "I bring robot perception, language-guided manipulation, visual grounding, grasp selection, and ROS2 integration experience; tactile sensing and world-action models are growth areas I would develop during the PhD."

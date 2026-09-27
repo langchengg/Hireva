@@ -53,7 +53,7 @@ struct ASRReleaseHardeningRegressionTests {
     }
 
     @Test
-    func mixedParakeetMappingKeepsChannelsAndSpeakersSeparate() throws {
+    func mixedParakeetMappingKeepsChannelsWithoutInventingSpeakers() throws {
         let microphone = try ParakeetTranscriptMapper.map(
             event(audioSource: .microphone, speaker: .candidate),
             config: ASRConfig(sessionID: "mixed-test", captureMode: .microphoneAndSystem)
@@ -64,9 +64,9 @@ struct ASRReleaseHardeningRegressionTests {
         )
 
         #expect(microphone.source == .microphone)
-        #expect(microphone.speaker == .candidate)
+        #expect(microphone.speaker == .unknown)
         #expect(system.source == .systemAudio)
-        #expect(system.speaker == .interviewer)
+        #expect(system.speaker == .unknown)
         #expect(microphone.asrSource == .localParakeetASR)
         #expect(system.asrSource == .localParakeetASR)
     }

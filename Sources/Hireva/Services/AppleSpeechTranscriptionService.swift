@@ -478,14 +478,14 @@ final class AppleSpeechTranscriptionSession: NSObject {
                 AudioDeviceManager.shared.currentInputDeviceName,
                 nil,
                 AudioDeviceManager.shared.currentInputDeviceID,
-                .candidate
+                .unknown
             )
         } else {
             return (
                 nil,
                 "System Audio Capture",
                 "system_audio",
-                .interviewer
+                .unknown
             )
         }
     }

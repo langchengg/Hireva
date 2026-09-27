@@ -37,8 +37,8 @@ enum IntentRouter {
             return .simToRealDebugging
         }
         if isPerceptionDebuggingQuestion(text) { return .perceptionDebugging }
-        if containsAny(text, ["control architecture", "system architecture", "technical architecture"]) {
-            return .systemIntegrationDebugging
+        if containsAny(text, ["system design", "design a system", "system architecture", "technical architecture", "系统设计", "系统架构"]) && !containsAny(text, ["debug", "incident", "failure", "故障", "排查"]) {
+            return .systemDesign
         }
         if containsAny(text, ["response latency", "real time bottleneck", "real-time bottleneck"]) &&
             containsAny(text, ["investigate", "diagnose", "find", "measure"]) {
@@ -93,7 +93,7 @@ enum IntentRouter {
                 "personal contribution", "architecture", "what did you build", "teach you",
                 "demonstrates your"
             ])) ||
-            (text.contains("personal contribution") && containsAny(text, ["project", "leorover", "vla", "robot"])) {
+            text.contains("personal contribution") {
             return .projectWalkthrough
         }
         return .generic
@@ -101,7 +101,9 @@ enum IntentRouter {
 
     static func transcriptClassification(for questionText: String) -> (intent: QuestionIntent, strategy: AnswerStrategy, confidence: Double) {
         switch answerIntent(for: questionText) {
-        case .tellMeAboutYourself, .errorHandling, .improvementPlan:
+        case .tellMeAboutYourself, .improvementPlan:
+            return (.behavioral, .directAnswer, 0.9)
+        case .errorHandling:
             return (.behavioral, .starStory, 0.9)
         case .technicalChallenge:
             if isSystemIntegrationFamilyQuestion(questionText) {
@@ -217,9 +219,11 @@ enum IntentRouter {
     }
 
     private static func isProjectComparisonQuestion(_ text: String) -> Bool {
-        containsAny(text, ["compare the projects", "difference between the projects", "how were the projects different", "contrast the projects"]) ||
-            (text.contains("difference between") && text.components(separatedBy: "project").count >= 3) ||
-            (text.contains("vla") && text.contains("leorover") && containsAny(text, ["difference", "compare", "contrast", "complement"]))
+        let personalWorkComparison = containsAny(text, ["complement", "compare", "contrast", "difference"]) &&
+            text.components(separatedBy: "your ").count >= 3 &&
+            containsAny(text, ["work", "experience", "project"])
+        return personalWorkComparison || containsAny(text, ["compare the projects", "difference between the projects", "how were the projects different", "contrast the projects"]) ||
+            (text.contains("difference between") && text.components(separatedBy: "project").count >= 3)
     }
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {

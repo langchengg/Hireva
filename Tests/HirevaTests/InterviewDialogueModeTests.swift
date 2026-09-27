@@ -71,7 +71,7 @@ struct InterviewDialogueModeTests {
         )
 
         #expect(decision.shouldEvaluateQuestion)
-        #expect(decision.speakerRole == .interviewer)
+        #expect(decision.speakerRole == .ambiguous)
         #expect(decision.nextResolvedSessionPhase == .panelQuestions)
     }
 

@@ -20,8 +20,13 @@ struct DocumentsView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 contextSetup
+                if !appState.materialImportStatus.isEmpty {
+                    Text(appState.materialImportStatus).font(.callout).textSelection(.enabled)
+                    Button("Cancel Import") { appState.cancelMaterialImport() }
+                }
                 if showEvidenceReview {
                     evidenceReview
+                    if let profile = appState.activeCandidateProfile { StoryCardsView(appState: appState, profile: profile).id(profile.id) }
                 }
 
                 documentCard(type: .cv, text: $cvText)
@@ -40,7 +45,7 @@ struct DocumentsView: View {
         .onChange(of: appState.documents) { _, _ in hydrateEditors() }
         .fileImporter(
             isPresented: $isImporterPresented,
-            allowedContentTypes: [.plainText],
+            allowedContentTypes: [.plainText, .pdf, .image, UTType(filenameExtension: "docx")!, UTType(filenameExtension: "md")!],
             allowsMultipleSelection: false
         ) { result in
             guard let type = importType else { return }
@@ -107,7 +112,7 @@ struct DocumentsView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(appState.automaticContextReadiness == .extracting || appState.activeCandidateProfile == nil)
+                .disabled(appState.automaticContextReadiness == .extracting )
             }
 
             if let warnings = appState.automaticContextBuildResult?.warnings, !warnings.isEmpty {
@@ -327,7 +332,7 @@ struct DocumentsView: View {
 
     private var domainConfidence: String {
         guard let domain = appState.automaticContextBuildResult?.inferredDomain else { return "Not inferred" }
-        return "\(domain.confidenceLabel) confidence"
+        return "\(domain.confidenceLabel) heuristic match"
     }
 
     private func contextAction(_ title: String, _ icon: String, type: DocumentType) -> some View {
@@ -418,6 +423,15 @@ struct DocumentsView: View {
                 )
             }
 
+            if let document, let source = try? appState.documentRepository.source(documentID: document.id) {
+                Text("Source: \(source.material.filename) · \(source.material.sections.count) locations · \(Array(Set(source.material.sections.map(\.method))).joined(separator: ", "))")
+                    .font(.caption).textSelection(.enabled)
+                Text(source.material.warnings.joined(separator: " ")).font(.caption).foregroundStyle(.secondary)
+                if let image = NSImage(data: source.data) {
+                    Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 240)
+                }
+                Button("Reprocess Saved Original") { appState.reprocessDocument(document) }
+            }
             TextEditor(text: text)
                 .font(.body)
                 .frame(minHeight: type == .additionalNotes ? 130 : 190)
@@ -623,6 +637,7 @@ private struct ProfileEvidenceReviewRow: View {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(reviewTint)
                 Button {
+                    if draft != evidence.statement { appState.editProfileEvidence(evidence.id, statement: draft) }
                     appState.confirmProfileEvidence(evidence.id)
                 } label: {
                     Image(systemName: "checkmark.circle")

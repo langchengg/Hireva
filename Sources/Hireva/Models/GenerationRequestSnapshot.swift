@@ -50,6 +50,7 @@ struct AnswerPromptSnapshot: Equatable {
     var domainProfileID: String?
     var candidateEvidenceIDs: [String]
     var opportunityEvidenceIDs: [String]
+    var taskDescriptor: InterviewTaskDescriptor? = nil
 }
 
 /// Immutable request snapshot for one generation attempt.

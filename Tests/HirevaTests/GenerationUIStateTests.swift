@@ -558,7 +558,7 @@ struct GenerationUIStateTests {
 
         let sections = StreamingSuggestionSections(
             strategy: "Role motivation",
-            sayFirst: "I want this role because it connects my robotics, AI, perception, and real-world deployment experience with a team where I can contribute and grow.",
+            sayFirst: "I want this role because it offers robotics, AI, perception, and real-world deployment work with opportunities to contribute and grow.",
             keyPoints: ["Robotics and AI fit", "Real-world deployment interest"],
             followUpReady: [],
             caution: ""

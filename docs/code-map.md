@@ -83,8 +83,9 @@ Diagnostics.
   Parakeet never requests Speech Recognition.
 - Microphone and system-audio Parakeet samples and metadata must stay isolated.
 - Starting generation must not stop continuous capture.
-- Candidate microphone speech must not auto-trigger answers unless the explicit
-  setting allows it.
+- Microphone-source speech must not auto-trigger answers unless the explicit
+  setting allows it. Capture source does not prove candidate/interviewer identity;
+  channel-only ASR events remain unknown.
 - Partial ASR may update live UI, but final ASR should win for answer
   generation.
 - Truncated fragments such as "why do you want" should not become final
@@ -143,7 +144,7 @@ Diagnostics.
 - Do not mix manual capture with continuous capture lifecycle.
 - Do not add raw key logs for debugging.
 - Do not change DB schema in documentation/comment-only work.
-- Do not use Accessibility automation for GUI verification.
+- GUI acceptance uses the canonical `.app` with visible native UI and isolated synthetic data; CLI injection alone does not establish UI usability.
 
 ## Current Known Limitations
 
@@ -157,3 +158,40 @@ Diagnostics.
 - `generateSuggestion(...)` still remains in `AppState.swift`. Moving lifecycle
   ownership into `GenerationCoordinator` should be Phase 2D/2E work and must be
   done one responsibility at a time with consecutive-question regression tests.
+
+## Preparation and Practice Boundaries
+
+- `InterviewTaskDescriptor`: small frozen task/rubric/language descriptor; heuristic
+  auto-routing is separate from domain and explicitly selected Practice task.
+- `MaterialExtractionService`: bounded PDFKit/Vision/ZIPFoundation/XMLParser
+  extraction; native OCR cancellation is linked to task cancellation. Document
+  originals, hashes and locations live in `document_sources` through
+  `DocumentRepository`; import/reprocess ownership stays in `AppState+Documents`.
+- `PracticeController` / `PracticeSession` / `PracticeRepository`: finite practice
+  lifecycle, local-only evaluation, exact-quote/rubric validation, microphone/TTS
+  exclusion, frozen attempts/material metadata, explicit FSRS ratings. The
+  controller cancels underlying streams and owns a 90-second evaluation deadline.
+- `PracticeView`: formal answer-before-feedback navigation; the older transcript
+  injection routines are diagnostic helpers, not a simulated interview.
+- `StoryCardsView`: editable, separately saved drafts derived from usable evidence;
+  generated drafts never become `ProfileEvidence` automatically.
+- `RecapGenerationService`: bounded question-boundary units, exact source/quote
+  validation, deterministic unknown-speaker coverage, and all-attempt practice
+  recap. `AppState+Sessions` owns a distinct cancellable recap task; deleting an
+  unrelated session cannot cancel live generation.
+- `PreparationView` / `PreparationRepository`: user-triggered public URL and SQL
+  results with history-setting checks and explicit cache deletion.
+- `PublicRoleBriefService`: checked public IPv4 pinned to a bounded system-curl
+  request, no redirects/cookies/proxy inheritance; SwiftSoup parses actual HTML.
+- `PracticeSQLService`: separate in-memory SQLite connection with authorizer,
+  single-statement/read-only checks, function allowlist and resource/cancel limits.
+- `PersistenceConsent`: revocable tickets prevent queued history writes after
+  privacy changes/deletion. Source deletion redacts copied evidence and previews;
+  it does not claim physical-media secure erasure.
+- Additive migrations v17–v20 cover material sources, practice/review state,
+  preparation records and frozen question tasks. Older Codable payloads use
+  optional defaults; synthetic v16 upgrades are regression tested.
+
+`GenerationCoordinator` remains a helper boundary; this work does not move live
+ownership into a new agent framework. See `workflow-acceptance.md` for current
+verification limits, including cancellation/resource-contention measurements.

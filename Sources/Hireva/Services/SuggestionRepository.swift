@@ -42,6 +42,8 @@ final class SuggestionRepository {
                     DateCoding.string(from: question.createdAt)
                 ]
             )
+            let descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+            try db.execute(sql: "UPDATE detected_questions SET task_descriptor_json = ? WHERE id = ? AND task_descriptor_json IS NULL", arguments: [try JSONEncoder().encode(descriptor), question.id])
         }
     }
 
@@ -453,7 +455,8 @@ final class SuggestionRepository {
             latencyMS: row["latency_ms"],
             isLocal: row["is_local"],
             rawJSON: row["raw_json"],
-            createdAt: DateCoding.date(from: row["created_at"])
+            createdAt: DateCoding.date(from: row["created_at"]),
+            taskDescriptor: (row["task_descriptor_json"] as Data?).flatMap { try? JSONDecoder().decode(InterviewTaskDescriptor.self, from: $0) }
         )
     }
 

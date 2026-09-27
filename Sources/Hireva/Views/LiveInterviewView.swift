@@ -2,8 +2,6 @@ import SwiftUI
 
 struct LiveInterviewView: View {
     @ObservedObject var appState: AppState
-    @State private var mockQuestion = ""
-    @State private var practiceExpanded = false
     @State private var showDeepSeekConfirmation = false
 
     var body: some View {
@@ -22,7 +20,7 @@ struct LiveInterviewView: View {
                     case .manualCapture:
                         manualCaptureWorkspace(isWide: isWide)
                     case .practiceMock:
-                        practiceMockWorkspace(isWide: isWide)
+                        PracticeView(appState: appState)
                     }
                 }
             }
@@ -390,7 +388,7 @@ struct LiveInterviewView: View {
                     tint: appState.settings.automaticQuestionDetectionEnabled && !appState.settings.manualOnlyMode ? .green : .orange
                 )
             }
-            Text("When a complete interviewer question is detected with confidence 75% or higher, the app generates a suggestion automatically. 55–75% confidence appears as a possible question.")
+            Text("When a complete interviewer question is detected with a heuristic score of at least 0.75, the app generates a suggestion automatically. A heuristic score of 0.55–0.75 appears as a possible question.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -411,7 +409,7 @@ struct LiveInterviewView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     StatusPill(title: question.intent.displayName, systemImage: "tag", tint: .blue)
-                    StatusPill(title: "\(Int(question.confidence * 100))%", systemImage: "gauge.medium", tint: question.confidence >= 0.75 ? .green : .orange)
+                    StatusPill(title: "Heuristic match", systemImage: "gauge.medium", tint: question.confidence >= 0.75 ? .green : .orange)
                 }
             }
             .padding(14)
@@ -426,44 +424,6 @@ struct LiveInterviewView: View {
         }
     }
     
-    private var practiceTestingSection: some View {
-        DisclosureGroup(isExpanded: $practiceExpanded) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Use this to test the full AI pipeline without microphone input: mock transcript → question detection → context retrieval → suggestion generation.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                
-                Picker("Mock Speaker", selection: $appState.selectedMockSpeaker) {
-                    Text("Interviewer").tag(SpeakerRole.interviewer)
-                    Text("Candidate").tag(SpeakerRole.candidate)
-                    Text("Unknown").tag(SpeakerRole.unknown)
-                }
-                .pickerStyle(.segmented)
-                .padding(.vertical, 4)
-
-                HStack(spacing: 10) {
-                    TextField("Paste an interviewer question, for example: Walk me through a relevant project.", text: $mockQuestion, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...3)
-                    Button {
-                        appState.submitMockQuestion(mockQuestion)
-                        mockQuestion = ""
-                    } label: {
-                        Label("Send Test Question", systemImage: "paperplane.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(mockQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .padding(.top, 8)
-        } label: {
-            Label("Practice / Developer Testing", systemImage: "keyboard")
-                .font(.headline)
-        }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-
     private var audioCaptureModeBinding: Binding<AudioCaptureMode> {
         Binding(
             get: { appState.settings.audioCaptureMode },
@@ -507,7 +467,7 @@ struct LiveInterviewView: View {
             Text(question.questionText)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Confidence \(Int(question.confidence * 100))%. Use Answer Now if this is the question to answer.")
+            Text("Rule-based match; not a calibrated probability. Use Answer Now if this is the question to answer.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -648,7 +608,6 @@ struct LiveInterviewView: View {
                             floatingAssistantStatus
                             autoDetectionStatus
                             TranscriptView(segments: appState.transcriptSegments)
-                            practiceTestingSection
                         }
                         .padding(18)
                     }
@@ -685,98 +644,11 @@ struct LiveInterviewView: View {
                         Divider()
                         
                         TranscriptView(segments: appState.transcriptSegments)
-                        practiceTestingSection
                     }
                     .padding(18)
                 }
             }
         }
-    }
-    
-    private func practiceMockWorkspace(isWide: Bool) -> some View {
-        Group {
-            if isWide {
-                HSplitView {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Practice / Mock Interview Mode")
-                                .font(.title2.weight(.bold))
-                                .foregroundStyle(.secondary)
-                            
-                            practiceTestingSectionExpanded
-                            
-                            TranscriptView(segments: appState.transcriptSegments)
-                        }
-                        .padding(18)
-                    }
-                    .frame(minWidth: 520)
-
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            detectedQuestionPanel
-                            SuggestionCardView(card: appState.currentSuggestion, retrievedChunks: appState.currentSuggestionRetrievedChunks)
-                        }
-                        .padding(18)
-                    }
-                    .frame(minWidth: 360)
-                }
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Practice / Mock Interview Mode")
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.secondary)
-                        
-                        practiceTestingSectionExpanded
-                        
-                        Divider()
-                        
-                        Text("Question & Suggestions")
-                            .font(.title2.weight(.bold))
-                            
-                        detectedQuestionPanel
-                        SuggestionCardView(card: appState.currentSuggestion, retrievedChunks: appState.currentSuggestionRetrievedChunks)
-                        
-                        Divider()
-                        
-                        TranscriptView(segments: appState.transcriptSegments)
-                    }
-                    .padding(18)
-                }
-            }
-        }
-    }
-    
-    private var practiceTestingSectionExpanded: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Use this to test the full AI pipeline without microphone input: mock transcript → question detection → context retrieval → suggestion generation.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            
-            Picker("Mock Speaker", selection: $appState.selectedMockSpeaker) {
-                Text("Interviewer").tag(SpeakerRole.interviewer)
-                Text("Candidate").tag(SpeakerRole.candidate)
-                Text("Unknown").tag(SpeakerRole.unknown)
-            }
-            .pickerStyle(.segmented)
-            .padding(.vertical, 4)
-
-            HStack(spacing: 10) {
-                TextField("Paste an interviewer question, for example: Walk me through a relevant project.", text: $mockQuestion, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...3)
-                Button {
-                    appState.submitMockQuestion(mockQuestion)
-                    mockQuestion = ""
-                } label: {
-                    Label("Send Test Question", systemImage: "paperplane.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(mockQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
     
     private func manualCaptureWorkspace(isWide: Bool) -> some View {

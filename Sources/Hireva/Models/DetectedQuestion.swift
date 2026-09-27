@@ -65,6 +65,7 @@ struct DetectedQuestion: Identifiable, Hashable, Codable {
     var rawJSON: String?
     var createdAt: Date
     var ingressIdentity: TranscriptQuestionIngressIdentity? = nil
+    var taskDescriptor: InterviewTaskDescriptor? = nil
 }
 
 /// Immutable identity of the exact transcript occurrence that produced an

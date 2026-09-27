@@ -130,9 +130,8 @@ extension AppState {
     }
 
     var coreInterviewReadinessPassed: Bool {
-        hasUsableCandidateContext
-            && selectedAnswerProviderConfigured
-            && hasCleanRelevantContext
+        selectedAnswerProviderConfigured
+            && automaticContextReadiness != .extracting
             && latexPollutedChunkCount == 0
             && requiredPermissionsReady
     }

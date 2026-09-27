@@ -997,7 +997,7 @@ enum ParakeetTranscriptMapper {
             id: event.segmentId,
             sessionID: config.sessionID,
             source: audioSource,
-            speaker: expectedSpeaker,
+            speaker: .unknown, // Channel metadata is not speaker diarization.
             text: event.text.trimmingCharacters(in: .whitespacesAndNewlines),
             startTime: event.startTime,
             endTime: event.endTime,

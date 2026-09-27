@@ -63,6 +63,7 @@ extension AppState {
     }
 
     func selectCandidateProfile(_ id: String?) {
+        practiceController.cancel()
         guard id == nil || candidateProfiles.contains(where: { $0.id == id }) else { return }
         if !ProductionContextPolicy.isTestProcess,
            let id,
@@ -75,6 +76,7 @@ extension AppState {
     }
 
     func selectOpportunityContext(_ id: String?) {
+        practiceController.cancel()
         guard id == nil || opportunityContexts.contains(where: { $0.id == id }) else { return }
         if !ProductionContextPolicy.isTestProcess,
            let id,
@@ -150,14 +152,7 @@ extension AppState {
             )
             activeOpportunityContextID = opportunity.id
         case .additionalNotes:
-            let profile = try interviewContextRepository.upsertCandidateDocument(
-                documentID: document.id,
-                title: activeCandidateProfileID.flatMap { id in candidateProfiles.first(where: { $0.id == id })?.displayName } ?? "Candidate Profile",
-                content: document.sanitizedContent ?? document.content,
-                profileID: activeCandidateProfileID,
-                persistedChunks: persistedChunks
-            )
-            activeCandidateProfileID = profile.id
+            break // Notes and generated drafts are not personal facts.
         }
         try interviewContextRepository.saveSelection(currentInterviewContextSelection)
         try interviewContextRepository.saveConfigurationOrigin(.automaticDocuments)

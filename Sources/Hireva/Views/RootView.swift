@@ -61,6 +61,10 @@ struct RootView: View {
         switch appState.selectedSection {
         case .home:
             HomeView(appState: appState)
+        case .preparation:
+            PreparationView(appState: appState)
+        case .practice:
+            PracticeView(appState: appState)
         case .documents:
             DocumentsView(appState: appState)
         case .sessions:
