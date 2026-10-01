@@ -31,6 +31,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     @Published var lastBufferFrameCapacity: Int = 0
 
     private var stream: SCStream?
+    private let startFence = CaptureStartFence()
     private let queue = DispatchQueue(label: "com.langcheng.hireva.systemaudiocapture")
     private let delegateQueue = DispatchQueue(label: "com.langcheng.hireva.systemaudiodelegates")
     private var delegates: [WeakAudioBufferDelegateBox] = []
@@ -70,6 +71,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     func startSystemAudioCapture() async throws {
         lastError = nil
         stopSystemAudioCapture()
+        let startRevision = startFence.begin()
 
         if isRunningUnderTestOrAutomation() {
             print("[ScreenCaptureKitSystemAudioCaptureService] Skipping real capture startup (running under test/automation)")
@@ -86,6 +88,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             shareableContent = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
             hasAccess = true
         } catch {
+            guard startFence.isCurrent(startRevision), !Task.isCancelled else { throw CancellationError() }
             if !hasAccess {
                 let errorMsg = "Enable Screen & System Audio Recording in System Settings. (\(error.localizedDescription))"
                 lastError = errorMsg
@@ -97,6 +100,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             }
         }
 
+        guard startFence.isCurrent(startRevision), !Task.isCancelled else { throw CancellationError() }
         guard let display = shareableContent.displays.first else {
             let errorMsg = "No shareable display detected."
             lastError = errorMsg
@@ -129,7 +133,8 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             streamInstance = stream
             print("[ScreenCaptureKitSystemAudioCaptureService] ScreenCaptureKit audio stream started with 16x16 resolution.")
         } catch {
-            print("[ScreenCaptureKitSystemAudioCaptureService] Tiny 16x16 video stream configuration failed: \(error.localizedDescription). Falling back to native display stream configuration.")
+            guard startFence.isCurrent(startRevision), !Task.isCancelled else { throw CancellationError() }
+            print("[ScreenCaptureKitSystemAudioCaptureService] Tiny 16x16 video stream configuration failed: code=\((error as NSError).code). Falling back to native display stream configuration.")
             
             // Fallback to display's native width/height to avoid resolution rejection, but ignore video frames
             config.width = display.width
@@ -144,6 +149,10 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             print("[ScreenCaptureKitSystemAudioCaptureService] ScreenCaptureKit audio stream started with native fallback resolution.")
         }
 
+        guard startFence.isCurrent(startRevision), !Task.isCancelled else {
+            try? await streamInstance?.stopCapture()
+            throw CancellationError()
+        }
         self.stream = streamInstance
         self.isCapturing = true
         
@@ -173,12 +182,13 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
     }
 
     func stopSystemAudioCapture() {
+        startFence.invalidate()
         sampleWatchdogTask?.cancel()
         sampleWatchdogTask = nil
 
+        self.isCapturing = false
         guard let stream = stream else { return }
         self.stream = nil
-        self.isCapturing = false
         self.rmsLevel = 0
         self.decibels = -90
         
@@ -233,7 +243,7 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
                 delegate.systemAudioCaptureService(self, didReceive: pcmBuffer, at: time)
             }
         } catch {
-            print("[ScreenCaptureKitSystemAudioCaptureService] Audio conversion error: \(error.localizedDescription)")
+            print("[ScreenCaptureKitSystemAudioCaptureService] Audio conversion error: code=\((error as NSError).code)")
             Task { @MainActor in
                 self.lastError = "Audio conversion failed: \(error.localizedDescription)"
                 self.notifyFailure(error: error)
@@ -292,4 +302,13 @@ final class ScreenCaptureKitSystemAudioCaptureService: NSObject, SCStreamOutput,
             delegate.systemAudioCaptureService(self, didFailWithError: error)
         }
     }
+}
+
+/// Stop invalidates pending framework awaits even before an SCStream exists.
+final class CaptureStartFence {
+    private let lock = NSLock()
+    private var revision: UInt64 = 0
+    func begin() -> UInt64 { lock.withLock { revision &+= 1; return revision } }
+    func invalidate() { lock.withLock { revision &+= 1 } }
+    func isCurrent(_ token: UInt64) -> Bool { lock.withLock { token == revision } }
 }

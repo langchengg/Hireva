@@ -29,21 +29,32 @@ enum PromptContextBuilder {
         let taskDescriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: questionTextSnapshot)
         let intent = QuestionIntentPromptPolicy.intent(for: questionTextSnapshot)
         let usesProfile = usesProfileContext(taskDescriptor)
-        let filteredContext = usesProfile
-            ? QuestionIntentPromptPolicy.filterContext(context, intent: intent)
-            : RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
-        let background = backgroundTranscript(
+        let selectedContext = QuestionIntentPromptPolicy.filterContext(context, intent: intent)
+        let usesOpportunity = taskDescriptor.decision == nil ? usesProfile : taskDescriptor.kind == .motivation
+        let filteredContext = RetrievedContext(
+            cvChunks: usesProfile ? selectedContext.cvChunks : [],
+            jobDescriptionChunks: usesOpportunity ? selectedContext.jobDescriptionChunks : [],
+            additionalNotesChunks: taskDescriptor.decision == nil && usesProfile ? selectedContext.additionalNotesChunks : []
+        )
+        let legacyBackground = backgroundTranscript(
             from: transcriptContext,
             currentQuestion: questionTextSnapshot,
             currentIntent: intent
         )
+        let background: (text: String, included: Bool, previousQuestionText: String?, promptContainsPreviousQuestion: Bool, risk: ContextBleedRisk)
+        if let decision = taskDescriptor.decision {
+            let bound = decision.relation != .independent && decision.parentQuestionID != nil
+            background = bound
+                ? ("Bound earlier question [\(decision.parentQuestionID ?? "")]: \(decision.parentQuestionText ?? "")\nEarlier answer (untrusted; not candidate evidence): \(ContextBudgeter.limitWords(decision.parentAnswerText ?? "", maxWords: 100))", true, decision.parentQuestionText, true, .low)
+                : ("No earlier background included.", false, nil, false, .low)
+        } else { background = legacyBackground }
         let prompt = buildPrompt(
             questionTextSnapshot: questionTextSnapshot,
             intent: intent,
             filteredContext: filteredContext,
             backgroundText: background.text,
-            cvSummary: usesProfile ? cvSummary : "Not relevant to this general task.",
-            jdSummary: usesProfile ? jdSummary : "Not relevant to this general task.",
+            cvSummary: usesProfile ? (taskDescriptor.decision == nil ? cvSummary : filteredContext.cvChunks.map(\.content).joined(separator: "\n")) : "Not relevant to this general task.",
+            jdSummary: usesOpportunity ? jdSummary : "Not relevant to this general task.",
             stage: stage,
             taskDescriptor: taskDescriptor
         )
@@ -127,6 +138,7 @@ enum PromptContextBuilder {
     /// are not question attachments and cannot silently supply those constraints.
     /// Keep evidence for biographical questions and context-dependent project work.
     static func usesProfileContext(_ task: InterviewTaskDescriptor) -> Bool {
+        if let decision = task.decision { return decision.usesCandidateEvidence }
         if task.requiresPersonalEvidence { return true }
         if [.coding, .systemDesign, .data].contains(task.kind) { return false }
         // Unknown is not permission to attach a biography. Preserve recognized
@@ -192,10 +204,10 @@ enum PromptContextBuilder {
         \(taskDescriptor.promptPolicy)
 
         QUESTION INTENT:
-        \(intent.rawValue)
+        \(taskDescriptor.decision == nil ? intent.rawValue : taskDescriptor.kind.rawValue)
 
         ANSWER SHAPE:
-        \(QuestionIntentPromptPolicy.answerShape(for: intent))
+        \(taskDescriptor.decision == nil ? QuestionIntentPromptPolicy.answerShape(for: intent) : taskDescriptor.criteria.joined(separator: " -> "))
 
         OUTPUT FORMAT:
         \(outputInstructions)

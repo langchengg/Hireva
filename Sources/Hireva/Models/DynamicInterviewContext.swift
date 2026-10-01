@@ -33,6 +33,17 @@ struct ProfileEvidence: Codable, Identifiable, Hashable {
     var confidence: Double
     var evidenceType: EvidenceType
     var explicitness: EvidenceExplicitness
+    var confirmation: FactConfirmation?
+
+    var statementForPrompt: String {
+        guard let confirmation else { return statement }
+        return statement + "\nConfirmed boundaries (unknown fields remain unknown): " + confirmation.summary
+    }
+
+    var hasReviewEdits: Bool {
+        explicitness == .userConfirmed || explicitness == .userRejected ||
+            (explicitness == .inferred && (confirmation != nil || (sourceSpan != nil && sourceSpan != statement)))
+    }
 
     var isUsable: Bool {
         (explicitness == .explicit || explicitness == .userConfirmed) && !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -55,10 +66,11 @@ struct CandidateProfile: Codable, Identifiable, Hashable {
     var version: Int
     var updatedAt: Date
 
-    var allEvidence: [ProfileEvidence] {
-        (education + experience + projects + skills + publications + achievements + declaredGaps + goals)
-            .filter(\.isUsable)
+    /// Editing UI includes drafts and rejected rows; generation still uses only allEvidence.
+    var reviewEvidence: [ProfileEvidence] {
+        education + experience + projects + skills + publications + achievements + declaredGaps + goals
     }
+    var allEvidence: [ProfileEvidence] { reviewEvidence.filter(\.isUsable) }
 
     mutating func updateEvidence(id evidenceID: String, explicitness: EvidenceExplicitness) -> Bool {
         let keyPaths: [WritableKeyPath<CandidateProfile, [ProfileEvidence]>] = [
@@ -104,10 +116,10 @@ struct OpportunityContext: Codable, Identifiable, Hashable {
     var version: Int
     var updatedAt: Date
 
-    var allEvidence: [ProfileEvidence] {
-        (responsibilities + requiredSkills + preferredSkills + researchTopics + evaluationCriteria)
-            .filter(\.isUsable)
+    var reviewEvidence: [ProfileEvidence] {
+        responsibilities + requiredSkills + preferredSkills + researchTopics + evaluationCriteria
     }
+    var allEvidence: [ProfileEvidence] { reviewEvidence.filter(\.isUsable) }
 
     mutating func updateEvidence(id evidenceID: String, explicitness: EvidenceExplicitness) -> Bool {
         let keyPaths: [WritableKeyPath<OpportunityContext, [ProfileEvidence]>] = [
@@ -305,4 +317,28 @@ struct SnapshotRetrievedContext: Equatable {
     var context: RetrievedContext
     var candidateEvidenceIDs: [String]
     var opportunityEvidenceIDs: [String]
+}
+
+/// User supplied boundaries, not independently verified facts. Optional fields
+/// decode old profiles without migration or invented defaults.
+struct FactConfirmation: Codable, Hashable {
+    var ownership = "unknown"
+    var contribution = ""
+    var status = "unknown"
+    var environment = "unknown"
+    var scope = "unknown"
+    var metric = ""
+    var conditions = ""
+    var summary: String {
+        "ownership=\(ownership); personal contribution=\(contribution); status=\(status); environment=\(environment); scope=\(scope); metric=\(metric); sample/conditions/range=\(conditions)"
+    }
+    func permits(_ claim: String) -> Bool {
+        let text = claim.lowercased()
+        if status == "planned", !["plan", "would", "will", "计划", "打算", "将"].contains(where: text.contains) { return false }
+        if environment == "simulation", ["real-world", "real robot", "hardware", "production", "实机", "生产部署"].contains(where: text.contains) { return false }
+        if scope == "baseline", ["full system", "end-to-end system", "完整系统"].contains(where: text.contains) { return false }
+        if ownership == "team", ["independently", "solely", "alone", "独立", "独自"].contains(where: text.contains) { return false }
+        if !conditions.isEmpty, claim.contains(where: \.isNumber), !text.contains(conditions.lowercased()) { return false }
+        return true
+    }
 }

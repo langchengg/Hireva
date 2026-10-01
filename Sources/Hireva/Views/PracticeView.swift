@@ -6,6 +6,7 @@ import AppKit
 struct PracticeView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var controller: PracticeController
+    @State private var automaticTask = true
     @State private var kind: InterviewTaskKind = .systemDesign
     @State private var language = "en"
     @State private var explanationLanguage = "en"
@@ -45,6 +46,7 @@ struct PracticeView: View {
     private var configuration: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Context: \(appState.activeCandidateProfile?.displayName ?? "General practice") · \(appState.activeOpportunityContext?.title ?? "No selected role")")
+            Toggle("Automatic question type / 自动判断题型", isOn: $automaticTask)
             Picker("Task", selection: $kind) { ForEach(InterviewTaskKind.allCases) { Text($0.title).tag($0) } }
                 .onChange(of: kind) { _, next in question = next.starter(chinese: language == "zh"); rubric = next.criteria.joined(separator: "\n") }
             Picker("Answer language", selection: $language) { Text("English").tag("en"); Text("中文").tag("zh") }
@@ -55,12 +57,13 @@ struct PracticeView: View {
             TextEditor(text: $question).frame(height: 90).border(.secondary.opacity(0.3))
             DisclosureGroup("Evaluation criteria (editable, one per line)") { TextEditor(text: $rubric).frame(height: 120) }
             Stepper("Maximum follow-ups: \(followUps)", value: $followUps, in: 0...2)
-            Button("Start Practice / 开始练习") { controller.start(kind: kind, question: question, language: language, criteria: rubric.components(separatedBy: .newlines).filter { !$0.isEmpty }, maxFollowUps: followUps, explanationLanguage: explanationLanguage) }
+            Button("Start Practice / 开始练习") { controller.start(kind: automaticTask ? nil : kind, question: question, language: language, criteria: automaticTask ? [] : rubric.components(separatedBy: .newlines).filter { !$0.isEmpty }, maxFollowUps: followUps, explanationLanguage: explanationLanguage) }
                 .buttonStyle(.borderedProminent).disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.primaryHomeActionShouldStop)
         }
     }
     @ViewBuilder private func activeRun(_ run: PracticeRun) -> some View {
         Text("\(run.phase.rawValue) · question \(run.questionID.prefix(8)) · follow-up \(run.followUpCount)/\(run.maxFollowUps)").font(.caption).foregroundStyle(.secondary)
+        if let decision = run.task.decision { Text("\(decision.task.title) · evidence: \(decision.personalEvidence.rawValue) · \(decision.source)").font(.caption) }
         Text(run.task.question).font(.title2).textSelection(.enabled)
         if let attachment = run.attachment {
             if let bytes = run.attachmentOriginalData, let image = NSImage(data: bytes) {
@@ -113,7 +116,7 @@ struct PracticeView: View {
                     if run.phase == .completed, feedback.followUp != nil, run.followUpCount < run.maxFollowUps { Button("Targeted Follow-up / 针对性追问") { controller.followUp() } }
                     Button("Answer Again (assisted)") { controller.redo() }
                     if [.coding, .data, .research].contains(run.task.kind) { Button("Save Knowledge Review Card") { controller.addKnowledgeCard() }.disabled(!appState.settings.saveTranscriptsLocally) }
-                    Button("Open Session / Recap") { appState.loadSessionDetails(sessionID: run.sessionID); appState.selectSection(.sessions) }
+                    Button("Open Session / Recap") { appState.loadSessionDetails(sessionID: run.sessionID); appState.selectSection(.sessions) }.disabled(run.historyAllowed == false)
                 }
             } else if attempt.skipped { Text("Skipped; no ability judgement recorded.") }
         }
@@ -125,13 +128,14 @@ struct PracticeView: View {
             ForEach(controller.reviews) { card in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(card.question).font(.headline)
+                    if card.needsReevaluation == true { Text("Source corrected · review paused. Re-evaluate the attempt; prior FSRS ratings remain unchanged.").foregroundStyle(.orange) }
                     Text("Due: \(card.card.due.formatted()) · \(card.hinted ? "created from assisted attempt" : "created from unprompted attempt")").font(.caption)
                     Button("Reveal After Recall") { revealedReviews.insert(card.id) }
                     if revealedReviews.contains(card.id) {
                         Text(card.answer).textSelection(.enabled)
                         HStack {
                             ForEach([1, 2, 3, 4], id: \.self) { rating in
-                                Button(["Again", "Hard", "Good", "Easy"][rating - 1]) { controller.rate(card, rating: Rating(rawValue: rating)!); revealedReviews.remove(card.id) }
+                                Button(["Again", "Hard", "Good", "Easy"][rating - 1]) { controller.rate(card, rating: Rating(rawValue: rating)!); revealedReviews.remove(card.id) }.disabled(card.needsReevaluation == true)
                             }
                         }
                     }

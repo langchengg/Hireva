@@ -23,8 +23,8 @@ enum SystemAudioQuestionExtractor {
         SemanticDuplicateKeyBuilder.key(for: text)
     }
 
-    static func extract(from text: String, isFinal: Bool = true) -> [ExtractedTranscriptQuestion] {
-        QuestionCandidatePipeline.extract(from: text, isFinal: isFinal).map {
+    static func extract(from text: String, isFinal: Bool = true, allowContextDependent: Bool = false) -> [ExtractedTranscriptQuestion] {
+        QuestionCandidatePipeline.extract(from: text, isFinal: isFinal, allowContextDependent: allowContextDependent).map {
             ExtractedTranscriptQuestion(
                 text: $0.text,
                 confidence: $0.confidence,

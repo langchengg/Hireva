@@ -47,6 +47,15 @@ final class SuggestionRepository {
         }
     }
 
+    /// Resolve only the unchanged question before an answer has been persisted.
+    /// Historical answers keep their original frozen descriptor.
+    func resolveQuestionTask(_ question: DetectedQuestion) throws {
+        guard let descriptor = question.taskDescriptor, descriptor.decision != nil else { return }
+        try database.dbQueue.write { db in
+            try db.execute(sql: "UPDATE detected_questions SET task_descriptor_json = ? WHERE id = ? AND session_id = ? AND question_text = ? AND NOT EXISTS (SELECT 1 FROM suggestion_cards WHERE question_id = ?)", arguments: [try JSONEncoder().encode(descriptor), question.id, question.sessionID, question.questionText, question.id])
+        }
+    }
+
     func saveSuggestionCard(_ card: SuggestionCard) throws {
         try saveSuggestionCard(card, retrievedChunks: nil)
     }
@@ -570,7 +579,7 @@ final class SuggestionRepository {
                        sc.soft_fallback_used, sc.stage_b_status
                 FROM suggestion_cards sc
             """
-            var conditions: [String] = []
+            var conditions: [String] = ["COALESCE(sc.stage_b_status, '') != 'needs_personal_evidence'"]
             var args: [DatabaseValueConvertible?] = []
 
             if let provider {

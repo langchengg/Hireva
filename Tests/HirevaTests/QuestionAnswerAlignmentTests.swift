@@ -633,6 +633,7 @@ struct QuestionAnswerAlignmentTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: AlignmentContextRetrievalService()
         )

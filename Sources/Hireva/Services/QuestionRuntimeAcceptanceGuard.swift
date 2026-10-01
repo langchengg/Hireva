@@ -9,13 +9,18 @@ import Foundation
 enum QuestionRuntimeAcceptanceGuard {
     static func acceptedCandidate(
         from text: String,
-        isFinal: Bool = true
+        isFinal: Bool = true,
+        hasFrozenContext: Bool = false
     ) -> QuestionRuntimeAcceptanceResult {
         let collapsed = QuestionTextUtilities.collapse(text)
         guard !collapsed.isEmpty else {
             return .rejected(.emptyQuestion, diagnostic: "Question text is empty.")
         }
 
+        if hasFrozenContext, isFinal, QuestionCandidatePipeline.isContextDependentRequest(collapsed),
+           let candidate = QuestionCandidatePipeline.extract(from: collapsed, isFinal: true, allowContextDependent: true).first {
+            return .accepted(candidate, diagnostic: "Complete contextual request with a frozen parent; semantic resolution still required.")
+        }
         let canonical = QuestionCanonicalizer.canonicalize(collapsed)
         if isVagueFollowUp(canonical) {
             return .rejected(.vagueFollowup, diagnostic: "Rejected vague follow-up without an explicit resolver: \(canonical)")
@@ -45,7 +50,7 @@ enum QuestionRuntimeAcceptanceGuard {
         _ question: DetectedQuestion,
         isFinal: Bool = true
     ) -> (question: DetectedQuestion, result: QuestionRuntimeAcceptanceResult)? {
-        let result = acceptedCandidate(from: question.questionText, isFinal: isFinal)
+        let result = acceptedCandidate(from: question.questionText, isFinal: isFinal, hasFrozenContext: question.taskDescriptor?.conversationContext != nil)
         guard let candidate = result.candidate else { return nil }
         var accepted = question
         accepted.questionText = candidate.text
@@ -62,7 +67,7 @@ enum QuestionRuntimeAcceptanceGuard {
         _ question: DetectedQuestion,
         isFinal: Bool = true
     ) -> QuestionRuntimeAcceptanceResult {
-        acceptedCandidate(from: question.questionText, isFinal: isFinal)
+        acceptedCandidate(from: question.questionText, isFinal: isFinal, hasFrozenContext: question.taskDescriptor?.conversationContext != nil)
     }
 
     static func validateSuggestionCardForPersistence(
@@ -80,12 +85,12 @@ enum QuestionRuntimeAcceptanceGuard {
             card.promptPrimaryQuestion ?? card.promptQuestionText ?? questionText
         )
 
-        let questionResult = acceptedCandidate(from: questionText, isFinal: true)
+        let questionResult = acceptedCandidate(from: questionText, isFinal: true, hasFrozenContext: card.questionDecision?.parentQuestionID != nil)
         guard let candidate = questionResult.candidate else {
             return .rejected(questionResult.reason ?? .pipelineRejected, diagnostic: "Rejected suggestion card question: \(questionResult.diagnostic)")
         }
 
-        let promptResult = acceptedCandidate(from: promptQuestion, isFinal: true)
+        let promptResult = acceptedCandidate(from: promptQuestion, isFinal: true, hasFrozenContext: card.questionDecision?.parentQuestionID != nil)
         guard let promptCandidate = promptResult.candidate else {
             return .rejected(promptResult.reason ?? .pipelineRejected, diagnostic: "Rejected suggestion card prompt question: \(promptResult.diagnostic)")
         }
@@ -121,7 +126,8 @@ enum QuestionRuntimeAcceptanceGuard {
             questionText: candidate.text,
             answerText: answerText,
             sayFirst: card.sayFirst,
-            stageBCompleted: card.stageBCompleted ?? true
+            stageBCompleted: card.stageBCompleted ?? true,
+            decision: card.questionDecision
         )
         let effectiveAlignment = alignmentOverride ?? alignment
         guard effectiveAlignment.verdict == .aligned else {

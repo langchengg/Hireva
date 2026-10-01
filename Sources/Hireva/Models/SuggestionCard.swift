@@ -52,6 +52,9 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var promptContextPreview: String? = nil
     var mismatchReason: String? = nil
     var ingressIdentity: TranscriptQuestionIngressIdentity? = nil
+    // Frozen in-flight validation context. Durable source remains the existing
+    // detected_questions.task_descriptor_json row, referenced by questionID.
+    var questionDecision: InterviewQuestionDecision? = nil
 
     var detectedQuestionID: String? {
         get { questionID }

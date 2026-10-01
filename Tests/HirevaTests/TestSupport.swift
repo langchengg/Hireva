@@ -296,6 +296,7 @@ final class HirevaTestEnvironment {
         )
         appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: resolvedRouter,
             permissionService: permissionService,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
@@ -331,5 +332,49 @@ final class HirevaTestEnvironment {
         try database.close()
         userDefaults.removePersistentDomain(forName: userDefaultsSuiteName)
         try FileManager.default.removeItem(at: rootDirectory)
+    }
+}
+
+/// Explicit transport stub for existing lifecycle/ownership tests. It retains
+/// their legacy routing fixture semantics; it is NOT a classification quality
+/// or installed-model test. Native quality evaluations use real Ollama.
+struct HermeticQuestionRoutingProvider: LocalLLMProvider {
+    var documentedIntegrationFixture = false
+    var id: String { "hermetic-routing-only" }
+    var displayName: String { id }
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        .init(ollamaRunning: true, selectedModel: modelName, modelInstalled: true, providerSource: .localQwen, lastError: nil)
+    }
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> { AsyncThrowingStream { $0.finish() } }
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        let input = try JSONSerialization.jsonObject(with: Data(request.prompt.utf8)) as? [String: Any]
+        let questionText = input?["question"] as? String ?? ""
+        var task = InterviewTaskDescriptor(question: questionText)
+        // Preserve the established domain rubric metadata in these synthetic
+        // lifecycle fixtures; production classification is tested separately.
+        if let academic = PhDInterviewRubricPolicy.intent(for: questionText),
+           [.preMScBackground, .llmVlmExperience, .skillFit, .tactileExperience, .realRobotExperience, .robotArchitecture, .rosControl].contains(academic) {
+            task = InterviewTaskDescriptor(question: questionText, kind: .project)
+            task.requiresPersonalEvidence = true
+        }
+        if documentedIntegrationFixture && AnswerRelevancePolicy.intent(for: questionText) == .systemIntegrationDebugging {
+            // These established lifecycle scenarios supply a documented past
+            // integration incident. Keep that fixture metadata explicit rather
+            // than letting the old "debug" keyword suppress their source pool.
+            task = InterviewTaskDescriptor(question: questionText, kind: .project)
+            task.requiresPersonalEvidence = true
+        }
+        let personal = PromptContextBuilder.usesProfileContext(task)
+        // These legacy lifecycle fixtures do not grade classification. Unknown
+        // test metadata permits source-checked optional examples; it must not
+        // suppress the fixture's supplied facts or claim automatic accuracy.
+        let evidence: PersonalEvidenceRequirement = task.kind == .unknown ? .optional : (personal ? .required : .notRequired)
+        let wire = InterviewQuestionRouter.Wire(task: task.kind, personalEvidence: evidence,
+            basis: evidence == .optional ? .mixed : (personal ? .candidateRecord : .generalKnowledge), relation: .independent, clarification: "")
+        let text = String(decoding: try JSONEncoder().encode(wire), as: UTF8.self)
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.init(text: text, source: .localQwen, modelName: request.modelName))
+            continuation.finish()
+        }
     }
 }

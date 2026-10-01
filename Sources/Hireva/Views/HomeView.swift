@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeView: View {
     @ObservedObject var appState: AppState
+    @State private var showManualCapture = false
     @ObservedObject private var audioDeviceManager = AudioDeviceManager.shared
 
     private var renderState: VisibleAssistantRenderState {
@@ -21,6 +22,32 @@ struct HomeView: View {
             .frame(maxWidth: 1_080, alignment: .leading)
         }
         .navigationTitle("Home / Interview")
+        .sheet(isPresented: $showManualCapture, onDismiss: {
+            appState.cancelManualCapture()
+            appState.hirevaMode = .autoDetect
+        }) {
+            VStack(spacing: 0) {
+                HStack {
+                    Picker("Source", selection: Binding(
+                        get: { appState.settings.manualCaptureSource },
+                        set: { source in
+                            var settings = appState.settings
+                            settings.manualCaptureSource = source
+                            appState.saveSettings(settings)
+                        }
+                    )) {
+                        ForEach(ManualCaptureSource.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    .disabled(appState.manualCaptureState != .idle)
+                    Spacer()
+                    Button("Clear") { appState.clearManualCapture() }
+                    Button("Close") { showManualCapture = false }
+                }.padding()
+                Divider()
+                LiveInterviewView(appState: appState).manualCaptureWorkspace(isWide: false)
+            }
+            .frame(width: 720, height: 720)
+        }
         .onAppear {
             appState.refreshPermissions()
         }
@@ -82,6 +109,12 @@ struct HomeView: View {
             }
 
             HStack(spacing: 10) {
+                Button("Capture Question", systemImage: "hand.tap") {
+                    appState.cancelManualCapture()
+                    appState.hirevaMode = .manualCapture
+                    showManualCapture = true
+                }
+                .disabled(appState.anyCaptureRunning)
                 ActionButton(
                     appState: appState,
                     actionID: ActionID.runReadiness,

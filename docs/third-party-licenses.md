@@ -107,6 +107,35 @@ responsible for the terms of Ollama and the selected model.
 
 ## Explicit Non-Dependencies
 
+### Continuation routing review (2026-09-27)
+
+No new SPM dependency or external source-code copy/port was added. Existing
+ZIPFoundation 0.9.20, SwiftSoup 2.13.9, FSRS 4.1.0 and GRDB 6.29.3 stay pinned.
+
+- **Existing API reuse / source-reviewed workaround:** Ollama v0.24.0, MIT,
+  commit `c28ddc0a7b273cd286b680a6db0bef0c17bc0ec0`;
+  [server/routes.go](https://github.com/ollama/ollama/blob/c28ddc0a7b273cd286b680a6db0bef0c17bc0ec0/server/routes.go),
+  `model/parsers/qwen35.go`, `llm/server.go`. The Qwen non-thinking chat grammar
+  activation defect is avoided in Hireva's existing `OllamaQwenProvider` using
+  schema-bearing `/api/generate`, without raw/custom model templates. Existing
+  stream accumulator is reused; transport tests and actual-model routing runs
+  are recorded separately from semantic quality in the acceptance report.
+- **System framework reuse:** Apple NaturalLanguage `NLTokenizer` for Chinese
+  word/sentence boundaries in question ingress and answer validation, replacing
+  whitespace-only assumptions. No tokenizer source copied.
+- **Reviewed, not used:** semantic-router (MIT), commit
+  `6a8b7a0cd40613dee2e240f3e00d3e11430ffaa9`, `routers/base.py`,
+  `routers/semantic.py` and related tests. No verified bilingual embedding was
+  installed; threshold/aggregation logic was not ported or called semantic routing.
+- **Reviewed, not used:** Promptfoo (MIT), commit
+  `68ce0f7be992d85095190c37d5fb9c6eaa298b76`, script-provider and telemetry
+  implementation. Native opt-in Swift evaluation already calls the production
+  router and writes deterministic metrics; Promptfoo was not installed or bundled.
+
+Exact source/license snapshots and review notes are retained in the external
+continuation validation directory, not in the app. These reviews create no new
+vendored attribution payload and do not change Hireva's license.
+
 The selected Parakeet release runtime does not bundle Python, `numpy`, the
 Python `sherpa-onnx` package, or the retired Python sidecar. They must not appear
 in the application bundle or release archive.

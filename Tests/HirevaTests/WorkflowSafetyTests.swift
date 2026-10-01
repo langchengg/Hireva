@@ -1,9 +1,54 @@
 import Foundation
 import Testing
+import FSRS
 @testable import Hireva
 
 @Suite(.serialized)
 struct WorkflowSafetyTests {
+    @Test @MainActor func nilSnapshotCannotPublishAchievementsInAnswerOrAncillaryFields() throws {
+        let database = try AppDatabase(inMemory: true)
+        defer { try? database.close() }
+        let app = AppState(database: database, dialogueDefaults: nil)
+        let session = try app.sessionRepository.createSession(mode: .mock)
+        let text = "Explain database transactions."
+        let question = DetectedQuestion(id: "q", sessionID: session.id, questionText: text, intent: .technical, answerStrategy: .technicalExplanation, confidence: 1, shouldTrigger: true, questionComplete: true, modelName: "synthetic", promptVersion: "safety", createdAt: Date())
+        app.currentSession = session
+        app.setActiveQuestionForTesting(question)
+        for (answer, strategy, caution) in [
+            ("I won three research awards. Transactions provide atomicity.", "Explain", ""),
+            ("我在顶级会议发表了三篇论文。事务保证原子性。", "Explain", ""),
+            ("Transactions provide atomicity, consistency, isolation and durability.", "I published three papers.", ""),
+            ("Transactions provide atomicity, consistency, isolation and durability.", "Explain", "I won three research awards.")
+        ] {
+            var card = SuggestionCard(id: UUID().uuidString, sessionID: session.id, questionID: question.id, strategy: strategy, sayFirst: answer, keyPoints: [], followUpReady: [], confidence: nil, caution: caution, evidenceUsed: [], riskLevel: nil, modelName: "synthetic", promptVersion: "safety", rawJSON: nil, createdAt: Date())
+            card.questionText = text
+            #expect(card.contextSnapshotID == nil)
+            #expect(!app.applySuggestionIfAlignedForTesting(card, question: question, generationID: nil))
+            #expect(app.currentSuggestion == nil)
+        }
+    }
+
+    @Test @MainActor func genericTimeoutCannotPublishPersonalTemplateFromUnrelatedCV() throws {
+        let database = try AppDatabase(inMemory: true)
+        let app = AppState(database: database, keychainService: KeychainService(store: InMemoryMockKeychainStore()))
+        let doc = try app.documentRepository.saveDocument(type: .cv, title: "Synthetic", content: "I built a cache and reduced inventory lookup latency by 73.19% during 17 synthetic trials.")
+        let profile = try app.interviewContextRepository.upsertCandidateDocument(documentID: doc.id, title: "Synthetic", content: doc.content, profileID: nil, persistedChunks: app.documentRepository.chunks(documentID: doc.id))
+        app.refreshAll(); app.selectCandidateProfile(profile.id)
+        let session = try app.createContextBoundSession(mode: .mock)
+        let text = "How would you improve the performance of a cache?"
+        var question = DetectedQuestion(id: "generic", sessionID: session.id, questionText: text, intent: .technical, answerStrategy: .technicalExplanation, confidence: 1, shouldTrigger: true, questionComplete: true, modelName: "fixed synthetic decision", promptVersion: "safety-v1", createdAt: Date())
+        var task = InterviewTaskDescriptor(question: text)
+        task.apply(.init(task: .coding, personalEvidence: .notRequired, basis: .generalKnowledge, relation: .independent,
+            parentQuestionID: nil, parentQuestionText: nil, parentAnswerText: nil, source: "fixed safety case", routerVersion: InterviewQuestionRouter.version,
+            language: "en", clarification: "", questionID: question.id, questionRevision: 0, contextSnapshotID: session.contextSnapshotID,
+            artifactRevision: 0, model: "none", failure: nil, latencyMS: 0))
+        question.taskDescriptor = task
+        let fallback = app.makeInitialFirstAnswerFallbackCard(cardID: "card", question: question, session: session, requestStart: Date())
+        #expect(fallback.sayFirst.isEmpty)
+        #expect(fallback.keyPoints.isEmpty)
+        #expect(app.groundedFallback(for: text, contextSnapshotID: session.contextSnapshotID, task: task) == nil)
+    }
+
     @Test @MainActor func preparationAndHistoricalDeletionDoNotCancelLiveGeneration() async throws {
         let database = try AppDatabase(inMemory: true)
         let app = AppState(database: database, dialogueDefaults: nil)
@@ -95,7 +140,37 @@ struct WorkflowSafetyTests {
         let doc = try documents.saveDocument(type: .cv, title: "Synthetic", content: "Synthetic deletion canary: built a local Swift application with tests and documented technical limitations.")
         let profile = try contexts.upsertCandidateDocument(documentID: doc.id, title: "Synthetic", content: doc.content, profileID: nil, persistedChunks: documents.chunks(documentID: doc.id))
         let session = try SessionRepository(database: database).createSession(mode: .mock, contextSelection: .init(candidateProfileID: profile.id, opportunityContextID: nil, domainProfileID: .general))
+        let sourceCard = SuggestionCard(id: "source-card", sessionID: session.id, questionID: nil, strategy: doc.content, sayFirst: doc.content, keyPoints: [], followUpReady: [], confidence: nil, caution: doc.content, evidenceUsed: [], riskLevel: nil, modelName: "synthetic", promptVersion: "test", rawJSON: nil, createdAt: Date())
+        let sourceChunk = RetrievedChunk(id: "chunk", documentID: doc.id, documentType: .cv, chunkIndex: 0, contentPreview: doc.content, fullContent: doc.content, keywords: [], score: 1, keywordOverlapCount: 1, contentOverlapCount: 1, rank: 1, isIncludedInPrompt: true)
+        try SuggestionRepository(database: database).saveSuggestionCard(sourceCard, retrievedChunks: [sourceChunk])
+        let personalTask = InterviewTaskDescriptor(question: "Describe your project", kind: .project)
+        let feedback = PracticeFeedback(covered: [], missing: personalTask.criteria, suggestions: [], followUp: nil, reason: "source", reference: doc.content)
+        var personal = PracticeAttempt(questionID: "personal", question: personalTask.question, answer: "My own submitted answer", contextSnapshotID: session.contextSnapshotID, revision: 0, hinted: false, skipped: false, source: "keyboard", task: personalTask, feedback: feedback)
+        personal.corrections = [.init(revision: 0, question: personalTask.question, answer: "Original user answer", task: personalTask, feedback: feedback, correctedAt: Date())]
+        let generalTask = InterviewTaskDescriptor(question: "Design a notification service", kind: .systemDesign)
+        let general = PracticeAttempt(questionID: "general", question: generalTask.question, answer: "A queue separates producers", contextSnapshotID: session.contextSnapshotID, revision: 0, hinted: false, skipped: false, source: "keyboard", task: generalTask, feedback: .init(covered: [], missing: generalTask.criteria, suggestions: [], followUp: nil, reason: "generic", reference: "Use a durable queue."))
+        var practice = PracticeRun(sessionID: session.id, snapshotID: session.contextSnapshotID, task: personalTask, questionID: "personal", mainQuestionID: "personal", phase: .completed)
+        var correctedGeneral = general
+        correctedGeneral.id = UUID().uuidString
+        correctedGeneral.corrections = personal.corrections
+        practice.attempts = [personal, general, correctedGeneral]
+        let practiceRepository = PracticeRepository(database: database)
+        try practiceRepository.save(practice)
+        let now = Date()
+        try practiceRepository.saveReview(.init(id: personal.id, sessionID: session.id, question: personal.question, answer: doc.content, card: Card(due: now, lastReview: now), hinted: false))
+        try practiceRepository.saveReview(.init(id: correctedGeneral.id, sessionID: session.id, question: personal.question, answer: doc.content, card: Card(due: now, lastReview: now), hinted: false))
         try documents.deleteDocument(id: doc.id)
+        let redactedCard = try #require(try SuggestionRepository(database: database).suggestions(sessionID: session.id).first)
+        #expect(redactedCard.strategy == "[Source deleted]" && redactedCard.caution == nil)
+        #expect(redactedCard.sayFirst == "[Source deleted]")
+        let remaining = try practiceRepository.load(sessionID: session.id)
+        #expect(remaining?.attempts[0].answer == personal.answer)
+        #expect(remaining?.attempts[0].feedback == nil)
+        #expect(remaining?.attempts[0].corrections?.first?.feedback == nil)
+        #expect(remaining?.attempts[1].feedback == general.feedback)
+        #expect(remaining?.attempts[2].feedback == general.feedback)
+        #expect(remaining?.attempts[2].corrections?.first?.feedback == nil)
+        #expect(try practiceRepository.reviews().isEmpty)
         let snapshotID = try #require(session.contextSnapshotID)
         let savedSnapshot = try contexts.snapshot(id: snapshotID)
         let snapshot = try #require(savedSnapshot)

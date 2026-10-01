@@ -15,6 +15,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     public private(set) var capturedBuffers: [AVAudioPCMBuffer] = []
     
     private var timer: Timer?
+    private let startFence = CaptureStartFence()
     private var maxSeconds: Int = 60
     private var onTimeoutTriggered: (() -> Void)?
     private var activeSource: ManualCaptureSource = .systemAudio
@@ -39,6 +40,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         maxDuration: Int = 60,
         onTimeout: @escaping () -> Void
     ) async throws {
+        let startRevision = startFence.begin()
         if let mock = ManualQuestionCaptureService.mockStartCapture {
             try await mock(source, maxDuration, onTimeout)
             return
@@ -64,6 +66,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
             AudioEngineManager.shared.register(self)
         }
         
+        guard startFence.isCurrent(startRevision), !Task.isCancelled else { throw CancellationError() }
         installRecordingTimer()
     }
 
@@ -94,6 +97,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     
     @MainActor
     public func stopCaptureAndReturnBuffers() -> [AVAudioPCMBuffer] {
+        startFence.invalidate()
         if let mock = ManualQuestionCaptureService.mockStopCapture {
             return mock()
         }
@@ -118,6 +122,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
     
     @MainActor
     public func cancelCapture() {
+        startFence.invalidate()
         if let mock = ManualQuestionCaptureService.mockCancelCapture {
             mock()
             return
@@ -179,7 +184,7 @@ public final class ManualQuestionCaptureService: NSObject, ObservableObject, Sys
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didFailWithError error: Error
     ) {
-        print("[ManualQuestionCapture] ScreenCaptureKit stream error: \(error.localizedDescription)")
+        print("[ManualQuestionCapture] ScreenCaptureKit stream error: code=\((error as NSError).code)")
     }
     
     // MARK: - AudioEngineBufferDelegate conformance

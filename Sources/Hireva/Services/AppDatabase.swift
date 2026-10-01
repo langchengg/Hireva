@@ -528,6 +528,22 @@ final class AppDatabase {
         migrator.registerMigration("v20_frozen_question_task") { db in
             try db.alter(table: "detected_questions") { table in table.add(column: "task_descriptor_json", .blob) }
         }
+        migrator.registerMigration("v21_history_revisions") { db in
+            try db.alter(table: "interview_sessions") { $0.add(column: "content_revision", .integer).notNull().defaults(to: 0) }
+            try db.alter(table: "recap_reports") { $0.add(column: "content_revision", .integer).notNull().defaults(to: 0) }
+            try db.create(table: "history_corrections") { t in
+                t.column("session_id", .text).notNull().references("interview_sessions", onDelete: .cascade)
+                t.column("revision", .integer).notNull()
+                t.column("payload_json", .blob).notNull()
+                t.primaryKey(["session_id", "revision"])
+            }
+            try db.create(table: "recap_unit_cache") { t in
+                t.column("session_id", .text).notNull().references("interview_sessions", onDelete: .cascade)
+                t.column("input_key", .text).notNull()
+                t.column("payload_json", .blob).notNull()
+                t.primaryKey(["session_id", "input_key"])
+            }
+        }
         return migrator
     }
 }

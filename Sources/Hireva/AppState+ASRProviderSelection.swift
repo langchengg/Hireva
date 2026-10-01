@@ -46,6 +46,13 @@ extension AppState {
     }
 
     func setSelectedAnswerProviderMode(_ mode: AnswerProviderMode) {
+        if mode != selectedAnswerProviderMode {
+            persistenceConsent.invalidate()
+            cancelActiveGenerationForContextChange()
+            practiceController.pause()
+            recapTask?.cancel(); recapTask = nil; recapSessionID = nil; isGeneratingRecap = false
+            clearActionFeedback(ActionID.sessionRecap)
+        }
         preferenceDefaults.set(mode.rawValue, forKey: Self.answerProviderModeKey)
         objectWillChange.send()
     }

@@ -30,6 +30,8 @@ struct SessionDetailView: View {
                     }
                 }
 
+                SessionHistoryEditor(appState: appState, session: session)
+
                 HStack {
                     Button("Export JSON") { appState.exportSessionJSON(session) }
                     if (try? PracticeRepository(database: appState.database).load(sessionID: session.id)) != nil {
@@ -71,6 +73,11 @@ struct SessionDetailView: View {
                     if appState.isGeneratingRecap {
                         ProgressView("Generating recap...")
                     }
+                    if let recap = appState.selectedSessionRecap {
+                        let revision = (try? appState.sessionRepository.session(id: session.id))?.contentRevision ?? 0
+                        Text("Recap input v\(recap.contentRevision ?? 0)\((recap.contentRevision ?? 0) < revision ? " · Based on old inputs — explicitly regenerate / 基于旧版本，请重评" : " · Current input")")
+                            .foregroundStyle((recap.contentRevision ?? 0) < revision ? .orange : .secondary)
+                    }
                     Text(appState.selectedSessionRecap?.markdown ?? "No recap generated yet.")
                         .font(.body.monospaced())
                         .textSelection(.enabled)
@@ -82,7 +89,7 @@ struct SessionDetailView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Suggestions")
+                    Text("Suggestions · frozen original inputs")
                         .font(.headline)
                     if appState.selectedSessionSuggestions.isEmpty {
                         Text("No suggestion cards saved for this session.")

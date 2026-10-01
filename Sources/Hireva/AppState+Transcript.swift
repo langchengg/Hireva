@@ -81,7 +81,8 @@ extension AppState {
             currentState: dialogueRuntimeState,
             answerPanelQuestions: answerPanelQuestionsEnabled,
             suppressPresentation: candidatePresentationMode == .suppressAnswers,
-            suppressCandidateQuestions: candidateAsksPanelMode == .suppressAnswers
+            suppressCandidateQuestions: candidateAsksPanelMode == .suppressAnswers,
+            allowContextDependent: true
         )
         let phaseBeforeDialogueDecision = resolvedInterviewSessionPhase
         let isFinalOrStabilizedSegment = segment.asrFinalizationReason != "partial"
@@ -203,7 +204,7 @@ extension AppState {
                             print("[PrecomputeRAG] Context cached")
                         }
                     } catch {
-                        print("[PrecomputeRAG] Background RAG precompute failed: \(error)")
+                        print("[PrecomputeRAG] Background RAG precompute failed: code=\((error as NSError).code)")
                     }
                 }
             }
@@ -352,6 +353,16 @@ extension AppState {
 
         if shouldTriggerDetection, isASRPartial {
             lastTranscriptQuestionGenerationTrace.acceptedFromPartial = true
+        }
+
+        // Explicitly opted-in microphone finals use the same contextual ingress
+        // as system audio. Provider detection otherwise discards this reference
+        // before the shared runtime guard can freeze or clarify it.
+        if shouldTriggerDetection, !isASRPartial, segment.source == .microphone,
+           QuestionCandidatePipeline.isContextDependentRequest(segment.text), let session = currentSession {
+            let candidates = SystemAudioQuestionExtractor.extract(from: segment.text, isFinal: true, allowContextDependent: true)
+            processExtractedSystemAudioQuestions(candidates, segment: segment, session: session, suggestionTranscript: recentTranscriptText())
+            return
         }
 
         if shouldTriggerDetection,
@@ -563,9 +574,9 @@ extension AppState {
 
     // MARK: - Background Persistence
 
-    func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment) {
+    func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment, consentTicket frozenTicket: Int? = nil) {
         let consent = persistenceConsent
-        let consentTicket = consent.ticket()
+        let consentTicket = frozenTicket ?? consent.ticket()
         let repository = transcriptRepository
         markSQLiteOperation("Saving transcript segment in background")
         Task.detached(priority: .utility) { [weak self] in
@@ -582,10 +593,10 @@ extension AppState {
         }
     }
 
-    func saveDetectedQuestionInBackground(_ question: DetectedQuestion) {
+    func saveDetectedQuestionInBackground(_ question: DetectedQuestion, consentTicket frozenTicket: Int? = nil) {
         guard settings.saveTranscriptsLocally else { return }
         let consent = persistenceConsent
-        let consentTicket = consent.ticket()
+        let consentTicket = frozenTicket ?? consent.ticket()
         let repository = suggestionRepository
         markSQLiteOperation("Saving detected question in background")
         Task.detached(priority: .utility) { [weak self] in
@@ -625,7 +636,7 @@ extension AppState {
         }
     }
 
-    func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk]) {
+    func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk], consentTicket: Int) {
         guard settings.saveTranscriptsLocally else { return }
         guard !card.isPartial else {
             print("[Transcript] Skipping saveSuggestionSnapshotInBackground for partial card.")
@@ -667,11 +678,9 @@ extension AppState {
             card,
             result: persistenceGuard
         )
-        guard claimSuggestionPersistence(sanitizedCard, generationID: sanitizedCard.generationID) else {
-            return
-        }
         let consent = persistenceConsent
-        let consentTicket = consent.ticket()
+        guard consent.isCurrent(ticket: consentTicket),
+              claimSuggestionPersistence(sanitizedCard, generationID: sanitizedCard.generationID) else { return }
         let repository = suggestionRepository
         recordTranscriptRuntimeEvent(.persistenceStarted(
             sessionID: sanitizedCard.sessionID,

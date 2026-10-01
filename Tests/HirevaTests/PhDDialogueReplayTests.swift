@@ -495,6 +495,7 @@ struct PhDDialogueReplayTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: detector])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: PhDReplayEmptyContextService()
         )
@@ -747,7 +748,7 @@ private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
     private func answer(for prompt: String) -> String {
         let lower = currentQuestion(in: prompt).lowercased()
         if lower.contains("prior to your msc") {
-            return "Before my MSc, I completed a bachelor's in computer science and built transferable programming, deep-learning, and NLP skills; I did not have extensive robotics experience before that degree."
+            return "Before my MSc, I completed a bachelor's in computer science and built transferable programming, deep-learning, and NLP skills; the supplied records do not establish extensive robotics experience before that degree."
         }
         if lower.contains("llms or vlms") {
             return "I am newer to LLM and VLM robotics this year; my earlier deep-learning and NLP work gave me a foundation, and my MSc provided current VLM and robotics exposure."
@@ -773,7 +774,7 @@ private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
         if lower.contains("controlled a real robot") {
             return "I have controlled a real robot arm, while keeping that work distinct from my current dissertation; my role covered the perception-to-manipulation pipeline and physical testing."
         }
-        return "Before my MSc, I completed a bachelor's in computer science and worked with deep learning and NLP; my robotics experience developed later through the MSc, so I would not overclaim earlier robotics work."
+        return "Before my MSc, I completed a bachelor's in computer science and worked with deep learning and NLP; my robotics experience developed later through the MSc. I would not overclaim earlier robotics work."
     }
 
     private func currentQuestion(in prompt: String) -> String {

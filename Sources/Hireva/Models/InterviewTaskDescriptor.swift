@@ -1,7 +1,7 @@
 import Foundation
 
 enum InterviewTaskKind: String, CaseIterable, Codable, Identifiable {
-    case motivation, behavioral, project, coding, systemDesign, data, research, arrangements, unknown
+    case motivation, behavioral, project, coding, systemDesign, data, research, arrangements, generalKnowledge, unknown
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -13,6 +13,7 @@ enum InterviewTaskKind: String, CaseIterable, Codable, Identifiable {
         case .data: return "Data / SQL · 数据"
         case .research: return "Research · 研究答辩"
         case .arrangements: return "Offer / Arrangements · 工作安排"
+        case .generalKnowledge: return "General Knowledge · 通用知识"
         case .unknown: return "Clarify · 需澄清"
         }
     }
@@ -26,6 +27,7 @@ enum InterviewTaskKind: String, CaseIterable, Codable, Identifiable {
         case .data: return ["Schema and definitions / 表结构与口径", "NULL and duplicates / 空值与重复", "Calculation and units / 计算与单位", "Limitations / 推断限制"]
         case .research: return ["Research question / 研究问题", "Contribution boundary / 贡献边界", "Experimental design / 实验设计", "Limitations and next test / 局限与可检验下一步"]
         case .arrangements: return ["Confirmed preferences / 已确认偏好", "Constraints / 约束", "Unverified policies / 待核实政策", "Clarifying questions / 澄清问题"]
+        case .generalKnowledge: return ["Correct explanation / 解释正确", "Assumptions and distinctions / 条件与区别", "Example or reasoning / 示例或推理", "Limits / 局限"]
         case .unknown: return ["Clarify the task and missing constraints / 澄清任务与缺失条件"]
         }
     }
@@ -39,6 +41,7 @@ enum InterviewTaskKind: String, CaseIterable, Codable, Identifiable {
         case .data: return chinese ? "按客户统计订单总额。如何处理没有订单的客户、NULL 和重复记录？" : "Calculate total order value per customer. How do you handle customers with no orders, NULL, and duplicates?"
         case .research: return chinese ? "提出一个可检验的研究问题，设计实验并讨论贡献边界和局限。" : "Propose a falsifiable research question, design an experiment, and explain contribution boundaries and limitations."
         case .arrangements: return chinese ? "如何说明你已确认的工作安排偏好，以及仍需向招聘方确认的条件？" : "How would you communicate confirmed working preferences and clarify conditions with the employer?"
+        case .generalKnowledge: return chinese ? "解释缓存与持久存储的区别，以及各自的局限。" : "Explain caching versus persistent storage and their limitations."
         case .unknown: return chinese ? "你希望讨论哪个问题？还缺少哪些条件？" : "Which problem should we discuss, and what constraints are missing?"
         }
     }
@@ -55,12 +58,32 @@ struct InterviewTaskDescriptor: Codable, Hashable {
     var criteria: [String]
     var rubricVersion = "interview-rubric-v1"
     var allowedTools: [String] = []
+    // Optional for v20 payload compatibility. A resolved decision is immutable;
+    // changing inputs creates a new decision, never mutates historical answers.
+    var decision: InterviewQuestionDecision?
+    var selectedTask: InterviewTaskKind?
+    var conversationContext: FrozenQuestionConversation?
+    var conversationContextCaptured: Bool?
+
+
+    var personalEvidence: PersonalEvidenceRequirement {
+        decision?.personalEvidence ?? (requiresPersonalEvidence ? .required : .uncertain)
+    }
+
+    mutating func apply(_ decision: InterviewQuestionDecision) {
+        self.decision = decision
+        kind = decision.task
+        // Legacy readers must not interpret uncertain as permission to fabricate.
+        requiresPersonalEvidence = decision.personalEvidence == .required || decision.personalEvidence == .uncertain
+        criteria = kind.criteria
+    }
 
     init(question: String, kind: InterviewTaskKind? = nil, language: String? = nil) {
+        self.selectedTask = kind
         self.question = question
         self.kind = kind ?? Self.classify(question)
         self.language = language ?? (question.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) } ? "zh" : "en")
-        requiresPersonalEvidence = (kind != nil && [.motivation, .behavioral, .project, .arrangements].contains(self.kind)) || Self.requiresPersonalEvidence(question)
+        requiresPersonalEvidence = Self.requiresPersonalEvidence(question)
         criteria = self.kind.criteria
     }
 
@@ -92,6 +115,18 @@ struct InterviewTaskDescriptor: Codable, Hashable {
         return .unknown
     }
     var promptPolicy: String {
-        "Task: \(kind.rawValue); answer language: \(language). Rubric: \(criteria.joined(separator: "; ")). Personal evidence required: \(requiresPersonalEvidence). Never convert requirements, notes, plans, or generated drafts into past personal accomplishments. Ask only for genuinely missing constraints. An unknown task category does not mean the spoken question is incomplete; answer general knowledge without inventing personal facts. Tools require explicit application authorization."
+        if let decision { return decision.evidencePolicy + " Task: \(kind.rawValue). Answer language: \(language). Rubric: \(criteria.joined(separator: "; "))." }
+        return "Task: \(kind.rawValue); answer language: \(language). Rubric: \(criteria.joined(separator: "; ")). Personal evidence required: \(requiresPersonalEvidence). Never convert requirements, notes, plans, or generated drafts into past personal accomplishments. Ask only for genuinely missing constraints. An unknown task category does not mean the spoken question is incomplete; answer general knowledge without inventing personal facts. Tools require explicit application authorization."
     }
+}
+
+/// Frozen at ingress, before a queued question can observe a different card.
+/// Generated parent text provides conversational reference, never personal proof.
+struct FrozenQuestionConversation: Codable, Hashable {
+    let sessionID: String
+    let questionID: String
+    let questionText: String
+    let answerText: String
+    let contextSnapshotID: String?
+    let mode: String
 }

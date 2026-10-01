@@ -139,7 +139,8 @@ struct SystemAudioMergedQuestionSegmentationTests {
                 SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedQuestions.last ?? "")
             } == true &&
             appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible
+            !appState.currentSpinnerVisible &&
+            !appState.providerStreamActive && !appState.stageBTaskActive
         }
 
         let detected = try appState.suggestionRepository.questions(sessionID: session.id)
@@ -148,7 +149,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.questionText ?? "", Self.expectedQuestions.last ?? ""))
         #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.promptPrimaryQuestion ?? "", Self.expectedQuestions.last ?? ""))
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("perception") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("localisation") == true)
+        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("localisation") == true, "Synthetic replay final card: \(String(describing: appState.currentSuggestion))")
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timing") == true)
         #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("join our team") == false)
         #expect(client.detectionCallCount == 0)
@@ -371,6 +372,9 @@ struct SystemAudioMergedQuestionSegmentationTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            // The fixture's "when you moved ..." question explicitly refers
+            // to its supplied past integration record, not a hypothetical.
+            questionRoutingProvider: HermeticQuestionRoutingProvider(documentedIntegrationFixture: true),
             llmRouter: router,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
             contextRetrievalService: MergedQuestionEmptyContextRetrievalService(),

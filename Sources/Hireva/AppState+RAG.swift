@@ -148,7 +148,7 @@ extension AppState {
 
                 refreshAll()
             } catch {
-                print("[AppState] Background embedding generation failed: \(error.localizedDescription)")
+                print("[AppState] Background embedding generation failed: code=\((error as NSError).code)")
                 showError("Background embedding generation failed: \(error.localizedDescription)")
             }
         }
@@ -218,7 +218,7 @@ extension AppState {
                             contentHash: expectedHash
                         )
                     } catch {
-                        print("[AppState] Failed to embed chunk \(chunk.id): \(error.localizedDescription)")
+                        print("[AppState] Failed to embed chunk \(chunk.id): code=\((error as NSError).code)")
                     }
 
                     await MainActor.run {
@@ -308,7 +308,7 @@ extension AppState {
                     self.lastSQLiteOperation = "Refreshed latency averages"
                 }
             } catch {
-                print("[AppState] Failed to refresh latency averages: \(error.localizedDescription)")
+                print("[AppState] Failed to refresh latency averages: code=\((error as NSError).code)")
                 await MainActor.run { [weak self] in
                     self?.lastSQLiteOperation = "Latency averages refresh failed: \(error.localizedDescription)"
                 }

@@ -50,7 +50,7 @@ struct PracticeLocalIntegrationTests {
 }
 
 /// Only called by the opt-in synthetic test above, never from product logging.
-private struct SyntheticCaptureProvider: LocalLLMProvider {
+struct SyntheticCaptureProvider: LocalLLMProvider {
     var suffix = "en"
     var expectedSourceEvidence: String?
     let base = OllamaQwenProvider()
@@ -59,15 +59,24 @@ private struct SyntheticCaptureProvider: LocalLLMProvider {
     func healthCheck(modelName: String) async -> LocalLLMHealth { await base.healthCheck(modelName: modelName) }
     func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> { AsyncThrowingStream { $0.finish() } }
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        if let expectedSourceEvidence {
+        if let expectedSourceEvidence, request.systemPrompt?.contains("Evaluate this practice answer") == true {
             let payload = try JSONDecoder().decode([String: String].self, from: Data(request.prompt.utf8))
             #expect(payload["source_evidence"] == expectedSourceEvidence)
         }
         if let root = ProcessInfo.processInfo.environment["HIREVA_TEST_ARTIFACT_DIR"] {
             var object: [String: Any] = ["model": request.modelName, "messages": [["role": "system", "content": request.systemPrompt ?? ""], ["role": "user", "content": request.prompt]], "stream": true, "think": request.thinkingEnabled, "options": ["temperature": 0, "num_predict": request.numPredict ?? 4000]]
-            if let schema = request.responseSchema { object["format"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(schema)) }
+            if let schema = request.responseSchema {
+                object["format"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(schema))
+                if !request.thinkingEnabled {
+                    object.removeValue(forKey: "messages")
+                    object["prompt"] = request.prompt
+                    object["system"] = request.systemPrompt
+                    object["endpoint"] = "/api/generate"
+                }
+            }
             try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted]).write(to: URL(fileURLWithPath: root).appendingPathComponent("synthetic-local-\(suffix)-request.json"))
         }
+        let captureID = UUID().uuidString
         let source = try await base.generateAnswer(request: request)
         return AsyncThrowingStream { continuation in
             let worker = Task {
@@ -76,9 +85,17 @@ private struct SyntheticCaptureProvider: LocalLLMProvider {
                     for try await token in source { captured += token.text; continuation.yield(token) }
                     if let root = ProcessInfo.processInfo.environment["HIREVA_TEST_ARTIFACT_DIR"] {
                         try Data(captured.utf8).write(to: URL(fileURLWithPath: root).appendingPathComponent("synthetic-local-\(suffix)-feedback.json"))
+                        if suffix == "routing" {
+                            try JSONSerialization.data(withJSONObject: ["input": request.prompt, "output": captured]).write(to: URL(fileURLWithPath: root).appendingPathComponent("routing-wire-\(captureID).json"))
+                        }
                     }
                     continuation.finish()
-                } catch { continuation.finish(throwing: error) }
+                } catch {
+                    if suffix == "routing", let root = ProcessInfo.processInfo.environment["HIREVA_TEST_ARTIFACT_DIR"] {
+                        try? JSONSerialization.data(withJSONObject: ["input": request.prompt, "output": captured, "error": error.localizedDescription]).write(to: URL(fileURLWithPath: root).appendingPathComponent("routing-wire-\(captureID).json"))
+                    }
+                    continuation.finish(throwing: error)
+                }
             }
             continuation.onTermination = { _ in worker.cancel() }
         }

@@ -79,21 +79,21 @@ enum QuestionAnswerAlignmentEvaluator {
         guard trimmed.count >= 20 else { return "too short" }
         let lower = trimmed.lowercased()
         let unfinishedWords = ["because", "including", "such as", "whether", "while", "and", "or", "to"]
-        let tail = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
+        let tail = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: 。？！，；："))
         if unfinishedWords.contains(where: { tail.hasSuffix(" " + $0) }) {
             return "ends with an incomplete clause"
         }
-        if let last = trimmed.last, ",:;".contains(last) {
+        if let last = trimmed.last, ",:;，：；".contains(last) {
             return "ends with incomplete punctuation"
         }
-        guard let last = trimmed.last, ".?!".contains(last) else {
+        guard let last = trimmed.last, ".?!。？！".contains(last) else {
             return "missing terminal punctuation"
         }
         return nil
     }
 
     static func usefulInterviewerQuestionCount(in answer: String) -> Int {
-        let questionMarks = answer.filter { $0 == "?" }.count
+        let questionMarks = answer.filter { $0 == "?" || $0 == "？" }.count
         if questionMarks > 0 { return questionMarks }
         let openers: Set<String> = ["what", "how", "which", "who", "when", "where"]
         return TextChunker.tokenize(answer).filter { openers.contains($0) }.count
@@ -103,18 +103,39 @@ enum QuestionAnswerAlignmentEvaluator {
         questionText: String,
         answerText: String,
         sayFirst: String? = nil,
-        stageBCompleted: Bool = true
+        stageBCompleted: Bool = true,
+        decision: InterviewQuestionDecision? = nil
     ) -> AnswerAlignmentResult {
         let question = normalize(questionText)
         let answer = normalize(answerText)
         let visible = normalize(sayFirst ?? answerText)
-        let questionIntent = IntentRouter.answerIntent(for: questionText)
+        let legacyIntent = IntentRouter.answerIntent(for: questionText)
+        let questionIntent: AnswerRelevanceIntent
+        if let decision {
+            switch decision.task {
+            case .systemDesign: questionIntent = .systemDesign
+            case .project:
+                // Preserve compatible finer project structures. A frozen general
+                // task can never acquire one of these personal story checks.
+                let projectStructures: Set<AnswerRelevanceIntent> = [.projectWalkthrough, .projectComparison, .technicalChallenge, .technicalTradeoff, .datasetAdaptation, .simToRealDebugging, .systemIntegrationDebugging, .improvementPlan, .generic, .skillComfort, .tellMeAboutYourself, .errorHandling, .perceptionDebugging]
+                questionIntent = projectStructures.contains(legacyIntent) ? legacyIntent : .generic
+            case .behavioral:
+                // Interpersonal reflection is not necessarily a technical
+                // incident; do not require debugging vocabulary for every STAR.
+                questionIntent = legacyIntent == .technicalChallenge ? .technicalChallenge : .generic
+            case .motivation:
+                let compatible: Set<AnswerRelevanceIntent> = [.tellMeAboutYourself, .whyRole, .candidateQuestions, .interviewerQuestions, .skillComfort, .generic]
+                questionIntent = compatible.contains(legacyIntent) ? legacyIntent : .generic
+            case .coding: questionIntent = [.errorHandling, .perceptionDebugging].contains(legacyIntent) ? .errorHandling : .generic
+            case .data, .research, .arrangements, .generalKnowledge, .unknown: questionIntent = .generic
+            }
+        } else { questionIntent = legacyIntent }
         let answerIntent = inferredAnswerIntent(for: answerText, expected: questionIntent)
         var matched: [String] = []
         var missing: [String] = []
         var wrong = genericCoachingIndicators(in: answer)
 
-        guard isCompleteQuestion(questionText) else {
+        guard isCompleteQuestion(questionText) || (decision?.parentQuestionID != nil && QuestionCandidatePipeline.isContextDependentRequest(questionText)) else {
             return result(
                 score: 0,
                 verdict: .mismatched,
@@ -152,7 +173,9 @@ enum QuestionAnswerAlignmentEvaluator {
             )
         }
 
-        let anchors = dynamicTopicTokens(questionText)
+        let topicQuestion = QuestionCandidatePipeline.isContextDependentRequest(questionText)
+            ? (decision?.parentQuestionText ?? questionText) : questionText
+        let anchors = dynamicTopicTokens(topicQuestion)
         let answerTokens = meaningfulTokens(answerText)
         let anchorMatches = Set(anchors.filter { anchor in
             answerTokens.contains { semanticTokenMatch(anchor, $0) }
@@ -163,6 +186,11 @@ enum QuestionAnswerAlignmentEvaluator {
             else { matched.append(contentsOf: anchorMatches.sorted().prefix(4)) }
         }
 
+        let evidenceClarification = decision.map { [.required, .uncertain].contains($0.personalEvidence) } == true &&
+            AnswerClaimValidator.isEvidenceLimitation(sayFirst ?? answerText)
+        if evidenceClarification {
+            matched.append("explicit evidence limitation (not a completed personal answer)")
+        } else {
         evaluateShape(
             intent: questionIntent,
             question: question,
@@ -172,8 +200,10 @@ enum QuestionAnswerAlignmentEvaluator {
             missing: &missing,
             wrong: &wrong
         )
+        }
 
-        let requiredTopicOverlap = !profileIndependentQuestion && !anchors.isEmpty && anchorMatches.isEmpty
+        if evidenceClarification { missing.removeAll { $0 == "question topic" } }
+        let requiredTopicOverlap = !evidenceClarification && !profileIndependentQuestion && !anchors.isEmpty && anchorMatches.isEmpty
         let shapeFailed = !missing.isEmpty
         let score = max(0, min(1, 0.55 + Double(matched.count) * 0.1 - Double(missing.count) * 0.22 - Double(wrong.count) * 0.3))
         let verdict: AnswerAlignmentVerdict = (requiredTopicOverlap || shapeFailed || !wrong.isEmpty) ? .mismatched : .aligned
@@ -235,7 +265,7 @@ enum QuestionAnswerAlignmentEvaluator {
         case .technicalTradeoff:
             require("trade-off", ["trade-off", "tradeoff", "versus", "balanced", "cost", "latency", "complexity", "reliability", "accuracy"])
             require("decision", [
-                "choose", "chose", "decide", "decided", "decision",
+                "choose", "chose", "decide", "decided", "decision", "balanced",
                 "prioritize", "prioritized", "prioritise", "prioritised",
                 "recommend", "recommended", "propose", "proposed",
                 "select", "selected", "accept", "accepted", "reject", "rejected"
@@ -275,7 +305,7 @@ enum QuestionAnswerAlignmentEvaluator {
             if usefulInterviewerQuestionCount(in: answer) < 3 { missing.append("at least three interviewer questions") }
             else { matched.append("interviewer question set") }
         case .generic:
-            if answer.split(whereSeparator: \.isWhitespace).count < 6 { missing.append("substantive direct answer") }
+            if QuestionLanguageSupport.wordCount(answer) < 6 { missing.append("substantive direct answer") }
             else { matched.append("substantive answer") }
         }
 
@@ -291,6 +321,7 @@ enum QuestionAnswerAlignmentEvaluator {
     }
 
     private static func isCompleteQuestion(_ text: String) -> Bool {
+        if QuestionLanguageSupport.containsHan(text) { return QuestionLanguageSupport.completeChineseRequest(text, isFinal: true) }
         let words = text.split(whereSeparator: \.isWhitespace)
         guard words.count >= 4 else { return false }
         let lower = normalize(text)
@@ -309,13 +340,15 @@ enum QuestionAnswerAlignmentEvaluator {
             "a", "an", "the", "what", "when", "where", "which", "who", "why", "how", "tell", "about", "your", "you", "would", "could",
             "please", "walk", "through", "describe", "explain", "project", "experience", "worked", "work", "most", "difficult",
             "challenge", "technical", "technically", "faced", "role", "question", "questions", "team", "did", "does", "have", "with", "from", "that", "this", "into",
-            "before", "after", "first", "one", "more", "make", "made", "using", "used"
+            "before", "after", "first", "one", "more", "make", "made", "using", "used",
+            "解释", "说明", "请", "比较", "如何", "为什么", "什么", "以及", "作用", "你", "你的", "这个", "那个"
         ]
         return meaningfulTokens(text).subtracting(generic)
     }
 
     private static func meaningfulTokens(_ text: String) -> Set<String> {
-        Set(TextChunker.tokenize(text).filter { $0.count > 2 && Int($0) == nil })
+        let tokens = QuestionLanguageSupport.containsHan(text) ? QuestionLanguageSupport.wordTokens(text) : TextChunker.tokenize(text)
+        return Set(tokens.filter { $0.count >= (QuestionLanguageSupport.containsHan($0) ? 2 : 3) && Int($0) == nil })
     }
 
     private static func semanticTokenMatch(_ lhs: String, _ rhs: String) -> Bool {

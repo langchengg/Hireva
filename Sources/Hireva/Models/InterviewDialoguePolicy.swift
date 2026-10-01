@@ -187,7 +187,8 @@ enum InterviewDialogueTriggerPolicy {
         currentState: DialogueRuntimeState,
         answerPanelQuestions: Bool,
         suppressPresentation: Bool,
-        suppressCandidateQuestions: Bool
+        suppressCandidateQuestions: Bool,
+        allowContextDependent: Bool = false
     ) -> DialogueTriggerDecision {
         let role = inferredRole(for: segment)
         let normalized = normalize(segment.text)
@@ -281,7 +282,7 @@ enum InterviewDialogueTriggerPolicy {
             )
         }
 
-        let candidates = QuestionCandidatePipeline.extract(from: segment.text)
+        let candidates = QuestionCandidatePipeline.extract(from: segment.text, isFinal: segment.asrFinalizationReason != "partial", allowContextDependent: allowContextDependent)
         let substantiveCandidates = candidates.filter { !isPanelInvitation(normalize($0.text)) }
         if substantiveCandidates.isEmpty, isPanelInvitation(normalized) {
             return suppressed(

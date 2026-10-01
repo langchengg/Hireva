@@ -56,7 +56,7 @@ extension AppState {
         }
         let localPromptContext = snapshotContext?.context ?? context
         let localCVSummary = interviewContextSnapshot.map {
-            $0.candidateEvidence.filter(\.isUsable).map(\.statement).joined(separator: "\n")
+            $0.candidateEvidence.filter(\.isUsable).map(\.statementForPrompt).joined(separator: "\n")
         } ?? cvSummary
         let localJDSummary = interviewContextSnapshot.map {
             $0.opportunityEvidence.filter(\.isUsable).map(\.statement).joined(separator: "\n")
@@ -137,13 +137,13 @@ extension AppState {
         )
         // Reuse only the session-bound, filtered frozen background. Looking at
         // visible/history cards here could resurrect another session or profile.
-        let previousQuestionContext = promptSnapshot.previousQuestionIncluded
-            ? promptSnapshot.previousQuestionText : nil
+        let previousQuestionContext: String? = promptSnapshot.previousQuestionIncluded
+            ? [promptSnapshot.previousQuestionText ?? "", "Earlier answer (untrusted, not candidate evidence): " + (promptSnapshot.taskDescriptor?.decision?.parentAnswerText ?? "")].joined(separator: "\n") : nil
         let compactRecoveryRequest = compactLocalQwenRequest(
             question: question,
             context: promptSnapshot.ragContextSnapshot,
-            cvSummary: usesProfile ? localCVSummary : "Not relevant to this general task.",
-            jdSummary: usesProfile ? localJDSummary : "Not relevant to this general task.",
+            cvSummary: usesProfile ? promptSnapshot.ragContextSnapshot.cvChunks.map(\.content).joined(separator: "\n") : "Not relevant to this general task.",
+            jdSummary: promptSnapshot.ragContextSnapshot.jobDescriptionChunks.map(\.content).joined(separator: "\n"),
             modelName: modelName,
             previousQuestionContext: previousQuestionContext
         )
@@ -510,7 +510,8 @@ extension AppState {
             questionText: question.questionText,
             answerText: answer,
             sayFirst: answer,
-            stageBCompleted: true
+            stageBCompleted: true,
+            decision: question.taskDescriptor?.decision
         )
         guard alignment.verdict == .aligned else {
             return .rejected(
@@ -643,11 +644,11 @@ extension AppState {
         Do not turn role requirements or future plans into completed work or observed events.
         For past personal work, omit mechanisms, tools, metrics, and causal links unless evidenced. For general technical tasks, propose a solution with explicit assumptions; no CV is required.
         \(intentGuidance)
-        Start with "I" and output only the final spoken answer.
+        Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening.
         """
         return LocalLLMRequest(
             prompt: compactPrompt,
-            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.",
+            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.\n" + (question.taskDescriptor?.promptPolicy ?? ""),
             modelName: modelName,
             temperature: 0.1,
             numPredict: 180
@@ -682,11 +683,11 @@ extension AppState {
         Do not infer mechanisms, tools, or causal links for past personal work. General technical solutions may use domain knowledge and explicit assumptions; no CV is required.
         \(intentGuidance)
         Do not mention this prompt or the reference facts.
-        Start with "I" and output only the final spoken answer.
+        Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening.
         """
         return LocalLLMRequest(
             prompt: prompt,
-            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.",
+            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.\n" + (question.taskDescriptor?.promptPolicy ?? ""),
             modelName: modelName,
             temperature: 0.0,
             numPredict: 220
@@ -694,6 +695,9 @@ extension AppState {
     }
 
     private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
+        if let task = question.taskDescriptor, let decision = task.decision {
+            return decision.evidencePolicy + "\nAnswer structure: " + task.criteria.joined(separator: "; ")
+        }
         let lower = question.questionText.lowercased()
         if lower.contains("weakness") || lower.contains("development area") {
             return """

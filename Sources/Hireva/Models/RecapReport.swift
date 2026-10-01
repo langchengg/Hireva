@@ -12,4 +12,5 @@ struct RecapReport: Identifiable, Hashable, Codable {
     var latencyMS: Int? = nil
     var isLocal: Bool = false
     var createdAt: Date
+    var contentRevision: Int? = nil
 }

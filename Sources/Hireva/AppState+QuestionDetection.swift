@@ -7,6 +7,27 @@
 import Foundation
 
 extension AppState {
+    func freezeConversationContext(for question: inout DetectedQuestion) {
+        if question.taskDescriptor?.conversationContextCaptured == true {
+            // An obsolete frozen parent must never silently rebind to a new card.
+            if let frozen = question.taskDescriptor?.conversationContext,
+               frozen.sessionID != question.sessionID || frozen.contextSnapshotID != currentSession?.contextSnapshotID || frozen.mode != interviewSessionMode.rawValue {
+                question.taskDescriptor?.conversationContext = nil
+                question.taskDescriptor?.decision = nil
+            }
+            return
+        }
+        var descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+        descriptor.conversationContextCaptured = true
+        question.taskDescriptor = descriptor
+        guard let card = currentSuggestion, card.sessionID == question.sessionID,
+              card.questionID != question.id, card.contextSnapshotID == currentSession?.contextSnapshotID,
+              let parentID = card.questionID, let text = card.questionText, !text.isEmpty, !card.isPartial else { return }
+        descriptor.conversationContext = .init(sessionID: question.sessionID, questionID: parentID,
+            questionText: text, answerText: card.sayFirst, contextSnapshotID: card.contextSnapshotID, mode: interviewSessionMode.rawValue)
+        question.taskDescriptor = descriptor
+    }
+
     // MARK: - Local System-Audio Extraction
 
     // internal for AppState extension access only
@@ -33,7 +54,7 @@ extension AppState {
         // contains an accepted question candidate.
         let isFinal = segment.asrFinalizationReason != "partial"
         guard isFinal,
-              !QuestionCandidatePipeline.extract(from: segment.text, isFinal: true).isEmpty else {
+              !QuestionCandidatePipeline.extract(from: segment.text, isFinal: true, allowContextDependent: true).isEmpty else {
             return nil
         }
         return segment
@@ -49,7 +70,8 @@ extension AppState {
         }
         return SystemAudioQuestionExtractor.extract(
             from: segment.text,
-            isFinal: segment.asrFinalizationReason != "partial"
+            isFinal: segment.asrFinalizationReason != "partial",
+            allowContextDependent: true
         )
     }
 
@@ -189,7 +211,8 @@ extension AppState {
                 finalVisibleSource: "local_merged_question_snapshot",
                 caution: "Saved from an earlier complete question in a merged transcript.",
                 modelName: "local-merged-question-snapshot",
-                promptVersion: "merged-transcript-snapshot-v1"
+                promptVersion: "merged-transcript-snapshot-v1",
+                consentTicket: persistenceConsent.ticket()
             )
         }
         detectedQuestionsInSessionCount += freshQuestions.count
@@ -254,7 +277,8 @@ extension AppState {
         modelName: String,
         promptVersion: String,
         stageBCompleted: Bool = true,
-        softFallbackUsed: Bool = true
+        softFallbackUsed: Bool = true,
+        consentTicket: Int
     ) {
         let requestStart = Date()
         let generationID = UUID().uuidString
@@ -309,7 +333,8 @@ extension AppState {
             questionText: question.questionText,
             answerText: answerText,
             sayFirst: card.sayFirst,
-            stageBCompleted: true
+            stageBCompleted: true,
+            decision: question.taskDescriptor?.decision
         )
         card.alignmentScore = alignment.score
         card.alignmentVerdict = alignment.verdict
@@ -325,7 +350,7 @@ extension AppState {
             ))
             return
         }
-        saveSuggestionSnapshotInBackground(card, chunks: [])
+        saveSuggestionSnapshotInBackground(card, chunks: [], consentTicket: consentTicket)
     }
 
     private func makeDetectedQuestion(
@@ -1124,6 +1149,15 @@ extension AppState {
         _ question: DetectedQuestion,
         triggeringSegmentID: String?
     ) -> DetectedQuestion? {
+        var question = question
+        freezeConversationContext(for: &question)
+        if QuestionCandidatePipeline.isContextDependentRequest(question.questionText), question.taskDescriptor?.conversationContext == nil {
+            question.reason = "Please identify the earlier question, solution or experience this refers to. / 请明确这句追问所指的问题、题解或经历。"
+            question.shouldTrigger = false
+            possibleQuestion = question
+            lastQuestionDetectionResult = question.reason ?? "Context needed"
+            return nil
+        }
         guard let accepted = question.runtimeAcceptedForGeneration() else {
             let result = QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(question)
             recordRuntimeQuestionRejected(question, result: result, triggeringSegmentID: triggeringSegmentID)

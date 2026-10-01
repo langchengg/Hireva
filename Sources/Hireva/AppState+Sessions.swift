@@ -94,13 +94,14 @@ extension AppState {
     }
 
     func generateRecap(for session: InterviewSession) {
+        guard let session = try? sessionRepository.session(id: session.id) else { return }
         guard settings.saveTranscriptsLocally, !primaryHomeActionShouldStop else {
             showError("Stop live capture and enable local history before generating a saved recap.")
             return
         }
         guard !isActionLoading(ActionID.sessionRecap) else { return }
         if let practice = try? PracticeRepository(database: database).load(sessionID: session.id) {
-            let recap = RecapReport(id: "practice-recap-" + session.id, sessionID: session.id, markdown: RecapGenerationService.practiceMarkdown(practice), modelName: "Validated practice feedback", promptVersion: practice.task.rubricVersion, isLocal: true, createdAt: Date())
+            let recap = RecapReport(id: "practice-recap-" + session.id + "-v\(session.contentRevision ?? 0)", sessionID: session.id, markdown: RecapGenerationService.practiceMarkdown(practice), modelName: "Validated practice feedback", promptVersion: practice.task.rubricVersion, isLocal: true, createdAt: Date(), contentRevision: session.contentRevision ?? 0)
             do {
                 try recapRepository.saveRecap(recap)
                 selectedSessionRecap = recap
@@ -123,18 +124,31 @@ extension AppState {
                 }
             }
             do {
-                let transcript = try transcriptRepository.segments(sessionID: session.id)
+                let corrections = HistoryCorrectionRepository(database: database)
+                let transcript = try corrections.effectiveTranscript(transcriptRepository.segments(sessionID: session.id), sessionID: session.id)
+                let questions = try corrections.effectiveQuestions(suggestionRepository.questions(sessionID: session.id), transcript: transcript, sessionID: session.id)
+                let history = try corrections.revisions(sessionID: session.id)
+                let latestCorrections = Dictionary(history.map { ($0.segmentID, $0) }, uniquingKeysWith: { _, latest in latest })
+                let suppressedBoundaries = Set(latestCorrections.values.filter { !$0.startsQuestion }.map(\.segmentID))
                 let context = RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: [])
                 let result = try await recapGenerationService.generate(
                     session: session,
                     transcript: transcript,
                     context: context,
-                    questions: try suggestionRepository.questions(sessionID: session.id),
-                    model: activeRecapProvider?.model
+                    questions: questions,
+                    model: activeRecapProvider?.model,
+                    routingProvider: localLLMProviderOverride ?? OllamaQwenProvider(), routingModel: selectedQwenModelName,
+                    cachedUnits: try recapRepository.cachedUnits(sessionID: session.id),
+                    suppressedQuestionBoundaries: suppressedBoundaries,
+                    cacheNamespace: [activeRecapProvider?.id.uuidString ?? "", activeRecapProvider?.baseURL ?? "", activeRecapProvider?.model ?? ""].joined(separator: "|"),
+                    localOnly: selectedAnswerProviderMode == .localQwenPrimary
                 )
                 guard !Task.isCancelled else { return }
-                guard settings.saveTranscriptsLocally, try sessionRepository.session(id: session.id) != nil else { return }
-                try persistenceConsent.write(ticket: consentTicket) { try recapRepository.saveRecap(result.recap) }
+                guard settings.saveTranscriptsLocally, try sessionRepository.session(id: session.id)?.contentRevision == session.contentRevision else { return }
+                try persistenceConsent.write(ticket: consentTicket) {
+                    try self.recapRepository.saveRecap(result.recap)
+                    try self.recapRepository.saveUnits(result.units, sessionID: session.id)
+                }
                 if selectedSessionID == session.id { selectedSessionRecap = result.recap }
                 updateDiagnostics {
                     $0.lastAPILatencyMS = result.response.latencyMS
@@ -148,6 +162,31 @@ extension AppState {
                 showError(message)
             }
         }
+    }
+
+    func correctPracticeAttempt(sessionID: String, attemptID: String, question: String, answer: String) {
+        guard settings.saveTranscriptsLocally, !primaryHomeActionShouldStop else { return }
+        persistenceConsent.invalidate()
+        if practiceController.run?.sessionID == sessionID { practiceController.pause() }
+        recapTask?.cancel(); recapTask = nil; recapSessionID = nil; isGeneratingRecap = false
+        clearActionFeedback(ActionID.sessionRecap)
+        do {
+            try PracticeRepository(database: database).correctAttempt(sessionID: sessionID, attemptID: attemptID, question: question, answer: answer)
+            if practiceController.run?.sessionID == sessionID { practiceController.restore(sessionID: sessionID) }
+            practiceController.refreshReviews()
+            refreshAll(); loadSessionDetails(sessionID: sessionID)
+        } catch { showError(error.localizedDescription) }
+    }
+
+    func saveTranscriptCorrection(_ segment: TranscriptSegment, text: String, speaker: SpeakerRole, startsQuestion: Bool, question: String) {
+        guard settings.saveTranscriptsLocally, !primaryHomeActionShouldStop else { showError("Stop capture and enable history before correcting saved text."); return }
+        persistenceConsent.invalidate()
+        recapTask?.cancel(); recapTask = nil; recapSessionID = nil; isGeneratingRecap = false
+        clearActionFeedback(ActionID.sessionRecap)
+        do {
+            try HistoryCorrectionRepository(database: database).save(segment: segment, text: text, speaker: speaker, startsQuestion: startsQuestion, question: question)
+            refreshAll(); loadSessionDetails(sessionID: segment.sessionID)
+        } catch { showError(error.localizedDescription) }
     }
 
     func exportSelectedRecap() {
@@ -183,8 +222,19 @@ extension AppState {
             if let practice = try PracticeRepository(database: database).load(sessionID: session.id) {
                 try encoder.encode(practice).write(to: url, options: .atomic)
             } else {
-                struct Export: Encodable { var session: InterviewSession; var transcript: [TranscriptSegment]; var recap: RecapReport? }
-                try encoder.encode(Export(session: session, transcript: transcriptRepository.segments(sessionID: session.id), recap: recapRepository.recap(sessionID: session.id))).write(to: url, options: .atomic)
+                struct Export: Encodable {
+                    var session: InterviewSession
+                    var originalTranscript: [TranscriptSegment]
+                    var effectiveTranscript: [TranscriptSegment]
+                    var corrections: [HistoryCorrection]
+                    var recaps: [RecapReport]
+                }
+                let original = try transcriptRepository.segments(sessionID: session.id)
+                let corrections = HistoryCorrectionRepository(database: database)
+                try encoder.encode(Export(session: session, originalTranscript: original,
+                    effectiveTranscript: corrections.effectiveTranscript(original, sessionID: session.id),
+                    corrections: corrections.revisions(sessionID: session.id),
+                    recaps: recapRepository.versions(sessionID: session.id))).write(to: url, options: .atomic)
             }
             completeAction(ActionID.sessionExport, title: "Session exported", message: url.path)
             NSWorkspace.shared.activateFileViewerSelecting([url])

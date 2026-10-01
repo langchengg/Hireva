@@ -785,6 +785,7 @@ struct RuntimeSmokeHarnessTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(documentedIntegrationFixture: true),
             llmRouter: router,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
             contextRetrievalService: RuntimeSmokeContextRetrievalService(),

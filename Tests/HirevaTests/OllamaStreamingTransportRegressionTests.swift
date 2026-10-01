@@ -7,6 +7,31 @@ struct OllamaStreamingTransportRegressionTests {
     private let baseURL = URL(string: "https://ollama-streaming-regression.test")!
 
     @Test
+    func nonThinkingSchemaUsesGenerateAndPreservesServerTemplate() async throws {
+        let probe = OllamaStreamingProbe()
+        let provider = makeProvider { request in
+            if request.url?.path == "/api/tags" {
+                return .json(#"{"models":[{"name":"synthetic-qwen"}]}"#)
+            }
+            #expect(request.url?.path == "/api/generate")
+            let body = probe.requestBody(request)
+            let json = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            #expect(json?["prompt"] as? String == "Untrusted input")
+            #expect(json?["system"] as? String == "Return the allowed enum")
+            #expect(json?["think"] as? Bool == false)
+            #expect(json?["raw"] == nil && json?["template"] == nil && json?["suffix"] == nil)
+            #expect((json?["format"] as? [String: Any])?["enum"] as? [String] == ["ready"])
+            return .lines([#"{"response":"\"ready\"","done":true}"#])
+        }
+        let tokens = try await collect(provider: provider, request: .init(prompt: "Untrusted input",
+            systemPrompt: "Return the allowed enum", modelName: "synthetic-qwen", temperature: 0,
+            responseSchema: .object(["type": .string("string"), "enum": .array([.string("ready")])])) )
+        #expect(tokens.map(\.text).joined() == "\"ready\"")
+        #expect(provider.lastGenerationDiagnostics.responseSchema == .generateResponse)
+        #expect(provider.lastGenerationDiagnostics.endpoint.hasSuffix("/api/generate"))
+    }
+
+    @Test
     func streamsFinalAnswerChunksBeforeDoneAcrossArbitraryNetworkBoundaries() async throws {
         let probe = OllamaStreamingProbe()
         let provider = makeProvider(probe: probe) { request in
@@ -429,7 +454,7 @@ private final class OllamaStreamingProbe: @unchecked Sendable {
         return json["model"] as? String
     }
 
-    private func requestBody(_ request: URLRequest) -> Data? {
+    func requestBody(_ request: URLRequest) -> Data? {
         if let body = request.httpBody {
             return body
         }

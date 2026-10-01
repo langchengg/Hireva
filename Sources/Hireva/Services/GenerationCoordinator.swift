@@ -133,7 +133,8 @@ final class GenerationCoordinator {
         sawStreamingSections: Bool,
         visibleSayFirst: String?,
         visibleAnswerExists: Bool,
-        identity: GenerationIdentity? = nil
+        identity: GenerationIdentity? = nil,
+        questionDecision: InterviewQuestionDecision? = nil
     ) -> GenerationStageBResult {
         if activeGenerationID != generationID {
             return makeStageBDecision(
@@ -153,7 +154,8 @@ final class GenerationCoordinator {
         let visibleAnswerIsUsable = Self.isVisibleAnswerUsable(
             visibleSayFirst,
             questionText: questionText,
-            visibleAnswerExists: visibleAnswerExists
+            visibleAnswerExists: visibleAnswerExists,
+            decision: questionDecision
         )
 
         if providerStatus == .timedOut {
@@ -199,7 +201,7 @@ final class GenerationCoordinator {
             )
         }
 
-        let alignment = Self.evaluateStageBSections(sections, questionText: questionText)
+        let alignment = Self.evaluateStageBSections(sections, questionText: questionText, decision: questionDecision)
         if alignment.verdict == .mismatched {
             return makeStageBDecision(
                 generationID: generationID,
@@ -404,7 +406,8 @@ final class GenerationCoordinator {
     private static func isVisibleAnswerUsable(
         _ visibleSayFirst: String?,
         questionText: String,
-        visibleAnswerExists: Bool
+        visibleAnswerExists: Bool,
+        decision: InterviewQuestionDecision?
     ) -> Bool {
         guard visibleAnswerExists,
               let visibleSayFirst,
@@ -417,14 +420,16 @@ final class GenerationCoordinator {
             questionText: questionText,
             answerText: visibleSayFirst,
             sayFirst: visibleSayFirst,
-            stageBCompleted: false
+            stageBCompleted: false,
+            decision: decision
         )
         return alignment.verdict == .aligned || alignment.verdict == .weaklyAligned
     }
 
     private static func evaluateStageBSections(
         _ sections: StreamingSuggestionSections,
-        questionText: String
+        questionText: String,
+        decision: InterviewQuestionDecision?
     ) -> AnswerAlignmentResult {
         let answerText = ([sections.sayFirst] + sections.keyPoints + sections.followUpReady)
             .joined(separator: " ")
@@ -433,7 +438,8 @@ final class GenerationCoordinator {
             questionText: questionText,
             answerText: answerText,
             sayFirst: sections.sayFirst,
-            stageBCompleted: true
+            stageBCompleted: true,
+            decision: decision
         )
     }
 

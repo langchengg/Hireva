@@ -120,6 +120,22 @@ final class InterviewContextRepository {
         }
     }
 
+    func updateFactConfirmation(evidenceID: String, value: FactConfirmation) throws {
+        guard value.summary.count <= 4000 else { throw MaterialError.invalid("Fact confirmation exceeds the input budget.") }
+        for var profile in try candidateProfiles() {
+            let paths: [WritableKeyPath<CandidateProfile, [ProfileEvidence]>] = [\.education, \.experience, \.projects, \.skills, \.publications, \.achievements, \.declaredGaps, \.goals]
+            for path in paths {
+                if let index = profile[keyPath: path].firstIndex(where: { $0.id == evidenceID }) {
+                    profile[keyPath: path][index].confirmation = value
+                    profile[keyPath: path][index].explicitness = .inferred
+                    profile.version += 1; profile.updatedAt = Date()
+                    try saveCandidateProfile(profile)
+                    return
+                }
+            }
+        }
+    }
+
     func updateEvidenceStatement(evidenceID: String, statement: String) throws {
         let clean = statement.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }

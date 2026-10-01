@@ -161,8 +161,19 @@ Diagnostics.
 
 ## Preparation and Practice Boundaries
 
-- `InterviewTaskDescriptor`: small frozen task/rubric/language descriptor; heuristic
-  auto-routing is separate from domain and explicitly selected Practice task.
+- `InterviewTaskDescriptor` / `InterviewQuestionRouter`: frozen task, four-way
+  personal-evidence requirement, answer basis, conversation relation and input
+  revisions. Local structured classification is separate from domain and manual
+  task selection. `AppState+QuestionDetection` freezes a parent before queueing;
+  regeneration preserves it. Partial ASR does not invoke the router.
+- `PromptContextBuilder` applies the frozen evidence policy. Every publication
+  path still validates personal claims, including no-snapshot and general tasks.
+  Displayed/persisted citations come from the filtered prompt snapshot. A missing
+  personal-fact notice is a needs-input state, not a successful answer latency.
+- `OllamaQwenProvider`: ordinary chat streaming remains `/api/chat`; non-thinking
+  JSON-schema requests use `/api/generate` and the server-owned model template.
+  This avoids the verified Ollama 0.24.0 Qwen 3.5 chat grammar activation defect.
+  Both paths share cancellation, response accumulation and metadata diagnostics.
 - `MaterialExtractionService`: bounded PDFKit/Vision/ZIPFoundation/XMLParser
   extraction; native OCR cancellation is linked to task cancellation. Document
   originals, hashes and locations live in `document_sources` through
@@ -175,6 +186,15 @@ Diagnostics.
   injection routines are diagnostic helpers, not a simulated interview.
 - `StoryCardsView`: editable, separately saved drafts derived from usable evidence;
   generated drafts never become `ProfileEvidence` automatically.
+- `DocumentsView` / `ProfileEvidence`: reviewable boundary drafts include team
+  ownership, contribution, completion, environment, baseline/system and metric
+  conditions. Saving a draft does not confirm it; unrelated rebuilds preserve
+  edits, while generation only reads usable evidence.
+- `SessionHistoryEditor` / `HistoryCorrectionRepository`: original ASR plus
+  corrected text, speaker and question boundaries; explicit versioned re-evaluation
+  of practice attempts; old feedback remains labelled with its input version.
+  Assisted history and explicit FSRS ratings survive corrections. Recap caches
+  bind source, rubric, provider and revision so only changed units recompute.
 - `RecapGenerationService`: bounded question-boundary units, exact source/quote
   validation, deterministic unknown-speaker coverage, and all-attempt practice
   recap. `AppState+Sessions` owns a distinct cancellable recap task; deleting an
@@ -185,12 +205,25 @@ Diagnostics.
   request, no redirects/cookies/proxy inheritance; SwiftSoup parses actual HTML.
 - `PracticeSQLService`: separate in-memory SQLite connection with authorizer,
   single-statement/read-only checks, function allowlist and resource/cancel limits.
-- `PersistenceConsent`: revocable tickets prevent queued history writes after
+- `HomeView` opens the existing `LiveInterviewView.manualCaptureWorkspace` in a
+  bounded sheet; source selection is disabled during capture, Close cancels.
+- `AppState+ManualCapture`: the same frozen router, prompt citations and claim
+  publication checks as continuous mode; selected local Qwen stays local. Temporary
+  sessions never backfill on later opt-in; new saved operations create their own
+  durable session. Retry/clear cancel capture and generation ownership together.
+- `ManualQuestionTranscriptionService`: request revisions bind Speech callbacks,
+  finalize continuations and timeout; cancellation resumes the old waiter. The
+  ScreenCaptureKit start fence stops a late-started stream after cancellation.
+- `PersistenceConsent`: generation controllers and synchronous history snapshots
+  carry their original ticket into writes. Revocable tickets prevent queued history writes after
   privacy changes/deletion. Source deletion redacts copied evidence and previews;
   it does not claim physical-media secure erasure.
 - Additive migrations v17–v20 cover material sources, practice/review state,
   preparation records and frozen question tasks. Older Codable payloads use
   optional defaults; synthetic v16 upgrades are regression tested.
+- Migration v21 adds history corrections, session/recap input versions and recap
+  unit cache. The populated synthetic v20 migration test covers rollback, reopen,
+  attachment/review preservation and deletion; it does not rebuild an empty DB.
 
 `GenerationCoordinator` remains a helper boundary; this work does not move live
 ownership into a new agent framework. See `workflow-acceptance.md` for current

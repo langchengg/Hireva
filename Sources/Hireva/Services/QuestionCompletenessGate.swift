@@ -6,6 +6,11 @@ enum QuestionCompletenessGate {
         let lower = QuestionTextUtilities.collapse(text).lowercased()
         let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return false }
+        // A transitive request without its object is truncated, not a deictic
+        // follow-up. A final ASR marker alone cannot supply that missing object.
+        if lower.range(of: #"^(?:why|how) (?:did|would|do|will) you (?:choose|select|compare|implement|explain|evaluate|use)[?.! ]*$"#, options: .regularExpression) != nil {
+            return true
+        }
 
         if isTailOnlyQuestion(lower) {
             return true
@@ -131,6 +136,9 @@ enum QuestionCompletenessGate {
     }
 
     static func isCompleteQuestion(_ text: String, isFinal: Bool) -> Bool {
+        if QuestionLanguageSupport.containsHan(text), MultiQuestionSplitter.questionStarts(in: text.lowercased()).first != 0 {
+            return QuestionLanguageSupport.completeChineseRequest(text, isFinal: isFinal)
+        }
         let lower = text.lowercased()
         let comparable = lower.trimmingCharacters(in: CharacterSet(charactersIn: ".?!,;: "))
         let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)

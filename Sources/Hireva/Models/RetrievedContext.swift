@@ -9,6 +9,21 @@ struct RetrievedContext: Hashable {
     var jobDescriptionChunks: [DocumentChunk]
     var additionalNotesChunks: [DocumentChunk] = []
 
+    /// Citations reflect only the already-filtered frozen provider input.
+    var frozenPromptCitations: [RetrievedChunk] {
+        let promptChunks = cvChunks + jobDescriptionChunks + additionalNotesChunks
+        return promptChunks.enumerated().map { index, chunk in
+            RetrievedChunk(
+                id: chunk.id, documentID: chunk.documentID, documentType: chunk.documentType,
+                chunkIndex: chunk.chunkIndex, contentPreview: String(chunk.content.prefix(80)),
+                fullContent: chunk.content, keywords: chunk.keywords, score: 1,
+                keywordOverlapCount: 0, contentOverlapCount: 0, rank: index + 1,
+                isIncludedInPrompt: true, sectionTitle: chunk.sectionTitle,
+                wordCount: chunk.wordCount, retrievalMode: "frozen_prompt"
+            )
+        }
+    }
+
     var isEmpty: Bool {
         cvChunks.isEmpty && jobDescriptionChunks.isEmpty && additionalNotesChunks.isEmpty
     }

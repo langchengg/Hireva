@@ -3,16 +3,17 @@ import Foundation
 extension AppState {
     func groundedFallback(
         for question: String,
-        contextSnapshotID: String?
+        contextSnapshotID: String?,
+        task: InterviewTaskDescriptor? = nil
     ) -> (result: GroundedFallbackResult, snapshot: InterviewContextSnapshot)? {
+        if let decision = task?.decision, !decision.usesCandidateEvidence { return nil }
         guard let contextSnapshotID,
               let snapshot = try? interviewContextRepository.snapshot(id: contextSnapshotID) else {
             return nil
         }
-        return (
-            DynamicInterviewContextEngine().profileSafeFallback(question: question, snapshot: snapshot),
-            snapshot
-        )
+        let result = DynamicInterviewContextEngine().profileSafeFallback(question: question, snapshot: snapshot)
+        guard result.status == .grounded, result.unsupportedClaims.isEmpty else { return nil }
+        return (result, snapshot)
     }
 
     var currentInterviewContextSelection: InterviewContextSelection {
@@ -313,7 +314,7 @@ extension AppState {
             previous.responsibilities + previous.requiredSkills + previous.preferredSkills +
                 previous.researchTopics + previous.evaluationCriteria
         ).filter {
-            $0.explicitness == .userConfirmed || $0.explicitness == .userRejected
+            $0.hasReviewEdits
         }
         for old in reviewed {
             let keyPaths: [WritableKeyPath<OpportunityContext, [ProfileEvidence]>] = [
@@ -345,6 +346,15 @@ extension AppState {
 
     func rejectProfileEvidence(_ evidenceID: String) {
         updateProfileEvidence(evidenceID, explicitness: .userRejected)
+    }
+
+    func editFactConfirmation(_ evidenceID: String, value: FactConfirmation) {
+        do {
+            try interviewContextRepository.updateFactConfirmation(evidenceID: evidenceID, value: value)
+            AutomaticInterviewContextBuilder.clearExtractionCache()
+            refreshAll()
+            try rollContextSnapshotForCurrentSession()
+        } catch { showError(error.localizedDescription) }
     }
 
     func editProfileEvidence(_ evidenceID: String, statement: String) {

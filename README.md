@@ -107,6 +107,9 @@ retained. Review extraction warnings and the saved original, then open **Review*
 to correct evidence and explicitly confirm facts. Saving an edited draft alone
 is not confirmation. CV/JD imports rebuild automatic context; story-card drafts
 are editable and remain separate from personal facts.
+Evidence review also records personal/team contribution, completed/planned work,
+simulation/hardware/production, baseline/system scope and metric conditions.
+Leave unknown fields blank and use **Confirm evidence** only after reviewing them.
 
 Open **Practice** in the sidebar, choose a task and edit its question/rubric if
 needed. Answer and feedback languages are separate (English/Chinese). General
@@ -124,6 +127,15 @@ be saved as review cards; reveal after recall and explicitly rate Again/Hard/Goo
 Easy. FSRS schedules recall, not design quality or job fit. Live recaps process all
 saved text units and mark units without an attributed candidate answer as not
 evaluable; source IDs and exact quotations are validated before saving.
+
+In **Sessions**, open the history editor to compare original ASR with corrected
+text, speaker and question boundaries. Save a new input version, then explicitly
+regenerate its recap or re-evaluate the affected practice answer. Earlier results
+remain marked as based on older input. A corrected/repeated answer after feedback
+is still assisted; update an affected review card explicitly. With saving off,
+practice stays temporary even after saving is turned back on; start a new practice
+to persist future attempts. **Clear Local Data** removes internal history and
+sources, while separately exported files and backups remain under your control.
 
 Session JSON and recap Markdown exports are written to the existing local Exports folder; each export gets a unique filename.
 
@@ -375,7 +387,7 @@ Useful engineering references:
 - Local Parakeet is experimental and produces final utterance transcripts rather than true word-by-word partial ASR.
 - Ollama is a separately installed and operated local service; Qwen is not bundled in the DMG.
 - Apple Speech availability and on-device behavior depend on macOS and locale. Chinese text support does not imply Chinese ASR: the current Parakeet path has no verified Chinese support, and no WhisperKit adapter/model was installed in this change.
-- Automatic task routing and personal-claim checks are heuristics with documented misses, not calibrated confidence or independent verification of facts. Explicit Practice task selection is available.
+- Automatic routing uses a bounded local structured classifier and evidence-boundary checks, with documented misses. Claim checks and subjective feedback are not independent fact verification or calibrated hiring predictions. Explicit Practice task selection is available; see the current acceptance report for measured quality and failure counts.
 - OCR does not preserve code indentation reliably or interpret diagrams. DOCX list numbering/layout may require manual review.
 - Public URL fetching fails closed on private/reserved DNS results, including fake-IP VPN configurations; it does not modify system networking.
 - Generic code review is a checklist, not a compiler, execution sandbox or correctness proof.

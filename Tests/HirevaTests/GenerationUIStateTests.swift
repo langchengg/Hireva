@@ -6,6 +6,71 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct GenerationUIStateTests {
+    @Test func oldGenerationCannotAcquireFreshConsentAfterSavingIsReenabled() throws {
+        let (appState, session, _, _) = try makeAppState(client: StreamingMockLLMClient())
+        let question = try makeQuestion(sessionID: session.id, text: "Explain database transactions and atomicity.", suffix: "consent-generation")
+        let generationID = "old-consent-generation"
+        appState.activateGeneration(question: question, generationID: generationID, triggerPath: .manualGenerate, requestStart: Date(), source: nil, speaker: nil)
+        #expect(appState.publishStreamingSections(.init(strategy: "Explanation", sayFirst: "A database transaction groups operations into an atomic unit that either commits or rolls back.", keyPoints: [], followUpReady: [], caution: ""), cardID: "consent-card", generationID: generationID, question: question, session: session, requestStart: Date(), stageBStreamStartedMS: nil))
+        let card = try #require(appState.currentSuggestion)
+        var settings = appState.settings
+        settings.saveTranscriptsLocally = false; appState.saveSettings(settings)
+        settings.saveTranscriptsLocally = true; appState.saveSettings(settings)
+        appState.persistSuggestionInBackground(card, chunks: [], generationID: generationID, requestStart: Date())
+        #expect(appState.lastSQLiteOperation.contains("consent revoked"))
+        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).isEmpty)
+        appState.cancelActiveGenerationForStop()
+    }
+
+    @Test func cumulativeProviderTextGrowsAndRejectedExpansionFinishesSafeFirstAnswer() async throws {
+        let (appState, session, _, _) = try makeAppState(client: StreamingMockLLMClient())
+        let question = try makeQuestion(sessionID: session.id, text: "Explain database transactions and atomicity.", suffix: "cumulative-publication")
+        try appState.suggestionRepository.saveDetectedQuestion(question)
+        let generationID = "cumulative-publication-generation"
+        let started = Date()
+        appState.activateGeneration(question: question, generationID: generationID, triggerPath: .manualGenerate, requestStart: started, source: nil, speaker: nil)
+        defer { appState.cancelActiveGenerationForStop() }
+        let first = "A database transaction groups operations into one atomic unit."
+        let complete = first + " Atomicity means all operations commit together or roll back together."
+        for text in [first, complete] {
+            #expect(appState.publishStreamingSections(.init(strategy: "Explanation", sayFirst: text, keyPoints: ["Technical explanation without personal evidence"], followUpReady: ["I can explain transaction isolation next."], caution: ""), cardID: "cumulative-card", generationID: generationID, question: question, session: session, requestStart: started, stageBStreamStartedMS: nil))
+        }
+        #expect(appState.currentSuggestion?.sayFirst == complete)
+        _ = appState.publishStreamingSections(.init(strategy: "Explanation", sayFirst: complete + " Isolation prevents", keyPoints: [], followUpReady: [], caution: ""), cardID: "cumulative-card", generationID: generationID, question: question, session: session, requestStart: started, stageBStreamStartedMS: nil)
+        #expect(appState.currentSuggestion?.sayFirst == complete)
+        let plan = StageBApplicationPlan(generationID: generationID, detectedQuestionID: question.id, action: .applyFullCard, fallbackReason: nil, shouldPersist: true, shouldUpdateVisibleCard: true, safeDiagnostics: ["providerStatus": GenerationProviderStatus.completed.rawValue], identity: GenerationIdentity(question: question, generationID: generationID, contextSnapshotID: session.contextSnapshotID))
+        try await appState.applyStageBApplicationPlan(plan, sections: .init(strategy: "Explanation", sayFirst: complete, keyPoints: [], followUpReady: ["I won an international database award in 2025."], caution: ""), cardID: "cumulative-card", generationID: generationID, question: question, session: session, requestStart: started, stageBStreamStartedMS: nil, retrievedChunks: [], triggerPath: .manualGenerate, source: nil, speaker: nil, preserveFallbackSayFirst: false)
+        #expect(appState.generationUIState.isTerminal)
+        #expect(!appState.isExpandingSuggestionCard)
+        #expect(!appState.stageBTaskActive)
+        #expect(appState.currentSuggestion?.sayFirst == complete)
+        #expect(appState.currentSuggestion?.followUpReady == ["I can explain transaction isolation next."])
+        try await waitUntil(timeout: 3) { ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 }
+        let saved = try #require(appState.suggestionRepository.suggestions(sessionID: session.id).first)
+        #expect(saved.sayFirst == complete)
+        #expect(saved.followUpReady == ["I can explain transaction isolation next."])
+    }
+
+    @Test func rejectedLateStageBDoesNotRelabelTimeoutFallbackAsProvider() async throws {
+        let (appState, session, question, _) = try makeAppState(client: StreamingMockLLMClient())
+        let generationID = "terminal-fallback-generation"
+        appState.activateGeneration(question: question, generationID: generationID, triggerPath: .autoDetect, requestStart: Date(), source: .systemAudio, speaker: .unknown)
+        var fallback = appState.makeInitialFirstAnswerFallbackCard(cardID: "terminal-card", question: question, session: session, requestStart: Date())
+        fallback.generationID = generationID
+        fallback.sayFirst = "A local answer remains visible after the timeout."
+        fallback.sayFirstSource = "local_timeout_fallback"
+        fallback.finalVisibleSource = "local_timeout_fallback"
+        fallback.stageBCompleted = false
+        fallback.stageBStatus = "timed_out"
+        appState.currentSuggestion = fallback
+        appState.setGenerationUIState(.timeout(questionID: question.id, generationID: generationID, triggerPath: .autoDetect, reason: "synthetic timeout"), generationID: generationID)
+        let plan = StageBApplicationPlan(generationID: generationID, detectedQuestionID: question.id, action: .applyFullCard, fallbackReason: nil, shouldPersist: true, shouldUpdateVisibleCard: true, safeDiagnostics: [:], identity: GenerationIdentity(question: question, generationID: generationID, contextSnapshotID: session.contextSnapshotID))
+        try await appState.applyStageBApplicationPlan(plan, sections: .init(strategy: "Direct", sayFirst: "A late provider answer.", keyPoints: [], followUpReady: [], caution: ""), cardID: fallback.id, generationID: generationID, question: question, session: session, requestStart: Date(), stageBStreamStartedMS: nil, retrievedChunks: [], triggerPath: .autoDetect, source: .systemAudio, speaker: .unknown, preserveFallbackSayFirst: false)
+        #expect(appState.currentSuggestion == fallback)
+        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).isEmpty)
+        appState.cancelActiveGenerationForStop()
+    }
+
     @Test
     func generationFailureFeedbackDoesNotOpenABlockingAlert() throws {
         let appState = try AppState(database: AppDatabase(inMemory: true))
@@ -1461,6 +1526,9 @@ struct GenerationUIStateTests {
             speaker: .interviewer
         )
         appState.lastDetectedQuestion = thirdQuestion
+        let snapshot = try #require(try appState.interviewContextRepository.snapshot(id: session.contextSnapshotID!))
+        let fallback = DynamicInterviewContextEngine().profileSafeFallback(question: thirdQuestion.questionText, snapshot: snapshot)
+        #expect(fallback.unsupportedClaims.isEmpty, "Synthetic fallback: \(fallback.answer); unsupported: \(fallback.unsupportedClaims)")
 
         #expect(appState.showImmediateFallbackForActiveGenerationIfNeeded(reason: "test-timeout"))
         let visible = try #require(appState.currentSuggestion)
@@ -1546,6 +1614,39 @@ struct GenerationUIStateTests {
         #expect(!appState.shouldShowBlockingAnswerSpinner)
     }
 
+    @Test
+    func completeFollowupFreezesParentAtIngressAndNeverRebindsAfterContextSwitch() throws {
+        let (app, session, first, _) = try makeAppState(client: ConsecutiveQuestionLLMClient())
+        var followup = first
+        followup.id = UUID().uuidString
+        followup.questionText = "Why did you choose that?"
+        #expect(!QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(followup).accepted)
+        let candidates = QuestionCandidatePipeline.extract(from: followup.questionText, isFinal: true, allowContextDependent: true)
+        #expect(candidates.count == 1)
+        #expect(QuestionCandidatePipeline.extract(from: followup.questionText, isFinal: false, allowContextDependent: true).isEmpty)
+        #expect(QuestionCandidatePipeline.extract(from: "Why did you choose", isFinal: true, allowContextDependent: true).isEmpty)
+        for fragment in ["If the same issue", "If the same issue happened again"] {
+            #expect(QuestionCandidatePipeline.extract(from: fragment, isFinal: true, allowContextDependent: true).isEmpty)
+        }
+        #expect(QuestionCandidatePipeline.extract(from: "为什么选择那个？", isFinal: true, allowContextDependent: true).count == 1)
+        var descriptor = InterviewTaskDescriptor(question: followup.questionText)
+        descriptor.conversationContextCaptured = true
+        descriptor.conversationContext = .init(sessionID: session.id, questionID: first.id,
+            questionText: "Compare retry strategies for transient requests", answerText: "Use bounded exponential backoff with jitter.",
+            contextSnapshotID: session.contextSnapshotID, mode: app.interviewSessionMode.rawValue)
+        followup.taskDescriptor = descriptor
+        app.freezeConversationContext(for: &followup)
+        #expect(QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(followup).accepted)
+        #expect(followup.taskDescriptor?.conversationContext?.questionID == first.id)
+        app.currentSession?.contextSnapshotID = "different-snapshot"
+        app.freezeConversationContext(for: &followup)
+        #expect(followup.taskDescriptor?.conversationContext == nil)
+        #expect(!QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(followup).accepted)
+        app.currentSession = session
+        app.freezeConversationContext(for: &followup)
+        #expect(followup.taskDescriptor?.conversationContext == nil)
+    }
+
     private func makeAppState(
         client: any LLMClientProtocol,
         contextRetrievalService: ContextRetrievalService? = nil,
@@ -1561,6 +1662,7 @@ struct GenerationUIStateTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: contextRetrievalService
         )

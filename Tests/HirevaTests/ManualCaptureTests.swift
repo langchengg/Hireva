@@ -6,6 +6,160 @@ import AVFoundation
 @Suite(.serialized)
 @MainActor
 struct ManualCaptureTests {
+    @Test func cancelledCaptureIgnoresLateRecognitionCallbacks() async throws {
+        resetMockHooks(); defer { resetMockHooks() }
+        let database = try makeTemporaryDatabase()
+        try await setupOnboardingData(database: database)
+        let app = try makeAppState(database: database, client: TrackingLLMClient(), permissionService: MockPermissionService())
+        var finalCallback: ((String) -> Void)?
+        ManualQuestionTranscriptionService.mockStartTranscription = { _, final, _ in finalCallback = final }
+        ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+        var settings = app.settings; settings.manualCaptureSource = .microphone; app.saveSettings(settings)
+        app.startManualCapture()
+        try await waitUntil("manual callbacks registered") { finalCallback != nil }
+        app.cancelManualCapture()
+        finalCallback?("DELETED_MANUAL_CALLBACK_CANARY")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(app.manualCaptureTranscript.isEmpty)
+        #expect(app.manualCaptureState == .idle)
+        #expect(app.currentSuggestion == nil)
+    }
+
+    @Test(arguments: [false, true]) func localManualModeUsesFrozenDecisionWithoutCloudOrDurableTemporarySession(saveHistory: Bool) async throws {
+        let database = try makeTemporaryDatabase()
+        let remote = TrackingLLMClient()
+        let app = try makeAppState(database: database, client: remote, permissionService: MockPermissionService())
+        app.answerProviderModeOverride = .localQwenPrimary
+        app.localLLMProviderOverride = ManualLocalProvider()
+        var settings = app.settings; settings.saveTranscriptsLocally = saveHistory; app.saveSettings(settings)
+        app.manualCaptureState = .transcriptReady
+        app.manualCaptureTranscript = "Explain database transactions and atomicity."
+        app.sendManualCaptureToAI()
+        if !saveHistory {
+            try await waitUntil("manual decision frozen") { app.lastDetectedQuestion?.taskDescriptor?.decision != nil }
+            settings.saveTranscriptsLocally = true
+            app.saveSettings(settings)
+        }
+        try await waitUntil("local manual answer") { app.manualCaptureState == .suggestionReady }
+        #expect(remote.chatCallsCount == 0)
+        #expect(app.lastDetectedQuestion?.isLocal == true)
+        #expect(app.lastDetectedQuestion?.providerKind == .ollamaLocal)
+        #expect(app.lastDetectedQuestion?.modelName == app.selectedQwenModelName)
+        #expect(app.lastDetectedQuestion?.taskDescriptor?.decision?.routerVersion == InterviewQuestionRouter.version)
+        #expect(app.manualCaptureSuggestion?.sayFirst.contains("atomic") == true)
+        #expect(app.transcriptSegments.last?.speaker == .unknown)
+        let session = try #require(app.currentSession)
+        if saveHistory {
+            try await waitUntil("manual local row committed") { ((try? app.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 }
+            #expect(try app.sessionRepository.session(id: session.id) != nil)
+            #expect(try app.suggestionRepository.questions(sessionID: session.id).count == 1)
+            let row = try #require(app.suggestionRepository.suggestions(sessionID: session.id).first)
+            #expect(try app.suggestionRepository.questions(sessionID: session.id).first(where: { $0.id == row.questionID })?.taskDescriptor?.decision?.routerVersion == InterviewQuestionRouter.version)
+        } else {
+            #expect(try app.sessionRepository.session(id: session.id) == nil)
+            #expect(try app.suggestionRepository.questions(sessionID: session.id).isEmpty)
+            #expect(try app.suggestionRepository.suggestions(sessionID: session.id).isEmpty)
+        }
+        app.manualCaptureState = .suggestionReady
+        app.sendManualCaptureToAI()
+        #expect(app.manualCaptureSuggestion == nil)
+        app.cancelManualCapture()
+    }
+
+    @Test func retryRecordingCancelsAnUnfinishedProviderAndInvalidatesCapture() async throws {
+        resetMockHooks(); defer { resetMockHooks() }
+        let database = try makeTemporaryDatabase()
+        let app = try makeAppState(database: database, client: TrackingLLMClient(), permissionService: MockPermissionService())
+        app.answerProviderModeOverride = .localQwenPrimary
+        app.localLLMProviderOverride = ManualLocalProvider()
+        app.manualCaptureState = .transcriptReady
+        app.manualCaptureTranscript = "Explain database transactions and atomicity."
+        app.sendManualCaptureToAI()
+        try await waitUntil("manual request active") { app.currentGenerationID != nil }
+        let oldRevision = app.manualCaptureRevision
+        app.retryManualCapture()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(app.manualCaptureRevision > oldRevision)
+        #expect(app.currentGenerationID == nil)
+        #expect(app.manualCaptureState == .idle)
+        #expect(app.manualCaptureSuggestion == nil)
+        #expect(app.manualCaptureTranscript.isEmpty)
+    }
+
+    @Test func newManualOperationAfterOptInDoesNotResaveTemporaryHistory() async throws {
+        let database = try makeTemporaryDatabase()
+        let app = try makeAppState(database: database, client: TrackingLLMClient(), permissionService: MockPermissionService())
+        app.answerProviderModeOverride = .localQwenPrimary
+        app.localLLMProviderOverride = ManualLocalProvider()
+        var settings = app.settings; settings.saveTranscriptsLocally = false; app.saveSettings(settings)
+        app.manualCaptureState = .transcriptReady
+        app.manualCaptureTranscript = "Explain database transactions and atomicity."
+        app.sendManualCaptureToAI()
+        try await waitUntil("temporary manual answer") { app.manualCaptureState == .suggestionReady }
+        let oldID = try #require(app.currentSession?.id)
+        app.retryManualCapture()
+        settings.saveTranscriptsLocally = true; app.saveSettings(settings)
+        app.manualCaptureState = .transcriptReady
+        app.manualCaptureTranscript = "Explain database transactions and atomicity."
+        app.sendManualCaptureToAI()
+        try await waitUntil("new saved manual answer") { app.manualCaptureState == .suggestionReady }
+        let newID = try #require(app.currentSession?.id)
+        try await waitUntil("new manual row") { ((try? app.suggestionRepository.suggestions(sessionID: newID).count) ?? 0) == 1 }
+        #expect(oldID != newID)
+        #expect(try app.sessionRepository.session(id: oldID) == nil)
+        #expect(try app.transcriptRepository.segments(sessionID: oldID).isEmpty)
+        #expect(try app.sessionRepository.session(id: newID) != nil)
+        #expect(try app.transcriptRepository.segments(sessionID: newID).count == 1)
+        app.cancelManualCapture()
+    }
+
+    @Test func stopAndNewStartInvalidatePendingCaptureStartTokens() {
+        let fence = CaptureStartFence()
+        let pending = fence.begin()
+        fence.invalidate()
+        #expect(!fence.isCurrent(pending))
+        let replacement = fence.begin()
+        #expect(fence.isCurrent(replacement))
+        #expect(!fence.isCurrent(pending))
+        fence.invalidate()
+        #expect(!fence.isCurrent(replacement))
+    }
+
+    @Test func oldSpeechCallbacksAndTimeoutCannotCompleteReplacementRequest() async throws {
+        resetMockHooks(); defer { resetMockHooks() }
+        let service = ManualQuestionTranscriptionService.shared
+        var callbacks: [(String) -> Void] = []
+        ManualQuestionTranscriptionService.mockStartTranscription = { _, final, _ in callbacks.append(final) }
+        var received: [String] = []
+        try await service.startTranscription(onPartialResult: { _ in }, onFinalResult: { received.append($0) }, onError: { _ in })
+        let oldWait = Task { try await service.endAudioAndFinalize(timeoutSeconds: 0.08) }
+        try await Task.sleep(for: .milliseconds(10))
+        service.cancel()
+        do { _ = try await oldWait.value; Issue.record("Cancelled transcription should throw") } catch is CancellationError {} catch { Issue.record("Unexpected cancellation error") }
+        try await service.startTranscription(onPartialResult: { _ in }, onFinalResult: { received.append($0) }, onError: { _ in })
+        let newWait = Task { try await service.endAudioAndFinalize(timeoutSeconds: 1) }
+        callbacks[0]("STALE_OLD_RECOGNIZER")
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(received.isEmpty)
+        callbacks[1]("Current request")
+        #expect(try await newWait.value == "Current request")
+        #expect(received == ["Current request"])
+        service.cancel()
+    }
+
+    private struct ManualLocalProvider: LocalLLMProvider {
+        let id = "manual-local-test"
+        let displayName = "Manual local test"
+        func healthCheck(modelName: String) async -> LocalLLMHealth { .init(ollamaRunning: true, selectedModel: modelName, modelInstalled: true, providerSource: .ollamaQwen, lastError: nil) }
+        func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> { AsyncThrowingStream { $0.finish() } }
+        func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+            try await Task.sleep(for: .milliseconds(150))
+            return AsyncThrowingStream { continuation in
+                continuation.yield(.init(text: "A database transaction groups operations into one atomic unit. Atomicity means all operations commit together or roll back together.", source: .ollamaQwen, modelName: request.modelName))
+                continuation.finish()
+            }
+        }
+    }
 
     private struct WaitTimeout: Error, CustomStringConvertible {
         let description: String
@@ -168,6 +322,7 @@ struct ManualCaptureTests {
         let router = LLMRouter(settingsRepository: settings, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             permissionService: permissionService,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
@@ -212,13 +367,17 @@ struct ManualCaptureTests {
         ) async throws -> LLMChatResult {
             chatCallsCount += 1
             lastMessages = messages
-
+            let prompt = messages.last?.content ?? ""
+            let question = prompt.components(separatedBy: "CURRENT QUESTION TO ANSWER:\n").last?.components(separatedBy: "\n").first ?? ""
+            let answer = question.localizedCaseInsensitiveContains("comfortable")
+                ? "I am comfortable with Python and ROS2 and actively improving C++."
+                : "Swift Package tests exercise public functions with known inputs and expected outputs. Run swift test, cover failure paths, and keep audio capture dependencies isolated for repeatable tests."
             let content = """
             {
                 "strategy": "Technical Deep Dive",
-                "say_first": "I am comfortable with Python and ROS2 and actively improving C++, and I also write Swift Package tests for reliable macOS capture workflows.",
-                "key_points": ["Python, ROS2, and C++ robotics work", "Swift Package tests for macOS capture workflows"],
-                "follow_up_ready": ["I can describe where I used each tool and how I tested the workflow."],
+                "say_first": "\(answer)",
+                "key_points": ["Explain the relevant tools and verification boundaries."],
+                "follow_up_ready": ["I can explain each tool's role and how to test the workflow."],
                 "confidence": 0.95,
                 "caution": "None"
             }
@@ -314,9 +473,10 @@ struct ManualCaptureTests {
             appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
         }
 
-        // Assert Constraint 1: systemAudio manual capture does not request microphone/speech permission
+        // System capture does not request microphone access. Its Apple Speech
+        // transcription adapter still requires Speech Recognition permission.
         #expect(mockPermission.micRequestedCount == 0)
-        #expect(mockPermission.speechRequestedCount == 0)
+        #expect(mockPermission.speechRequestedCount == 1)
         #expect(captureStarted)
         #expect(transcriptionStarted)
         #expect(appState.manualCaptureState == .recording)
@@ -334,10 +494,10 @@ struct ManualCaptureTests {
             appState.manualCaptureState == .suggestionReady && appState.transcriptSegments.last != nil
         }
 
-        // Assert Constraint 4: Manual captured systemAudio question maps to .interviewer speaker
+        // Selecting a source is not evidence of speaker identity.
         let lastSegment = try #require(appState.transcriptSegments.last)
         #expect(lastSegment.source == .systemAudio)
-        #expect(lastSegment.speaker == .interviewer)
+        #expect(lastSegment.speaker == .unknown)
         #expect(lastSegment.text == "How comfortable are you with Python, C++, and ROS2?")
 
         // Validate final state is suggestionReady

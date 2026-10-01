@@ -22,7 +22,7 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
             do {
                 try self.append(data: data, to: url)
             } catch {
-                print("[RuntimeTranscriptTraceStore] Write failed: \(error.localizedDescription)")
+                print("[RuntimeTranscriptTraceStore] Write failed: code=\((error as NSError).code)")
             }
         }
     }
@@ -34,7 +34,7 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
                 do {
                     try clearTraceFilesImmediately(at: url)
                 } catch {
-                    print("[RuntimeTranscriptTraceStore] Cleanup failed: \(error.localizedDescription)")
+                    print("[RuntimeTranscriptTraceStore] Cleanup failed: code=\((error as NSError).code)")
                 }
             }
             preparedModes[url.path] = mode

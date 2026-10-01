@@ -73,7 +73,7 @@ public final class AudioEngineManager {
             do {
                 try ensureTapInstalled()
             } catch {
-                print("[AudioEngineManager] Failed to install audio tap: \(error.localizedDescription)")
+                print("[AudioEngineManager] Failed to install audio tap: code=\((error as NSError).code)")
             }
         }
     }
@@ -164,7 +164,7 @@ public final class AudioEngineManager {
                 // 6. Notify delegates that the audio route changed successfully
                 notifyRouteRestarted()
             } catch {
-                print("[AudioEngineManager] Recovery failed: \(error.localizedDescription)")
+                print("[AudioEngineManager] Recovery failed: code=\((error as NSError).code)")
                 self.audioRecoveryState = "Failed"
                 notifyRouteFailed(error: error)
             }

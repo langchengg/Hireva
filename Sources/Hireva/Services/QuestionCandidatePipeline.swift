@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 struct RawTranscriptSegment: Equatable {
     var text: String
@@ -19,15 +20,39 @@ struct AcceptedQuestionCandidate: Equatable {
 /// Pure transcript-to-question pipeline. It must not mutate UI state, write the
 /// database, call providers, or own generation tasks.
 enum QuestionCandidatePipeline {
+    /// Complete deictic requests are distinct from truncated ASR. This only
+    /// qualifies an utterance for contextual resolution; it never selects facts.
+    static func isContextDependentRequest(_ text: String) -> Bool {
+        let text = QuestionTextUtilities.collapse(text)
+        guard text.count <= 180, !text.contains("…"), !text.contains("..."),
+              text.filter({ $0 == "?" || $0 == "？" }).count <= 1 else { return false }
+        if text.lowercased().hasPrefix("if ") {
+            guard let comma = text.firstIndex(of: ",") else { return false }
+            let mainClause = String(text[text.index(after: comma)...]).trimmingCharacters(in: .whitespaces)
+            guard QuestionCompletenessGate.isCompleteQuestion(mainClause, isFinal: true) ||
+                    (!mainClause.lowercased().hasPrefix("if ") && QuestionRuntimeAcceptanceGuard.isVagueFollowUp(mainClause)) else { return false }
+        }
+        if QuestionRuntimeAcceptanceGuard.isVagueFollowUp(text) { return true }
+        guard QuestionLanguageSupport.containsHan(text) else { return false }
+        return QuestionLanguageSupport.completeChineseRequest(text, isFinal: true) &&
+            ["这个", "那个", "这样", "那样", "刚才", "上述"].contains(where: text.contains)
+    }
+
     private static let maxInputCharacters = 2_400
     private static let maxExtractedQuestions = 12
 
-    static func extract(from text: String, isFinal: Bool = true) -> [AcceptedQuestionCandidate] {
-        extract(from: RawTranscriptSegment(text: text, isFinal: isFinal))
+    static func extract(from text: String, isFinal: Bool = true, allowContextDependent: Bool = false) -> [AcceptedQuestionCandidate] {
+        extract(from: RawTranscriptSegment(text: text, isFinal: isFinal), allowContextDependent: allowContextDependent)
     }
 
-    static func extract(from segment: RawTranscriptSegment) -> [AcceptedQuestionCandidate] {
-        guard segment.text.split(whereSeparator: \.isWhitespace).count >= 4 else {
+    static func extract(from segment: RawTranscriptSegment, allowContextDependent: Bool = false) -> [AcceptedQuestionCandidate] {
+        if allowContextDependent, segment.isFinal, isContextDependentRequest(segment.text) {
+            let text = QuestionTextUtilities.collapse(segment.text)
+            return [.init(text: text, confidence: 0.8, intent: .unclear, answerStrategy: .clarifyFirst,
+                answerRelevanceIntent: .generic, duplicateKey: SemanticDuplicateKeyBuilder.key(for: text),
+                sourceStartUTF16: 0, sourceEndUTF16: (segment.text as NSString).length)]
+        }
+        guard QuestionLanguageSupport.wordCount(segment.text) >= 3 else {
             return []
         }
 
@@ -35,7 +60,9 @@ enum QuestionCandidatePipeline {
         // offsets remain stable. Canonicalization can change string length and
         // therefore happens independently inside each source slice.
         let bounded = String(segment.text.prefix(maxInputCharacters))
-        let rawQuestions = MultiQuestionSplitter.splitWithRanges(bounded)
+        let rawQuestions = QuestionLanguageSupport.containsHan(bounded)
+            ? (QuestionLanguageSupport.sentenceSlices(bounded) + MultiQuestionSplitter.splitWithRanges(bounded)).sorted { $0.startUTF16 < $1.startUTF16 }
+            : MultiQuestionSplitter.splitWithRanges(bounded)
         var questions: [AcceptedQuestionCandidate] = []
         var sourceSliceWasTerminated: [Bool] = []
 
@@ -45,7 +72,7 @@ enum QuestionCandidatePipeline {
             // interviewer statement from both the candidate and its source
             // span.
             let sourceSlice: String
-            if let questionMark = raw.text.firstIndex(of: "?"),
+            if let questionMark = raw.text.firstIndex(where: { $0 == "?" || $0 == "？" }),
                !shouldKeepCompoundQuestionTail(after: questionMark, in: raw.text) {
                 sourceSlice = String(raw.text[...questionMark])
             } else {
@@ -77,7 +104,7 @@ enum QuestionCandidatePipeline {
             }) {
                 if extracted.text.count >= questions[existingIndex].text.count {
                     questions[existingIndex] = extracted
-                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
+                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?") || sourceSlice.contains("？")
                 }
                 continue
             }
@@ -93,7 +120,7 @@ enum QuestionCandidatePipeline {
                 // preserved.
                 if extracted.text.count >= questions[existingIndex].text.count {
                     questions[existingIndex] = extracted
-                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
+                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?") || sourceSlice.contains("？")
                 }
                 continue
             }
@@ -103,7 +130,7 @@ enum QuestionCandidatePipeline {
             }) {
                 if extracted.text.count >= questions[existingIndex].text.count {
                     questions[existingIndex] = extracted
-                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?")
+                    sourceSliceWasTerminated[existingIndex] = sourceSlice.contains("?") || sourceSlice.contains("？")
                 }
                 continue
             }
@@ -119,7 +146,7 @@ enum QuestionCandidatePipeline {
             // source spans. Ingress provenance decides whether the later span
             // is an intentional repeat or cumulative replay.
             questions.append(extracted)
-            sourceSliceWasTerminated.append(sourceSlice.contains("?"))
+            sourceSliceWasTerminated.append(sourceSlice.contains("?") || sourceSlice.contains("？"))
             if questions.count >= maxExtractedQuestions { break }
         }
 
@@ -925,5 +952,48 @@ enum RawQuestionCleaner {
             cleaned.append("?")
         }
         return cleaned
+    }
+}
+
+/// System tokenizer supplies word/sentence boundaries for scripts without
+/// spaces. This is ingress syntax/completeness, not semantic task classification.
+/// Reference: Apple NaturalLanguage / Tokenizing natural language text.
+enum QuestionLanguageSupport {
+    static func containsHan(_ text: String) -> Bool {
+        text.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
+    }
+    static func wordCount(_ text: String) -> Int {
+        guard containsHan(text) else { return text.split(whereSeparator: \.isWhitespace).count }
+        return wordTokens(text).count
+    }
+    static func wordTokens(_ text: String) -> [String] {
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        return tokenizer.tokens(for: text.startIndex..<text.endIndex).map { String(text[$0]).lowercased() }
+    }
+    static func sentenceSlices(_ text: String) -> [MultiQuestionSplitter.QuestionSlice] {
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = text
+        return tokenizer.tokens(for: text.startIndex..<text.endIndex).compactMap { range in
+            let raw = text[range]
+            guard let start = raw.firstIndex(where: { !$0.isWhitespace }) else { return nil }
+            let slice = String(text[start..<range.upperBound])
+            return .init(text: slice, startUTF16: NSRange(start..<range.upperBound, in: text).location,
+                         endUTF16: NSRange(start..<range.upperBound, in: text).upperBound)
+        }
+    }
+    static func completeChineseRequest(_ text: String, isFinal: Bool) -> Bool {
+        guard isFinal, wordCount(text) >= 3 else { return false }
+        let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.hasSuffix("…"), !raw.hasSuffix("...") else { return false }
+        let content = text.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        guard !content.isEmpty, !content.hasSuffix("…") else { return false }
+        if ["然后", "因为", "如果", "以及", "或者", "关于", "一个", "如何", "怎么", "为什么"].contains(where: content.hasSuffix) { return false }
+        let imperative = ["请", "解释", "说明", "比较", "设计", "实现", "分析", "介绍", "描述", "讲述", "讲一次", "谈谈", "举例"]
+        if imperative.contains(where: content.hasPrefix) { return true }
+        let interrogative = ["如何", "为什么", "怎么", "哪些", "什么", "是否", "能否", "多少", "何时", "哪里"]
+        let narrative = ["我", "我们", "他说", "她说"].contains(where: content.hasPrefix)
+        return (!narrative || text.contains("？") || text.contains("?")) &&
+            (interrogative.contains(where: content.contains) || content.hasSuffix("吗") || content.hasSuffix("呢"))
     }
 }

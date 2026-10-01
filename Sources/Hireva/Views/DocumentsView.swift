@@ -250,7 +250,7 @@ struct DocumentsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ForEach(profile.allEvidence.prefix(16)) { evidence in
+                ForEach(profile.reviewEvidence) { evidence in
                     ProfileEvidenceReviewRow(appState: appState, evidence: evidence)
                     Divider()
                 }
@@ -279,7 +279,7 @@ struct DocumentsView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                ForEach(opportunity.allEvidence.prefix(16)) { evidence in
+                ForEach(opportunity.reviewEvidence) { evidence in
                     ProfileEvidenceReviewRow(appState: appState, evidence: evidence)
                     Divider()
                 }
@@ -617,11 +617,13 @@ private struct ProfileEvidenceReviewRow: View {
     @ObservedObject var appState: AppState
     let evidence: ProfileEvidence
     @State private var draft: String
+    @State private var facts: FactConfirmation
 
     init(appState: AppState, evidence: ProfileEvidence) {
         self.appState = appState
         self.evidence = evidence
         _draft = State(initialValue: evidence.statement)
+        _facts = State(initialValue: evidence.confirmation ?? FactConfirmation())
     }
 
     var body: some View {
@@ -638,6 +640,7 @@ private struct ProfileEvidenceReviewRow: View {
                     .foregroundStyle(reviewTint)
                 Button {
                     if draft != evidence.statement { appState.editProfileEvidence(evidence.id, statement: draft) }
+                    if facts != evidence.confirmation ?? FactConfirmation() { appState.editFactConfirmation(evidence.id, value: facts) }
                     appState.confirmProfileEvidence(evidence.id)
                 } label: {
                     Image(systemName: "checkmark.circle")
@@ -650,11 +653,23 @@ private struct ProfileEvidenceReviewRow: View {
                 }
                 .help("Reject evidence")
             }
+            DisclosureGroup("Contribution and experiment boundaries / 贡献与实验条件") {
+                Picker("Ownership", selection: $facts.ownership) { ForEach(["unknown", "individual", "team"], id: \.self) { Text($0) } }
+                TextField("Personal contribution (leave unknown blank)", text: $facts.contribution)
+                Picker("Status", selection: $facts.status) { ForEach(["unknown", "completed", "planned"], id: \.self) { Text($0) } }
+                Picker("Environment", selection: $facts.environment) { ForEach(["unknown", "simulation", "real-world", "production"], id: \.self) { Text($0) } }
+                Picker("Scope", selection: $facts.scope) { ForEach(["unknown", "baseline", "full-system"], id: \.self) { Text($0) } }
+                TextField("Metric and units (optional)", text: $facts.metric)
+                TextField("Sample, conditions and range (optional)", text: $facts.conditions)
+                Text("Edits are unconfirmed until you press Confirm evidence. Source support and your confirmation are not independent verification. If a correction contradicts the source, retain that distinction.").font(.caption)
+                if evidence.sourceSpan != nil && evidence.sourceSpan != draft { Text("Edited statement differs from the original source; review the difference before confirming.").foregroundStyle(.orange).font(.caption) }
+                Button("Save Boundary Draft") { appState.editFactConfirmation(evidence.id, value: facts) }
+            }
             if let source = evidence.sourceSpan, !source.isEmpty {
-                Text("Source: \(String(source.prefix(180)))")
+                Text("Source: \(source)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .textSelection(.enabled)
             }
         }
     }

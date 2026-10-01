@@ -106,7 +106,7 @@ func regenerateVisibleSuggestion() {
         SpeakerRole(rawValue: lastDetectedQuestionSpeaker)
     let oldGenerationID = visibleCard?.generationID ?? activeGenerationController?.generationID ?? activeGenerationID
     let baseQuestion = lastDetectedQuestion
-    let question = DetectedQuestion(
+    var question = DetectedQuestion(
         id: visibleCard?.detectedQuestionID ?? activeGenerationController?.questionID ?? baseQuestion?.id ?? UUID().uuidString,
         sessionID: session.id,
         transcriptSegmentID: visibleCard?.transcriptSegmentID ?? baseQuestion?.transcriptSegmentID,
@@ -128,6 +128,12 @@ func regenerateVisibleSuggestion() {
         createdAt: Date(),
         ingressIdentity: visibleCard?.ingressIdentity ?? baseQuestion?.ingressIdentity
     )
+    if let baseQuestion, baseQuestion.id == question.id, baseQuestion.sessionID == session.id,
+       baseQuestion.questionText == questionText {
+        question.taskDescriptor = baseQuestion.taskDescriptor
+    } else if let stored = try? suggestionRepository.questions(sessionID: session.id).first(where: { $0.id == question.id && $0.questionText == questionText }) {
+        question.taskDescriptor = stored.taskDescriptor
+    }
     let transcript = questionText
 
     lastRegenerateQuestionID = question.id
@@ -547,7 +553,8 @@ func makeInitialFirstAnswerFallbackCard(
 ) -> SuggestionCard {
     let grounded = groundedFallback(
         for: question.questionText,
-        contextSnapshotID: session.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID
+        contextSnapshotID: session.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID,
+        task: question.taskDescriptor
     )
     let answer = grounded?.result.answer ?? ""
     let keyPoints: [String] = grounded.map { grounded in
@@ -625,93 +632,14 @@ func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws 
 
 // MARK: - Quality Guards
 
-/// Applies local answer cleanup synchronously and, if needed, starts a guarded
-/// provider rewrite in the background.
-///
-/// The immediate return value preserves the current generation flow. The
-/// background rewrite may update the UI only if the same generation is still
-/// active, so a late cleanup for question 1 cannot overwrite question 2.
+/// Formatting cleanup stays local and has no publication or persistence side
+/// effects. Provider repair belongs to the existing owned generation/retry path,
+/// whose result passes the frozen question, evidence and persistence gates.
+/// The legacy signature is retained for existing callers.
 func validateAndRewriteIfNeeded(_ card: SuggestionCard, generationID: String) async -> SuggestionCard {
     var updated = card
-    
-    let locallyCleaned = AnswerQualityValidator.localCleanupAnswer(updated.sayFirst)
-    updated.sayFirst = locallyCleaned
-    
-    let isValid = AnswerQualityValidator.isValid(
-        sayFirst: updated.sayFirst,
-        keyPoints: updated.keyPoints,
-        followUpReady: updated.followUpReady,
-        caution: updated.caution
-    )
-    
-    if isValid {
-        return updated
-    }
-    
-    print("[QualityValidator] Card fields are invalid. Triggering background provider rewrite. Original say_first length: \(card.sayFirst.count)")
-    
-    Task { [weak self] in
-        guard let self = self else { return }
-        let rewritten = await self.providerRewriteAnswer(locallyCleaned)
-        
-        await MainActor.run {
-            guard self.currentGenerationID == generationID, var current = self.currentSuggestion else {
-                self.recordStaleGenerationDiscard()
-                return
-            }
-            let expectedPrompt = card.promptPrimaryQuestion ?? card.promptQuestionText ?? card.questionText ?? self.activeGenerationController?.questionTextSnapshot ?? ""
-            guard self.visibleCardMatchesGeneration(
-                card: current,
-                generationID: generationID,
-                detectedQuestionID: card.detectedQuestionID,
-                promptPrimaryQuestion: expectedPrompt
-            ) else {
-                self.recordStaleGenerationDiscard()
-                return
-            }
-            current.sayFirst = rewritten
-            self.currentSuggestion = current
-            self.saveSuggestionSnapshotInBackground(current, chunks: self.currentSuggestionRetrievedChunks)
-            print("[QualityValidator] Background provider rewrite complete. Rewritten say_first length: \(rewritten.count)")
-        }
-    }
-    
+    updated.sayFirst = AnswerQualityValidator.localCleanupAnswer(card.sayFirst)
     return updated
-}
-
-private func providerRewriteAnswer(_ sayFirst: String) async -> String {
-    let systemPrompt = """
-    You are a helpful assistant. You must rewrite the provided text as a natural, first-person spoken interview answer that the candidate can say directly out loud.
-    
-    Rules:
-    - Output ONLY the rewritten spoken answer.
-    - Must be in first person (use "I", "my", "I'm").
-    - Absolutely no meta-instructions, no commentary, no formatting.
-    - Remove all LaTeX commands, braces, backslashes.
-    - Remove instruction verbs like "Highlight", "Emphasize", "Use".
-    - Extremely concise (1-3 sentences).
-    """
-    
-    let userPrompt = "Rewrite this now: \(sayFirst)"
-    
-    do {
-        if let config = try? llmRouter.realtimeConfiguration() {
-            let response = try await llmRouter.chat(
-                configuration: config,
-                messages: [.system(systemPrompt), .user(userPrompt)],
-                responseFormat: .text,
-                options: LLMRequestOptions(temperature: 0.1, timeoutInterval: 3.0)
-            )
-            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !result.isEmpty && AnswerQualityValidator.isValidField(result, isSayFirst: true) {
-                return result
-            }
-        }
-    } catch {
-        print("[AppState] Provider answer rewrite failed: \(error.localizedDescription)")
-    }
-    
-    return AnswerQualityValidator.localCleanupAnswer(sayFirst)
 }
 
 // internal for AppState extension access only
@@ -784,7 +712,7 @@ var currentGenerationErrorText: String? {
         return "Generation timed out: \(reason)"
     case .cancelled:
         return "Generation cancelled: \(reason)"
-    case .idle, .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady:
+    case .idle, .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady, .needsInput:
         return nil
     }
 }
@@ -943,7 +871,8 @@ private func generationHasCancellableWork(_ controller: ActiveGenerationControll
 private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
     controller: ActiveGenerationController
 ) {
-    guard controller.triggerPath == .autoDetect,
+    guard persistenceConsent.isCurrent(ticket: controller.persistenceTicket),
+          controller.triggerPath == .autoDetect,
           let session = currentSession,
           session.id == controller.identity.sessionID else {
         return
@@ -999,7 +928,8 @@ private func persistSupersededAcceptedQuestionSnapshotIfNeeded(
         modelName: "local-replaced-generation-snapshot",
         promptVersion: "replaced-generation-snapshot-v1",
         stageBCompleted: false,
-        softFallbackUsed: false
+        softFallbackUsed: false,
+        consentTicket: controller.persistenceTicket
     )
 }
 
@@ -1117,6 +1047,7 @@ func activateGeneration(
     cancelActiveGenerationForReplacement()
     currentGenerationID = generationID
     activeGenerationController = ActiveGenerationController(
+        persistenceTicket: persistenceConsent.ticket(),
         identity: GenerationIdentity(
             question: question,
             generationID: generationID,
@@ -1350,6 +1281,7 @@ func displaySuggestionIfAligned(
     // Runtime acceptance relies on question_text == prompt_primary_question for
     // generated cards so later DB queries can detect context bleed.
     boundCard.questionText = question.questionText
+    boundCard.questionDecision = question.taskDescriptor?.decision
     boundCard.transcriptSegmentID = boundCard.transcriptSegmentID ?? question.transcriptSegmentID
     boundCard.ingressIdentity = boundCard.ingressIdentity ?? question.ingressIdentity
     boundCard.generationID = boundCard.generationID ?? generationID
@@ -1411,17 +1343,19 @@ func displaySuggestionIfAligned(
     // on its own. This is especially important for model-comparison questions
     // where generic "I would explain..." output is not usable in an interview.
     let answerText = ([boundCard.sayFirst] + boundCard.keyPoints + boundCard.followUpReady).joined(separator: " ")
+    // Preserve field boundaries: joining a bullet ending in "evidence" with a
+    // separate "I can explain..." item invents a personal claim that neither
+    // field contains. Alignment can still use the combined answer above.
+    let allVisibleClaims = ([boundCard.sayFirst] + boundCard.keyPoints + boundCard.followUpReady
+        + [boundCard.strategy, boundCard.caution ?? ""] + boundCard.evidenceUsed).joined(separator: "\n")
     do {
-        if boundSnapshot?.candidateProfileID == nil, (question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)).requiresPersonalEvidence {
-            boundCard.groundingDecision = "candidate_context_missing"
-            boundCard.unsupportedClaimCount = 0
-            recordAlignmentMismatch("Candidate-specific answer rejected because the session snapshot has no candidate profile.")
-            return false
-        }
+        // Missing personal evidence permits a factual gap/clarification response.
+        // Every actual personal claim is still checked below, including nil snapshots.
+
 
         let grounding = AnswerClaimValidator().validate(
-            answer: answerText,
-            candidateEvidence: boundSnapshot?.candidateEvidence ?? [],
+            answer: allVisibleClaims,
+            candidateEvidence: question.taskDescriptor?.decision?.usesCandidateEvidence == false ? [] : (boundSnapshot?.candidateEvidence ?? []),
             opportunityEvidence: boundSnapshot?.opportunityEvidence ?? [],
             domainKnowledge: InterviewDomainProfile.profile(
                 for: InterviewDomainID(rawValue: boundSnapshot?.domainProfileID ?? "") ?? .general
@@ -1441,7 +1375,8 @@ func displaySuggestionIfAligned(
         questionText: question.questionText,
         answerText: answerText,
         sayFirst: boundCard.sayFirst,
-        stageBCompleted: boundCard.stageBCompleted ?? true
+        stageBCompleted: boundCard.stageBCompleted ?? true,
+        decision: question.taskDescriptor?.decision
     )
     let effectiveAlignmentPassed = alignment.verdict == .aligned
     let effectiveAlignment = alignment
@@ -1514,7 +1449,8 @@ func displaySuggestionIfAligned(
             questionText: question.questionText,
             answerText: fallbackText,
             sayFirst: fallbackCard.sayFirst,
-            stageBCompleted: true
+            stageBCompleted: true,
+        decision: question.taskDescriptor?.decision
         )
         fallbackCard.alignmentScore = fallbackAlignment.score
         fallbackCard.alignmentVerdict = fallbackAlignment.verdict
@@ -1549,6 +1485,13 @@ func displaySuggestionIfAligned(
                 )
                 failAction(ActionID.generateAnswer, title: "Low-confidence answer rejected", message: rejectedReason)
             }
+            return false
+        }
+        let fallbackClaims = AnswerClaimValidator().validate(answer: fallbackText,
+            candidateEvidence: question.taskDescriptor?.decision?.usesCandidateEvidence == false ? [] : (boundSnapshot?.candidateEvidence ?? []),
+            opportunityEvidence: boundSnapshot?.opportunityEvidence ?? [], domainKnowledge: [])
+        guard fallbackClaims.unsupportedClaims.isEmpty, fallbackCard.unsupportedClaimCount == 0 else {
+            recordAlignmentMismatch("Semantic fallback rejected unsupported personal claims before publication.")
             return false
         }
         currentSuggestion = fallbackCard
@@ -1618,7 +1561,8 @@ private func makeSemanticFallbackCard(
 ) -> SuggestionCard {
     let grounded = groundedFallback(
         for: question.questionText,
-        contextSnapshotID: card.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID
+        contextSnapshotID: card.contextSnapshotID ?? activeGenerationController?.identity.contextSnapshotID,
+        task: question.taskDescriptor
     )
     let selected = Set(grounded?.result.candidateEvidenceIDs ?? [])
     let keyPoints: [String] = grounded?.snapshot.candidateEvidence.filter { selected.contains($0.id) }.map(\.statement) ?? []
@@ -2176,6 +2120,16 @@ func recordVisibleSuggestionInHistory(_ card: SuggestionCard) {
     if selectedSessionID == historyCard.sessionID {
         selectedSessionSuggestions = liveSuggestionHistory
     }
+    // Publishing a validated card changes visible answer state independently
+    // of the loading-state machine (which may transition later in the stream).
+    recordLifecycleTrace(
+        "answer.state.updated",
+        sessionID: historyCard.sessionID,
+        questionID: historyCard.detectedQuestionID,
+        generationID: historyCard.generationID,
+        text: question,
+        reason: "validated_card_published"
+    )
     recordTranscriptRuntimeEvent(.visibleCurrentSuggestionUpdated(
         sessionID: historyCard.sessionID,
         questionID: historyCard.detectedQuestionID,
@@ -2478,9 +2432,12 @@ private func applyStreamingSections(
     }
 
     if !sections.sayFirst.isEmpty {
-        let source = card.sayFirstSource ?? ""
-        let isFallback = source.contains("fallback")
-        if card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (isFallback && !preserveExistingSayFirst) {
+        // A cumulative provider section can grow beyond its first complete
+        // sentence. Apply the new text through the same publication gate;
+        // preserving it unconditionally silently dropped later answer clauses.
+        let keepsCompleteFirstAnswer = QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(card.sayFirst) == nil
+            && QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(sections.sayFirst) != nil
+        if !keepsCompleteFirstAnswer && (card.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !preserveExistingSayFirst) {
             card.sayFirst = sections.sayFirst
             markProviderStreamOwnership(&card)
         }
@@ -2527,7 +2484,7 @@ private func applyStreamingSections(
     }
     if sections.hasVisibleContent {
         card.stageBFirstSectionMS = card.stageBFirstSectionMS ?? nowMS
-        if !preserveExistingSayFirst || card.sayFirstSource == "deepseek_stream" {
+        if card.sayFirstSource == "deepseek_stream" {
             markProviderStreamOwnership(&card)
         }
     }
@@ -2638,7 +2595,8 @@ func completeSubstantiveProviderFirstAnswerAfterTimeout(
         questionText: question.questionText,
         answerText: alignmentText,
         sayFirst: completed.sayFirst,
-        stageBCompleted: true
+        stageBCompleted: true,
+        decision: question.taskDescriptor?.decision
     )
     guard alignment.verdict == .aligned else {
         return nil
@@ -2699,6 +2657,7 @@ private func substantiveProviderSayFirst(_ text: String) -> String? {
 }
 
 // internal for AppState extension access only
+@discardableResult
 func publishStreamingSections(
     _ sections: StreamingSuggestionSections,
     cardID: String,
@@ -2709,14 +2668,14 @@ func publishStreamingSections(
     stageBStreamStartedMS: Int?,
     preserveExistingSayFirst: Bool = false,
     markFullCardVisible: Bool = false
-) {
+) -> Bool {
     guard currentGenerationID == generationID else {
         recordStaleGenerationDiscard()
-        return
+        return false
     }
     guard !terminalGenerationIDs.contains(generationID),
           !generationUIState.isTerminal else {
-        return
+        return false
     }
     let currentForUpdate: SuggestionCard?
     if let currentSuggestion {
@@ -2752,7 +2711,7 @@ func publishStreamingSections(
         triggerPath: currentGenerationTelemetry.triggerPath,
         source: AudioSourceType(rawValue: currentGenerationTelemetry.source ?? ""),
         speaker: SpeakerRole(rawValue: currentGenerationTelemetry.speaker ?? "")
-    ) else { return }
+    ) else { return false }
     if currentSuggestionSetAt == nil {
         currentSuggestionSetAt = Date()
     }
@@ -2771,6 +2730,7 @@ func publishStreamingSections(
     if markFullCardVisible {
         self.markFullCardVisible(generationID: generationID)
     }
+    return true
 }
 
 // internal for AppState extension access only
@@ -2875,6 +2835,13 @@ func finishGenerationWithVisibleCard(
         generationID: generationID,
         requestStart: requestStart
     )
+    if finalCard.stageBStatus == "needs_personal_evidence" {
+        setGenerationUIState(.needsInput(questionID: question.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
+        warnAction(ActionID.generateAnswer, title: "Personal facts needed", message: "Confirm the missing facts before generating a personal answer.")
+        restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "personal_input_needed")
+        processNextQueuedAutoQuestionIfIdle()
+        return true
+    }
     setGenerationUIState(
         .answerReady(questionID: question.id, generationID: generationID, triggerPath: triggerPath),
         generationID: generationID
@@ -3193,7 +3160,7 @@ func applyStageBApplicationPlan(
         return
     }
 
-    publishStreamingSections(
+    guard publishStreamingSections(
         sections,
         cardID: cardID,
         generationID: generationID,
@@ -3203,7 +3170,36 @@ func applyStageBApplicationPlan(
         stageBStreamStartedMS: stageBStreamStartedMS,
         preserveExistingSayFirst: false,
         markFullCardVisible: true
-    )
+    ) else {
+        // A rejected final expansion must terminate its owned work. Keep only
+        // the previously validated first answer; never relabel a terminal
+        // fallback or leave the UI and question queue waiting indefinitely.
+        guard isActiveGeneration(generationID, questionID: question.id),
+              !terminalGenerationIDs.contains(generationID),
+              !generationUIState.isTerminal else { return }
+        let rejectedPlan = StageBApplicationPlan(
+            generationID: generationID,
+            detectedQuestionID: question.id,
+            action: .useSemanticFallback,
+            fallbackReason: "Full answer expansion did not pass publication checks.",
+            shouldPersist: true,
+            shouldUpdateVisibleCard: true,
+            safeDiagnostics: plan.safeDiagnostics,
+            identity: plan.identity
+        )
+        _ = applyTerminalStageBPlanIfNeeded(
+            rejectedPlan, cardID: cardID, generationID: generationID,
+            question: question, session: session, requestStart: requestStart,
+            retrievedChunks: retrievedChunks, triggerPath: triggerPath,
+            source: source, speaker: speaker
+        )
+        if !generationUIState.isTerminal {
+            markGenerationFailed(generationID: generationID, reason: "Answer did not pass publication checks.")
+            restoreCaptureAfterGenerationIfNeeded(session: session, generationID: generationID, reason: "publication_rejected")
+            processNextQueuedAutoQuestionIfIdle()
+        }
+        return
+    }
 
     guard var finalCard = currentSuggestion else {
         throw LLMProviderError.emptyResponse(providerName: activeRealtimeProvider?.name ?? "Realtime provider")
@@ -3227,7 +3223,9 @@ func applyStageBApplicationPlan(
     finalCard.firstVisibleAnswerMS = finalCard.firstVisibleAnswerMS ?? finalCard.latencyFirstVisibleMS
     finalCard.deepseekFirstTokenMS = deepseekFirstTokenMS
     finalCard.deepseekFirstVisibleMS = deepseekFirstVisibleMS
-    markProviderStreamOwnership(&finalCard)
+    if finalCard.sayFirstSource == "deepseek_stream" {
+        markProviderStreamOwnership(&finalCard)
+    }
     finalCard.ragRetrievalLatencyMS = ragRetrievalLatencyMS
 
     if let segmentID = question.transcriptSegmentID {
@@ -3340,6 +3338,19 @@ func persistSuggestionInBackground(
     generationID: String,
     requestStart: Date
 ) {
+    guard let owner = activeGenerationController, owner.generationID == generationID,
+          persistenceConsent.isCurrent(ticket: owner.persistenceTicket) else {
+        lastSQLiteOperation = "Skipped suggestion save: persistence consent revoked"
+        return
+    }
+    var card = card
+    // Use the already validated publication's frozen decision. Do not resolve
+    // again in detached persistence or substitute another question's decision.
+    if let visible = currentSuggestion, visible.id == card.id,
+       visible.sessionID == card.sessionID, visible.questionID == card.questionID,
+       visible.generationID == generationID {
+        card.questionDecision = visible.questionDecision
+    }
     let expectedPrompt = card.promptPrimaryQuestion ?? card.promptQuestionText ?? card.questionText ?? activeGenerationController?.questionTextSnapshot ?? ""
     guard visibleCardMatchesGeneration(
         card: card,
@@ -3396,7 +3407,7 @@ func persistSuggestionInBackground(
         return
     }
     let consent = persistenceConsent
-    let consentTicket = consent.ticket()
+    let consentTicket = owner.persistenceTicket
     let repository = suggestionRepository
     let simulateFailure = simulateSuggestionPersistenceFailure
     let simulatedDelay = simulatedSuggestionPersistenceDelayNanoseconds
@@ -3849,7 +3860,8 @@ func isAnswerRelevantEnoughForLivePreview(_ text: String, question: DetectedQues
     guard cleaned.count >= 24 else { return false }
     let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
         questionText: question.questionText,
-        answerText: cleaned
+        answerText: cleaned,
+        decision: question.taskDescriptor?.decision
     )
     if alignment.verdict == .mismatched {
         currentAnswerQuestionIntent = alignment.questionIntent

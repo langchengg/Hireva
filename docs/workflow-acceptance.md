@@ -1,4 +1,145 @@
-# Workflow acceptance — 2026-09-27
+# Continuation acceptance — 2026-09-27
+
+**Overall core is NOT COMPLETE.** Routing recall misses its fixed gate; physical
+microphone/TTS/denial and the defined B1→B2 audio performance comparison remain
+unverified. Passing native tests does not override those failures.
+
+## Current source and evidence
+
+Branch `test/question-evidence-corrections`, HEAD `cfdda9eecb623b9104ce8b193a5a1451579be3d4`.
+B1 was the actual clean source after the earlier, separately authorized push to
+main, not the historical 84-file dirty version. This continuation is uncommitted;
+no commit, push, PR, merge or release was performed during it. B1/B2 file manifests,
+source archives, command ledgers, failed attempts and consistent synthetic SQLite
+backups are outside the repository at
+`/Users/delaynomore/Hireva-validation/continuation-20260927-180847` (R2).
+The previous enhancement record below remains historical evidence, not this run's
+result. Same arm64/macOS 27/Swift 6.1/Ollama 0.24.0/qwen3.5:4b; no upgrade/download.
+
+## Repairs and observed scope
+
+| Reproduction → cause | Change / verification scope |
+|---|---|
+| Original102: task36/102, evidence58/102,44 missed required cases | Shared immutable `InterviewQuestionDecision`, final-question-only local classifier; task/evidence/basis/parent and revisions frozen across live, Practice and re-evaluation. Strict decoder and bounded repair. Chinese NLTokenizer replaces whitespace-only segmentation. Current quality below remains FAIL. |
+| Schema-validity failures on local Qwen3.5 | Inspected installed-version Ollama code: chat thinking-parser path can omit schema even with think=false. Existing `OllamaQwenProvider` now uses `/api/generate` and the installed template for constrained schema requests. Native transport and real-model runs; no new SDK/runtime. Format success is separate from semantics. |
+| General answers/visible citations inherited unrelated CV; nil snapshot and late rewrite could bypass checks | Frozen evidence policy filters prompt/retrieval/retry/fallback and displayed source chunks. Every visible field goes through personal-claim checks, including nil snapshot. Removed unowned provider rewrite; existing owned retry remains. Real-model live/correction cases and native canaries; validator is heuristic, not proof of truth. |
+| Late Stage B relabelled terminal fallback; rejected expansion left UI waiting; cumulative answer could truncate or replace complete content with unfinished next clause | Preserve generation terminal ownership; reject unsafe expansion but finish checked first answer; pass actual provider completion status; update complete cumulative text only. Claim checking preserves field/list boundaries. Focused 110-test regression passed; original64 fixture/deadline unchanged. |
+| Historical text edits did not drive evaluation | v21 correction overlays preserve original ASR and attempt revisions; explicit re-evaluation, versioned recap, exact citations and assisted history. Parent correction invalidates dependent follow-ups/review cards while preserving real FSRS ratings. Populated-v20 migration includes induced transactional failure, retry and reopen. Actual UI retrieve→retry and On→O(n), re-evaluate, quote and restart observed; latest descendant invalidation checked natively. |
+| Edited fact draft disappeared/rebuilt from source | Review list includes inferred drafts; `hasReviewEdits` preserves edits. Explicit confirmation stores individual/team contribution, completion status, environment, system scope and metric conditions. Actual UI draft remained Uncertain; Confirm saved team contribution with unknown/empty fields retained. |
+| Deletion retained derivative text; privacy off→on left an empty session | Redact/delete source chunks, card strategy/caution, snapshots, past feedback and review derivatives; invalidate tasks/tickets. Practice started with saving off uses an ephemeral session. Actual isolated UI document/card/Practice/live-session deletes, global clear/restart and off→on exercise verified against DB/private files. Zero canary hits; unrelated records preserved before global clear. User exports/external backups are separate and were retained. |
+
+## Routing quality (unchanged original labels)
+
+| Metric | B1 original102 | B2 original102, known regression | New V3 one-shot160 |
+|---|---:|---:|---:|
+| All task matches |36/102|89/102|139/160|
+| All evidence matches |58/102|92/102|139/160|
+| Domain accuracy / macro-F1 |See B1-workflow-quality.json|83/96 / .8962|125/144 / .8792|
+| English / Chinese domain accuracy |Not inferred|44/48 /39/48|65/72 /60/72|
+| Automatic domain coverage |Not inferred|91/96|137/144|
+| Required recall (gate≥.95) |14/58|51/58 **FAIL**|39/42 **FAIL**|
+| Negative specificity (gate≥.90) |44/44|41/44|89/92|
+| Unknown / failed cases |See original output|10/102 /1/102|17/160 /1/160|
+| Model requests / repaired cases |Rules only|103 /1|161 /1|
+
+Evidence confusion (rows gold; columns required/notRequired/optional/uncertain):
+original102 required=[51,1,0,6], negative=[0,41,0,3];
+V3 required=[39,1,0,2], negative=[1,89,0,2], optional=[0,6,2,2], uncertain=[2,5,0,9].
+Unknown includes deliberately unknown gold. Invalid output remains in denominators.
+V3=80 English+80 Chinese,144 domain+16 unknown,78 related scenario groups; translations
+and related dialogue stay together. All labels are synthetic/model-assisted and
+unreviewed, **not independent human gold**. V1/V2 failed and became diagnostic sets;
+those failures and proposed-label sidecars remain. V3 was frozen before its one-shot
+run, then inspected; routing was not tuned afterward. Full per-class P/R/F1,
+confusions and raw model-vs-guard decisions are in `quality-final-summary.json`.
+100% model-call rate on these automatic cases; manual task choices excluded.
+
+Native reproduction (pre-create output directory):
+`HIREVA_ROUTING_EVAL=1 HIREVA_ROUTING_CASES=<fixture.json> HIREVA_TEST_ARTIFACT_DIR=<output> HIREVA_ROUTING_ENFORCE_GATE=1 swift test --filter QuestionDecisionEvaluationTests`.
+`development-12-final` and `holdout-v3-result` exited **1**, not an export-only pass.
+Routing p50/p95 were 2045/2265ms and2098/2466ms respectively; these are NOT audio
+end-to-visible latency or a B1/B2 performance comparison.
+
+## Native, model, UI and system results
+
+Final source native tests: `manual-final-11` **17 PASS** (2.506s); `full-final-11`
+reports820 total: **812 executed PASS,8 opt-in SKIPPED** (117.432s), exit0.
+`smoke-final-11` **12 PASS** (32.075s), including the unchanged original64 threshold,
+exit0; exact commands are in `final-11-command-ledger.json`. Earlier failures remain in their original logs.
+Actual opt-in `live-final-6` ran4 tests: manual local decision/DB, cancellation N3,
+and eight live canary/personal cases passed; corrected-attempt evaluation **FAILED**
+when the model omitted a targeted follow-up despite rubric gaps, including after
+its bounded repair. The guard refused it. `live-final-4` had3 passing tests and
+`practice-final-4` had3; these earlier successes do not override the latest failure.
+Ordinary `swift test` skips opt-in model work. Actual commands explicitly set
+`HIREVA_RUN_LOCAL_LIVE_DECISION=1 HIREVA_RUN_LOCAL_CANCEL=1` or
+`HIREVA_RUN_LOCAL_PRACTICE=1`. Model feedback quality remains a limitation.
+
+Home now exposes **Capture Question**, reusing the previous preview-only manual
+workspace. Source selection and Close use the shared capture cancellation. Actual
+system playback through the sheet produced954buffers, Apple Speech text, local
+Qwen visible answer and DB row with unknown speaker; unrelated CV remained present
+but visible/stored citations were0. ASR corrupted atomicity and the model did not
+ask to clarify that term: path sample PASS, semantic limitation retained. UI/DB
+inspection exposed stale question-provider metadata; both assignment sites now
+honor frozen local mode. `local-manual-final-11` actual Qwen/DB test passed1 (5.642s),
+including provider identity assertions. A second actual sheet playback in
+bundle-final-11 produced838buffers, a local question/answer row and0 citations.
+Its ASR lost atomicity; editing the captured question in the visible UI and sending
+again produced an atomicity answer with0 citations. This is a new manual question,
+separate from the versioned historical correction flow above. `manual-final-12`
+passed17 (2.569s) after clearing the old manual card at new-request start; full/Smoke
+immediately before that display-only reset are in `final-11-command-ledger.json`.
+Canonical `build_and_run.sh --verify` and `release/verify_app.sh dist/Hireva.app`
+passed in ad-hoc arm64 mode; final command logs/manifests remain in R2.
+
+Manual recording now uses the same decision, frozen evidence, local-mode and
+publication policies. New-operation opt-in creates a durable session without
+backfilling temporary history. Retry/clear invalidate capture and generation;
+Speech request revisions isolate callbacks/timeouts and resume cancelled waiters;
+SCK stops late-started local streams. Synchronous history snapshots explicitly
+carry their originating persistence ticket. These repairs have native regression
+coverage; they are not substitutes for real Speech/SCK cancellation acceptance.
+
+| System acceptance | Actual current-round evidence |
+|---|---|
+| System Audio Only | Synthetic say/afplay N1: system capture true, mic false; Apple Speech→Qwen→visible card→DB, speaker unknown. Path sample PASS, ASR misrecognized atomicity. |
+| Microphone Only | N1:197 capture buffers, system capture false, no ASR/no answer. E2E FAIL/NOT VERIFIED. Builtin mic/lid-open read-only check did not establish cause. |
+| Combined | N1: system leg produced one unknown-speaker answer/row. Real dual recognized echo/dedup NOT RUN; microphone leg unverified. |
+| TTS echo/interrupt; permission denial | NOT RUN in actual capture. Existing granted permissions not reset. |
+| Chinese voice / general code execution | Chinese ASR adapter/model NOT IMPLEMENTED/NOT RUN; Docker daemon unavailable, no host execution fallback. Chinese text tested separately. |
+| Cancellation | Actual local request cancellation plus immediate next request N3 recorded; does not prove instantaneous GPU kernel termination. |
+| B1→B2 performance / competing inference | NOT RUN at the requested last-voiced-sample definition or50+50 samples. p50+20%,p95+30% budgets unchanged. No original-enhancement performance claim. |
+| Sanitizers | Cached independent AppKit ASan probe timed out; TSan aborted during runtime initialization before tests. BLOCKED, not sanitizer PASS. |
+| URL brief / distribution | Reserved fake-IP DNS198.18.0.103 remains blocked by SSRF; no proxy/DNS changes. Ad-hoc developer preview; Developer ID/notarization NOT RUN. |
+
+## Reuse and user workflow
+
+Existing ZIPFoundation0.9.20,SwiftSoup2.13.9,FSRS4.1.0 and GRDB6.29.3 locks unchanged.
+This continuation copied/ported no third-party source. Actual reuse is the existing
+Ollama transport plus Apple NaturalLanguage, PDFKit/Vision/SQLite/audio frameworks.
+Pinned Ollama v0.24.0 `c28ddc0a7b273cd286b680a6db0bef0c17bc0ec0` (MIT) informed the
+schema/cancel protocol adaptation. Semantic Router `6a8b7a0cd40613dee2e240f3e00d3e11430ffaa9`
+(MIT) aggregation/tests reviewed, not used: no verified bilingual embedding.
+Promptfoo `68ce0f7be992d85095190c37d5fb9c6eaa298b76` (MIT) script/assertion/telemetry
+code reviewed, not used: native Swift evaluator suffices. Upstream source tests
+were read, not executed; no Promptfoo install/telemetry. Full paths/URLs in existing
+third-party notices and R2/research/research-summary.md.
+
+In the canonical app: Documents→Import synthetic CV/JD→review source facts and
+explicitly Confirm; Practice/Review→enter question→answer→Submit→targeted follow-up.
+Sessions→select saved attempt→Edit history→correct text/speaker/question boundary→
+Save revision→explicit Re-evaluate→inspect exact quote/version and updated recap.
+An edited attempt stays assisted after feedback. Update stale review cards explicitly;
+actual ratings remain. Use item Delete or Settings→Clear Local Data for test records.
+Saving off creates temporary Practice; enabling it later does not authorize old work.
+GUI evidence uses only isolated R2/gui-support, gui-home and gui-output. Final UI
+regression uses a separate gui-final-support backup-API clone of synthetic records;
+the globally cleared original gui-support remains empty.
+
+---
+
+# Prior enhancement acceptance — historical record
 
 **Core acceptance is not complete.** Implemented paths and observed checks below
 are separate from the required full GUI/audio workflow. This record describes

@@ -9,6 +9,7 @@ final class PersistenceConsent: @unchecked Sendable {
     func update(enabled: Bool) { lock.lock(); defer { lock.unlock() }; if self.enabled != enabled { generation += 1 }; self.enabled = enabled }
     func invalidate() { lock.lock(); generation += 1; lock.unlock() }
     func ticket() -> Int { lock.lock(); defer { lock.unlock() }; return generation }
+    func isCurrent(ticket: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return enabled && ticket == generation }
     func write(ticket: Int, _ operation: () throws -> Void) throws {
         lock.lock(); defer { lock.unlock() }
         guard enabled, ticket == generation else { throw CancellationError() }

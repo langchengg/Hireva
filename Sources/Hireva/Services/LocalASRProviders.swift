@@ -513,12 +513,12 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
                 if data.isEmpty {
                     handle.readabilityHandler = nil
                     for line in stderrBuffer.finish() where !line.isEmpty {
-                        print("[ParakeetSidecar] \(line)")
+                        print("[ParakeetSidecar] stderr characters=\(line.count)")
                     }
                     return
                 }
                 for line in stderrBuffer.append(data) where !line.isEmpty {
-                    print("[ParakeetSidecar] \(line)")
+                    print("[ParakeetSidecar] stderr characters=\(line.count)")
                 }
             }
 
@@ -554,7 +554,7 @@ final class ParakeetSidecarRuntimeClient: ParakeetRuntimeClient {
                     self.acceptsAudio && reservation.generation == self.streamGeneration
                 }
                 if currentStreamStillOwnsInput {
-                    print("[ParakeetSidecar] Failed to write audio chunk: \(error.localizedDescription)")
+                    print("[ParakeetSidecar] Failed to write audio chunk: code=\((error as NSError).code)")
                 }
             }
         }
@@ -920,7 +920,7 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         _ manager: AudioEngineManager,
         didFailWith error: Error
     ) {
-        print("[LocalParakeetASRProvider] Microphone capture failed: \(error.localizedDescription)")
+        print("[LocalParakeetASRProvider] Microphone capture failed: code=\((error as NSError).code)")
     }
 
     func systemAudioCaptureService(
@@ -935,7 +935,7 @@ final class LocalParakeetASRProvider: ASRProvider, AudioEngineBufferDelegate, Sy
         _ service: ScreenCaptureKitSystemAudioCaptureService,
         didFailWithError error: Error
     ) {
-        print("[LocalParakeetASRProvider] System audio capture failed: \(error.localizedDescription)")
+        print("[LocalParakeetASRProvider] System audio capture failed: code=\((error as NSError).code)")
     }
 
 }

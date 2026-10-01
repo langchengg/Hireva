@@ -328,6 +328,7 @@ struct LongInterviewQuestionDetectionTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
             contextRetrievalService: LongInterviewEmptyContextRetrievalService(),

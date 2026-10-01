@@ -28,7 +28,8 @@ final class SuggestionGenerationService {
         sessionID: String,
         model: String? = nil,
         timeoutInterval: TimeInterval? = nil,
-        customProviderConfig: LLMProviderConfiguration? = nil
+        customProviderConfig: LLMProviderConfiguration? = nil,
+        interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) async throws -> (card: SuggestionCard, response: LLMChatResult) {
         let prompt = PromptLibrary.suggestionGenerator
         let snapshot = PromptContextBuilder.promptSnapshot(
@@ -37,7 +38,8 @@ final class SuggestionGenerationService {
             transcriptContext: transcriptContext,
             cvSummary: "Use only the selected local evidence below.",
             jdSummary: "Use only the selected local evidence below.",
-            stage: .jsonCard
+            stage: .jsonCard,
+            interviewContextSnapshot: interviewContextSnapshot
         )
         let userPrompt = snapshot.prompt + "\n\nGenerate one concise suggestion card. Use only the evidence above."
 

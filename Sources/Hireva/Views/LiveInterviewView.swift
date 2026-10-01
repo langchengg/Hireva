@@ -467,7 +467,7 @@ struct LiveInterviewView: View {
             Text(question.questionText)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Rule-based match; not a calibrated probability. Use Answer Now if this is the question to answer.")
+            Text(QuestionCandidatePipeline.isContextDependentRequest(question.questionText) ? (question.reason ?? "Please clarify the earlier question this refers to.") : "Rule-based match; not a calibrated probability. Use Answer Now if this is the question to answer.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -651,7 +651,7 @@ struct LiveInterviewView: View {
         }
     }
     
-    private func manualCaptureWorkspace(isWide: Bool) -> some View {
+    func manualCaptureWorkspace(isWide: Bool) -> some View {
         Group {
             if isWide {
                 HSplitView {

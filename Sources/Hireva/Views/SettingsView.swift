@@ -343,6 +343,14 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Text("Clear Local Data removes internal source copies, corrections, practice, reviews and recaps. Files you exported or backed up remain separate. Local deletion does not erase copies held by the OS, cloud sync or a provider, and is not a physical secure-erase guarantee.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Open Exported Files for Manual Cleanup") {
+                do {
+                    try AppPaths.ensureDirectoriesExist()
+                    NSWorkspace.shared.open(AppPaths.exportsDirectory)
+                } catch { appState.showError(error.localizedDescription) }
+            }
             Toggle("Also delete securely saved provider keys", isOn: $includeAPIKeyInDelete)
 
             InlineStatusBanner(appState.latestActionFeedback(for: ActionID.clearLocalData))

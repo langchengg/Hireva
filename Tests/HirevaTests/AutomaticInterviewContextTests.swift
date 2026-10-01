@@ -209,6 +209,27 @@ struct AutomaticInterviewContextTests {
         #expect(regenerated.evidenceSummary.candidateFactCount == first.evidenceSummary.candidateFactCount)
     }
 
+    @Test
+    func unconfirmedBoundaryDraftRemainsReviewableAcrossUnrelatedDocumentRebuild() async throws {
+        let documents = [Self.document(.cv, title: "Backend Resume", content: Self.backendCV)]
+        let builder = AutomaticInterviewContextBuilder()
+        let first = try await builder.buildContext(from: documents, previousConfirmedProfile: nil)
+        var profile = try #require(first.candidateProfile)
+        var fact = try #require(profile.projects.first)
+        fact.explicitness = .inferred
+        fact.confirmation = FactConfirmation()
+        fact.confirmation?.ownership = "team"
+        fact.confirmation?.contribution = "Implemented request validation"
+        profile.projects[0] = fact
+        #expect(profile.reviewEvidence.contains { $0.id == fact.id })
+        #expect(!profile.allEvidence.contains { $0.id == fact.id })
+        let regenerated = try await builder.buildContext(from: documents, previousConfirmedProfile: profile)
+        let draft = try #require(regenerated.candidateProfile?.reviewEvidence.first { $0.id == fact.id })
+        #expect(draft.explicitness == .inferred)
+        #expect(draft.confirmation == fact.confirmation)
+        #expect(regenerated.candidateProfile?.allEvidence.contains { $0.id == fact.id } == false)
+    }
+
     @Test @MainActor
     func productionCollectionsExcludeSyntheticFixtures() throws {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "AutoContextSynthetic")

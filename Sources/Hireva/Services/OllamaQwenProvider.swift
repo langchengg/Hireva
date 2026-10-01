@@ -234,7 +234,11 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
-        request.httpBody = try JSONEncoder().encode(payload)
+        // Keep request serialization reproducible across process launches.
+        // This does not imply deterministic model output or grammar behavior.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        request.httpBody = try encoder.encode(payload)
         return request
     }
 
@@ -261,8 +265,25 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
                 numPredict: localRequest.numPredict
             )
         )
-        let request = try makeChatRequest(payload)
-        var accumulator = OllamaResponseAccumulator(schema: .chatMessageContent)
+        var request = try makeChatRequest(payload)
+        // Ollama 0.24.0 /api/chat drops format for thinking-capable builtin
+        // parsers (including Qwen 3.5) even when think=false. /api/generate
+        // keeps format and applies the server's own model renderer. Use that
+        // endpoint for constrained, non-thinking requests; never compose a
+        // model-specific prompt template or relax the strict output decoder.
+        let constrained = localRequest.responseSchema != nil && !localRequest.thinkingEnabled
+        let responseSchema: OllamaResponseSchema = constrained ? .generateResponse : .chatMessageContent
+        if constrained {
+            request.url = baseURL.appendingPathComponent("api/generate")
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            request.httpBody = try encoder.encode(OllamaStructuredGenerateRequest(
+                model: localRequest.modelName, prompt: localRequest.prompt,
+                system: localRequest.systemPrompt, stream: true, think: false,
+                format: localRequest.responseSchema!, options: payload.options
+            ))
+        }
+        var accumulator = OllamaResponseAccumulator(schema: responseSchema)
         do {
             let (bytes, response) = try await session.bytes(for: request)
             try Self.validate(response)
@@ -278,7 +299,7 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
             }
             let parsed = try accumulator.finish(requireDone: true)
             var diagnostics = parsed.diagnostics
-            diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
+            diagnostics.endpoint = request.url?.absoluteString ?? ""
             diagnostics.model = localRequest.modelName
             diagnostics.streamMode = true
             diagnostics.requestMessageCount = messages.count
@@ -287,10 +308,10 @@ final class OllamaQwenProvider: LocalLLMProvider, LocalLLMDiagnosticsProviding {
             storeDiagnostics(diagnostics, generation: diagnosticsGeneration)
         } catch {
             var diagnostics = accumulator.currentDiagnostics
-            diagnostics.endpoint = baseURL.appendingPathComponent("api/chat").absoluteString
+            diagnostics.endpoint = request.url?.absoluteString ?? ""
             diagnostics.model = localRequest.modelName
             diagnostics.streamMode = true
-            diagnostics.responseSchema = .chatMessageContent
+            diagnostics.responseSchema = responseSchema
             diagnostics.requestMessageCount = messages.count
             diagnostics.systemPromptCharacters = localRequest.systemPrompt?.count ?? 0
             diagnostics.userPromptCharacters = localRequest.prompt.count
@@ -430,6 +451,16 @@ private struct OllamaChatRequest: Encodable {
     let stream: Bool
     let think: Bool?
     let format: LocalJSONValue?
+    let options: OllamaGenerateOptions?
+}
+
+private struct OllamaStructuredGenerateRequest: Encodable {
+    let model: String
+    let prompt: String
+    let system: String?
+    let stream: Bool
+    let think: Bool
+    let format: LocalJSONValue
     let options: OllamaGenerateOptions?
 }
 

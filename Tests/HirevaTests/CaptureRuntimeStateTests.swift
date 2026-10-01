@@ -78,6 +78,7 @@ struct CaptureRuntimeStateTests {
         )
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             permissionService: MockPermissionService(),
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),

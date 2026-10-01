@@ -53,6 +53,9 @@ extension AppState {
         AutomaticInterviewContextBuilder.clearExtractionCache()
         do {
             try documentRepository.deleteDocument(id: document.id)
+            if let id = practiceController.run?.sessionID { practiceController.restore(sessionID: id) }
+            practiceController.refreshReviews()
+            if let id = selectedSessionID { loadSessionDetails(sessionID: id) }
             refreshAll()
             scheduleAutomaticContextRebuild()
             completeAction(actionID, title: "Document cleared", message: "\(document.type.title) was removed.")

@@ -191,12 +191,51 @@ final class DocumentRepository {
     // Deletion is the privacy exception to immutable historical evidence: retain
     // citation IDs as tombstones, but erase the requested source and its copies.
     static func eraseEvidenceCopies(documentID: String, db: Database) throws {
+        let snapshots = try Row.fetchAll(db, sql: "SELECT id, payload_json FROM interview_context_snapshots")
+        let affectedSnapshots = Set(try snapshots.compactMap { row -> String? in
+            let data: Data = row["payload_json"]
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let evidence = object?["candidateEvidence"] as? [[String: Any]] ?? []
+            return evidence.contains { $0["sourceDocumentID"] as? String == documentID } ? (row["id"] as String) : nil
+        })
+        for row in try Row.fetchAll(db, sql: "SELECT session_id, payload_json FROM practice_runs") {
+            var run = try JSONDecoder().decode(PracticeRun.self, from: row["payload_json"] as Data)
+            var changed = false
+            for index in run.attempts.indices {
+                let attempt = run.attempts[index]
+                guard affectedSnapshots.contains(attempt.contextSnapshotID ?? run.snapshotID ?? "") else { continue }
+                func dependsOnCandidate(_ task: InterviewTaskDescriptor?) -> Bool {
+                    task?.decision?.usesCandidateEvidence ?? task?.requiresPersonalEvidence ?? true
+                }
+                var affected = false
+                if dependsOnCandidate(attempt.task) {
+                    run.attempts[index].feedback = nil
+                    run.attempts[index].hinted = attempt.hinted || attempt.feedback != nil
+                    affected = true
+                }
+                if let oldVersions = attempt.corrections {
+                    for old in oldVersions.indices where dependsOnCandidate(oldVersions[old].task) {
+                        run.attempts[index].corrections?[old].feedback = nil
+                        affected = true
+                    }
+                }
+                guard affected else { continue }
+                try db.execute(sql: "DELETE FROM knowledge_reviews WHERE id = ?", arguments: [attempt.id])
+                changed = true
+            }
+            if changed {
+                try db.execute(sql: "UPDATE practice_runs SET payload_json = ? WHERE session_id = ?", arguments: [try JSONEncoder().encode(run), run.sessionID])
+                try db.execute(sql: "DELETE FROM recap_reports WHERE session_id = ?", arguments: [run.sessionID])
+                try db.execute(sql: "DELETE FROM recap_unit_cache WHERE session_id = ?", arguments: [run.sessionID])
+            }
+        }
         func redact(_ value: Any) -> Any {
             if let items = value as? [Any] { return items.map(redact) }
             guard var object = value as? [String: Any] else { return value }
             if object["sourceDocumentID"] as? String == documentID {
                 object["statement"] = "[Source deleted]"
                 object["sourceSpan"] = NSNull()
+                object["confirmation"] = NSNull()
                 object["explicitness"] = "user_rejected"
             }
             if let ids = object["sourceDocumentIDs"] as? [String], ids.contains(documentID) {
@@ -219,8 +258,8 @@ final class DocumentRepository {
                 try db.execute(sql: "DELETE FROM preparation_records WHERE id = ?", arguments: [row["id"] as String])
             }
         }
-        try db.execute(sql: "UPDATE suggestion_cards SET prompt_context_preview = NULL WHERE id IN (SELECT suggestion_card_id FROM suggestion_card_retrieved_chunks WHERE document_id = ?)", arguments: [documentID])
-        try db.execute(sql: "UPDATE suggestion_card_retrieved_chunks SET full_content = '[Source deleted]', content_preview = '[Source deleted]', keywords_json = '[]' WHERE document_id = ?", arguments: [documentID])
+        try db.execute(sql: "UPDATE suggestion_cards SET prompt_context_preview = NULL, strategy = '[Source deleted]', caution = NULL, say_first = '[Source deleted]', key_points_json = '[]', follow_up_ready_json = '[]', evidence_used_json = '[]', raw_json = NULL WHERE id IN (SELECT suggestion_card_id FROM suggestion_card_retrieved_chunks WHERE document_id = ?)", arguments: [documentID])
+        try db.execute(sql: "UPDATE suggestion_card_retrieved_chunks SET full_content = '[Source deleted]', content_preview = '[Source deleted]', keywords_json = '[]', section_title = NULL, word_count = 0 WHERE document_id = ?", arguments: [documentID])
     }
 
     func onboardingCompletion() throws -> (hasCV: Bool, hasJD: Bool) {

@@ -25,5 +25,6 @@ struct InterviewSession: Identifiable, Hashable, Codable {
     var endedAt: Date?
     var mode: InterviewMode
     var createdAt: Date
+    var contentRevision: Int? = nil
     var contextSnapshotID: String? = nil
 }

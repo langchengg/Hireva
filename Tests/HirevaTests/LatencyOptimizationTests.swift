@@ -110,7 +110,7 @@ struct LatencyOptimizationTests {
             try settings.setActiveRealtimeProvider(id: deepseek.id)
         }
 
-        let appState = AppState(database: database, llmRouter: router)
+        let appState = AppState(database: database, questionRoutingProvider: HermeticQuestionRoutingProvider(), llmRouter: router)
         appState.answerProviderModeOverride = .deepSeekPrimary
         let delay = MockDelayProvider()
         delay.sleepDuration = 60_000_000_000
@@ -178,6 +178,7 @@ struct LatencyOptimizationTests {
         let client = LatencyBlockingLLMClient()
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client]),
             permissionService: HermeticPermissionService(),
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),

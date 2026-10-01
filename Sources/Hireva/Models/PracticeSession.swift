@@ -59,6 +59,9 @@ struct PracticeEvaluationPayload: Codable {
             if let outer = coverage["r\(index)"], let quote = outer { covered.append(.init(criterion: criterion, quote: quote)) }
             else { missing.append(criterion) }
         }
+        guard missing.isEmpty || !(followUp?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else {
+            throw MaterialError.invalid("Evaluation marks a rubric gap but provides no targeted follow-up. Recheck the answer quotes and missing criteria.")
+        }
         return .init(covered: covered, missing: missing, suggestions: [suggestion], followUp: missing.isEmpty ? nil : followUp, reason: reason, reference: reference)
     }
 }
@@ -88,7 +91,7 @@ struct PracticeFeedback: Codable, Equatable {
         }
         // Without personal sources, a model reference is unsafe even in second
         // person. Still evaluate the submitted answer; never treat it as a CV.
-        if task.requiresPersonalEvidence && !evidence.contains(where: \.isUsable) {
+        if [.required, .uncertain].contains(task.personalEvidence) && !evidence.contains(where: \.isUsable) {
             var safe = self
             safe.reference = task.language == "zh"
                 ? "个人参考答案暂不可生成：请提供并确认相关事实。可继续练习；按评价标准补充真实经历，缺失结果或数字留空。"
@@ -116,6 +119,7 @@ struct PracticeAttempt: Codable, Identifiable, Equatable {
     var attachmentRevision: Int?
     var feedback: PracticeFeedback?
     var createdAt = Date()
+    var corrections: [PracticeAttemptRevision]?
 }
 struct PracticeRun: Codable, Identifiable {
     var id: String { sessionID }
@@ -148,6 +152,7 @@ struct KnowledgeReviewCard: Codable, Identifiable {
     var log: [ReviewLog] = []
     var hinted: Bool
     var algorithm = "swift-fsrs-4.1.0"
+    var needsReevaluation: Bool?
 }
 
 struct PracticeSQLExecution: Codable {
@@ -156,4 +161,15 @@ struct PracticeSQLExecution: Codable {
     var attachmentRevision: Int
     var contextSnapshotID: String?
     var result: SQLPracticeResult
+}
+
+/// Correction history preserves the original attempt identity and assistance.
+struct PracticeAttemptRevision: Codable, Equatable {
+    var hinted: Bool? = nil
+    var revision: Int
+    var question: String
+    var answer: String
+    var task: InterviewTaskDescriptor?
+    var feedback: PracticeFeedback?
+    var correctedAt: Date
 }

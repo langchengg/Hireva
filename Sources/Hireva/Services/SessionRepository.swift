@@ -122,6 +122,7 @@ final class SessionRepository {
             endedAt: endedAtString.map(DateCoding.date),
             mode: InterviewMode(rawValue: row["mode"]) ?? .mock,
             createdAt: DateCoding.date(from: row["created_at"]),
+            contentRevision: row["content_revision"],
             contextSnapshotID: row["context_snapshot_id"]
         )
     }

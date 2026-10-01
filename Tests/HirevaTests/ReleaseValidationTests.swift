@@ -343,6 +343,7 @@ struct ReleaseValidationTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
             contextRetrievalService: ReleaseValidationEmptyContextRetrievalService(),
@@ -418,6 +419,7 @@ struct ReleaseValidationTests {
 
         let reloadedAppState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
             contextRetrievalService: ReleaseValidationEmptyContextRetrievalService(),

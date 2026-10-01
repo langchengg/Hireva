@@ -59,9 +59,11 @@ extension AppState {
             diagnostics.audioSessionID = sessionID
         case let .queueDrainRequested(sessionID, _, _, _):
             diagnostics.audioSessionID = sessionID
-        case let .queueDrainBlocked(sessionID, _, reason, _):
+        case let .queueDrainBlocked(sessionID, _, _, _):
             diagnostics.audioSessionID = sessionID
-            diagnostics.lastGenerationRejectedReason = reason
+            // An empty queue or a busy generation is normal scheduling state.
+            // Only an actual generation rejection may change the failure status;
+            // the queue reason remains available in its own runtime event.
         case let .utteranceBufferConsumed(sessionID, _, _, _):
             diagnostics.audioSessionID = sessionID
         case let .utteranceBufferReset(sessionID, _, _, _):

@@ -26,6 +26,8 @@ func startManualCapture() {
     
     // Prevent pipeline conflicts
     stopAllContinuousPipelines(reason: .userRequested)
+    manualCaptureRevision += 1
+    let captureRevision = manualCaptureRevision
     
     // Discard any previous state
     self.manualCaptureTranscript = ""
@@ -44,6 +46,7 @@ func startManualCapture() {
             if source == .systemAudio {
                 // Check Screen Capture Preflight & Probe access
                 let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                guard self.manualCaptureRevision == captureRevision else { return }
                 let state = determineProbeState(result: probeResult)
                 self.systemAudioProbeResult = probeResult
                 self.systemAudioPermissionState = state
@@ -57,6 +60,7 @@ func startManualCapture() {
             } else {
                 // Microphone permission required
                 let micStatus = await permissionService.requestMicrophonePermission()
+                guard self.manualCaptureRevision == captureRevision else { return }
                 refreshPermissions()
                 guard micStatus == .authorized else {
                     let message = "Microphone permission is required to record speech."
@@ -65,14 +69,16 @@ func startManualCapture() {
                     return
                 }
                 
-                let speechStatus = await permissionService.requestSpeechRecognition()
-                refreshPermissions()
-                guard speechStatus == .granted else {
-                    let message = "Speech Recognition permission is required for transcription."
-                    self.manualCaptureState = .error(message)
-                    self.failAction(ActionID.manualRecord, title: "Permission needed", message: message)
-                    return
-                }
+            }
+            // This bounded manual adapter uses Apple Speech for either source;
+            // recognition permission is separate from microphone access.
+            let speechStatus = await permissionService.requestSpeechRecognition()
+            guard self.manualCaptureRevision == captureRevision else { return }
+            refreshPermissions()
+            guard speechStatus == .granted else {
+                self.manualCaptureState = .error("Speech Recognition permission is required for transcription.")
+                self.failAction(ActionID.manualRecord, title: "Permission needed", message: "Speech Recognition permission is required for transcription.")
+                return
             }
             
             self.manualCaptureState = .recording
@@ -83,22 +89,26 @@ func startManualCapture() {
                 onPartialResult: { [weak self] partialText in
                     guard let self = self else { return }
                     Task { @MainActor in
+                        guard self.manualCaptureRevision == captureRevision, self.manualCaptureState == .recording || self.manualCaptureState == .transcribing else { return }
                         self.manualCaptureTranscript = partialText
                     }
                 },
                 onFinalResult: { [weak self] finalText in
                     guard let self = self else { return }
                     Task { @MainActor in
+                        guard self.manualCaptureRevision == captureRevision, self.manualCaptureState == .recording || self.manualCaptureState == .transcribing else { return }
                         self.manualCaptureTranscript = finalText
                     }
                 },
                 onError: { [weak self] err in
                     guard let self = self else { return }
                     Task { @MainActor in
+                        guard self.manualCaptureRevision == captureRevision, self.manualCaptureState == .recording || self.manualCaptureState == .transcribing else { return }
                         self.manualCaptureState = .error(err)
                     }
                 }
             )
+            guard self.manualCaptureRevision == captureRevision else { return }
             
             try await ManualQuestionCaptureService.shared.startCapture(
                 source: source,
@@ -107,10 +117,12 @@ func startManualCapture() {
                 guard let self = self else { return }
                 // Max duration reached handler
                 Task { @MainActor in
+                    guard self.manualCaptureRevision == captureRevision else { return }
                     self.stopAndTranscribeManualCapture(maxDurationReached: true)
                 }
             }
         } catch {
+            guard self.manualCaptureRevision == captureRevision else { return }
             self.manualCaptureState = .error(error.localizedDescription)
             self.failAction(ActionID.manualRecord, title: "Capture failed", message: error.localizedDescription)
         }
@@ -134,6 +146,7 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
     let buffers = ManualQuestionCaptureService.shared.stopCaptureAndReturnBuffers()
     
     self.manualCaptureState = .transcribing
+    let captureRevision = manualCaptureRevision
     
     Task {
         do {
@@ -148,6 +161,7 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
             
             // End Speech audio and await final transcript or timeout (10s watchdog)
             let finalTranscript = try await ManualQuestionTranscriptionService.shared.endAudioAndFinalize(timeoutSeconds: 10.0)
+            guard self.manualCaptureRevision == captureRevision else { return }
             let trimmed = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             
             self.manualCaptureTranscript = trimmed
@@ -166,6 +180,7 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
                 sendManualCaptureToAI()
             }
         } catch {
+            guard self.manualCaptureRevision == captureRevision else { return }
             self.manualCaptureState = .error(error.localizedDescription)
             self.failAction(ActionID.manualStopTranscribe, title: "Transcription failed", message: error.localizedDescription)
         }
@@ -174,6 +189,7 @@ func stopAndTranscribeManualCapture(maxDurationReached: Bool = false) {
 
 @MainActor
 func cancelManualCapture() {
+    manualCaptureRevision += 1
     beginAction(ActionID.manualCancel, title: "Cancelling", message: "Discarding the current manual capture...")
     ManualQuestionCaptureService.shared.cancelCapture()
     ManualQuestionTranscriptionService.shared.cancel()
@@ -207,13 +223,24 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
 
     let manualGenerationID = UUID().uuidString
     let manualQuestionID = UUID().uuidString
-    guard let fallbackSession = self.currentSession ?? (try? createContextBoundSession(mode: .microphone, title: "Manual Capture")) else {
+    let manualConsentTicket = persistenceConsent.ticket()
+    let frozenAnswerMode = selectedAnswerProviderMode
+    // A new opt-in authorizes this operation only, never the previous temporary session.
+    let reusableSession = currentSession.flatMap { session in
+        !settings.saveTranscriptsLocally || (try? sessionRepository.session(id: session.id)) != nil ? session : nil
+    }
+    let newSession: InterviewSession? = reusableSession != nil ? nil : settings.saveTranscriptsLocally
+        ? (try? createContextBoundSession(mode: .microphone, title: "Manual Capture"))
+        : InterviewSession(id: UUID().uuidString, title: "Temporary Manual Capture", startedAt: Date(), mode: .microphone, createdAt: Date(), contextSnapshotID: activeContextSnapshot?.id)
+    guard let fallbackSession = reusableSession ?? newSession else {
         self.manualCaptureState = .suggestionError("Could not create an interview session.")
         return
     }
     let manualSessionID = fallbackSession.id
     let manualSource: AudioSourceType = (settings.manualCaptureSource == .systemAudio) ? .systemAudio : .microphone
-    let manualSpeaker: SpeakerRole = (settings.manualCaptureSource == .systemAudio) ? .interviewer : .unknown
+    // A manually selected source still does not identify a speaker.
+    let manualSpeaker: SpeakerRole = .unknown
+    let manualUsesLocalQwen = frozenAnswerMode == .localQwenPrimary && !forceDeepSeek
     let activeProviderForManual = activeRealtimeProvider
     let manualDetected = DetectedQuestion(
         id: manualQuestionID,
@@ -226,19 +253,20 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
         reason: "Manual Capture Triggered",
         shouldTrigger: true,
         questionComplete: true,
-        modelName: activeProviderForManual?.model ?? "deepseek-v4-flash",
+        modelName: manualUsesLocalQwen ? selectedQwenModelName : activeProviderForManual?.model ?? "deepseek-v4-flash",
         promptVersion: "v1",
-        providerKind: activeProviderForManual?.kind,
-        providerName: activeProviderForManual?.name,
-        providerBaseURL: activeProviderForManual?.baseURL,
+        providerKind: manualUsesLocalQwen ? .ollamaLocal : activeProviderForManual?.kind,
+        providerName: manualUsesLocalQwen ? "Ollama Qwen" : activeProviderForManual?.name,
+        providerBaseURL: manualUsesLocalQwen ? "http://localhost:11434" : activeProviderForManual?.baseURL,
         latencyMS: nil,
-        isLocal: false,
+        isLocal: manualUsesLocalQwen || activeProviderForManual?.kind == .ollamaLocal,
         rawJSON: nil,
         createdAt: Date()
     )
     self.currentSession = fallbackSession
     let manualRequestStart = Date()
     
+    self.manualCaptureSuggestion = nil
     self.manualCaptureState = .generatingSuggestion
     activateGeneration(
         question: manualDetected,
@@ -263,6 +291,10 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
             return
         }
         guard self.manualCaptureSuggestion == nil else { return }
+        guard frozenAnswerMode != .localQwenPrimary || forceDeepSeek,
+              let manualDetected = self.lastDetectedQuestion,
+              manualDetected.id == manualQuestionID,
+              manualDetected.taskDescriptor?.decision != nil else { return }
 
         var fallback = self.makeInitialFirstAnswerFallbackCard(
             cardID: UUID().uuidString,
@@ -304,6 +336,19 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
         }
         guard self.currentGenerationID == manualGenerationID else {
             self.recordStaleGenerationDiscard()
+            return
+        }
+        self.cancelActiveStageBTask(generationID: manualGenerationID)
+        guard let manualDetected = self.lastDetectedQuestion,
+              manualDetected.id == manualQuestionID,
+              manualDetected.taskDescriptor?.decision != nil else {
+            self.markGenerationFailed(generationID: manualGenerationID, reason: "Manual question classification did not complete.", timeout: true)
+            self.manualCaptureState = .suggestionError("Question classification did not complete. Retry is available.")
+            return
+        }
+        if frozenAnswerMode == .localQwenPrimary && !forceDeepSeek {
+            self.markGenerationFailed(generationID: manualGenerationID, reason: "Local manual answer timed out.", timeout: true)
+            self.manualCaptureState = .suggestionError("Local answer timed out. Retry is available.")
             return
         }
         if self.manualCaptureSuggestion != nil || self.currentSuggestion != nil {
@@ -356,14 +401,43 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
             
             let activeProvider = customConfig ?? activeRealtimeProvider
             var detected = manualDetected
-            detected.modelName = activeProvider?.model ?? detected.modelName
-            detected.providerKind = activeProvider?.kind ?? detected.providerKind
-            detected.providerName = activeProvider?.name ?? detected.providerName
-            detected.providerBaseURL = activeProvider?.baseURL ?? detected.providerBaseURL
+            if !manualUsesLocalQwen {
+                detected.modelName = activeProvider?.model ?? detected.modelName
+                detected.providerKind = activeProvider?.kind ?? detected.providerKind
+                detected.providerName = activeProvider?.name ?? detected.providerName
+                detected.providerBaseURL = activeProvider?.baseURL ?? detected.providerBaseURL
+                detected.isLocal = activeProvider?.kind == .ollamaLocal
+            }
+            self.freezeConversationContext(for: &detected)
+            let parent = detected.taskDescriptor?.conversationContext
+            let frozenSnapshot = fallbackSession.contextSnapshotID.flatMap { try? self.interviewContextRepository.snapshot(id: $0) }
+            let decision = try await InterviewQuestionRouter.resolve(
+                .init(question: text, questionID: detected.id, contextSnapshotID: frozenSnapshot?.id,
+                      parentQuestionID: parent?.questionID, previousQuestion: parent?.questionText, previousAnswer: parent?.answerText),
+                provider: self.questionRoutingProvider ?? self.localLLMProviderOverride ?? OllamaQwenProvider(),
+                model: self.selectedQwenModelName
+            )
+            guard !Task.isCancelled, self.isActiveGeneration(manualGenerationID, questionID: detected.id) else { return }
+            var task = detected.taskDescriptor ?? InterviewTaskDescriptor(question: text)
+            task.apply(decision)
+            detected.taskDescriptor = task
+            let manualSegment = TranscriptSegment(id: UUID().uuidString, sessionID: manualSessionID,
+                source: manualSource, speaker: manualSpeaker, text: rawText)
+            detected.transcriptSegmentID = manualSegment.id
+            // Establish the actual input/foreign keys before any answer write.
+            // The operation's original consent cannot be renewed by a callback.
+            if self.persistenceConsent.isCurrent(ticket: manualConsentTicket) {
+                try self.persistenceConsent.write(ticket: manualConsentTicket) {
+                    try self.transcriptRepository.saveSegment(manualSegment)
+                    try self.suggestionRepository.saveDetectedQuestion(detected)
+                }
+            }
+            self.transcriptSegments.append(manualSegment)
+            self.lastDetectedQuestion = detected
             
             // gate context to 800 CV / 600 JD words
             let retrievalService = contextRetrievalService!
-            let (context, trace) = try await Task.detached(priority: .userInitiated) {
+            let (legacyContext, trace) = try await Task.detached(priority: .userInitiated) {
                 try await retrievalService.retrieveContextWithTrace(
                     question: text,
                     intent: .technical,
@@ -372,6 +446,30 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
                     strategy: detected.answerStrategy
                 )
             }.value
+            guard !Task.isCancelled, self.isActiveGeneration(manualGenerationID, questionID: detected.id) else { return }
+            let snapshotContext = frozenSnapshot.map { DynamicInterviewContextEngine().retrieveContext(question: text, snapshot: $0).context }
+            let context = SnapshotBoundContextPolicy.retrievedContext(snapshot: frozenSnapshot, snapshotContext: snapshotContext, legacyContext: legacyContext)
+            let promptSnapshot = PromptContextBuilder.promptSnapshot(question: detected, context: context, transcriptContext: "", cvSummary: "", jdSummary: "", stage: .jsonCard, interviewContextSnapshot: frozenSnapshot)
+            let includedChunks = promptSnapshot.ragContextSnapshot.frozenPromptCitations
+
+            if !forceDeepSeek && frozenAnswerMode == .localQwenPrimary {
+                let succeeded = try await self.finishWithLocalQwenAnswer(
+                    question: detected, session: fallbackSession, transcript: "", context: context,
+                    retrievedChunks: includedChunks, cvSummary: "", jdSummary: "",
+                    generationID: manualGenerationID, cardID: UUID().uuidString,
+                    requestStart: manualRequestStart, triggerPath: .manualCapture,
+                    source: manualSource, speaker: manualSpeaker,
+                    localProvider: self.localLLMProviderOverride ?? OllamaQwenProvider(), fallbackReason: nil,
+                    interviewContextSnapshot: frozenSnapshot
+                )
+                guard !Task.isCancelled, self.currentGenerationID == manualGenerationID else { return }
+                guard succeeded else { throw LLMProviderError.invalidResponse("Local answer did not pass publication checks.") }
+                self.manualCaptureSuggestion = self.currentSuggestion
+                self.manualCaptureState = .suggestionReady
+                self.clearStageBTask(generationID: manualGenerationID)
+                self.completeAction(ActionID.manualGenerate, title: "Answer ready", message: "Local answer is visible.")
+                return
+            }
             
             // empty transcript context
             let transcriptContext = ""
@@ -385,9 +483,10 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
                 transcriptContext: transcriptContext,
                 sessionID: manualSessionID,
                 timeoutInterval: timeout,
-                customProviderConfig: customConfig
+                customProviderConfig: customConfig,
+                interviewContextSnapshot: frozenSnapshot
             )
-            guard self.currentGenerationID == manualGenerationID else {
+            guard !Task.isCancelled, !self.terminalGenerationIDs.contains(manualGenerationID), self.currentGenerationID == manualGenerationID else {
                 self.recordStaleGenerationDiscard()
                 return
             }
@@ -437,33 +536,11 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
             self.completeAction(ActionID.manualGenerate, title: "Answer ready", message: "Manual capture answer is visible.")
             
             // If a live session is running, persist to database and update lists
-            if let session = self.currentSession {
-                // Create and save a new TranscriptSegment representing the interviewer question
-                let segment = TranscriptSegment(
-                    id: UUID().uuidString,
-                    sessionID: session.id,
-                    source: manualSource,
-                    speaker: manualSpeaker,
-                    text: rawText, // Keep raw in transcript segment
-                    startTime: nil,
-                    endTime: nil,
-                    createdAt: Date(),
-                    inputDeviceName: AudioDeviceManager.shared.currentInputDeviceName,
-                    outputDeviceName: AudioDeviceManager.shared.currentOutputDeviceName,
-                    deviceID: nil,
-                    confidence: 0.95
-                )
-                
-                self.saveTranscriptSegmentInBackground(segment)
-                
-                // Update current list of segments
-                self.transcriptSegments.append(segment)
-                
+            if self.currentSession?.id == manualSessionID {
                 // Save detected question and suggestion card
                 var savedQuestion = detected
-                savedQuestion.transcriptSegmentID = segment.id
                 savedQuestion.latencyMS = result.response.latencyMS
-                self.saveDetectedQuestionInBackground(savedQuestion)
+                self.saveDetectedQuestionInBackground(savedQuestion, consentTicket: manualConsentTicket)
                 
                 var savedCard = result.card
                 savedCard.questionID = savedQuestion.id
@@ -471,7 +548,7 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
                 // Update AppState current suggestions
                 self.lastRetrievalTrace = trace
                 self.lastDetectedQuestion = savedQuestion
-                self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
+                self.currentSuggestionRetrievedChunks = includedChunks
                 guard self.displaySuggestionIfAligned(
                     savedCard,
                     question: savedQuestion,
@@ -484,7 +561,7 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
                 self.manualCaptureSuggestion = self.currentSuggestion
                 self.persistSuggestionInBackground(
                     savedCard,
-                    chunks: trace.rankedCVChunks + trace.rankedJDChunks,
+                    chunks: includedChunks,
                     generationID: manualGenerationID,
                     requestStart: manualRequestStart
                 )
@@ -502,7 +579,7 @@ func sendManualCaptureToAI(forceDeepSeek: Bool = false) {
             } else {
                 // Update diagnostics even if session doesn't run
                 self.lastRetrievalTrace = trace
-                self.currentSuggestionRetrievedChunks = trace.rankedCVChunks + trace.rankedJDChunks
+                self.currentSuggestionRetrievedChunks = includedChunks
                 self.updateDiagnostics { diag in
                     diag.apiCallCount += 1
                     diag.lastAPILatencyMS = result.response.latencyMS
@@ -588,30 +665,13 @@ func cleanTranscript(_ raw: String) -> String {
 
 @MainActor
 func retryManualCapture() {
-    beginAction(ActionID.manualRecord, title: "Resetting capture", message: "Clearing the previous manual recording...")
-    self.manualCaptureTranscript = ""
-    self.manualCaptureSuggestion = nil
-    self.manualCaptureError = nil
-    self.manualCaptureBufferCount = 0
-    self.manualCaptureLastBufferTimestamp = nil
-    self.manualCaptureState = .idle
+    cancelManualCapture()
     completeAction(ActionID.manualRecord, title: "Ready to record", message: "Record a new interviewer question.")
 }
 
 @MainActor
 func clearManualCapture() {
-    beginAction(ActionID.manualClear, title: "Clearing manual capture", message: "Removing transcript and suggestion from the manual capture panel...")
-    cancelStageBTask()
-    fullCardWatchdogTask?.cancel()
-    fullCardWatchdogTask = nil
-    currentGenerationID = nil
-    generationUIState = .idle
-    self.manualCaptureTranscript = ""
-    self.manualCaptureSuggestion = nil
-    self.manualCaptureError = nil
-    self.manualCaptureBufferCount = 0
-    self.manualCaptureLastBufferTimestamp = nil
-    self.manualCaptureState = .idle
+    cancelManualCapture()
     completeAction(ActionID.manualClear, title: "Manual capture cleared", message: "Ready to record again.")
 }
 

@@ -20,6 +20,7 @@ enum GenerationUIState: Equatable {
     case showingFallback(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
     case streamingAnswer(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
     case expandingFullAnswer(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
+    case needsInput(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
     case answerReady(questionID: String?, generationID: String, triggerPath: GenerationTriggerPath)
     case lowConfidenceRejected(questionID: String?, generationID: String?, triggerPath: GenerationTriggerPath?, reason: String)
     case failed(questionID: String?, generationID: String?, triggerPath: GenerationTriggerPath?, reason: String)
@@ -40,6 +41,8 @@ enum GenerationUIState: Equatable {
             return "Streaming answer"
         case .expandingFullAnswer:
             return "Expanding full answer"
+        case .needsInput:
+            return "Personal facts needed"
         case .answerReady:
             return "Answer ready"
         case .lowConfidenceRejected:
@@ -62,6 +65,7 @@ enum GenerationUIState: Equatable {
              let .showingFallback(_, generationID, _),
              let .streamingAnswer(_, generationID, _),
              let .expandingFullAnswer(_, generationID, _),
+             let .needsInput(_, generationID, _),
              let .answerReady(_, generationID, _):
             return generationID
         case let .failed(_, generationID, _, _),
@@ -81,6 +85,7 @@ enum GenerationUIState: Equatable {
              let .showingFallback(questionID, _, _),
              let .streamingAnswer(questionID, _, _),
              let .expandingFullAnswer(questionID, _, _),
+             let .needsInput(questionID, _, _),
              let .answerReady(questionID, _, _):
             return questionID
         case let .failed(questionID, _, _, _),
@@ -100,6 +105,7 @@ enum GenerationUIState: Equatable {
              let .showingFallback(_, _, triggerPath),
              let .streamingAnswer(_, _, triggerPath),
              let .expandingFullAnswer(_, _, triggerPath),
+             let .needsInput(_, _, triggerPath),
              let .answerReady(_, _, triggerPath):
             return triggerPath
         case let .failed(_, _, triggerPath, _),
@@ -114,7 +120,7 @@ enum GenerationUIState: Equatable {
         switch self {
         case .preparing, .generatingFirstAnswer:
             return true
-        case .idle, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady, .lowConfidenceRejected, .failed, .timeout, .cancelled:
+        case .idle, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady, .needsInput, .lowConfidenceRejected, .failed, .timeout, .cancelled:
             return false
         }
     }
@@ -134,7 +140,7 @@ enum GenerationUIState: Equatable {
 
     var isTerminal: Bool {
         switch self {
-        case .idle, .answerReady, .lowConfidenceRejected, .failed, .timeout, .cancelled:
+        case .idle, .answerReady, .needsInput, .lowConfidenceRejected, .failed, .timeout, .cancelled:
             return true
         case .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer:
             return false
@@ -148,7 +154,7 @@ enum GenerationUIState: Equatable {
              let .timeout(_, _, _, reason),
              let .cancelled(_, _, _, reason):
             return reason
-        case .idle, .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady:
+        case .idle, .preparing, .generatingFirstAnswer, .showingFallback, .streamingAnswer, .expandingFullAnswer, .answerReady, .needsInput:
             return nil
         }
     }

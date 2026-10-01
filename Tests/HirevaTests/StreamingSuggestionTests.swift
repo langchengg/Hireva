@@ -226,7 +226,7 @@ struct StreamingSuggestionTests {
             .deepSeek: customLLMClient
         ])
         
-        let appState = AppState(database: database, llmRouter: router)
+        let appState = AppState(database: database, questionRoutingProvider: HermeticQuestionRoutingProvider(), llmRouter: router)
         
         // Ensure DeepSeek is selected as active provider
         if let deepseekProvider = appState.providerConfigurations.first(where: { $0.kind == .deepSeek }) {
@@ -531,6 +531,7 @@ struct StreamingSoftFallbackTests {
         
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: SlowStreamingContextRetrievalService(delayNanoseconds: 30_000_000)
         )
@@ -653,7 +654,7 @@ struct StreamingSoftFallbackTests {
             try settings.setActiveRealtimeProvider(id: updated.id)
         }
         
-        let appState = AppState(database: database, llmRouter: router)
+        let appState = AppState(database: database, questionRoutingProvider: HermeticQuestionRoutingProvider(), llmRouter: router)
         appState.answerProviderModeOverride = .deepSeekPrimary
         
         // Keep the fallback timer far outside full-suite scheduler delays so
@@ -716,7 +717,7 @@ struct StreamingSoftFallbackTests {
             try settings.setActiveRealtimeProvider(id: updated.id)
         }
         
-        let appState = AppState(database: database, llmRouter: router)
+        let appState = AppState(database: database, questionRoutingProvider: HermeticQuestionRoutingProvider(), llmRouter: router)
         appState.answerProviderModeOverride = .deepSeekPrimary
         
         let mockDelay = MockDelayProvider()

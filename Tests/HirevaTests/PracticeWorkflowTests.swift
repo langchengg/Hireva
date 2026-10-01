@@ -58,6 +58,7 @@ struct PracticeWorkflowTests {
         #expect(try PracticeRepository(database: db).load(sessionID: sessionID) == nil)
         controller.run = nil
         var settings = app.settings
+        let storedSessionCountBeforePrivacyOff = try app.sessionRepository.listSessions().count
         settings.saveTranscriptsLocally = false
         app.saveSettings(settings)
         controller.start(kind: .coding, question: "Find a pair", language: "en", criteria: [], maxFollowUps: 0)
@@ -69,6 +70,8 @@ struct PracticeWorkflowTests {
         controller.persist()
         #expect(try PracticeRepository(database: db).load(sessionID: privateID) == nil)
         #expect(controller.run?.historyAllowed == false)
+        #expect(try app.sessionRepository.listSessions().count == storedSessionCountBeforePrivacyOff)
+        #expect(try app.sessionRepository.session(id: privateID) == nil)
         controller.cancel()
         await app.shutdownForTesting()
         try db.close()

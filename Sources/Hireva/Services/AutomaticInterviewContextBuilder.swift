@@ -587,7 +587,7 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
             previous.education + previous.experience + previous.projects + previous.skills +
                 previous.publications + previous.achievements + previous.declaredGaps + previous.goals
         ).filter {
-            $0.explicitness == .userConfirmed || $0.explicitness == .userRejected
+            $0.hasReviewEdits
         }
         var result = current
         for old in reviewed {

@@ -25,6 +25,7 @@ struct FirstAnswerFallbackTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: mockClient])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: SuspendedContextRetrievalService()
         )
@@ -92,6 +93,7 @@ struct FirstAnswerFallbackTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: mockClient])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: SuspendedContextRetrievalService()
         )
@@ -140,6 +142,7 @@ struct FirstAnswerFallbackTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: StreamingMockLLMClient()])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: router,
             contextRetrievalService: SuspendedContextRetrievalService()
         )

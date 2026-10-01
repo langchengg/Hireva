@@ -68,7 +68,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         card.questionIntent = .generic
         card.promptPrimaryQuestion = "what did you learn from it?"
 
-        appState.saveSuggestionSnapshotInBackground(card, chunks: [])
+        appState.saveSuggestionSnapshotInBackground(card, chunks: [], consentTicket: appState.persistenceConsent.ticket())
         try await Task.sleep(nanoseconds: 120_000_000)
 
         #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
@@ -383,6 +383,9 @@ struct RuntimePathSingleSourceOfTruthTests {
             #expect(render.generationErrorText == nil, "mode \(mode.rawValue)")
         }
 
+        // UI completion does not imply the utility trace queue has flushed.
+        // Preserve the event-order assertion after the existing writer barrier.
+        RuntimeTranscriptTraceStore.shared.waitForPendingOperations()
         let trace = try String(contentsOf: traceURL, encoding: .utf8)
         let orderedEvents = [
             "transcript.final",
@@ -1218,6 +1221,22 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func emptyQueueAfterAnswerDoesNotReportGenerationRejection() throws {
+        let (appState, session, _) = try makeAppState()
+        let now = Date()
+        appState.recordTranscriptRuntimeEvent(.audioStarted(sessionID: session.id, timestamp: now))
+        appState.recordTranscriptRuntimeEvent(.audioBufferReceived(sessionID: session.id, frameCount: 1024, timestamp: now))
+        appState.recordTranscriptRuntimeEvent(.queueDrainBlocked(sessionID: session.id, depth: 0, reason: "blocked_empty_queue", timestamp: now))
+        #expect(appState.transcriptRuntimeDiagnostics.lastGenerationRejectedReason.isEmpty)
+        #expect(appState.transcriptRuntimeDiagnostics.chainStatus(now: now) == "runtime chain active")
+
+        // Scheduling events must not erase a real rejection either.
+        appState.transcriptRuntimeDiagnostics.lastGenerationRejectedReason = "timed_out"
+        appState.recordTranscriptRuntimeEvent(.queueDrainBlocked(sessionID: session.id, depth: 1, reason: "blocked_active_generation", timestamp: now))
+        #expect(appState.transcriptRuntimeDiagnostics.chainStatus(now: now) == "generation guard rejected")
+    }
+
+    @Test
     func audioBufferDiagnosticsDoNotPersistHighFrequencyTraceRows() async throws {
         let traceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("audio-buffer-trace-\(UUID().uuidString).jsonl")
@@ -1409,7 +1428,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         card.promptPrimaryQuestion = card.questionText
         card.alignmentVerdict = .aligned
 
-        appState.saveSuggestionSnapshotInBackground(card, chunks: [])
+        appState.saveSuggestionSnapshotInBackground(card, chunks: [], consentTicket: appState.persistenceConsent.ticket())
         try await Task.sleep(nanoseconds: 120_000_000)
 
         #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
@@ -1446,7 +1465,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             questionContains: "autoregressive, diffusion, and flow matching decoders"
         ))
         #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(firstCard).accepted)
-        appState.saveSuggestionSnapshotInBackground(firstCard, chunks: [])
+        appState.saveSuggestionSnapshotInBackground(firstCard, chunks: [], consentTicket: appState.persistenceConsent.ticket())
         try await waitUntil(timeout: 60.0) {
             ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1
         }
@@ -1477,7 +1496,7 @@ struct RuntimePathSingleSourceOfTruthTests {
             questionContains: "debug a system integration problem"
         ))
         #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(secondCard).accepted)
-        appState.saveSuggestionSnapshotInBackground(secondCard, chunks: [])
+        appState.saveSuggestionSnapshotInBackground(secondCard, chunks: [], consentTicket: appState.persistenceConsent.ticket())
 
         try await waitUntil(timeout: 60.0) {
             ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 2
@@ -1713,7 +1732,19 @@ struct RuntimePathSingleSourceOfTruthTests {
     @Test
     func interruptAfterFirstVisibleThenDebuggingLessonDoesNotShowGenericFallback() async throws {
         let traceURL = temporaryTraceURL("runtime-debugging-lesson-interrupt-trace")
-        let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        let (appState, session, client) = try makeAppState(traceURL: traceURL, documentedIntegrationFixture: true)
+        defer {
+            if let root = ProcessInfo.processInfo.environment["HIREVA_TEST_ARTIFACT_DIR"] {
+                let diagnostic: [String: Any] = ["state": appState.generationUIState.displayName,
+                    "failure": appState.generationUIState.failureReason ?? "", "question": appState.lastDetectedQuestionText,
+                    "hasVisibleAnswer": appState.visibleAssistantRenderState.hasAnswerText,
+                    "answer": appState.currentSuggestion?.sayFirst ?? "", "mismatch": appState.lastAlignmentError,
+                    "traceFile": traceURL.path]
+                if let data = try? JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: root).appendingPathComponent("debugging-lesson-diagnostic.json"))
+                }
+            }
+        }
         appState.delayProvider = RealDelayProvider()
         appState.generationFullCardWatchdogNanoseconds = 4_000_000_000
         client.fullCardStreamHangByNeedle.insert("full decision-making process")
@@ -1827,7 +1858,9 @@ struct RuntimePathSingleSourceOfTruthTests {
         try await waitUntil(timeout: 60.0) {
             let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
             let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return detected.count == 3 && !rows.isEmpty &&
+            // Visible publication precedes the detached SQLite commit. Wait
+            // for the last question's actual row before comparing histories.
+            return detected.count == 3 && rows.contains(where: { $0.questionText == expectedLatestQuestion }) &&
                 appState.currentSuggestion?.questionText == expectedLatestQuestion &&
                 appState.generationUIState.isTerminal
         }
@@ -1912,7 +1945,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         appState.currentGenerationID = card.generationID
         appState.activeQuestionID = question.id
 
-        appState.saveSuggestionSnapshotInBackground(card, chunks: [])
+        appState.saveSuggestionSnapshotInBackground(card, chunks: [], consentTicket: appState.persistenceConsent.ticket())
         try await Task.sleep(nanoseconds: 150_000_000)
 
         #expect((try appState.suggestionRepository.suggestions(sessionID: session.id)).isEmpty)
@@ -2057,7 +2090,8 @@ struct RuntimePathSingleSourceOfTruthTests {
     private func makeAppState(
         providerDetectionQuestion: String? = nil,
         traceURL: URL? = nil,
-        systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil
+        systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil,
+        documentedIntegrationFixture: Bool = false
     ) throws -> (AppState, InterviewSession, RuntimePathLLMClient) {
         let database = try TestSupport.makeTemporaryDatabase(prefix: "RuntimePathSingleSourceOfTruth")
         let settingsRepository = try configuredSettingsRepository(database)
@@ -2065,6 +2099,7 @@ struct RuntimePathSingleSourceOfTruthTests {
         let router = LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client])
         let appState = AppState(
             database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(documentedIntegrationFixture: documentedIntegrationFixture),
             llmRouter: router,
             contextRetrievalService: RuntimePathEmptyContextRetrievalService(),
             systemAudioCaptureService: systemAudioCaptureService

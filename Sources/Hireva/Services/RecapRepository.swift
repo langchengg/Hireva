@@ -10,14 +10,14 @@ final class RecapRepository {
 
     func saveRecap(_ recap: RecapReport) throws {
         try database.dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM recap_reports WHERE session_id = ?", arguments: [recap.sessionID])
+            try db.execute(sql: "DELETE FROM recap_reports WHERE session_id = ? AND content_revision = ?", arguments: [recap.sessionID, recap.contentRevision ?? 0])
             try db.execute(
                 sql: """
                 INSERT INTO recap_reports (
                     id, session_id, markdown, model_name, prompt_version, provider_kind,
-                    provider_name, provider_base_url, latency_ms, is_local, created_at
+                    provider_name, provider_base_url, latency_ms, is_local, created_at, content_revision
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     recap.id,
@@ -30,7 +30,7 @@ final class RecapRepository {
                     recap.providerBaseURL,
                     recap.latencyMS,
                     recap.isLocal,
-                    DateCoding.string(from: recap.createdAt)
+                    DateCoding.string(from: recap.createdAt), recap.contentRevision ?? 0
                 ]
             )
         }
@@ -40,10 +40,29 @@ final class RecapRepository {
         try database.dbQueue.read { db in
             let row = try Row.fetchOne(
                 db,
-                sql: "SELECT * FROM recap_reports WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+                sql: "SELECT * FROM recap_reports WHERE session_id = ? ORDER BY content_revision DESC, created_at DESC LIMIT 1",
                 arguments: [sessionID]
             )
             return row.map(Self.makeRecap)
+        }
+    }
+
+    func cachedUnits(sessionID: String) throws -> [CachedRecapUnit] {
+        try database.dbQueue.read { db in
+            try Data.fetchAll(db, sql: "SELECT payload_json FROM recap_unit_cache WHERE session_id = ?", arguments: [sessionID]).map { try JSONDecoder().decode(CachedRecapUnit.self, from: $0) }
+        }
+    }
+    func saveUnits(_ units: [CachedRecapUnit], sessionID: String) throws {
+        try database.dbQueue.write { db in
+            for unit in units {
+                try db.execute(sql: "INSERT INTO recap_unit_cache (session_id, input_key, payload_json) VALUES (?, ?, ?) ON CONFLICT(session_id, input_key) DO UPDATE SET payload_json = excluded.payload_json", arguments: [sessionID, unit.inputKey, try JSONEncoder().encode(unit)])
+            }
+        }
+    }
+
+    func versions(sessionID: String) throws -> [RecapReport] {
+        try database.dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM recap_reports WHERE session_id = ? ORDER BY content_revision DESC", arguments: [sessionID]).map(Self.makeRecap)
         }
     }
 
@@ -73,7 +92,7 @@ final class RecapRepository {
             providerBaseURL: row["provider_base_url"],
             latencyMS: row["latency_ms"],
             isLocal: row["is_local"],
-            createdAt: DateCoding.date(from: row["created_at"])
+            createdAt: DateCoding.date(from: row["created_at"]), contentRevision: row["content_revision"]
         )
     }
 }
