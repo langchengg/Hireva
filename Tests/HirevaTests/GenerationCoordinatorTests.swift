@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Hireva
 
+@MainActor
 @Suite
 struct GenerationCoordinatorTests {
     @Test
@@ -25,8 +26,22 @@ struct GenerationCoordinatorTests {
     }
 
     @Test
+    func emptyShutdownClosesAdmissionWithoutCreatingADeadline() async {
+        let owner = GenerationCoordinator()
+        let delay = RecordingDelayProvider()
+
+        #expect(await owner.shutdownAndDrain(delayProvider: delay))
+        #expect(delay.recordedSleeps.isEmpty)
+        let rejected = owner.beginRequest(triggerPath: .regenerate)
+        #expect(!owner.isCurrentRequest(rejected))
+        #expect(owner.pendingCleanupTaskCount == 0)
+    }
+
+    @Test
     func timeoutHelperReturnsCompletedOperation() async throws {
-        let value = try await GenerationCoordinator.withTimeout(seconds: 1.0) {
+        let delay = CompletionPathDeadline()
+        defer { delay.advance() }
+        let value = try await GenerationCoordinator.withTimeout(seconds: 1.0, delayProvider: delay) {
             "completed"
         }
 
@@ -538,25 +553,17 @@ struct GenerationCoordinatorTests {
     }
 
     @Test
-    func generationCoordinatorHasNoApplicationSideEffectOwnershipReferences() throws {
+    func generationCoordinatorHasNoUIOrPersistenceCoupling() throws {
         let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let sourceURL = packageRoot.appendingPathComponent("Sources/Hireva/Services/GenerationCoordinator.swift")
+        let sourceURL = packageRoot.appendingPathComponent("Sources/Hireva/Runtime/Interview/GenerationCoordinator.swift")
         let source = try String(contentsOf: sourceURL)
         let forbiddenReferences = [
-            "currentSuggestion",
-            "currentQuestion",
-            "@Published",
-            "activeGenerationController",
-            "saveSuggestion",
-            "SQLite",
-            "GRDB",
-            "stageBTask",
-            "fallbackWatchdog",
-            "fullCardWatchdog"
+            "import SwiftUI", "import GRDB", "appState.", ": AppState",
+            "currentSuggestion", "saveSuggestion", "SQLite"
         ]
 
         for forbidden in forbiddenReferences {
@@ -768,6 +775,29 @@ struct GenerationCoordinatorTests {
             rawJSON: nil,
             createdAt: Date()
         )
+    }
+}
+
+/// Completion ordering is independent of MainActor load. The virtual deadline
+/// advances only explicitly; cancellation closes its wait when the operation wins.
+private struct CompletionPathDeadline: DelayProvider {
+    private let events: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let pair = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        events = pair.stream
+        continuation = pair.continuation
+    }
+
+    func sleep(nanoseconds: UInt64) async throws {
+        for await _ in events { return }
+        try Task.checkCancellation()
+    }
+
+    func advance() {
+        continuation.yield(())
+        continuation.finish()
     }
 }
 

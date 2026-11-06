@@ -3,10 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
-APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
+if [[ -z "${HIREVA_PACKAGE_WORK_DIR:-}" ]]; then
+    exec python3 "$ROOT_DIR/script/artifact_lifecycle.py" package-dmg "$@"
+fi
+python3 "$ROOT_DIR/script/artifact_lifecycle.py" check-package
+APP_BUNDLE="${HIREVA_APP_BUNDLE:?managed bundle required}"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/Hireva"
-OUTPUT_DIR="$ROOT_DIR/release"
+OUTPUT_DIR="${HIREVA_PACKAGE_WORK_DIR:?owned package task required}"
 
 fail() {
     printf 'error: %s\n' "$*" >&2
@@ -17,8 +21,7 @@ plist_value() {
     /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null
 }
 
-printf '[build] Building, signing, launching, and verifying Hireva.app\n'
-"$ROOT_DIR/script/build_and_run.sh" --verify
+printf '[build] Using the coordinator-built, verified managed bundle\n'
 
 [[ -d "$APP_BUNDLE" ]] || fail "app bundle is missing: $APP_BUNDLE"
 [[ ! -L "$APP_BUNDLE" ]] || fail "app bundle must not be a symbolic link"
@@ -67,7 +70,7 @@ FORBIDDEN_PAYLOAD="$(/usr/bin/find "$APP_BUNDLE/Contents" \( \
 [[ -z "$FORBIDDEN_PAYLOAD" ]] || \
     fail "private, generated, or model payload found in app: $FORBIDDEN_PAYLOAD"
 
-WORK_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/hireva-dmg.XXXXXX")" || \
+WORK_DIR="$(/usr/bin/mktemp -d "$HIREVA_PACKAGE_WORK_DIR/dmg.XXXXXX")" || \
     fail "unable to create a temporary packaging directory"
 cleanup() {
     /bin/rm -rf "$WORK_DIR"

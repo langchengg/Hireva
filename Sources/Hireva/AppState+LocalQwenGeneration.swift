@@ -30,44 +30,76 @@ extension AppState {
         source: AudioSourceType?,
         speaker: SpeakerRole?,
         localProvider: any LocalLLMProvider = OllamaQwenProvider(),
+        modelName frozenModelName: String? = nil,
         fallbackReason: String?,
         interviewContextSnapshot: InterviewContextSnapshot? = nil
     ) async throws -> Bool {
-        ollamaDiagnostics = .empty()
-        ollamaDiagnostics.endpoint = "http://localhost:11434/api/chat"
-        ollamaDiagnostics.model = selectedQwenModelName
-        ollamaDiagnostics.responseSchema = .chatMessageContent
-        ollamaDiagnostics.streamMode = true
-        ollamaLifecycleEvents = []
-        guard isActiveGeneration(generationID, questionID: question.id) else {
-            failLocalQwenDiagnostics(.staleGeneration, cancellationReason: "generation_identity_mismatch")
+        guard let generation = activeGenerationController,
+              case let identity = generation.identity,
+              identity.generationID == generationID,
+              identity.acceptedQuestionID == question.id,
+              identity.sessionID == session.id,
+              currentSession?.id == session.id,
+              isActiveGeneration(generationID, questionID: question.id),
+              generationCoordinator.canPublish(identity),
+              !Task.isCancelled else {
             recordStaleGenerationDiscard()
             return false
         }
+        let persistenceTicket = generation.persistenceTicket
+        ollamaDiagnostics = .empty()
+        ollamaDiagnostics.endpoint = "http://localhost:11434/api/chat"
+        let modelName = frozenModelName ?? selectedQwenModelName
+        ollamaDiagnostics.model = modelName
+        ollamaDiagnostics.responseSchema = .chatMessageContent
+        ollamaDiagnostics.streamMode = true
+        ollamaLifecycleEvents = []
         guard localQwenContextMatches(interviewContextSnapshot) else {
             failLocalQwenDiagnostics(.staleContextSnapshot, contextSnapshotMatched: false)
             recordStaleGenerationDiscard()
             return false
         }
 
-        let modelName = selectedQwenModelName
+        // The provider may ignore cancellation while starting or finishing its
+        // stream. Its frozen identity and terminal fence also protect shared
+        // diagnostics, so an old attempt cannot relabel the current request.
+        @MainActor func permitsPublication() -> Bool {
+            guard !Task.isCancelled,
+                  generationCoordinator.canPublish(identity),
+                  isActiveGeneration(generationID, questionID: question.id),
+                  currentSession?.id == session.id else {
+                recordStaleGenerationDiscard()
+                return false
+            }
+            guard localQwenContextMatches(interviewContextSnapshot) else {
+                failLocalQwenDiagnostics(.staleContextSnapshot, contextSnapshotMatched: false)
+                recordStaleGenerationDiscard()
+                return false
+            }
+            return true
+        }
+
         let snapshotContext = interviewContextSnapshot.map {
             DynamicInterviewContextEngine().retrieveContext(question: question.questionText, snapshot: $0)
         }
-        let localPromptContext = snapshotContext?.context ?? context
+        let localPromptContext = SnapshotBoundContextPolicy.retrievedContext(snapshot: interviewContextSnapshot,
+            snapshotContext: snapshotContext?.context, legacyContext: context)
         let localCVSummary = interviewContextSnapshot.map {
             $0.candidateEvidence.filter(\.isUsable).map(\.statementForPrompt).joined(separator: "\n")
         } ?? cvSummary
         let localJDSummary = interviewContextSnapshot.map {
             $0.opportunityEvidence.filter(\.isUsable).map(\.statement).joined(separator: "\n")
         } ?? jdSummary
-        let snapshotEvidenceIDs = Set(
-            (snapshotContext?.candidateEvidenceIDs ?? []) +
-                (snapshotContext?.opportunityEvidenceIDs ?? [])
-        )
-        let snapshotRetrievedChunks = interviewContextSnapshot == nil
-            ? retrievedChunks
-            : retrievedChunks.filter { snapshotEvidenceIDs.contains($0.id) }
+        let localTask = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+        let selectedCandidateIDs = Set(QuestionIntentPromptPolicy.filterContext(localPromptContext,
+            intent: QuestionIntentPromptPolicy.intent(for: question.questionText)).cvChunks.map(\.id))
+        let scopedPersonal = PromptContextBuilder.usesProfileContext(localTask)
+            && interviewContextSnapshot?.candidateEvidence.contains {
+                $0.isUsable && selectedCandidateIDs.contains($0.id)
+            } == true
+        let scopedAnswer = scopedPersonal || (localTask.kind == .generalKnowledge && !PromptContextBuilder.usesProfileContext(localTask)
+            && !QuestionIntentPromptPolicy.relevantNotes(localPromptContext.additionalNotesChunks,
+                question: question.questionText).isEmpty)
         let promptSnapshot = PromptContextBuilder.promptSnapshot(
             question: question,
             context: localPromptContext,
@@ -75,29 +107,35 @@ extension AppState {
             cvSummary: localCVSummary,
             jdSummary: localJDSummary,
             stage: .firstAnswer,
-            interviewContextSnapshot: interviewContextSnapshot
+            interviewContextSnapshot: interviewContextSnapshot,
+            scopedLocalAnswer: scopedAnswer
         )
-        let includedChunkIDs = Set(promptSnapshot.ragChunkIDs)
-        let localRetrievedChunks = snapshotRetrievedChunks.filter { includedChunkIDs.contains($0.id) }
+        let localRetrievedChunks = promptSnapshot.ragContextSnapshot.frozenPromptCitations
         let usesProfile = PromptContextBuilder.usesProfileContext(
             promptSnapshot.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
         )
+        let answerOutput = scopedAnswer
+            ? "Output only the specified public JSON answer. Its say_first is a concise spoken answer, 1 to 3 sentences; do not mention CV, JD, RAG, model names, or metadata in say_first."
+            : "Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata."
         let systemPrompt = """
         /no_think
         You are a real-time interview helper running locally. Answer as the candidate in first person.
-        Output only a concise spoken answer, 1 to 3 sentences. Do not mention CV, JD, RAG, model names, or metadata.
+        \(answerOutput)
         State past personal experience only when it is explicit in the selected candidate evidence.
         Do not turn future plans, domain knowledge, or opportunity requirements into completed work or observed events.
-        For claims about past personal work, do not add mechanisms, tools, metrics, or causal links absent from the evidence. For general technical tasks, propose a solution and state assumptions without claiming past experience.
+        For claims about past personal work, do not add mechanisms, tools, metrics, or causal links absent from the evidence. Follow the task requested by the question: explain concepts and reasoning for explanations; propose solutions for design or problem-solving tasks. State relevant assumptions and limitations without claiming past experience.
         """
         let userPrompt = promptSnapshot.prompt +
-            "\n\nAnswer the current question now:"
+            "\n\nAnswer the current question now:" +
+            (scopedAnswer ? "\n\"\(PromptContextBuilder.redactSecrets(promptSnapshot.questionTextSnapshot))\"" : "")
         let primaryRequest = LocalLLMRequest(
             prompt: userPrompt,
             systemPrompt: systemPrompt,
             modelName: modelName,
             temperature: 0.1,
-            numPredict: 180
+            numPredict: 180,
+            responseSchema: scopedAnswer ? LocalQwenAnswerParser.scopedResponseSchema : nil,
+            responseSchemaPropertyOrder: scopedAnswer ? LocalQwenAnswerParser.scopedPropertyOrder : nil
         )
         ollamaDiagnostics.requestMessageCount = systemPrompt.isEmpty ? 1 : 2
         ollamaDiagnostics.systemPromptCharacters = systemPrompt.count
@@ -135,198 +173,155 @@ extension AppState {
             snapshot: interviewContextSnapshot,
             promptSnapshot: promptSnapshot
         )
+        let executionContext = GenerationExecutionContext(
+            session: session, question: question, generationID: generationID,
+            triggerPath: triggerPath, providerID: localProvider.id, providerModel: modelName,
+            retrievedContext: promptSnapshot.ragContextSnapshot, promptSnapshot: promptSnapshot,
+            transcriptSnapshot: transcript, startedAt: requestStart, source: source, speaker: speaker,
+            interviewContextSnapshot: interviewContextSnapshot
+        )
         // Reuse only the session-bound, filtered frozen background. Looking at
         // visible/history cards here could resurrect another session or profile.
         let previousQuestionContext: String? = promptSnapshot.previousQuestionIncluded
             ? [promptSnapshot.previousQuestionText ?? "", "Earlier answer (untrusted, not candidate evidence): " + (promptSnapshot.taskDescriptor?.decision?.parentAnswerText ?? "")].joined(separator: "\n") : nil
         let compactRecoveryRequest = compactLocalQwenRequest(
-            question: question,
+            question: executionContext.question,
             context: promptSnapshot.ragContextSnapshot,
             cvSummary: usesProfile ? promptSnapshot.ragContextSnapshot.cvChunks.map(\.content).joined(separator: "\n") : "Not relevant to this general task.",
             jdSummary: promptSnapshot.ragContextSnapshot.jobDescriptionChunks.map(\.content).joined(separator: "\n"),
             modelName: modelName,
-            previousQuestionContext: previousQuestionContext
+            previousQuestionContext: previousQuestionContext,
+            scopedAnswer: scopedAnswer
         )
         let groundedRecoveryRequest = groundedLocalQwenRecoveryRequest(
-            question: question,
+            question: executionContext.question,
             context: promptSnapshot.ragContextSnapshot,
             modelName: modelName,
-            previousQuestionContext: previousQuestionContext
+            previousQuestionContext: previousQuestionContext,
+            scopedAnswer: scopedAnswer
         )
 
-        var cleanedAnswer = ""
-        var lastFailureCategory: OllamaFailureCategory = .providerReturnedNoContent
-        var lastFailureDiagnostic = lastFailureCategory.rawValue
         var firstContentRecorded = false
         var firstProviderTokenMS: Int?
-        let requests = [primaryRequest, compactRecoveryRequest, groundedRecoveryRequest]
-        for requestIndex in requests.indices {
-            let request = requests[requestIndex]
-            let maxAttempts = requestIndex == 0 ? 2 : 1
-            for attempt in 1...maxAttempts {
-                var answer = ""
-                appendOllamaLifecycleEvent(
-                    "ollama.request.started",
-                    question: question,
-                    session: session,
-                    generationID: generationID,
-                    snapshot: interviewContextSnapshot,
-                    promptSnapshot: promptSnapshot
-                )
-                do {
-                    let tokenStream = try await localProvider.generateAnswer(request: request)
-                    for try await token in tokenStream {
-                        guard !Task.isCancelled else {
-                            failLocalQwenDiagnostics(.requestCancelled, cancellationReason: "task_cancelled")
-                            return false
-                        }
-                        guard isActiveGeneration(generationID, questionID: question.id) else {
-                            failLocalQwenDiagnostics(.staleGeneration, cancellationReason: "generation_replaced")
-                            recordStaleGenerationDiscard()
-                            return false
-                        }
-                        guard localQwenContextMatches(interviewContextSnapshot) else {
-                            failLocalQwenDiagnostics(.staleContextSnapshot, contextSnapshotMatched: false)
-                            recordStaleGenerationDiscard()
-                            return false
-                        }
-                        ollamaDiagnostics.chunksReceived += 1
-                        if !token.text.isEmpty {
-                            ollamaDiagnostics.contentChunksReceived += 1
-                            ollamaDiagnostics.rawContentCharacters += token.text.count
-                            ollamaDiagnostics.firstContentObserved = true
-                            answer += token.text
-                            appendOllamaLifecycleEvent(
-                                "ollama.response.chunk",
+        let cleanedAnswer: String
+        do {
+            cleanedAnswer = try await generationCoordinator.generateLocalAnswerSequence(
+                context: executionContext, primaryRequest: primaryRequest,
+                compactRecoveryRequest: compactRecoveryRequest,
+                groundedRecoveryRequest: groundedRecoveryRequest,
+                provider: localProvider, retryDelayProvider: delayProvider,
+                validateAnswer: { answer in
+                    LocalQwenAnswerValidationResult.validate(answer, question: question,
+                        interviewContextSnapshot: interviewContextSnapshot)
+                },
+                onToken: { [weak self] tokenIdentity, token in
+                    guard let self else { return false }
+                    guard !Task.isCancelled,
+                          self.generationCoordinator.canPublish(tokenIdentity),
+                          self.isActiveGeneration(generationID, questionID: question.id),
+                          self.currentSession?.id == session.id else {
+                        self.recordStaleGenerationDiscard()
+                        return false
+                    }
+                    guard self.localQwenContextMatches(interviewContextSnapshot) else {
+                        self.failLocalQwenDiagnostics(.staleContextSnapshot, contextSnapshotMatched: false)
+                        self.recordStaleGenerationDiscard()
+                        return false
+                    }
+                    self.ollamaDiagnostics.chunksReceived += 1
+                    if !token.text.isEmpty {
+                        self.ollamaDiagnostics.contentChunksReceived += 1
+                        self.ollamaDiagnostics.rawContentCharacters += token.text.count
+                        self.ollamaDiagnostics.firstContentObserved = true
+                        self.appendOllamaLifecycleEvent(
+                            "ollama.response.chunk",
+                            question: question,
+                            session: session,
+                            generationID: generationID,
+                            snapshot: interviewContextSnapshot,
+                            promptSnapshot: promptSnapshot
+                        )
+                        if !firstContentRecorded {
+                            firstContentRecorded = true
+                            firstProviderTokenMS = self.elapsedMS(since: requestStart)
+                            self.appendOllamaLifecycleEvent(
+                                "ollama.first_content",
                                 question: question,
                                 session: session,
                                 generationID: generationID,
                                 snapshot: interviewContextSnapshot,
                                 promptSnapshot: promptSnapshot
                             )
-                            if !firstContentRecorded {
-                                firstContentRecorded = true
-                                firstProviderTokenMS = elapsedMS(since: requestStart)
-                                appendOllamaLifecycleEvent(
-                                    "ollama.first_content",
-                                    question: question,
-                                    session: session,
-                                    generationID: generationID,
-                                    snapshot: interviewContextSnapshot,
-                                    promptSnapshot: promptSnapshot
-                                )
-                            }
                         }
                     }
-                } catch {
-                    if let diagnosticsProvider = localProvider as? LocalLLMDiagnosticsProviding {
-                        mergeProviderDiagnostics(diagnosticsProvider.lastGenerationDiagnostics)
+                    return true
+                },
+                onEvent: { [weak self] eventIdentity, event in
+                    guard let self else { return false }
+                    guard !Task.isCancelled, self.generationCoordinator.canPublish(eventIdentity),
+                          self.isActiveGeneration(generationID, questionID: question.id),
+                          self.currentSession?.id == session.id else {
+                        self.recordStaleGenerationDiscard()
+                        return false
                     }
-                    let category = OllamaFailureCategory.classify(error)
-                    failLocalQwenDiagnostics(category)
-                    appendOllamaLifecycleEvent(
-                        "answer.request.failed",
-                        question: question,
-                        session: session,
-                        generationID: generationID,
-                        snapshot: interviewContextSnapshot,
-                        promptSnapshot: promptSnapshot,
-                        failureCategory: category
-                    )
-                    throw LocalQwenGenerationError(category: category, diagnostic: error.localizedDescription)
-                }
-                if let diagnosticsProvider = localProvider as? LocalLLMDiagnosticsProviding {
-                    mergeProviderDiagnostics(diagnosticsProvider.lastGenerationDiagnostics)
-                }
-                ollamaDiagnostics.streamCompleted = true
-                appendOllamaLifecycleEvent(
-                    "ollama.stream.completed",
-                    question: question,
-                    session: session,
-                    generationID: generationID,
-                    snapshot: interviewContextSnapshot,
-                    promptSnapshot: promptSnapshot
-                )
-
-                let parsed = LocalQwenAnswerParser.parse(answer)
-                cleanedAnswer = parsed.sayFirst
-                ollamaDiagnostics.sectionParserResult = parsed.sectionParserResult
-                ollamaDiagnostics.parsedContentCharacters = cleanedAnswer.count
-                appendOllamaLifecycleEvent(
-                    "ollama.answer.parsed",
-                    question: question,
-                    session: session,
-                    generationID: generationID,
-                    snapshot: interviewContextSnapshot,
-                    promptSnapshot: promptSnapshot,
-                    failureCategory: parsed.failureCategory
-                )
-                appendOllamaLifecycleEvent(
-                    "answer.sections.parsed",
-                    question: question,
-                    session: session,
-                    generationID: generationID,
-                    snapshot: interviewContextSnapshot,
-                    promptSnapshot: promptSnapshot,
-                    failureCategory: parsed.failureCategory
-                )
-                if let parserFailure = parsed.failureCategory {
-                    lastFailureCategory = parserFailure
-                    lastFailureDiagnostic = parsed.sectionParserResult
-                }
-                if !cleanedAnswer.isEmpty {
-                    appendOllamaLifecycleEvent(
-                        "answer.alignment.started",
-                        question: question,
-                        session: session,
-                        generationID: generationID,
-                        snapshot: interviewContextSnapshot,
-                        promptSnapshot: promptSnapshot
-                    )
-                    let validation = validateLocalQwenAnswer(
-                        cleanedAnswer,
-                        question: question,
-                        interviewContextSnapshot: interviewContextSnapshot
-                    )
-                    ollamaDiagnostics.alignmentDecision = validation.diagnostic
-                    appendOllamaLifecycleEvent(
-                        "answer.alignment.completed",
-                        question: question,
-                        session: session,
-                        generationID: generationID,
-                        snapshot: interviewContextSnapshot,
-                        promptSnapshot: promptSnapshot,
-                        failureCategory: validation.failureCategory
-                    )
-                    guard validation.accepted else {
-                        lastFailureCategory = validation.failureCategory ?? .alignmentRejectedNonemptyContent
-                        lastFailureDiagnostic = validation.diagnostic
-                        markProviderOperation("Local Qwen returned a non-aligned answer; retrying with recovery prompt")
-                        cleanedAnswer = ""
-                        continue
+                    guard self.localQwenContextMatches(interviewContextSnapshot) else {
+                        self.failLocalQwenDiagnostics(.staleContextSnapshot, contextSnapshotMatched: false)
+                        self.recordStaleGenerationDiscard()
+                        return false
                     }
-                    break
-                }
-                if attempt < maxAttempts {
-                    markProviderOperation("Local Qwen returned an empty stream; retrying once")
-                    try await Task.sleep(nanoseconds: 150_000_000)
-                }
-            }
-            if !cleanedAnswer.isEmpty {
-                break
-            }
-            if requestIndex == 0 {
-                markProviderOperation("Local Qwen returned empty twice; retrying with compact prompt")
-            } else if requestIndex == 1 {
-                markProviderOperation("Local Qwen compact prompt returned empty; retrying with grounded prompt")
-            }
-        }
-        guard !cleanedAnswer.isEmpty else {
-            failLocalQwenDiagnostics(lastFailureCategory)
-            throw LocalQwenGenerationError(
-                category: lastFailureCategory,
-                diagnostic: lastFailureDiagnostic
-            )
+                    self.verificationCoordinator.recordLocalAnswerEvent(event,
+                        identity: eventIdentity, persistenceTicket: persistenceTicket)
+                    @MainActor func lifecycle(_ name: String, failure: OllamaFailureCategory? = nil) {
+                        self.appendOllamaLifecycleEvent(name, question: question, session: session,
+                            generationID: generationID, snapshot: interviewContextSnapshot,
+                            promptSnapshot: promptSnapshot, failureCategory: failure)
+                    }
+                    switch event {
+                    case .requestStarted:
+                        lifecycle("ollama.request.started")
+                    case .streamCompleted:
+                        if let diagnosticsProvider = localProvider as? LocalLLMDiagnosticsProviding {
+                            self.mergeProviderDiagnostics(diagnosticsProvider.lastGenerationDiagnostics)
+                        }
+                        self.ollamaDiagnostics.streamCompleted = true
+                        lifecycle("ollama.stream.completed")
+                    case .answerParsed(let parsed):
+                        self.ollamaDiagnostics.sectionParserResult = parsed.sectionParserResult
+                        self.ollamaDiagnostics.parsedContentCharacters = parsed.sayFirst.count
+                        lifecycle("ollama.answer.parsed", failure: parsed.failureCategory)
+                        lifecycle("answer.sections.parsed", failure: parsed.failureCategory)
+                    case .alignmentStarted:
+                        lifecycle("answer.alignment.started")
+                    case .alignmentCompleted(let validation):
+                        self.ollamaDiagnostics.alignmentDecision = validation.diagnostic
+                        lifecycle("answer.alignment.completed", failure: validation.failureCategory)
+                    case .retrying(let reason):
+                        let message: String
+                        switch reason {
+                        case .emptyPrimary:
+                            message = "Local Qwen returned an empty stream; retrying once"
+                        case .alignmentRejected:
+                            message = "Local Qwen returned a non-aligned answer; retrying with recovery prompt"
+                        case .compactRecovery:
+                            message = "Local Qwen returned empty twice; retrying with compact prompt"
+                        case .groundedRecovery:
+                            message = "Local Qwen compact prompt returned empty; retrying with grounded prompt"
+                        }
+                        self.markProviderOperation(message)
+                    case .requestFailed(let category):
+                        if let diagnosticsProvider = localProvider as? LocalLLMDiagnosticsProviding {
+                            self.mergeProviderDiagnostics(diagnosticsProvider.lastGenerationDiagnostics)
+                        }
+                        self.failLocalQwenDiagnostics(category)
+                        lifecycle("answer.request.failed", failure: category)
+                    case .exhausted(let category):
+                        self.failLocalQwenDiagnostics(category)
+                    }
+                    return true
+                })
+        } catch {
+            guard permitsPublication() else { return false }
+            throw error
         }
 
         let elapsed = elapsedMS(since: requestStart)
@@ -343,12 +338,12 @@ extension AppState {
             sayFirst: cleanedAnswer,
             keyPoints: localQwenKeyPoints(from: cleanedAnswer, fallback: fallbackKeyPoints),
             followUpReady: ["I can expand on the implementation tradeoffs if useful."],
-            confidence: 0.72,
+            confidence: nil,
             caution: fallbackReason.map { "Local Qwen fallback used because \($0)." },
             evidenceUsed: localRetrievedChunks.map(\.id),
-            riskLevel: .low,
+            riskLevel: nil,
             modelName: modelName,
-            promptVersion: "ollama-qwen-v1",
+            promptVersion: scopedAnswer ? "ollama-qwen-scoped-v1" : "ollama-qwen-v1",
             providerKind: .ollamaLocal,
             providerName: "Ollama Qwen",
             providerBaseURL: "http://localhost:11434",
@@ -401,6 +396,7 @@ extension AppState {
         card.candidateEvidenceIDs = promptSnapshot.candidateEvidenceIDs
         card.opportunityEvidenceIDs = promptSnapshot.opportunityEvidenceIDs
 
+        guard permitsPublication() else { return false }
         guard displaySuggestionIfAligned(
             card,
             question: question,
@@ -409,20 +405,15 @@ extension AppState {
             source: source,
             speaker: speaker
         ) else {
-            if !isActiveGeneration(generationID, questionID: question.id) {
-                failLocalQwenDiagnostics(.staleGeneration, cancellationReason: "generation_replaced_before_display")
-            } else if !localQwenContextMatches(interviewContextSnapshot) {
-                failLocalQwenDiagnostics(.staleContextSnapshot, contextSnapshotMatched: false)
-            } else {
-                failLocalQwenDiagnostics(.alignmentRejectedNonemptyContent)
-                throw LocalQwenGenerationError(
-                    category: .alignmentRejectedNonemptyContent,
-                    diagnostic: lastAlignmentError
-                )
-            }
-            return false
+            guard permitsPublication() else { return false }
+            failLocalQwenDiagnostics(.alignmentRejectedNonemptyContent)
+            throw LocalQwenGenerationError(
+                category: .alignmentRejectedNonemptyContent,
+                diagnostic: lastAlignmentError
+            )
         }
 
+        guard permitsPublication() else { return false }
         streamedSayFirst = ""
         currentSuggestionSetAt = currentSuggestionSetAt ?? Date()
         finalVisibleSource = AnswerSource.ollamaQwen.rawValue
@@ -446,11 +437,13 @@ extension AppState {
             question: question,
             session: session,
             requestStart: requestStart,
-            retrievedChunks: retrievedChunks,
+            retrievedChunks: localRetrievedChunks,
             triggerPath: triggerPath,
             timedOut: false
         )
         if finished {
+            // Compatibility event name: this observes synchronous state
+            // publication. A SwiftUI render/visible latency is not measured.
             appendOllamaLifecycleEvent(
                 "answer.ui.rendered",
                 question: question,
@@ -478,57 +471,16 @@ extension AppState {
         return Array(fallback.prefix(3))
     }
 
-    private func validateLocalQwenAnswer(
-        _ answer: String,
-        question: DetectedQuestion,
-        interviewContextSnapshot: InterviewContextSnapshot?
-    ) -> LocalQwenAnswerValidationResult {
-        guard !QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer),
-              QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(answer) == nil else {
-            return .rejected(
-                category: .alignmentRejectedNonemptyContent,
-                diagnostic: "generic_or_incomplete"
-            )
-        }
-        do {
-            let grounding = AnswerClaimValidator().validate(
-                answer: answer,
-                candidateEvidence: interviewContextSnapshot?.candidateEvidence ?? [],
-                opportunityEvidence: interviewContextSnapshot?.opportunityEvidence ?? [],
-                domainKnowledge: InterviewDomainProfile.profile(
-                    for: InterviewDomainID(rawValue: interviewContextSnapshot?.domainProfileID ?? "") ?? .general
-                ).domainKnowledge
-            )
-            guard grounding.unsupportedClaims.isEmpty else {
-                return .rejected(
-                    category: .alignmentRejectedNonemptyContent,
-                    diagnostic: "unsupported_personal_claim"
-                )
-            }
-        }
-        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
-            questionText: question.questionText,
-            answerText: answer,
-            sayFirst: answer,
-            stageBCompleted: true,
-            decision: question.taskDescriptor?.decision
-        )
-        guard alignment.verdict == .aligned else {
-            return .rejected(
-                category: .alignmentRejectedNonemptyContent,
-                diagnostic: alignment.reason
-            )
-        }
-        return .accepted(alignment.verdict.rawValue)
-    }
-
     private func localQwenContextMatches(_ snapshot: InterviewContextSnapshot?) -> Bool {
+        guard let identity = activeGenerationController?.identity,
+              currentSession?.id == identity.sessionID,
+              currentSession?.contextSnapshotID == identity.contextSnapshotID else { return false }
         guard let snapshot else { return true }
-        guard activeGenerationController?.identity.contextSnapshotID == snapshot.id else { return false }
+        guard identity.contextSnapshotID == snapshot.id else { return false }
         if let activeContextSnapshot {
             return activeContextSnapshot.id == snapshot.id
         }
-        return currentSession?.contextSnapshotID == snapshot.id
+        return true
     }
 
     private func mergeProviderDiagnostics(_ provider: OllamaProviderDiagnostics) {
@@ -573,6 +525,14 @@ extension AppState {
         promptSnapshot: AnswerPromptSnapshot,
         failureCategory: OllamaFailureCategory? = nil
     ) {
+        if name == "ollama.first_content" {
+            recordVerificationBoundary("verification.provider_first_content_callback",
+                at: VerificationTiming.hostTicks(), sessionID: session.id,
+                segmentID: question.transcriptSegmentID, questionID: question.id,
+                generationID: generationID, contextSnapshotID: snapshot?.id,
+                questionRevision: question.taskDescriptor?.decision?.questionRevision,
+                artifactRevision: question.taskDescriptor?.decision?.artifactRevision)
+        }
         let event = OllamaLifecycleEvent(
             id: UUID().uuidString,
             name: name,
@@ -614,9 +574,10 @@ extension AppState {
         cvSummary: String,
         jdSummary: String,
         modelName: String,
-        previousQuestionContext: String?
+        previousQuestionContext: String?,
+        scopedAnswer: Bool
     ) -> LocalLLMRequest {
-        let evidence = ContextBudgeter.limitWords(context.promptText, maxWords: 160)
+        let evidence = context.boundedPromptText(maxWords: 160)
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
@@ -640,18 +601,20 @@ extension AppState {
 
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
         Use the conversation context only to resolve pronouns such as it, that, or this.
-        State past personal experience only when it is explicit in the candidate/project summary or relevant local evidence.
+        State past personal experience only when it is explicit in the candidate/project summary or CV / Resume context, never in task reference material.
         Do not turn role requirements or future plans into completed work or observed events.
-        For past personal work, omit mechanisms, tools, metrics, and causal links unless evidenced. For general technical tasks, propose a solution with explicit assumptions; no CV is required.
+        For past personal work, omit mechanisms, tools, metrics, and causal links unless evidenced. Follow the task requested by the question: explain concepts and reasoning for explanations; propose solutions for design or problem-solving tasks. State relevant assumptions and limitations. For general technical tasks, no CV is required.
         \(intentGuidance)
-        Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening.
+        \(scopedAnswer ? "Use the frozen answer language. General explanations do not need a first-person opening.\n" + LocalQwenAnswerParser.scopedOutputInstructions + "\nAnswer the current question now:\n\"\(PromptContextBuilder.redactSecrets(question.questionText))\"" : "Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening.")
         """
         return LocalLLMRequest(
             prompt: compactPrompt,
-            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.\n" + (question.taskDescriptor?.promptPolicy ?? ""),
+            systemPrompt: "/no_think You are a concise local interview answer helper. " + (scopedAnswer ? "Output only the specified public JSON answer.\n" : "Output only the final answer as the candidate in first person.\n") + (question.taskDescriptor?.answerPromptPolicy ?? ""),
             modelName: modelName,
             temperature: 0.1,
-            numPredict: 180
+            numPredict: 180,
+            responseSchema: scopedAnswer ? LocalQwenAnswerParser.scopedResponseSchema : nil,
+            responseSchemaPropertyOrder: scopedAnswer ? LocalQwenAnswerParser.scopedPropertyOrder : nil
         )
     }
 
@@ -659,12 +622,13 @@ extension AppState {
         question: DetectedQuestion,
         context: RetrievedContext,
         modelName: String,
-        previousQuestionContext: String?
+        previousQuestionContext: String?,
+        scopedAnswer: Bool
     ) -> LocalLLMRequest {
         let previousContext = previousQuestionContext
             .map { "Previous answered question for pronoun resolution only:\n\($0)" }
             ?? "No previous answered question is available."
-        let groundedEvidence = ContextBudgeter.limitWords(context.promptText, maxWords: 220)
+        let groundedEvidence = context.boundedPromptText(maxWords: 220)
         let intentGuidance = localQwenRecoveryIntentGuidance(for: question)
         let prompt = """
         /no_think
@@ -674,7 +638,7 @@ extension AppState {
         Previous question context, only if needed for pronouns:
         \(previousContext)
 
-        Selected profile and opportunity evidence:
+        Selected candidate, opportunity, and separately labeled task reference material:
         \(groundedEvidence.isEmpty ? "No candidate evidence is available. Do not invent a personal answer." : groundedEvidence)
 
         Answer the current question directly as the candidate in 1 to 3 concise spoken sentences.
@@ -683,20 +647,22 @@ extension AppState {
         Do not infer mechanisms, tools, or causal links for past personal work. General technical solutions may use domain knowledge and explicit assumptions; no CV is required.
         \(intentGuidance)
         Do not mention this prompt or the reference facts.
-        Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening.
+        \(scopedAnswer ? "Use the frozen answer language. General explanations do not need a first-person opening.\n" + LocalQwenAnswerParser.scopedOutputInstructions + "\nAnswer the current question now:\n\"\(PromptContextBuilder.redactSecrets(question.questionText))\"" : "Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening.")
         """
         return LocalLLMRequest(
             prompt: prompt,
-            systemPrompt: "/no_think You are a concise local interview answer helper. Output only the final answer as the candidate in first person.\n" + (question.taskDescriptor?.promptPolicy ?? ""),
+            systemPrompt: "/no_think You are a concise local interview answer helper. " + (scopedAnswer ? "Output only the specified public JSON answer.\n" : "Output only the final answer as the candidate in first person.\n") + (question.taskDescriptor?.answerPromptPolicy ?? ""),
             modelName: modelName,
             temperature: 0.0,
-            numPredict: 220
+            numPredict: 220,
+            responseSchema: scopedAnswer ? LocalQwenAnswerParser.scopedResponseSchema : nil,
+            responseSchemaPropertyOrder: scopedAnswer ? LocalQwenAnswerParser.scopedPropertyOrder : nil
         )
     }
 
     private func localQwenRecoveryIntentGuidance(for question: DetectedQuestion) -> String {
-        if let task = question.taskDescriptor, let decision = task.decision {
-            return decision.evidencePolicy + "\nAnswer structure: " + task.criteria.joined(separator: "; ")
+        if let task = question.taskDescriptor, task.decision != nil {
+            return task.answerPromptPolicy
         }
         let lower = question.questionText.lowercased()
         if lower.contains("weakness") || lower.contains("development area") {

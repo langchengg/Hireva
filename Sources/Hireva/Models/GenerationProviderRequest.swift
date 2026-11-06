@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Safe diagnostics are explicitly redacted so settings or diagnostics views can
 /// inspect request metadata without leaking provider secrets.
-struct GenerationProviderRequest: Equatable {
+struct GenerationProviderRequest: Equatable, Sendable {
     let prompt: String
     let model: String
     let providerID: String

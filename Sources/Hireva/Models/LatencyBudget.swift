@@ -113,7 +113,7 @@ struct LatencyBudget {
 }
 
 /// Rolling latency averages with percentile breakdowns
-struct LatencyAverages {
+struct LatencyAverages: Sendable {
     let count: Int
     let avgFirstVisibleMS: Double?
     let p50FirstVisibleMS: Int?

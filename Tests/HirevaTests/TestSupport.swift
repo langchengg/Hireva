@@ -1,24 +1,30 @@
 import Foundation
+import Testing
+import os
 @testable import Hireva
 
-final class HermeticTestASRProvider: ASRProvider, @unchecked Sendable {
+final class HermeticTestASRProvider: ASRProvider {
     let id: ASRProviderID = .localParakeet
     let displayName = "Hermetic ASR"
 
-    private let lock = NSLock()
-    private var continuation: AsyncThrowingStream<TranscriptSegment, Error>.Continuation?
+    private struct Round: Sendable {
+        let id: UUID
+        let continuation: AsyncThrowingStream<TranscriptSegment, Error>.Continuation
+    }
+    private let state = OSAllocatedUnfairLock(initialState: Optional<Round>.none)
+
+    var hasActiveContinuationForTesting: Bool { state.withLock { $0 != nil } }
 
     func isAvailable() async -> Bool { true }
 
     func startTranscription(config: ASRConfig) async throws -> AsyncThrowingStream<TranscriptSegment, Error> {
-        AsyncThrowingStream { continuation in
-            lock.lock()
-            self.continuation = continuation
-            lock.unlock()
+        let roundID = UUID()
+        return AsyncThrowingStream { continuation in
+            state.withLock { $0 = Round(id: roundID, continuation: continuation) }
             continuation.onTermination = { [weak self] _ in
-                self?.lock.lock()
-                self?.continuation = nil
-                self?.lock.unlock()
+                self?.state.withLock { current in
+                    if current?.id == roundID { current = nil }
+                }
             }
         }
     }
@@ -40,17 +46,15 @@ final class HermeticTestASRProvider: ASRProvider, @unchecked Sendable {
             asrFinalizationReason: isFinal ? "final_accepted" : "partial",
             recognitionIsFinal: isFinal
         )
-        lock.lock()
-        let continuation = self.continuation
-        lock.unlock()
+        let continuation = state.withLock { $0?.continuation }
         continuation?.yield(segment)
     }
 
     func stopTranscription() async {
-        let continuation = lock.withLock {
-            let continuation = self.continuation
-            self.continuation = nil
-            return continuation
+        let continuation = state.withLock { current in
+            let captured = current?.continuation
+            current = nil
+            return captured
         }
         continuation?.finish()
     }
@@ -159,6 +163,12 @@ final class HermeticTestLLMClient: LLMClientProtocol, @unchecked Sendable {
 }
 
 enum TestSupport {
+    // Scripted answer providers preserve their supplied text under the actual wire contract.
+    static func scriptedLocalAnswer(_ answer: String, request: LocalLLMRequest) throws -> String {
+        guard !answer.isEmpty, request.responseSchema == LocalQwenAnswerParser.scopedResponseSchema else { return answer }
+        return String(decoding: try JSONEncoder().encode(["scoped_claim": answer, "say_first": answer]), as: UTF8.self)
+    }
+
     static var realAppDatabaseTestsEnabled: Bool {
         ProcessInfo.processInfo.environment["REAL_APP_DB_TESTS"] == "1"
     }
@@ -168,6 +178,37 @@ enum TestSupport {
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+    }
+
+    /// Each fixture still runs every migration on its own queue. Preparing that
+    /// queue must not block unrelated MainActor lifecycle tests from progressing.
+    static func makeInMemoryDatabase() async throws -> sending AppDatabase {
+        try await makeDatabase()
+    }
+
+    /// Keep the supplied file URL and migrations; only queue preparation moves.
+    static func makeDatabase(at path: URL? = nil) async throws -> sending AppDatabase {
+        try Task.checkCancellation()
+        let trace = TestEventWaitTrace(label: "fixture.database.preparation")
+        trace.mark("requested")
+        let database: AppDatabase = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                precondition(!Thread.isMainThread)
+                trace.mark("worker.entered")
+                do {
+                    let database: AppDatabase
+                    if let path { database = try AppDatabase(path: path) }
+                    else { database = try AppDatabase(inMemory: true) }
+                    trace.mark("worker.completed")
+                    continuation.resume(returning: database)
+                }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+        trace.mark("transferred")
+        do { try Task.checkCancellation() }
+        catch { try? database.close(); throw error }
+        return database
     }
 
     static func makeEvidence(
@@ -267,11 +308,13 @@ final class HirevaTestEnvironment {
     init(
         prefix: String = "HirevaTests",
         llmRouter: LLMRouter? = nil,
-        permissionService: PermissionService = HermeticPermissionService(),
+        permissionService: PermissionService? = nil,
+        systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil,
+        systemAudioPermissions: SystemAudioPermissionController? = nil,
         candidateProfile: CandidateProfile? = nil,
         opportunityContext: OpportunityContext? = nil,
         domain: InterviewDomainID = .general
-    ) throws {
+    ) async throws {
         let identifier = UUID().uuidString
         rootDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(identifier)", isDirectory: true)
@@ -288,7 +331,16 @@ final class HirevaTestEnvironment {
         }
         userDefaults = defaults
         try FileManager.default.createDirectory(at: applicationSupportDirectory, withIntermediateDirectories: true)
-        database = try AppDatabase(path: databaseURL)
+        do {
+            database = try await TestSupport.makeDatabase(at: databaseURL)
+        } catch {
+            // The helper closes a transferred queue before propagating cancellation.
+            // Initialization has not published an AppState; only this UUID scope exists.
+            defaults.removePersistentDomain(forName: userDefaultsSuiteName)
+            do { try FileManager.default.removeItem(at: rootDirectory) }
+            catch let cleanupError { Issue.record(cleanupError) }
+            throw error
+        }
         asrProvider = HermeticTestASRProvider()
         let resolvedRouter = llmRouter ?? LLMRouter(
             settingsRepository: SettingsRepository(database: database),
@@ -298,10 +350,13 @@ final class HirevaTestEnvironment {
             database: database,
             questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: resolvedRouter,
-            permissionService: permissionService,
+            permissionService: permissionService ?? HermeticPermissionService(),
+            systemAudioPermissions: systemAudioPermissions,
             keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            systemAudioCaptureService: systemAudioCaptureService,
             dialogueDefaults: defaults
         )
+        appState.localLLMProviderOverride = HermeticUnavailableLocalProvider()
 
         if let candidateProfile {
             try appState.interviewContextRepository.saveCandidateProfile(candidateProfile)
@@ -332,6 +387,23 @@ final class HirevaTestEnvironment {
         try database.close()
         userDefaults.removePersistentDomain(forName: userDefaultsSuiteName)
         try FileManager.default.removeItem(at: rootDirectory)
+    }
+}
+
+/// A fixture must explicitly supply successful local inference; absent injection
+/// is a configuration error instead of access to the machine's Ollama service.
+struct HermeticUnavailableLocalProvider: LocalLLMProvider {
+    let id = "hermetic-unavailable-local"
+    let displayName = "Unconfigured hermetic local provider"
+    func healthCheck(modelName: String) async -> LocalLLMHealth {
+        .init(ollamaRunning: false, selectedModel: modelName, modelInstalled: false,
+            providerSource: .localQwen, lastError: "No local fixture provider was supplied.")
+    }
+    func pullModel(_ modelName: String) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
+        AsyncThrowingStream { $0.finish(throwing: LLMProviderError.notConfigured(displayName)) }
+    }
+    func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
+        throw LLMProviderError.notConfigured(displayName)
     }
 }
 

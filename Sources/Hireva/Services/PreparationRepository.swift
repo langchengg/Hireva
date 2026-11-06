@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct PreparationRecord: Identifiable, Codable {
+struct PreparationRecord: Identifiable, Codable, Sendable {
     var id: String
     var kind: String
     var createdAt: Date

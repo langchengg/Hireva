@@ -6,6 +6,7 @@
 import Foundation
 import LocalAuthentication
 import Security
+import os
 
 /// Normalized Keychain failures surfaced to provider/settings UI.
 enum KeychainError: LocalizedError {
@@ -38,7 +39,7 @@ enum KeychainError: LocalizedError {
 }
 
 /// User-facing state for an API key without exposing the raw key.
-enum KeychainAPIKeyAccessState: Equatable {
+enum KeychainAPIKeyAccessState: Equatable, Sendable {
     case available(maskedKey: String, keyLengthCategory: String)
     case missing
     case authorizationRequired(String)
@@ -85,7 +86,7 @@ enum KeychainAPIKeyAccessState: Equatable {
     }
 }
 
-protocol KeychainStore: AnyObject {
+protocol KeychainStore: AnyObject, Sendable {
     func saveGenericPassword(data: Data, service: String, account: String) throws
     func loadGenericPassword(service: String, account: String, authenticationPolicy: KeychainAuthenticationPolicy) throws -> String?
     func deleteGenericPassword(service: String, account: String) throws
@@ -97,7 +98,7 @@ extension KeychainStore {
     }
 }
 
-enum KeychainAuthenticationPolicy: Equatable {
+enum KeychainAuthenticationPolicy: Equatable, Sendable {
     case skip
     case allow
 }
@@ -181,15 +182,14 @@ final class RealKeychainStore: KeychainStore {
 }
 
 final class InMemoryMockKeychainStore: KeychainStore {
-    private var store: [String: Data] = [:]
-
-    private func makeKey(service: String, account: String) -> String {
-        return "\(service):\(account)"
+    private struct ItemKey: Hashable, Sendable {
+        let service: String
+        let account: String
     }
+    private let items = OSAllocatedUnfairLock(initialState: [ItemKey: Data]())
 
     func saveGenericPassword(data: Data, service: String, account: String) throws {
-        let key = makeKey(service: service, account: account)
-        store[key] = data
+        items.withLock { $0[ItemKey(service: service, account: account)] = data }
     }
 
     func loadGenericPassword(
@@ -197,14 +197,12 @@ final class InMemoryMockKeychainStore: KeychainStore {
         account: String,
         authenticationPolicy: KeychainAuthenticationPolicy
     ) throws -> String? {
-        let key = makeKey(service: service, account: account)
-        guard let data = store[key] else { return nil }
-        return String(data: data, encoding: .utf8)
+        let data = items.withLock { $0[ItemKey(service: service, account: account)] }
+        return data.flatMap { String(data: $0, encoding: .utf8) }
     }
 
     func deleteGenericPassword(service: String, account: String) throws {
-        let key = makeKey(service: service, account: account)
-        store.removeValue(forKey: key)
+        _ = items.withLock { $0.removeValue(forKey: ItemKey(service: service, account: account)) }
     }
 }
 
@@ -235,15 +233,48 @@ extension KeychainAuthenticationPolicy {
 /// This type may return masked key display strings, but it must never log or
 /// expose raw key values. Ad-hoc signing can legitimately cause macOS to ask
 /// for access again after rebuilds because the code signature identity changes.
-final class KeychainService {
+final class KeychainService: Sendable {
     let store: KeychainStore
 
-    // Diagnostic properties
-    var migrationPerformed: Bool = false
-    var legacyItemFound: Bool = false
-    var legacyItemCount: Int = 0
-    var lastReadStatus: String = "Not Checked"
-    var lastWriteStatus: String = "Not Checked"
+    static func defaultStore(
+        isTestProcess: Bool,
+        verification: HirevaVerificationConfiguration?
+    ) -> KeychainStore {
+        // Verification retains product identifiers but must never read or
+        // migrate a person's existing credentials, even in the real GUI.
+        isTestProcess || verification != nil ? InMemoryMockKeychainStore() : RealKeychainStore()
+    }
+
+    struct DiagnosticSnapshot: Sendable {
+        var migrationPerformed = false
+        var legacyItemFound = false
+        var legacyItemCount = 0
+        var lastReadStatus = "Not Checked"
+        var lastWriteStatus = "Not Checked"
+    }
+    // Sole diagnostic storage. No native operation or await holds this lock.
+    private let diagnostics = OSAllocatedUnfairLock(initialState: DiagnosticSnapshot())
+    var diagnosticSnapshot: DiagnosticSnapshot { diagnostics.withLock { $0 } }
+    var migrationPerformed: Bool {
+        get { diagnostics.withLock { $0.migrationPerformed } }
+        set { diagnostics.withLock { $0.migrationPerformed = newValue } }
+    }
+    var legacyItemFound: Bool {
+        get { diagnostics.withLock { $0.legacyItemFound } }
+        set { diagnostics.withLock { $0.legacyItemFound = newValue } }
+    }
+    var legacyItemCount: Int {
+        get { diagnostics.withLock { $0.legacyItemCount } }
+        set { diagnostics.withLock { $0.legacyItemCount = newValue } }
+    }
+    var lastReadStatus: String {
+        get { diagnostics.withLock { $0.lastReadStatus } }
+        set { diagnostics.withLock { $0.lastReadStatus = newValue } }
+    }
+    var lastWriteStatus: String {
+        get { diagnostics.withLock { $0.lastWriteStatus } }
+        set { diagnostics.withLock { $0.lastWriteStatus = newValue } }
+    }
 
     init(store: KeychainStore = RealKeychainStore()) {
         self.store = store
@@ -336,18 +367,27 @@ final class KeychainService {
             }
         }
 
-        legacyItemCount = discoveredItems
-        legacyItemFound = discoveredItems > 0
-        migrationPerformed = migratedAccounts > 0
+        let readStatus: String
+        let writeStatus: String?
         if migratedAccounts > 0 {
-            lastReadStatus = "Success (legacy credentials migrated)"
-            lastWriteStatus = "Success (migrated \(migratedAccounts) account(s))"
-            print("[KeychainService] Legacy credentials copied to the Hireva service. Legacy items were retained.")
+            readStatus = "Success (legacy credentials migrated)"
+            writeStatus = "Success (migrated \(migratedAccounts) account(s))"
         } else if let firstFailure {
-            lastReadStatus = KeychainService.keychainReadStatusMessage(for: firstFailure)
-            lastWriteStatus = "Migration unavailable: \(firstFailure.localizedDescription)"
+            readStatus = KeychainService.keychainReadStatusMessage(for: firstFailure)
+            writeStatus = "Migration unavailable: \(firstFailure.localizedDescription)"
         } else {
-            lastReadStatus = "Success"
+            readStatus = "Success"
+            writeStatus = nil
+        }
+        diagnostics.withLock { [discoveredItems, migratedAccounts] state in
+            state.legacyItemCount = discoveredItems
+            state.legacyItemFound = discoveredItems > 0
+            state.migrationPerformed = migratedAccounts > 0
+            state.lastReadStatus = readStatus
+            if let writeStatus { state.lastWriteStatus = writeStatus }
+        }
+        if migratedAccounts > 0 {
+            print("[KeychainService] Legacy credentials copied to the Hireva service. Legacy items were retained.")
         }
     }
 
@@ -474,7 +514,7 @@ final class KeychainService {
     }
 }
 
-protocol APIKeyStore: AnyObject {
+protocol APIKeyStore: AnyObject, Sendable {
     func saveAPIKey(_ apiKey: String, account: String) throws
     func loadAPIKey(account: String) throws -> String?
     func deleteAPIKey(account: String) throws

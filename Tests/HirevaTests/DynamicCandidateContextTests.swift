@@ -165,20 +165,22 @@ struct DynamicCandidateContextTests {
             isLocal: true,
             createdAt: Date()
         )
+        let requestID = appState.generationCoordinator.beginRequest(triggerPath: .manualGenerate)
         appState.activateGeneration(
             question: question,
             generationID: "active-switch-generation",
             triggerPath: .manualGenerate,
             requestStart: Date(),
             source: .systemAudio,
-            speaker: .interviewer
+            speaker: .interviewer,
+            requestID: requestID
         )
         appState.beginAction(
             ActionID.generateAnswer,
             title: "Generating",
             message: "Waiting for provider"
         )
-        appState.activeAITask = Task { try? await Task.sleep(for: .seconds(30)) }
+        appState.generationCoordinator.registerRequestTask(Task { try? await Task.sleep(for: .seconds(30)) }, requestID: requestID)
 
         appState.selectCandidateProfile(backend.id)
 
@@ -381,6 +383,400 @@ struct DynamicCandidateContextTests {
         )
 
         #expect(decision.unsupportedClaims.isEmpty)
+    }
+
+    @Test
+    func completedConfirmationNeedsCandidateEvidenceOfThatEvent() {
+        let validator = AnswerClaimValidator()
+        for answer in ["I confirmed the recovery result.", "We verified the restored configuration.",
+                       "I have since confirmed the recovery result.", "I then verified the restored configuration.",
+                       "I found that the database correctly reverted all changes.",
+                       "I did verify the recovery result.", "We did confirm the restored configuration.",
+                       "I did not verify the recovery result.", "I didn’t confirm the recovery result.",
+                       "The metrics are unknown, but I did verify the recovery result.",
+                       "The metrics are unknown, I confirmed the recovery result.",
+                       "The metrics are unknown and I confirmed the recovery result.",
+                       "It is unclear whether I verified the recovery speed, but I did verify the recovery result.",
+                       "It is unclear whether I noted the recovery speed, but I noted the recovery result.",
+                       "我确认了恢复结果。", "我们验证了恢复后的配置。"] {
+            #expect(validator.validate(answer: answer, candidateEvidence: [],
+                opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.count == 1)
+        }
+        let tested = SyntheticContextFixtures.evidence(
+            "I tested transaction rollback with deliberately injected failures.", type: .project)
+        for answer in ["I confirmed transaction rollback with deliberately injected failures.",
+                       "I verified transaction rollback with deliberately injected failures.",
+                       "I found transaction rollback working with deliberately injected failures."] {
+            let decision = validator.validate(answer: answer, candidateEvidence: [tested],
+                opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims.count == 1)
+            #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+        }
+        for activity in ["tested", "validated", "evaluated"] {
+            let source = SyntheticContextFixtures.evidence(
+                "I \(activity) the recovery configuration after a failure.", type: .project)
+            #expect(!validator.validate(answer: "I confirmed the recovery configuration after a failure.",
+                candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        }
+        let confirmedWithMissingMetrics = SyntheticContextFixtures.evidence(
+            "Verified the recovery result after the failure, but no metrics were recorded.", type: .project)
+        #expect(!validator.validate(answer: "I did not verify the recovery result after the failure.",
+            candidateEvidence: [confirmedWithMissingMetrics], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        #expect(validator.validate(answer: "I did verify the recovery result after the failure.",
+            candidateEvidence: [confirmedWithMissingMetrics], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        let unknownObservation = SyntheticContextFixtures.evidence(
+            "It is unknown whether I noted the recovery result.", type: .project)
+        #expect(!validator.validate(answer: "I noted the recovery result.",
+            candidateEvidence: [unknownObservation], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        let futureSource = SyntheticContextFixtures.evidence(
+            "I will confirm the recovery configuration after a failure.", type: .project)
+        #expect(!validator.validate(answer: "I confirmed the recovery configuration after a failure.",
+            candidateEvidence: [futureSource], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        #expect(!validator.validate(answer: "I would apply what I verified during the recovery test.",
+            candidateEvidence: [], opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        for (planned, completed) in [("我会验证：恢复结果。", "我验证了：恢复结果。"),
+                                     ("我们将确认：恢复结果。", "我们确认了：恢复结果。")] {
+            let source = SyntheticContextFixtures.evidence(planned, type: .project)
+            #expect(!validator.validate(answer: completed, candidateEvidence: [source],
+                opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        }
+        let chineseActivity = SyntheticContextFixtures.evidence("我测试了：恢复结果。", type: .project)
+        #expect(!validator.validate(answer: "我发现了：恢复结果。", candidateEvidence: [chineseActivity],
+            opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+    }
+
+    @Test
+    func explicitConfirmationSupportsItsRecordedResult() {
+        for statement in ["I confirmed the recovery result after the failure.",
+                          "We verified the restored configuration after the failure.",
+                          "I found that the recovery restored the configuration after the failure.",
+                          "I did verify the recovery result after the failure.",
+                          "I did not verify the recovery result after the failure.",
+                          "The metrics are unknown, but I did verify the recovery result after the failure.",
+                          "我确认了故障后的恢复结果。", "我们验证了故障后恢复的配置。",
+                          "我发现了故障后的恢复结果。"] {
+            let source = SyntheticContextFixtures.evidence(statement, type: .project)
+            let decision = AnswerClaimValidator().validate(answer: statement,
+                candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims.isEmpty)
+            #expect(decision.supportingCandidateEvidenceIDs == [source.id])
+        }
+    }
+
+    @Test
+    func prospectiveVerificationAndGeneralFactsDoNotInventPersonalResults() {
+        for answer in ["I would verify the recovery result before proceeding.",
+                       "We will confirm the configuration before proceeding.",
+                       "I would check the verified configuration before proceeding.",
+                       "I would rely on a confirmed recovery result before proceeding.",
+                       "I would proceed only after the recovery result was verified.",
+                       "I would inspect the found configuration before proceeding.",
+                       "我会验证恢复结果。", "我们将确认恢复后的配置。",
+                       "The verifier confirmed the restored configuration."] {
+            let decision = AnswerClaimValidator().validate(answer: answer,
+                candidateEvidence: [], opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims.isEmpty)
+            #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+        }
+    }
+
+    @Test(arguments: [
+        "I did not observe specific metrics or outcomes from that experiment.",
+        "I didn't observe specific metrics or outcomes from that experiment.",
+        "I didn’t observe specific metrics or outcomes from that experiment.",
+        "We did not notice anomalies during the experiment.",
+        "我们没有观察到实验的具体结果。"
+    ])
+    func pastObservationCannotBeInferredFromSourceSilence(_ answer: String) {
+        let activity = SyntheticContextFixtures.evidence(
+            "I tested transaction rollback with deliberately injected failures.", type: .project)
+        let missingRecord = SyntheticContextFixtures.evidence(
+            "The experiment has no recorded metrics, outcomes or observations.", type: .project)
+        let observedWithMissingRecord = SyntheticContextFixtures.evidence(
+            "I observed specific metrics during the experiment, but no outcomes were recorded.", type: .project)
+        let unrelatedNegation = SyntheticContextFixtures.evidence(
+            "I did not record any metrics, although I did observe specific metrics during the experiment.", type: .project)
+        for sources in [[], [activity], [missingRecord], [observedWithMissingRecord], [unrelatedNegation]] {
+            let decision = AnswerClaimValidator().validate(answer: answer,
+                candidateEvidence: sources, opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims == [answer])
+            #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+        }
+    }
+
+    @Test(arguments: [
+        "I did not observe specific metrics or outcomes from that experiment.",
+        "I didn’t observe specific metrics or outcomes from that experiment.",
+        "We did not notice anomalies during the experiment.",
+        "我们没有观察到实验的具体结果。"
+    ])
+    func explicitPastNegativeObservationSupportsTheRecordedDenial(_ statement: String) {
+        let source = SyntheticContextFixtures.evidence(statement, type: .project)
+        let decision = AnswerClaimValidator().validate(answer: statement,
+            candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs == [source.id])
+    }
+
+    @Test
+    func affirmativePastObservationKeepsUnrelatedMissingRecordsSeparate() {
+        let answer = "I did observe specific metrics during the experiment."
+        for statement in ["I observed specific metrics during the experiment, but no outcomes were recorded.",
+                          "Observed specific metrics during the experiment, but no outcomes were recorded."] {
+            let source = SyntheticContextFixtures.evidence(statement, type: .project)
+            let decision = AnswerClaimValidator().validate(answer: answer,
+                candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims.isEmpty)
+            #expect(decision.supportingCandidateEvidenceIDs == [source.id])
+        }
+        let activity = SyntheticContextFixtures.evidence("I tested the experiment.", type: .project)
+        #expect(!AnswerClaimValidator().validate(answer: answer, candidateEvidence: [activity],
+            opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+    }
+
+    @Test(arguments: [
+        "I would observe the experiment before proceeding.",
+        "I would note the experiment conditions before proceeding.",
+        "If I did verify the experiment result, I would repeat the experiment.",
+        "I cannot confirm whether I verified the experiment result.",
+        "I cannot confirm whether I noted the recovery result.",
+        "I will not observe the experiment until the configuration is ready.",
+        "If I did not observe anomalies, I would repeat the experiment.",
+        "假如我没有观察到结果，我会再次检查实验配置。",
+        "我看到结果后会再次检查实验配置。"
+    ])
+    func hypotheticalObservationDoesNotAssertPersonalHistory(_ answer: String) {
+        let decision = AnswerClaimValidator().validate(answer: answer,
+            candidateEvidence: [], opportunityEvidence: [], domainKnowledge: [])
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func prospectivePlanStillChecksAnExplicitPastObservation() {
+        let answer = "I will repeat the experiment because I did not observe specific metrics."
+        let decision = AnswerClaimValidator().validate(answer: answer,
+            candidateEvidence: [], opportunityEvidence: [], domainKnowledge: [])
+        #expect(decision.unsupportedClaims == [answer])
+    }
+
+    @Test(arguments: [
+        "I did not observe specific metrics or outcomes from that experiment.",
+        "Since the specific recovery mechanism depends on the database implementation, I noted that the outcome varies based on how the system handles those injected errors.",
+        "I did not verify specific recovery mechanisms or metrics, as those details depend on the underlying implementation."
+    ])
+    func liveFormalAnswerCannotTurnMissingObservationIntoPersonalDenial(_ denial: String) {
+        let source = SyntheticContextFixtures.evidence(
+            "I tested transaction rollback with deliberately injected failures.", type: .project)
+        let answer = "In my database learning prototype, I tested transaction rollback by deliberately injecting failures. " + denial
+        let grounding = AnswerClaimValidator().validate(answer: answer,
+            candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+        #expect(grounding.unsupportedClaims == [denial])
+        let snapshot = InterviewContextSnapshot(id: "negative-observation-snapshot", sessionID: "negative-observation-session",
+            candidateProfileID: "negative-observation-profile", candidateProfileVersion: 1,
+            opportunityContextID: nil, opportunityContextVersion: nil,
+            domainProfileID: InterviewDomainID.softwareEngineering.rawValue,
+            candidateEvidence: [source], opportunityEvidence: [], createdAt: Date())
+        let question = DetectedQuestion(id: "negative-observation-question", sessionID: snapshot.sessionID,
+            questionText: "In your prototype, how did you test transaction rollback?",
+            intent: .projectDeepDive, answerStrategy: .projectWalkthrough, confidence: 1,
+            shouldTrigger: true, questionComplete: true, modelName: "synthetic", promptVersion: "synthetic", createdAt: Date())
+        let validation = LocalQwenAnswerValidationResult.validate(answer, question: question,
+            interviewContextSnapshot: snapshot)
+        #expect(!validation.accepted)
+        #expect(validation.diagnostic == "unsupported_personal_claim")
+        var task = InterviewTaskDescriptor(question: question.questionText, kind: .coding)
+        task.criteria = ["Describe the rollback test"]
+        let feedback = PracticeFeedback(covered: [.init(criterion: task.criteria[0], quote: answer)],
+            missing: [], suggestions: [], followUp: nil, reason: "Scripted coverage only.", reference: answer)
+        #expect(throws: (any Error).self) {
+            try feedback.validated(answer: answer, task: task, evidence: [source])
+        }
+        let explicitEvent = SyntheticContextFixtures.evidence(denial, type: .project)
+        #expect(throws: Never.self) {
+            try feedback.validated(answer: answer, task: task, evidence: [source, explicitEvent])
+        }
+    }
+
+    @Test(arguments: [
+        "Since the specific failure conditions and recovery scope were not defined in my prototype, the outcome depends on the implementation details I chose.",
+        "I will test it again, but the failure conditions were not defined in my prototype."
+    ])
+    func liveFormalAnswerCannotInventAnOwnedPrototypeState(_ denial: String) {
+        let source = SyntheticContextFixtures.evidence(
+            "I tested transaction rollback with deliberately injected failures.", type: .project)
+        let answer = "I tested transaction rollback by deliberately injecting failures into my small database learning prototype to observe the behavior. " + denial
+        let grounding = AnswerClaimValidator().validate(answer: answer,
+            candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+        #expect(grounding.unsupportedClaims == [denial])
+        let snapshot = InterviewContextSnapshot(id: "prototype-state-snapshot", sessionID: "prototype-state-session",
+            candidateProfileID: "prototype-state-profile", candidateProfileVersion: 1,
+            opportunityContextID: nil, opportunityContextVersion: nil,
+            domainProfileID: InterviewDomainID.softwareEngineering.rawValue,
+            candidateEvidence: [source], opportunityEvidence: [], createdAt: Date())
+        let question = DetectedQuestion(id: "prototype-state-question", sessionID: snapshot.sessionID,
+            questionText: "In your prototype, how did you test transaction rollback?",
+            intent: .projectDeepDive, answerStrategy: .projectWalkthrough, confidence: 1,
+            shouldTrigger: true, questionComplete: true, modelName: "synthetic", promptVersion: "synthetic", createdAt: Date())
+        let validation = LocalQwenAnswerValidationResult.validate(answer, question: question,
+            interviewContextSnapshot: snapshot)
+        #expect(!validation.accepted)
+        #expect(validation.diagnostic == "unsupported_personal_claim")
+        var explicitlySupported = snapshot
+        explicitlySupported.candidateEvidence.append(SyntheticContextFixtures.evidence(denial, type: .project))
+        #expect(LocalQwenAnswerValidationResult.validate(answer, question: question,
+            interviewContextSnapshot: explicitlySupported).accepted)
+    }
+
+    @Test
+    func liveFormalAnswerCannotInventACompletedFocusActivity() {
+        let source = SyntheticContextFixtures.evidence(
+            "I built a small database learning prototype. I tested transaction rollback with deliberately injected failures. I compared concurrent updates and index trade offs in the prototype.", type: .project)
+        let activity = "I focused on the behavior within the simulation environment rather than production conditions."
+        let answer = "I tested transaction rollback by deliberately injecting failures into my prototype to observe how the system handled them. " + activity
+        let snapshot = InterviewContextSnapshot(id: "focus-snapshot", sessionID: "focus-session",
+            candidateProfileID: "focus-profile", candidateProfileVersion: 1,
+            opportunityContextID: nil, opportunityContextVersion: nil,
+            domainProfileID: InterviewDomainID.softwareEngineering.rawValue,
+            candidateEvidence: [source], opportunityEvidence: [], createdAt: Date())
+        let question = DetectedQuestion(id: "focus-question", sessionID: snapshot.sessionID,
+            questionText: "In your prototype, how did you test transaction rollback?",
+            intent: .projectDeepDive, answerStrategy: .projectWalkthrough, confidence: 1,
+            shouldTrigger: true, questionComplete: true, modelName: "synthetic", promptVersion: "synthetic", createdAt: Date())
+        #expect(AnswerClaimValidator().validate(answer: answer, candidateEvidence: [source],
+            opportunityEvidence: [], domainKnowledge: []).unsupportedClaims == [activity])
+        let validation = LocalQwenAnswerValidationResult.validate(answer, question: question, interviewContextSnapshot: snapshot)
+        #expect(!validation.accepted && validation.diagnostic == "unsupported_personal_claim")
+        var supported = snapshot
+        supported.candidateEvidence.append(SyntheticContextFixtures.evidence(activity, type: .project))
+        #expect(LocalQwenAnswerValidationResult.validate(answer, question: question, interviewContextSnapshot: supported).accepted)
+        for plan in ["I will perform focused testing of the recovery path.",
+                     "If I focused on simulation, I would still test production separately.",
+                     "The other team focused on simulation behavior."] {
+            #expect(AnswerClaimValidator().validate(answer: plan, candidateEvidence: [],
+                opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        }
+    }
+
+    @Test
+    func liveFormalAnswerCannotInventAnActiveDefinitionDenial() {
+        let source = SyntheticContextFixtures.evidence(
+            "I built a small database learning prototype. I tested transaction rollback with deliberately injected failures. I compared concurrent updates and index trade offs in the prototype.", type: .project)
+        let denial = "I did not specify the exact failure conditions or recovery mechanisms, so the behavior depends on the underlying implementation details."
+        let answer = "I tested transaction rollback by deliberately injecting failures into my prototype to observe the behavior. " + denial
+        let snapshot = InterviewContextSnapshot(id: "definition-action-snapshot", sessionID: "definition-action-session",
+            candidateProfileID: "definition-action-profile", candidateProfileVersion: 1,
+            opportunityContextID: nil, opportunityContextVersion: nil,
+            domainProfileID: InterviewDomainID.softwareEngineering.rawValue,
+            candidateEvidence: [source], opportunityEvidence: [], createdAt: Date())
+        let question = DetectedQuestion(id: "definition-action-question", sessionID: snapshot.sessionID,
+            questionText: "In your prototype, how did you test transaction rollback?",
+            intent: .projectDeepDive, answerStrategy: .projectWalkthrough, confidence: 1,
+            shouldTrigger: true, questionComplete: true, modelName: "synthetic", promptVersion: "synthetic", createdAt: Date())
+        #expect(AnswerClaimValidator().validate(answer: answer, candidateEvidence: [source],
+            opportunityEvidence: [], domainKnowledge: []).unsupportedClaims == [denial])
+        let validation = LocalQwenAnswerValidationResult.validate(answer, question: question, interviewContextSnapshot: snapshot)
+        #expect(!validation.accepted && validation.diagnostic == "unsupported_personal_claim")
+        var supported = snapshot
+        supported.candidateEvidence.append(SyntheticContextFixtures.evidence(denial, type: .project))
+        #expect(LocalQwenAnswerValidationResult.validate(answer, question: question, interviewContextSnapshot: supported).accepted)
+        let affirmative = SyntheticContextFixtures.evidence("I specified the exact failure conditions and recovery mechanisms.", type: .project)
+        #expect(AnswerClaimValidator().validate(answer: denial, candidateEvidence: [affirmative],
+            opportunityEvidence: [], domainKnowledge: []).unsupportedClaims == [denial])
+        for hypothetical in ["I would specify the exact failure conditions before testing.",
+                             "If I did not specify the failure conditions, the test would be incomplete.",
+                             "The other engineer did not specify the failure conditions.",
+                             "I would use a configuration that was specified by another engineer.",
+                             "The available records do not specify the failure conditions."] {
+            #expect(AnswerClaimValidator().validate(answer: hypothetical, candidateEvidence: [],
+                opportunityEvidence: [], domainKnowledge: []).unsupportedClaims.isEmpty)
+        }
+    }
+
+    @Test
+    func anUnrecordedDefinitionDoesNotEstablishItsAbsence() {
+        let claim = "The failure conditions were not defined in my prototype."
+        for statement in ["There is no record of whether the failure conditions were defined in the prototype.",
+                          "There is no record that the failure conditions were not defined in the prototype.",
+                          "The failure conditions were defined in my prototype, but no test results were recorded."] {
+            let source = SyntheticContextFixtures.evidence(statement, type: .project)
+            let decision = AnswerClaimValidator().validate(answer: claim,
+                candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims == [claim])
+        }
+        for statement in [claim, "I did not define the failure conditions in my prototype.",
+                          "我的原型没有定义故障条件。", "我们的原型没有定义故障条件。"] {
+            let source = SyntheticContextFixtures.evidence(statement, type: .project)
+            let decision = AnswerClaimValidator().validate(answer: statement,
+                candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+            #expect(decision.unsupportedClaims.isEmpty)
+            #expect(decision.supportingCandidateEvidenceIDs == [source.id])
+        }
+        let source = SyntheticContextFixtures.evidence(
+            "The failure conditions were defined in my prototype, but no test results were recorded.", type: .project)
+        let affirmative = AnswerClaimValidator().validate(answer: "The failure conditions were defined in my prototype.",
+            candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+        #expect(affirmative.unsupportedClaims.isEmpty)
+        #expect(affirmative.supportingCandidateEvidenceIDs == [source.id])
+        for answer in ["I will test it again because the failure conditions were not defined in my prototype.",
+                       "I will test it again, but the failure conditions were not defined in my prototype.",
+                       "My prototype's failure conditions were not defined."] {
+            #expect(AnswerClaimValidator().validate(answer: answer, candidateEvidence: [],
+                opportunityEvidence: [], domainKnowledge: []).unsupportedClaims == [answer])
+        }
+    }
+
+    @Test(arguments: [
+        "I would define the failure conditions in my prototype before testing.",
+        "If failure conditions were not defined in my prototype, a later test would need them.",
+        "If our prototype has no failure conditions, the design needs clarification.",
+        "I would define a contract if the failure conditions were not defined in my prototype.",
+        "The other team's prototype has no defined failure conditions.",
+        "I would use a configuration that was defined by another engineer.",
+        "In my prototype design, I would use a configuration that was defined by another engineer.",
+        "I would use my prototype, but a configuration was defined by another engineer.",
+        "如果我的原型没有定义故障条件，就需要澄清设计。",
+        "我会在我的原型中定义故障条件。"
+    ])
+    func hypotheticalOwnedPrototypeStatesAreNotPersonalHistory(_ answer: String) {
+        let decision = AnswerClaimValidator().validate(answer: answer,
+            candidateEvidence: [], opportunityEvidence: [], domainKnowledge: [])
+        #expect(decision.unsupportedClaims.isEmpty)
+        #expect(decision.supportingCandidateEvidenceIDs.isEmpty)
+    }
+
+    @Test
+    func liveFormalAnswerCannotUpgradeTestingIntoConfirmedSuccess() {
+        // Closed synthetic GUI result: the source records testing, not its outcome.
+        let source = SyntheticContextFixtures.evidence(
+            "I tested transaction rollback with deliberately injected failures.", type: .project)
+        let answer = "I tested transaction rollback in my prototype by deliberately injecting failures to observe the all-or-nothing behavior. I confirmed that the system rolled back to its previous state, ensuring no partial changes remained."
+        let grounding = AnswerClaimValidator().validate(answer: answer,
+            candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+        #expect(grounding.unsupportedClaims == ["I confirmed that the system rolled back to its previous state, ensuring no partial changes remained."])
+        let snapshot = InterviewContextSnapshot(id: "confirmation-snapshot", sessionID: "confirmation-session",
+            candidateProfileID: "confirmation-profile", candidateProfileVersion: 1,
+            opportunityContextID: nil, opportunityContextVersion: nil,
+            domainProfileID: InterviewDomainID.softwareEngineering.rawValue,
+            candidateEvidence: [source], opportunityEvidence: [], createdAt: Date())
+        let question = DetectedQuestion(id: "confirmation-question", sessionID: snapshot.sessionID,
+            questionText: "In your prototype, how did you test transaction rollback when a step failed?",
+            intent: .projectDeepDive, answerStrategy: .projectWalkthrough, confidence: 1,
+            shouldTrigger: true, questionComplete: true, modelName: "synthetic", promptVersion: "synthetic", createdAt: Date())
+        let validation = LocalQwenAnswerValidationResult.validate(answer, question: question,
+            interviewContextSnapshot: snapshot)
+        #expect(!validation.accepted)
+        #expect(validation.diagnostic == "unsupported_personal_claim")
+        // A bounded primary-prompt diagnostic produced this different outcome
+        // verb. Its public formal response is still a completed finding.
+        let findingAnswer = "I tested transaction rollback in my prototype by deliberately injecting failures to observe the system's behavior. I found that the database correctly reverted all changes when an operation failed before the commit."
+        let finding = AnswerClaimValidator().validate(answer: findingAnswer,
+            candidateEvidence: [source], opportunityEvidence: [], domainKnowledge: [])
+        #expect(finding.unsupportedClaims == ["I found that the database correctly reverted all changes when an operation failed before the commit."])
+        let findingValidation = LocalQwenAnswerValidationResult.validate(findingAnswer, question: question,
+            interviewContextSnapshot: snapshot)
+        #expect(!findingValidation.accepted)
+        #expect(findingValidation.diagnostic == "unsupported_personal_claim")
     }
 
     @Test

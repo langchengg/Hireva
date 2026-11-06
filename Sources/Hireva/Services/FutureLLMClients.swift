@@ -1,6 +1,6 @@
 import Foundation
 
-final class OpenAILLMClient: LLMClientProtocol {
+final class OpenAILLMClient: LLMClientProtocol, Sendable {
     let providerKind: LLMProviderKind = .openAI
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
@@ -21,7 +21,7 @@ final class OpenAILLMClient: LLMClientProtocol {
     }
 }
 
-final class AnthropicLLMClient: LLMClientProtocol {
+final class AnthropicLLMClient: LLMClientProtocol, Sendable {
     let providerKind: LLMProviderKind = .anthropic
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
@@ -42,7 +42,7 @@ final class AnthropicLLMClient: LLMClientProtocol {
     }
 }
 
-final class GeminiLLMClient: LLMClientProtocol {
+final class GeminiLLMClient: LLMClientProtocol, Sendable {
     let providerKind: LLMProviderKind = .gemini
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {

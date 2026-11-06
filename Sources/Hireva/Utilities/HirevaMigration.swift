@@ -11,6 +11,7 @@ enum HirevaProductIdentity {
 
 enum HirevaPreferenceKeys {
     static let selectedASRProvider = "Hireva.selectedASRProvider"
+    static let parakeetContextBias = "Hireva.parakeetContextBias"
     static let activeASRProvider = "Hireva.activeASRProvider"
     static let selectedQwenModel = "Hireva.selectedQwenModel"
     static let answerProviderMode = "Hireva.answerProviderMode"
@@ -320,6 +321,59 @@ enum HirevaMigrationError: LocalizedError {
 
 public enum HirevaStartup {
     public static func preparePersistentIdentity() throws {
-        _ = try HirevaMigrationCoordinator.production().performBeforeDatabaseOpen()
+        try preparePersistentIdentity(
+            environment: ProcessInfo.processInfo.environment,
+            verificationOnlyBundle: Bundle.main.object(forInfoDictionaryKey: "HirevaVerificationOnly") as? Bool == true,
+            verificationConfiguration: HirevaVerificationConfiguration.current,
+            migrateProduction: {
+                _ = try HirevaMigrationCoordinator.production().performBeforeDatabaseOpen()
+            }
+        )
+    }
+
+    static func preparePersistentIdentity(
+        environment: [String: String],
+        bundleSourceRoot: String?,
+        verificationOnlyBundle: Bool = false,
+        migrateProduction: () throws -> Void
+    ) throws {
+        try preparePersistentIdentity(environment: environment,
+            verificationOnlyBundle: verificationOnlyBundle,
+            verificationConfiguration: HirevaVerificationConfiguration.load(
+                environment: environment, bundleSourceRoot: bundleSourceRoot),
+            migrateProduction: migrateProduction)
+    }
+
+    static func preparePersistentIdentity(
+        environment: [String: String],
+        verificationOnlyBundle: Bool,
+        verificationConfiguration: HirevaVerificationConfiguration?,
+        migrateProduction: () throws -> Void
+    ) throws {
+        // Acceptance bundles keep the product identity, but cannot become a
+        // production launch if LaunchServices or a UI tool drops the environment.
+        guard !verificationOnlyBundle || environment["HIREVA_VERIFICATION_MODE"] == "1" else {
+            throw HirevaStartupError.invalidVerificationConfiguration
+        }
+        if HirevaVerificationConfiguration.isRequested(environment: environment) {
+            // The actual runner passes the same immutable `current` snapshot
+            // used by AppPaths and bootstrap. A later load cannot turn an
+            // admitted verification launch into production storage.
+            guard verificationConfiguration != nil else {
+                throw HirevaStartupError.invalidVerificationConfiguration
+            }
+            // Synthetic runs have no legacy product identity to import.
+            // AppDatabase still applies schema migrations to the isolated DB.
+            return
+        }
+        try migrateProduction()
+    }
+}
+
+enum HirevaStartupError: LocalizedError {
+    case invalidVerificationConfiguration
+
+    var errorDescription: String? {
+        "Invalid verification configuration; production identity migration was not started."
     }
 }

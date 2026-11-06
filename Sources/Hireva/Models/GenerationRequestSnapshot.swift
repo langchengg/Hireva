@@ -25,7 +25,7 @@ enum ContextBleedRisk: String, Codable, Hashable {
 /// `promptPrimaryQuestion` must match `questionTextSnapshot`; previous
 /// transcript is diagnostic/background only and must never redefine the answer
 /// target.
-struct AnswerPromptSnapshot: Equatable {
+struct AnswerPromptSnapshot: Equatable, Sendable {
     var detectedQuestionID: String?
     var questionTextSnapshot: String
     var normalizedQuestionText: String
@@ -57,7 +57,7 @@ struct AnswerPromptSnapshot: Equatable {
 ///
 /// This binds the generation ID, detected question ID, source attribution, and
 /// prompt snapshot so late callbacks can be checked against the active request.
-struct GenerationRequestSnapshot: Equatable {
+struct GenerationRequestSnapshot: Equatable, Sendable {
     var detectedQuestionID: String
     var generationID: String
     var transcriptSegmentID: String?

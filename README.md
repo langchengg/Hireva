@@ -1,3 +1,8 @@
+> 本地产物入口已统一：普通构建用 `./script/build_and_run.sh --build-only`，运行用同一脚本不带参数。
+> 应用和缓存位于非同步的 `~/Developer/HirevaArtifacts/<repository-id>/`；使用
+> `python3 script/artifact_lifecycle.py paths` 查询绝对应用路径。旧 `dist/` 和时间戳目录仅是历史产物。
+> 打包、证据保留、互斥与恢复规则见 [本地产物生命周期](docs/artifact-lifecycle.md)。
+
 <div align="center">
 
 # Hireva
@@ -89,7 +94,7 @@ Candidate evidence and opportunity evidence are modeled separately. Validation g
 
 - **🎙️ System and microphone capture** — ScreenCaptureKit and AVFoundation support **Microphone Only**, **System Audio Only**, and **Microphone + System Audio** modes.
 - **📝 Two ASR paths** — use Apple Speech or the experimental local Parakeet TDT 0.6B v3 INT8 pipeline. The current Parakeet integration finalizes text at utterance boundaries; it does not claim word-by-word partial streaming.
-- **🧠 Local Qwen answers** — Qwen3.5 4B runs through Ollama's `/api/chat` endpoint with cancellable NDJSON streaming and hidden model-thinking output.
+- **🧠 Local Qwen answers** — Qwen3.5 4B runs through Ollama's cancellable NDJSON streaming API with model-thinking output hidden.
 - **☁️ Optional DeepSeek** — configure a remote provider only when a cloud-backed answer path is wanted. Provider credentials are stored in macOS Keychain.
 - **📚 Candidate-aware retrieval** — Candidate Profile, CV/project evidence, Opportunity Context, job-description chunks, and additional notes are retrieved into a frozen request snapshot.
 - **🔒 Evidence and alignment checks** — unsupported personal claims, opportunity-to-experience conversion, future-to-past claims, answer mismatch, and context bleed are checked before publication.
@@ -153,15 +158,21 @@ modes, floating assistant and shortcuts. Only use live assistance where it is
 allowed and participants know about it. Starting live capture pauses practice
 and lower-priority inference. Audio source does not identify the speaker.
 
-Implementation is broader than the acceptance completed on this machine. See
+Implementation is broader than the acceptance completed on this machine. The
+current three 102-case diagnostic rounds each reached product required recall
+56/58, with raw model recall 48/58. Technical-answer and Practice quality still
+fail their contracts. Three default-mode test runs and a serial control pass on
+the recorded frozen source. A controlled 50+50 system-audio comparison and a
+1849.876-second engineering soak completed, but neither establishes qualified
+visible-GUI acceptance. Current desktop access remains blocked. See
 [the current workflow acceptance record](docs/workflow-acceptance.md) for exact
-verified scopes, failed cases and blocked GUI/audio checks.
+source identities, denominators, timing limits and retained failures.
 
 ## Installation
 
 ### 🍎 macOS
 
-Hireva currently ships as a source-built developer preview for Apple Silicon Macs running macOS 14 or later. There is no public GitHub Release asset yet.
+Hireva currently ships as a source-built developer preview for Apple Silicon Macs. The app and helper retain a macOS 14 deployment target. Bundled Native Parakeet requires macOS 15.5 because ONNX Runtime 1.27.0 loads before helper startup; the app rejects this helper before spawning it on older systems. Old-system end-to-end operation remains unverified. There is no public GitHub Release asset yet.
 
 #### Option 1 — Install from a local DMG
 
@@ -176,7 +187,7 @@ cd Hireva
 The package is written to:
 
 ```text
-release/Hireva-0.1.0-arm64.dmg
+~/Developer/HirevaArtifacts/<repository-id>/release/Hireva-0.1.0-arm64.dmg
 ```
 
 1. Open `Hireva-0.1.0-arm64.dmg`.
@@ -219,7 +230,9 @@ swift test
 ./script/build_and_run.sh --verify
 ```
 
-For macOS permission testing, always use `dist/Hireva.app`. Do not launch the raw SwiftPM executable as a production-like app.
+Without explicit verification configuration, `--verify` uses normal product storage; it is not an isolation flag.
+
+For macOS permission testing, use the canonical signed `.app` with its bundled resources and helpers. `python3 script/artifact_lifecycle.py paths` prints the managed output; verification builds use a separate fixed slot as shown below. Do not launch the raw SwiftPM executable as a production-like app.
 
 ## Key Features in Action
 
@@ -268,7 +281,7 @@ Hireva's primary workflow is exposed through native SwiftUI screens:
 
 | Layer | Primary implementation | Responsibility |
 | --- | --- | --- |
-| Application state | `AppState` and focused extensions | Coordinates sessions, capture, ASR, dialogue, retrieval, generation, permissions, and UI state |
+| Application state | Live, Documents, Settings, Preparation, History/Diagnostics owners and Practice controller | AppState forwards feature state and retains application policy and UI/DB admission; AppComposition assembles focused dependencies |
 | Audio capture | ScreenCaptureKit + AVFoundation | Captures system and microphone audio and preserves source identity |
 | ASR providers | Apple Speech / Local Parakeet | Produces provider-attributed transcript events |
 | Local ASR runtime | Native helper + sherpa-onnx + ONNX Runtime | Runs the downloaded Parakeet model without a Python release dependency |
@@ -371,7 +384,34 @@ swift test
 ./scripts/package_dmg.sh
 ```
 
-`script/build_and_run.sh` is the canonical build/sign/launch entrypoint for the SwiftPM GUI application. It creates `dist/Hireva.app`, bundles the native Parakeet runtime and required notices, signs nested code according to the explicit signing mode, launches the bundle, and verifies the running process.
+`script/build_and_run.sh` is the canonical build/sign/launch entrypoint for the SwiftPM GUI application. It publishes to the managed application path, bundles the native Parakeet runtime and required notices, and signs nested code according to the explicit signing mode. `--build-only` builds without launching; the normal run mode launches and verifies the process.
+
+For an isolated acceptance bundle, use the fixed verification slot. A running or externally changed managed bundle is retained rather than replaced:
+
+```bash
+HIREVA_VERIFICATION_BUNDLE=1 HIREVA_BUILD_CONFIGURATION=release HIREVA_SIGNING_MODE=adhoc ./script/build_and_run.sh --build-only
+HIREVA_VERIFICATION_BUNDLE=1 python3 script/artifact_lifecycle.py paths
+```
+
+This builds and verifies the bundle without launching it. GUI verification requires a validated synthetic scenario and external app-support/output directories; invalid explicit verification configuration fails before production startup migration. Valid verification uses in-memory credentials and its own preference suite. The normal product identifiers and credential backend remain unchanged.
+
+VerificationOnly bundles reject missing or invalid isolation configuration before
+storage bootstrap; pass a validated synthetic scenario and separate support,
+output, material/cache paths and preference suite when launching. The build-only
+command above does not launch the app or perform GUI acceptance.
+
+`CFFIXED_USER_HOME` alone does not isolate CFPreferences. The recorded framework
+geometry metadata and protected Hireva business preferences are compared
+separately. The historical accidental production launch changed DB/preferences
+bytes; its business impact remains unknown and no data was restored. Technical
+answers and Practice feedback still fail semantic acceptance. Controlled system
+audio reached Parakeet, local Qwen and isolated state/DB; current rendered GUI
+access remains blocked. The 50+50 comparison retains all failed outputs, and the
+1849.876-second soak retains all 53 attempted main questions. State publication,
+process survival and software-stage latency are separate from visible and semantic
+acceptance. For a serial comparison use
+`swift test --disable-automatic-resolution --no-parallel`; keep default, opt-in
+model and hardware results separate.
 
 Useful engineering references:
 
@@ -383,11 +423,13 @@ Useful engineering references:
 
 ## Current Limitations
 
-- Hireva supports macOS 14 or later; Apple Silicon `arm64` is the only packaged and validated architecture.
+- The app retains its macOS 14 deployment target; the bundled native ASR dependency declares a 15.5 minimum. Current acceptance ran on macOS 27, not macOS 14. Apple Silicon `arm64` is the only packaged and validated architecture.
 - Local Parakeet is experimental and produces final utterance transcripts rather than true word-by-word partial ASR.
-- Ollama is a separately installed and operated local service; Qwen is not bundled in the DMG.
+- Parakeet opportunity vocabulary is off by default. The local-model setting uses at most 32 reviewed short English skill terms from the selected opportunity on the next listening start. It uses contextual decoding, not transcript replacement; approximate tokenizer scores and word-bias regressions remain limitations. Context changes during startup cancel admission; changes during listening apply on restart.
+- Ollama is a separately installed and operated local service; Qwen is not bundled in the DMG. Capture startup now makes a bounded local model-preparation request within its existing cancellation owner; this does not extend the question deadline or guarantee a warm model.
 - Apple Speech availability and on-device behavior depend on macOS and locale. Chinese text support does not imply Chinese ASR: the current Parakeet path has no verified Chinese support, and no WhisperKit adapter/model was installed in this change.
 - Automatic routing uses a bounded local structured classifier and evidence-boundary checks, with documented misses. Claim checks and subjective feedback are not independent fact verification or calibrated hiring predictions. Explicit Practice task selection is available; see the current acceptance report for measured quality and failure counts.
+- Product routing reaches its frozen exposed diagnostic gate, while technical answers and Practice feedback still fail semantic acceptance. Three final default-mode test runs and a serial control pass on the recorded frozen source; earlier aggregate failures retain their own evidence. The observed no-admitted-state rate increased from 7/50 to 8/50, so the frozen performance non-degradation gate fails. See the acceptance report for exact denominators, skips and timing limits.
 - OCR does not preserve code indentation reliably or interpret diagrams. DOCX list numbering/layout may require manual review.
 - Public URL fetching fails closed on private/reserved DNS results, including fake-IP VPN configurations; it does not modify system networking.
 - Generic code review is a checklist, not a compiler, execution sandbox or correctness proof.

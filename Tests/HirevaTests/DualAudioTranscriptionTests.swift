@@ -150,15 +150,16 @@ struct DualAudioTranscriptionTests {
         sessionID: String = "dual-audio-session",
         captureMode: AudioCaptureMode
     ) async throws -> AppleSpeechTranscriptionService {
-        let service = AppleSpeechTranscriptionService()
+        let service = AppleSpeechTranscriptionService(stopTestingOperations: .init(
+            unregisterMicrophone: { _ in }, unregisterSystemAudio: { _ in }, stopSystemAudio: {}))
         _ = service.segments
         try await service.start(sessionID: sessionID, captureMode: captureMode)
         return service
     }
 
-    private func stopSimulatedSessions(_ service: AppleSpeechTranscriptionService) {
-        service.microphoneSession?.stop()
-        service.systemAudioSession?.stop()
+    private func stopSimulatedSessions(_ service: AppleSpeechTranscriptionService) async {
+        service.stop()
+        await service.finishStoppingAudioInput()
     }
 
     private func cancelAsyncWork(_ appState: AppState) {
@@ -188,131 +189,176 @@ struct DualAudioTranscriptionTests {
     @Test
     func emittedSegmentsCarryImmutableRecognitionProvenance() async throws {
         let service = try await makeSimulatedService(captureMode: .systemAudioOnly)
-        defer { stopSimulatedSessions(service) }
-        let systemSession = try #require(service.systemAudioSession)
-        let collector = Task { @MainActor () -> [TranscriptSegment] in
-            var segments: [TranscriptSegment] = []
-            for await segment in service.segments {
-                segments.append(segment)
-                if segments.count == 1 { return segments }
+        var ownedCollector: Task<[TranscriptSegment], Never>?
+        do {
+            let systemSession = try #require(service.systemAudioSession)
+            let collector = Task { @MainActor () -> [TranscriptSegment] in
+                var segments: [TranscriptSegment] = []
+                for await segment in service.segments {
+                    segments.append(segment)
+                    if segments.count == 1 { return segments }
+                }
+                return segments
             }
-            return segments
+            ownedCollector = collector
+
+            systemSession.simulateEmit(
+                text: "Could you explain your LeoRover project from end to end?",
+                isFinal: true
+            )
+            let segments = await collector.value
+            let segment = try #require(segments.first)
+            let data = try JSONEncoder().encode(segment)
+            let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+            #expect((json["recognitionTaskID"] as? String)?.isEmpty == false)
+            #expect((json["recognitionEventSequence"] as? Int) == 1)
+            #expect((json["sourceTextStartUTF16"] as? Int) == 0)
+            #expect((json["sourceTextEndUTF16"] as? Int) == (segment.text as NSString).length)
+            #expect((json["recognitionIsFinal"] as? Bool) == true)
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-
-        systemSession.simulateEmit(
-            text: "Could you explain your LeoRover project from end to end?",
-            isFinal: true
-        )
-        let segments = await collector.value
-        let segment = try #require(segments.first)
-        let data = try JSONEncoder().encode(segment)
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-
-        #expect((json["recognitionTaskID"] as? String)?.isEmpty == false)
-        #expect((json["recognitionEventSequence"] as? Int) == 1)
-        #expect((json["sourceTextStartUTF16"] as? Int) == 0)
-        #expect((json["sourceTextEndUTF16"] as? Int) == (segment.text as NSString).length)
-        #expect((json["recognitionIsFinal"] as? Bool) == true)
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 
     @Test
     func microphoneAndSystemCreatesTwoIndependentSessionInstances() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
-
         #expect(service.microphoneSession != nil)
         #expect(service.systemAudioSession != nil)
         #expect(service.microphoneSession !== service.systemAudioSession)
+        await stopSimulatedSessions(service)
     }
 
     @Test
     func micAndSystemRecognitionRequestIdentitiesAreDistinct() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
+        do {
 
-        let micRequest = try #require(service.microphoneSession?.request)
-        let systemRequest = try #require(service.systemAudioSession?.request)
-        #expect(micRequest !== systemRequest)
+            let micRequest = try #require(service.microphoneSession?.request)
+            let systemRequest = try #require(service.systemAudioSession?.request)
+            #expect(micRequest !== systemRequest)
+        } catch {
+            await stopSimulatedSessions(service)
+            throw error
+        }
+        await stopSimulatedSessions(service)
     }
 
     @Test
     func micBufferAppendIncrementsOnlyMicCount() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        let systemSession = try #require(service.systemAudioSession)
-        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
-        buffer.frameLength = 1_024
+        do {
+            let micSession = try #require(service.microphoneSession)
+            let systemSession = try #require(service.systemAudioSession)
+            let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
+            buffer.frameLength = 1_024
 
-        micSession.appendBuffer(buffer)
+            micSession.appendBuffer(buffer)
 
-        #expect(micSession.totalBuffersAppended == 1)
-        #expect(systemSession.totalBuffersAppended == 0)
+            #expect(micSession.totalBuffersAppended == 1)
+            #expect(systemSession.totalBuffersAppended == 0)
+        } catch {
+            await stopSimulatedSessions(service)
+            throw error
+        }
+        await stopSimulatedSessions(service)
     }
 
     @Test
     func systemBufferAppendIncrementsOnlySystemCount() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        let systemSession = try #require(service.systemAudioSession)
-        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
-        buffer.frameLength = 1_024
+        do {
+            let micSession = try #require(service.microphoneSession)
+            let systemSession = try #require(service.systemAudioSession)
+            let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
+            buffer.frameLength = 1_024
 
-        systemSession.appendBuffer(buffer)
+            systemSession.appendBuffer(buffer)
 
-        #expect(systemSession.totalBuffersAppended == 1)
-        #expect(micSession.totalBuffersAppended == 0)
+            #expect(systemSession.totalBuffersAppended == 1)
+            #expect(micSession.totalBuffersAppended == 0)
+        } catch {
+            await stopSimulatedSessions(service)
+            throw error
+        }
+        await stopSimulatedSessions(service)
     }
 
     @Test
     func micFirstThenSystemStillProducesBothTranscripts() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        let systemSession = try #require(service.systemAudioSession)
-        var segments: [TranscriptSegment] = []
-        let collector = Task { @MainActor in
-            for await segment in service.segments { segments.append(segment) }
+        var ownedCollector: Task<Void, Never>?
+        do {
+            let micSession = try #require(service.microphoneSession)
+            let systemSession = try #require(service.systemAudioSession)
+            var segments: [TranscriptSegment] = []
+            let collector = Task { @MainActor in
+                for await segment in service.segments { segments.append(segment) }
+            }
+            ownedCollector = collector
+
+            micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
+            systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
+            try await waitUntil("microphone and system transcript segments") { segments.count == 2 }
+
+            #expect(segments[0].source == .microphone)
+            #expect(segments[0].speaker == .unknown)
+            #expect(segments[0].text == "Hello from Microphone")
+            #expect(segments[1].source == .systemAudio)
+            #expect(segments[1].speaker == .unknown)
+            #expect(segments[1].text == "Hello from System Audio")
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-        defer { collector.cancel() }
-
-        micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
-        systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
-        try await waitUntil("microphone and system transcript segments") { segments.count == 2 }
-
-        #expect(segments[0].source == .microphone)
-        #expect(segments[0].speaker == .unknown)
-        #expect(segments[0].text == "Hello from Microphone")
-        #expect(segments[1].source == .systemAudio)
-        #expect(segments[1].speaker == .unknown)
-        #expect(segments[1].text == "Hello from System Audio")
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 
     @Test
     func systemFirstThenMicStillProducesBothTranscripts() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        let systemSession = try #require(service.systemAudioSession)
-        var segments: [TranscriptSegment] = []
-        let collector = Task { @MainActor in
-            for await segment in service.segments { segments.append(segment) }
+        var ownedCollector: Task<Void, Never>?
+        do {
+            let micSession = try #require(service.microphoneSession)
+            let systemSession = try #require(service.systemAudioSession)
+            var segments: [TranscriptSegment] = []
+            let collector = Task { @MainActor in
+                for await segment in service.segments { segments.append(segment) }
+            }
+            ownedCollector = collector
+
+            systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
+            micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
+            try await waitUntil("system and microphone transcript segments") { segments.count == 2 }
+
+            #expect(segments[0].source == .systemAudio)
+            #expect(segments[0].speaker == .unknown)
+            #expect(segments[0].text == "Hello from System Audio")
+            #expect(segments[1].source == .microphone)
+            #expect(segments[1].speaker == .unknown)
+            #expect(segments[1].text == "Hello from Microphone")
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-        defer { collector.cancel() }
-
-        systemSession.simulateEmit(text: "Hello from System Audio", isFinal: true)
-        micSession.simulateEmit(text: "Hello from Microphone", isFinal: true)
-        try await waitUntil("system and microphone transcript segments") { segments.count == 2 }
-
-        #expect(segments[0].source == .systemAudio)
-        #expect(segments[0].speaker == .unknown)
-        #expect(segments[0].text == "Hello from System Audio")
-        #expect(segments[1].source == .microphone)
-        #expect(segments[1].speaker == .unknown)
-        #expect(segments[1].text == "Hello from Microphone")
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 
     @Test
@@ -401,67 +447,97 @@ struct DualAudioTranscriptionTests {
     @Test
     func longPartialWithShortFinalASRQualityLogic() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneOnly)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        var segments: [TranscriptSegment] = []
-        let collector = Task { @MainActor in
-            for await segment in service.segments { segments.append(segment) }
+        var ownedCollector: Task<Void, Never>?
+        do {
+            let micSession = try #require(service.microphoneSession)
+            var segments: [TranscriptSegment] = []
+            let collector = Task { @MainActor in
+                for await segment in service.segments { segments.append(segment) }
+            }
+            ownedCollector = collector
+
+            micSession.simulateEmit(text: "This is my complete candidate answer regarding robotics experience", isFinal: false)
+            micSession.simulateEmit(text: "Take", isFinal: true)
+            try await waitUntil("partial and truncated final segments") { segments.count == 2 }
+
+            #expect(micSession.lastPartialTranscript == "This is my complete candidate answer regarding robotics experience")
+            #expect(micSession.lastFinalTranscript == "Take")
+            #expect(micSession.bestTranscriptUsed == "This is my complete candidate answer regarding robotics experience")
+            #expect(micSession.finalizationReason == "final much shorter than recent partial")
+            #expect(segments.last?.text == "This is my complete candidate answer regarding robotics experience")
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-        defer { collector.cancel() }
-
-        micSession.simulateEmit(text: "This is my complete candidate answer regarding robotics experience", isFinal: false)
-        micSession.simulateEmit(text: "Take", isFinal: true)
-        try await waitUntil("partial and truncated final segments") { segments.count == 2 }
-
-        #expect(micSession.lastPartialTranscript == "This is my complete candidate answer regarding robotics experience")
-        #expect(micSession.lastFinalTranscript == "Take")
-        #expect(micSession.bestTranscriptUsed == "This is my complete candidate answer regarding robotics experience")
-        #expect(micSession.finalizationReason == "final much shorter than recent partial")
-        #expect(segments.last?.text == "This is my complete candidate answer regarding robotics experience")
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 
     @Test
     func emptyFinalWithMeaningfulPartialQualityLogic() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneOnly)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        var segments: [TranscriptSegment] = []
-        let collector = Task { @MainActor in
-            for await segment in service.segments { segments.append(segment) }
+        var ownedCollector: Task<Void, Never>?
+        do {
+            let micSession = try #require(service.microphoneSession)
+            var segments: [TranscriptSegment] = []
+            let collector = Task { @MainActor in
+                for await segment in service.segments { segments.append(segment) }
+            }
+            ownedCollector = collector
+
+            micSession.simulateEmit(text: "Robotics and VLA policies", isFinal: false)
+            micSession.simulateEmit(text: "", isFinal: true)
+            try await waitUntil("partial and empty final segments") { segments.count == 2 }
+
+            #expect(micSession.lastPartialTranscript == "Robotics and VLA policies")
+            #expect(micSession.lastFinalTranscript == "")
+            #expect(micSession.bestTranscriptUsed == "Robotics and VLA policies")
+            #expect(micSession.finalizationReason == "final empty but partial meaningful")
+            #expect(segments.last?.text == "Robotics and VLA policies")
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-        defer { collector.cancel() }
-
-        micSession.simulateEmit(text: "Robotics and VLA policies", isFinal: false)
-        micSession.simulateEmit(text: "", isFinal: true)
-        try await waitUntil("partial and empty final segments") { segments.count == 2 }
-
-        #expect(micSession.lastPartialTranscript == "Robotics and VLA policies")
-        #expect(micSession.lastFinalTranscript == "")
-        #expect(micSession.bestTranscriptUsed == "Robotics and VLA policies")
-        #expect(micSession.finalizationReason == "final empty but partial meaningful")
-        #expect(segments.last?.text == "Robotics and VLA policies")
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 
     @Test
     func goodFinalUsesFinalQualityLogic() async throws {
         let service = try await makeSimulatedService(captureMode: .microphoneOnly)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        var segments: [TranscriptSegment] = []
-        let collector = Task { @MainActor in
-            for await segment in service.segments { segments.append(segment) }
+        var ownedCollector: Task<Void, Never>?
+        do {
+            let micSession = try #require(service.microphoneSession)
+            var segments: [TranscriptSegment] = []
+            let collector = Task { @MainActor in
+                for await segment in service.segments { segments.append(segment) }
+            }
+            ownedCollector = collector
+
+            micSession.simulateEmit(text: "This is a good candidate", isFinal: false)
+            micSession.simulateEmit(text: "This is a good candidate answer.", isFinal: true)
+            try await waitUntil("partial and complete final segments") { segments.count == 2 }
+
+            #expect(micSession.lastPartialTranscript == "This is a good candidate")
+            #expect(micSession.lastFinalTranscript == "This is a good candidate answer.")
+            #expect(micSession.bestTranscriptUsed == "This is a good candidate answer.")
+            #expect(micSession.finalizationReason == "final is longer or similar")
+            #expect(segments.last?.text == "This is a good candidate answer.")
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-        defer { collector.cancel() }
-
-        micSession.simulateEmit(text: "This is a good candidate", isFinal: false)
-        micSession.simulateEmit(text: "This is a good candidate answer.", isFinal: true)
-        try await waitUntil("partial and complete final segments") { segments.count == 2 }
-
-        #expect(micSession.lastPartialTranscript == "This is a good candidate")
-        #expect(micSession.lastFinalTranscript == "This is a good candidate answer.")
-        #expect(micSession.bestTranscriptUsed == "This is a good candidate answer.")
-        #expect(micSession.finalizationReason == "final is longer or similar")
-        #expect(segments.last?.text == "This is a good candidate answer.")
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 
     @Test
@@ -471,46 +547,57 @@ struct DualAudioTranscriptionTests {
         let transcriptRepository = TranscriptRepository(database: database)
         let session = try sessionRepository.createSession(mode: .microphone, title: "Simulated ASR quality")
         let service = try await makeSimulatedService(sessionID: session.id, captureMode: .microphoneAndSystem)
-        defer { stopSimulatedSessions(service) }
-        let micSession = try #require(service.microphoneSession)
-        let systemSession = try #require(service.systemAudioSession)
-        let collector = Task { @MainActor () -> ([TranscriptSegment], (any Error)?) in
-            var segments: [TranscriptSegment] = []
-            for await segment in service.segments {
-                segments.append(segment)
-                do {
-                    try transcriptRepository.saveSegment(segment)
-                } catch {
-                    return (segments, error)
+        var ownedCollector: Task<([TranscriptSegment], (any Error)?), Never>?
+        do {
+            let micSession = try #require(service.microphoneSession)
+            let systemSession = try #require(service.systemAudioSession)
+            let collector = Task { @MainActor () -> ([TranscriptSegment], (any Error)?) in
+                var segments: [TranscriptSegment] = []
+                for await segment in service.segments {
+                    segments.append(segment)
+                    do {
+                        try transcriptRepository.saveSegment(segment)
+                    } catch {
+                        return (segments, error)
+                    }
+                    if segments.count == 8 { return (segments, nil) }
                 }
-                if segments.count == 8 { return (segments, nil) }
+                return (segments, nil)
             }
-            return (segments, nil)
+            ownedCollector = collector
+
+            micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+            micSession.simulateEmit(text: "Take", isFinal: true)
+            micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
+            micSession.simulateEmit(text: "", isFinal: true)
+            micSession.simulateEmit(text: "This is my candidate answer", isFinal: false)
+            micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
+            systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
+            systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
+            let (segments, persistenceError) = await collector.value
+            if let persistenceError { throw persistenceError }
+            #expect(segments.count == 8)
+
+            #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
+            #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")
+            let savedSegments = try transcriptRepository.segments(sessionID: session.id)
+            let segmentIDs = savedSegments.map(\.id)
+            #expect(segmentIDs.count == Set(segmentIDs).count)
+            #expect(savedSegments.filter { $0.source == .microphone }.contains {
+                $0.text == "This is my candidate answer about my robotics project"
+            })
+            #expect(savedSegments.filter { $0.source == .systemAudio }.contains {
+                $0.text == "Can you tell me about your robotics project?"
+            })
+        } catch {
+            await stopSimulatedSessions(service)
+            ownedCollector?.cancel()
+            _ = await ownedCollector?.value
+            throw error
         }
-
-        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
-        micSession.simulateEmit(text: "Take", isFinal: true)
-        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: false)
-        micSession.simulateEmit(text: "", isFinal: true)
-        micSession.simulateEmit(text: "This is my candidate answer", isFinal: false)
-        micSession.simulateEmit(text: "This is my candidate answer about my robotics project", isFinal: true)
-        systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: false)
-        systemSession.simulateEmit(text: "Can you tell me about your robotics project?", isFinal: true)
-        let (segments, persistenceError) = await collector.value
-        if let persistenceError { throw persistenceError }
-        #expect(segments.count == 8)
-
-        #expect(micSession.bestTranscriptUsed == "This is my candidate answer about my robotics project")
-        #expect(systemSession.bestTranscriptUsed == "Can you tell me about your robotics project?")
-        let savedSegments = try transcriptRepository.segments(sessionID: session.id)
-        let segmentIDs = savedSegments.map(\.id)
-        #expect(segmentIDs.count == Set(segmentIDs).count)
-        #expect(savedSegments.filter { $0.source == .microphone }.contains {
-            $0.text == "This is my candidate answer about my robotics project"
-        })
-        #expect(savedSegments.filter { $0.source == .systemAudio }.contains {
-            $0.text == "Can you tell me about your robotics project?"
-        })
+        await stopSimulatedSessions(service)
+        ownedCollector?.cancel()
+        _ = await ownedCollector?.value
     }
 }
 

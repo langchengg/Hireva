@@ -78,50 +78,52 @@ struct RuntimePathSingleSourceOfTruthTests {
     @Test
     func runtimeFragmentsDoNotTriggerButCompleteQuestionShowsOneAlignedVisibleCard() async throws {
         let (appState, session, client) = try makeAppState()
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "fragment-what-learn",
+                sessionID: session.id,
+                text: "what did you learn from comp"
+            ))
+            try await Task.sleep(nanoseconds: 150_000_000)
+            #expect(appState.rawTranscriptText == "what did you learn from comp")
+            #expect(appState.displayTranscriptText == "what did you learn from comp")
+            #expect(appState.transcriptRuntimeDiagnostics.lastQuestionRejectedAt != nil)
+            #expect(appState.detectedQuestionsInSessionCount == 0)
+            #expect(appState.currentSuggestion == nil)
+            #expect(client.answerCallCount == 0)
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "fragment-what-learn",
-            sessionID: session.id,
-            text: "what did you learn from comp"
-        ))
-        try await Task.sleep(nanoseconds: 150_000_000)
-        #expect(appState.rawTranscriptText == "what did you learn from comp")
-        #expect(appState.displayTranscriptText == "what did you learn from comp")
-        #expect(appState.transcriptRuntimeDiagnostics.lastQuestionRejectedAt != nil)
-        #expect(appState.detectedQuestionsInSessionCount == 0)
-        #expect(appState.currentSuggestion == nil)
-        #expect(client.answerCallCount == 0)
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "complete-decoder-question",
+                sessionID: session.id,
+                text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?"
+            ))
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "complete-decoder-question",
-            sessionID: session.id,
-            text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?"
-        ))
+            try await waitUntil(timeout: 60.0, snapshot: { runtimeStateSnapshot(appState) }) {
+                appState.currentSuggestion?.questionText == "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?" &&
+                appState.currentSuggestion?.alignmentVerdict == .aligned &&
+                appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true &&
+                appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("autoregressive") == true &&
+                appState.currentSuggestion.map {
+                    QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted
+                } == true &&
+                client.streamCallCount > 0
+            }
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?" &&
-            appState.currentSuggestion?.alignmentVerdict == .aligned &&
-            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("diffusion") == true &&
-            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("autoregressive") == true &&
-            appState.currentSuggestion.map {
-                QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted
-            } == true &&
-            client.streamCallCount > 0
-        }
+            let card = try #require(appState.currentSuggestion)
+            #expect(card.questionIntent == .decoderComparison)
+            #expect(card.promptPrimaryQuestion == card.questionText)
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("diffusion"))
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("autoregressive"))
+            #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card).accepted)
 
-        let card = try #require(appState.currentSuggestion)
-        #expect(card.questionIntent == .decoderComparison)
-        #expect(card.promptPrimaryQuestion == card.questionText)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("diffusion"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("autoregressive"))
-        #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(card).accepted)
-
-        let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(persisted.count <= 1)
-        if let persistedCard = persisted.first {
-            #expect(persistedCard.questionID == card.questionID)
-            #expect(persistedCard.questionText == card.questionText)
-            #expect(persistedCard.promptPrimaryQuestion == persistedCard.questionText)
+            let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(persisted.count <= 1)
+            if let persistedCard = persisted.first {
+                #expect(persistedCard.questionID == card.questionID)
+                #expect(persistedCard.questionText == card.questionText)
+                #expect(persistedCard.promptPrimaryQuestion == persistedCard.questionText)
+            }
         }
     }
 
@@ -148,38 +150,41 @@ struct RuntimePathSingleSourceOfTruthTests {
     @Test
     func partialTranscriptDoesNotTriggerGenerationUntilFinalQuestionArrives() async throws {
         let (appState, session, client) = try makeAppState()
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "partial-system-debug",
-            sessionID: session.id,
-            text: "tell me about a time you had",
-            asrFinalizationReason: "partial"
-        ))
-        try await Task.sleep(nanoseconds: 200_000_000)
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "partial-system-debug",
+                sessionID: session.id,
+                text: "tell me about a time you had",
+                asrFinalizationReason: "partial"
+            ))
+            try await Task.sleep(nanoseconds: 200_000_000)
 
-        #expect(appState.partialTranscriptText == "tell me about a time you had")
-        #expect(appState.displayTranscriptText == "tell me about a time you had")
-        #expect(appState.currentSuggestion == nil)
-        #expect(client.streamCallCount == 0)
+            #expect(appState.partialTranscriptText == "tell me about a time you had")
+            #expect(appState.displayTranscriptText == "tell me about a time you had")
+            #expect(appState.currentSuggestion == nil)
+            #expect(client.streamCallCount == 0)
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "partial-system-debug",
-            sessionID: session.id,
-            text: "Tell me about a time you had to debug a system integration problem.",
-            asrFinalizationReason: "final is longer or similar"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "partial-system-debug",
+                sessionID: session.id,
+                text: "Tell me about a time you had to debug a system integration problem.",
+                asrFinalizationReason: "final is longer or similar"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("debug a system integration problem") == true &&
-            appState.currentSuggestion?.alignmentVerdict == .aligned &&
-            client.streamCallCount > 0
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("debug a system integration problem") == true &&
+                appState.currentSuggestion?.alignmentVerdict == .aligned &&
+                client.streamCallCount > 0
+            }
+
+            let card = try #require(appState.currentSuggestion)
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("ROS2"))
+            #expect(appState.finalTranscriptText == "Tell me about a time you had to debug a system integration problem.")
+            #expect(appState.lastAcceptedQuestionText.localizedCaseInsensitiveContains("debug a system integration problem"))
         }
-
-        let card = try #require(appState.currentSuggestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("LeoRover"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("ROS2"))
-        #expect(appState.finalTranscriptText == "Tell me about a time you had to debug a system integration problem.")
-        #expect(appState.lastAcceptedQuestionText.localizedCaseInsensitiveContains("debug a system integration problem"))
     }
 
     @Test
@@ -228,44 +233,47 @@ struct RuntimePathSingleSourceOfTruthTests {
             providerDetectionQuestion: "would you debug it",
             traceURL: traceURL
         )
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "conditional-yolo-debug",
-            sessionID: session.id,
-            text: "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "conditional-yolo-debug",
+                sessionID: session.id,
+                text: "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?" &&
-            appState.currentSuggestion?.questionIntent == .perceptionDebugging &&
-            appState.currentSuggestion?.alignmentVerdict == .aligned &&
-            appState.currentSuggestion?.finalVisibleSource == AnswerSource.deepseekStream.rawValue &&
-            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("bounding") == true
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionText == "If your yo love eight detector gives a confident but wrong prediction on the layover, how would you debug it?" &&
+                appState.currentSuggestion?.questionIntent == .perceptionDebugging &&
+                appState.currentSuggestion?.alignmentVerdict == .aligned &&
+                appState.currentSuggestion?.finalVisibleSource == AnswerSource.deepseekStream.rawValue &&
+                appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("bounding") == true
+            }
+
+            let card = try #require(appState.currentSuggestion)
+            #expect(client.detectionCallCount == 0)
+            #expect(card.questionText == card.promptPrimaryQuestion)
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("bounding"))
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("confidence"))
+            #expect(appState.lastDetectedQuestionText == card.questionText)
+            #expect(appState.lastDetectedQuestionText.caseInsensitiveCompare("would you debug it") != .orderedSame)
+
+            try await waitUntil(timeout: 60.0) {
+                let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+                return latestTrace.contains("\"event_type\":\"questionAccepted\"") &&
+                    latestTrace.contains("\"event_type\":\"generationStarted\"") &&
+                    latestTrace.localizedCaseInsensitiveContains("yo love eight detector") &&
+                    latestTrace.localizedCaseInsensitiveContains("layover")
+            }
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"questionAccepted\""))
+            #expect(trace.contains("\"event_type\":\"generationStarted\""))
+            #expect(trace.localizedCaseInsensitiveContains("yo love eight detector"))
+            #expect(trace.localizedCaseInsensitiveContains("layover"))
+            #expect(!trace.contains("\"candidate_text\":\"would you debug it\""))
         }
-
-        let card = try #require(appState.currentSuggestion)
-        #expect(client.detectionCallCount == 0)
-        #expect(card.questionText == card.promptPrimaryQuestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("YOLOv8"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("bounding"))
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("confidence"))
-        #expect(appState.lastDetectedQuestionText == card.questionText)
-        #expect(appState.lastDetectedQuestionText.caseInsensitiveCompare("would you debug it") != .orderedSame)
-
-        try await waitUntil(timeout: 60.0) {
-            let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
-            return latestTrace.contains("\"event_type\":\"questionAccepted\"") &&
-                latestTrace.contains("\"event_type\":\"generationStarted\"") &&
-                latestTrace.localizedCaseInsensitiveContains("yo love eight detector") &&
-                latestTrace.localizedCaseInsensitiveContains("layover")
-        }
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"questionAccepted\""))
-        #expect(trace.contains("\"event_type\":\"generationStarted\""))
-        #expect(trace.localizedCaseInsensitiveContains("yo love eight detector"))
-        #expect(trace.localizedCaseInsensitiveContains("layover"))
-        #expect(!trace.contains("\"candidate_text\":\"would you debug it\""))
     }
 
     @Test
@@ -289,308 +297,402 @@ struct RuntimePathSingleSourceOfTruthTests {
     }
 
     @Test
+    func recentRuntimeTraceKeepsLifecycleAndErrorsDuringDiagnosticBurst() async throws {
+        let traceURL = temporaryTraceURL("runtime-diagnostic-burst-trace")
+        let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        let question = "How do you debug a failing robotics system?"
+        let candidate = try #require(QuestionCandidatePipeline.extract(from: question).first)
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        appState.recordTranscriptRuntimeEvent(.questionAccepted(
+            sessionID: session.id, candidate: candidate, timestamp: startedAt
+        ))
+        appState.recordTranscriptRuntimeEvent(.generationStarted(
+            sessionID: session.id, questionID: "burst-question", generationID: "burst-generation",
+            question: question, timestamp: startedAt
+        ))
+        appState.recordTranscriptRuntimeEvent(.persistenceRejected(
+            sessionID: session.id, questionID: "burst-question", generationID: "burst-generation",
+            question: question, reason: "consent_revoked", timestamp: startedAt
+        ))
+
+        for index in 0..<100 {
+            let timestamp = startedAt.addingTimeInterval(Double(index) / 1_000)
+            appState.recordTranscriptRuntimeEvent(.asrPartial(
+                sessionID: session.id, text: "Synthetic partial \(index)", recognitionTaskID: "burst-asr",
+                eventSequence: index, sourceStartUTF16: 0, sourceEndUTF16: 20,
+                isFinal: false, timestamp: timestamp
+            ))
+            appState.recordTranscriptRuntimeEvent(.partialAnswerRejectedIncomplete(
+                sessionID: session.id, questionID: "burst-question", generationID: "burst-generation",
+                question: question, reason: "rejected_incomplete_answer", timestamp: timestamp
+            ))
+            appState.recordTranscriptRuntimeEvent(.visibleCurrentSuggestionUpdated(
+                sessionID: session.id, questionID: "burst-question", generationID: "burst-generation",
+                question: question, timestamp: timestamp
+            ))
+        }
+        appState.recordTranscriptRuntimeEvent(.partialAnswerRejectedIncomplete(
+            sessionID: session.id, questionID: "burst-question", generationID: "burst-generation",
+            question: question, reason: "rejected_incomplete_answer",
+            timestamp: startedAt.addingTimeInterval(2)
+        ))
+        appState.recordTranscriptRuntimeEvent(.asrFinal(
+            sessionID: session.id, text: question, recognitionTaskID: "burst-asr",
+            eventSequence: 100, sourceStartUTF16: 0, sourceEndUTF16: question.utf16.count,
+            isFinal: true, timestamp: startedAt.addingTimeInterval(2)
+        ))
+        appState.recordTranscriptRuntimeEvent(.generationCompleted(
+            sessionID: session.id, questionID: "burst-question", generationID: "burst-generation",
+            question: question, timestamp: startedAt.addingTimeInterval(2)
+        ))
+
+        let recent = appState.recentTranscriptRuntimeEvents
+        #expect(recent.count <= 40)
+        #expect(recent.contains { $0.name == "questionAccepted" })
+        #expect(recent.contains { $0.name == "generationStarted" && $0.generationStarted })
+        #expect(recent.contains { $0.name == "persistenceRejected" && $0.rejectionReason == "consent_revoked" })
+        #expect(recent.contains { $0.name == "generationCompleted" })
+        #expect(recent.contains { $0.name == "asrFinal" && $0.recognitionIsFinal })
+        #expect(recent.contains { $0.name == "transcript.final" })
+        #expect(recent.filter { $0.name == "partialAnswerRejectedIncomplete" }.count == 2)
+        #expect(recent.filter { $0.name == "visibleCurrentSuggestionUpdated" }.count == 1)
+        #expect(appState.transcriptRuntimeDiagnostics.lastGenerationRejectedReason.isEmpty)
+        #expect(appState.transcriptRuntimeDiagnostics.partialTranscriptCount == 100)
+        #expect(appState.transcriptRuntimeDiagnostics.finalTranscriptCount == 1)
+        #expect(appState.displayTranscriptText == question)
+        #expect(appState.runtimeTranscriptTraceExportText().contains("\"event_type\":\"generationStarted\""))
+        await appState.shutdownForTesting()
+    }
+
+    @Test
     func interviewerQuestionsRuntimePathStartsGenerationAndExportsTrace() async throws {
         let traceURL = temporaryTraceURL("runtime-interviewer-question-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "interviewer-questions",
-            sessionID: session.id,
-            text: "What questions would you ask us about the team or the role before accepting an offer?"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "interviewer-questions",
+                sessionID: session.id,
+                text: "What questions would you ask us about the team or the role before accepting an offer?"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionIntent == .interviewerQuestions &&
-            appState.currentSuggestion?.alignmentVerdict == .aligned &&
-            client.streamCallCount > 0
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionIntent == .interviewerQuestions &&
+                appState.currentSuggestion?.alignmentVerdict == .aligned &&
+                client.streamCallCount > 0
+            }
+
+            let card = try #require(appState.currentSuggestion)
+            #expect(client.detectionCallCount == 0)
+            #expect(card.questionText == "What questions would you ask us about the team or the role before accepting an offer?")
+            #expect(card.questionText == card.promptPrimaryQuestion)
+            #expect(appState.recentTranscriptRuntimeEvents.contains { $0.name == "questionAccepted" && $0.questionIntent == AnswerRelevanceIntent.interviewerQuestions.rawValue })
+            #expect(appState.recentTranscriptRuntimeEvents.contains { $0.name == "generationStarted" && $0.generationStarted })
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"question_intent\":\"interviewer_questions\""))
+            #expect(trace.contains("\"generation_started\":true"))
+            #expect(trace.contains("What questions would you ask us about the team or the role before accepting an offer?"))
+            #expect(appState.runtimeTranscriptTraceExportText().contains("\"event_type\":\"generationStarted\""))
         }
-
-        let card = try #require(appState.currentSuggestion)
-        #expect(client.detectionCallCount == 0)
-        #expect(card.questionText == "What questions would you ask us about the team or the role before accepting an offer?")
-        #expect(card.questionText == card.promptPrimaryQuestion)
-        #expect(appState.recentTranscriptRuntimeEvents.contains { $0.name == "questionAccepted" && $0.questionIntent == AnswerRelevanceIntent.interviewerQuestions.rawValue })
-        #expect(appState.recentTranscriptRuntimeEvents.contains { $0.name == "generationStarted" && $0.generationStarted })
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"question_intent\":\"interviewer_questions\""))
-        #expect(trace.contains("\"generation_started\":true"))
-        #expect(trace.contains("What questions would you ask us about the team or the role before accepting an offer?"))
-        #expect(appState.runtimeTranscriptTraceExportText().contains("\"event_type\":\"generationStarted\""))
     }
 
     @Test
     func singleFinalizedSystemAudioQuestionReachesUIBoundAnswerLifecycle() async throws {
         let traceURL = temporaryTraceURL("runtime-single-clean-question-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        appState.delayProvider = RealDelayProvider()
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        var settings = appState.settings
-        settings.audioCaptureMode = .systemAudioOnly
-        settings.allowQuestionDetectionFromMicrophoneOnly = false
-        appState.saveSettings(settings)
-        let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "single-clean-system-audio-question",
-            sessionID: session.id,
-            text: transcript
-        ))
-
-        try await waitUntil(timeout: 5.0) {
-            appState.generationUIState.generationID != nil &&
-                appState.generationUIState.displayName != "Idle"
+        #if DEBUG
+        let phaseDiagnostics = RuntimeAcceptedPhaseDiagnostics()
+        appState.diagnosticsState.onPipelineTimingForTesting = phaseDiagnostics.record
+        defer {
+            appState.diagnosticsState.onPipelineTimingForTesting = nil
+            phaseDiagnostics.emit()
         }
-        let acceptedEvent = try #require(appState.recentTranscriptRuntimeEvents.first {
-            $0.name == "questionAccepted" &&
-                $0.candidateText.localizedCaseInsensitiveContains("real-world execution")
-        })
-        let expectedQuestion = acceptedEvent.candidateText
-        let questionAcceptedAt = acceptedEvent.timestamp
-        let generationStartedAt = try #require(appState.recentTranscriptRuntimeEvents.first {
-            $0.name == "generationStarted" && $0.text == expectedQuestion
-        }?.timestamp)
-        #expect(generationStartedAt >= questionAcceptedAt)
-        #expect(generationStartedAt.timeIntervalSince(questionAcceptedAt) <= 2.0)
+        #endif
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.delayProvider = RealDelayProvider()
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+            var settings = appState.settings
+            settings.audioCaptureMode = .systemAudioOnly
+            settings.allowQuestionDetectionFromMicrophoneOnly = false
+            appState.saveSettings(settings)
+            let transcript = "How did your layover system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors? What made real-world execution on the layover harder than a clean simulation or demo environment?"
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "single-clean-system-audio-question",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.visibleAssistantRenderState.questionText == expectedQuestion &&
-                appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("real") &&
-                appState.streamFirstTokenAt != nil
+            try await waitUntil(timeout: 5.0) {
+                appState.generationUIState.generationID != nil &&
+                    appState.generationUIState.displayName != "Idle"
+            }
+            let acceptedEvent = try #require(appState.recentTranscriptRuntimeEvents.first {
+                $0.name == "questionAccepted" &&
+                    $0.candidateText.localizedCaseInsensitiveContains("real-world execution")
+            })
+            let expectedQuestion = acceptedEvent.candidateText
+            let questionAcceptedAt = acceptedEvent.timestamp
+            let generationStartedAt = try #require(appState.recentTranscriptRuntimeEvents.first {
+                $0.name == "generationStarted" && $0.text == expectedQuestion
+            }?.timestamp)
+            #if DEBUG
+            phaseDiagnostics.acceptedToGenerationSeconds = generationStartedAt.timeIntervalSince(questionAcceptedAt)
+            #endif
+            #expect(generationStartedAt >= questionAcceptedAt)
+            #expect(generationStartedAt.timeIntervalSince(questionAcceptedAt) <= 2.0)
+
+            try await waitUntil(timeout: 60.0) {
+                appState.visibleAssistantRenderState.questionText == expectedQuestion &&
+                    appState.visibleAssistantRenderState.hasAnswerText &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("real") &&
+                    appState.streamFirstTokenAt != nil
+            }
+            #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
+            #expect(appState.settings.automaticQuestionDetectionEnabled)
+            #expect(appState.settings.allowQuestionDetectionFromMicrophoneOnly == false)
+            #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("No answer yet") == false)
+            #expect(appState.streamFirstTokenAt != nil)
+
+            try await waitUntil(timeout: 60.0) {
+                let render = appState.visibleAssistantRenderState
+                return render.questionText == expectedQuestion &&
+                    render.keyPoints.count >= 2 &&
+                    !appState.shouldShowBlockingAnswerSpinner &&
+                    appState.generationUIState.isTerminal
+            }
+
+            for mode in FloatingAssistantDisplayMode.allCases {
+                var modeSettings = appState.settings
+                modeSettings.floatingAssistantDisplayMode = mode
+                appState.saveSettings(modeSettings)
+                let render = appState.visibleAssistantRenderState
+                #expect(render.questionText == expectedQuestion, "mode \(mode.rawValue)")
+                #expect(render.answerText.localizedCaseInsensitiveContains("real"), "mode \(mode.rawValue)")
+                #expect(render.keyPoints.isEmpty == false, "mode \(mode.rawValue)")
+                #expect(render.generationErrorText == nil, "mode \(mode.rawValue)")
+            }
+
+            // UI completion does not imply the utility trace queue has flushed.
+            // Preserve the event-order assertion after the existing writer barrier.
+            RuntimeTranscriptTraceStore.shared.waitForPendingOperations()
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            let orderedEvents = [
+                "transcript.final",
+                "question.detected",
+                "question.accepted",
+                "answer.request.started",
+                "answer.first_token",
+                "answer.state.updated",
+                "answer.ui.rendered",
+                "answer.stream.completed"
+            ]
+            try assertTraceContainsEventsInOrder(orderedEvents, trace: trace)
+            let questionID = try #require(appState.currentSuggestion?.detectedQuestionID)
+            let requestID = try #require(appState.currentSuggestion?.generationID)
+            #expect(trace.contains("\"question_id\":\"\(questionID)\""))
+            #expect(trace.contains("\"generation_id\":\"\(requestID)\""))
+            #expect(client.streamCallCount > 0)
+            #expect(client.detectionCallCount == 0)
         }
-        #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
-        #expect(appState.settings.automaticQuestionDetectionEnabled)
-        #expect(appState.settings.allowQuestionDetectionFromMicrophoneOnly == false)
-        #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("No answer yet") == false)
-        #expect(appState.streamFirstTokenAt != nil)
-
-        try await waitUntil(timeout: 60.0) {
-            let render = appState.visibleAssistantRenderState
-            return render.questionText == expectedQuestion &&
-                render.keyPoints.count >= 2 &&
-                !appState.shouldShowBlockingAnswerSpinner &&
-                appState.generationUIState.isTerminal
-        }
-
-        for mode in FloatingAssistantDisplayMode.allCases {
-            var modeSettings = appState.settings
-            modeSettings.floatingAssistantDisplayMode = mode
-            appState.saveSettings(modeSettings)
-            let render = appState.visibleAssistantRenderState
-            #expect(render.questionText == expectedQuestion, "mode \(mode.rawValue)")
-            #expect(render.answerText.localizedCaseInsensitiveContains("real"), "mode \(mode.rawValue)")
-            #expect(render.keyPoints.isEmpty == false, "mode \(mode.rawValue)")
-            #expect(render.generationErrorText == nil, "mode \(mode.rawValue)")
-        }
-
-        // UI completion does not imply the utility trace queue has flushed.
-        // Preserve the event-order assertion after the existing writer barrier.
-        RuntimeTranscriptTraceStore.shared.waitForPendingOperations()
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        let orderedEvents = [
-            "transcript.final",
-            "question.detected",
-            "question.accepted",
-            "answer.request.started",
-            "answer.first_token",
-            "answer.state.updated",
-            "answer.ui.rendered",
-            "answer.stream.completed"
-        ]
-        try assertTraceContainsEventsInOrder(orderedEvents, trace: trace)
-        let questionID = try #require(appState.currentSuggestion?.detectedQuestionID)
-        let requestID = try #require(appState.currentSuggestion?.generationID)
-        #expect(trace.contains("\"question_id\":\"\(questionID)\""))
-        #expect(trace.contains("\"generation_id\":\"\(requestID)\""))
-        #expect(client.streamCallCount > 0)
-        #expect(client.detectionCallCount == 0)
     }
 
     @Test
     func finalizedSystemAudioBindsSessionBeforeLocalExtractionAndGeneration() async throws {
         let traceURL = temporaryTraceURL("runtime-final-without-current-session-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        appState.currentSession = nil
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.currentSession = nil
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "screenshot-final-system-audio-question",
-            sessionID: session.id,
-            text: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "screenshot-final-system-audio-question",
+                sessionID: session.id,
+                text: "How did your robotic system connect yellow of aid detection with localization navigation manipulation and recovery behaviors what made real world execution harder than a clean simulation or demo environment and how did you mitigate those issues"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSession?.id == session.id &&
-                appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("real world execution") &&
-                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("mitigate those issues") &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
-                client.streamCallCount > 0
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSession?.id == session.id &&
+                    appState.visibleAssistantRenderState.hasAnswerText &&
+                    appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("real world execution") &&
+                    appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("mitigate those issues") &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
+                    client.streamCallCount > 0
+            }
+
+            let card = try #require(appState.currentSuggestion)
+            #expect(card.sessionID == session.id)
+            #expect(card.questionText?.localizedCaseInsensitiveContains("real world execution") == true)
+            #expect(card.questionText?.localizedCaseInsensitiveContains("mitigate those issues") == true)
+            #expect(card.questionIntent == .technicalChallenge)
+            #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
+
+            try await waitUntil(timeout: 10.0) {
+                (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 2
+            }
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(rows.count == 2)
+            #expect(rows.last?.detectedQuestionID == card.detectedQuestionID)
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            try assertTraceContainsEventsInOrder(
+                [
+                    "transcript.final",
+                    "question.accepted",
+                    "answer.request.started",
+                    "answer.ui.rendered"
+                ],
+                trace: trace
+            )
+            #expect(client.detectionCallCount == 0)
         }
-
-        let card = try #require(appState.currentSuggestion)
-        #expect(card.sessionID == session.id)
-        #expect(card.questionText?.localizedCaseInsensitiveContains("real world execution") == true)
-        #expect(card.questionText?.localizedCaseInsensitiveContains("mitigate those issues") == true)
-        #expect(card.questionIntent == .technicalChallenge)
-        #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
-
-        try await waitUntil(timeout: 10.0) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 2
-        }
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.count == 2)
-        #expect(rows.last?.detectedQuestionID == card.detectedQuestionID)
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        try assertTraceContainsEventsInOrder(
-            [
-                "transcript.final",
-                "question.accepted",
-                "answer.request.started",
-                "answer.ui.rendered"
-            ],
-            trace: trace
-        )
-        #expect(client.detectionCallCount == 0)
     }
 
     @Test
     func liveSystemAudioFinalCallbackBindsSessionAcceptsQuestionAndStartsGeneration() async throws {
         let traceURL = temporaryTraceURL("runtime-live-service-final-callback-trace")
         let (appState, _, client) = try makeAppState(traceURL: traceURL)
-        appState.currentSession = nil
-        appState.delayProvider = RealDelayProvider()
-        appState.stageATimeoutSeconds = 60.0
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.currentSession = nil
+            appState.delayProvider = RealDelayProvider()
+            appState.stageATimeoutSeconds = 60.0
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        await appState.runLiveSystemAudioFinalCallbackDiagnostic(
-            question: "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
-        )
+            await appState.runLiveSystemAudioFinalCallbackDiagnostic(
+                question: "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+            )
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSession != nil &&
-                appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("YOLOv8 detection") &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
-                appState.visibleAssistantRenderState.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") } &&
-                appState.activeGenerationID != nil &&
-                appState.generationUIState.isTerminal &&
-                client.streamCallCount > 0
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSession != nil &&
+                    appState.visibleAssistantRenderState.hasAnswerText &&
+                    appState.visibleAssistantRenderState.questionText.localizedCaseInsensitiveContains("YOLOv8 detection") &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                    appState.visibleAssistantRenderState.keyPoints.contains { $0.localizedCaseInsensitiveContains("recovery") } &&
+                    appState.activeGenerationID != nil &&
+                    appState.generationUIState.isTerminal &&
+                    client.streamCallCount > 0
+            }
+
+            let session = try #require(appState.currentSession)
+            let card = try #require(appState.currentSuggestion)
+            #expect(card.sessionID == session.id)
+            #expect(card.detectedQuestionID == appState.activeQuestionID)
+            #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
+            #expect(appState.micCaptureRunning == false)
+            #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
+
+            try await waitUntil(timeout: 10.0) {
+                (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
+            }
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(rows.count == 1)
+            #expect(rows.first?.detectedQuestionID == card.detectedQuestionID)
+            let detectedQuestionID = try #require(card.detectedQuestionID)
+            let generationID = try #require(card.generationID)
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            try assertTraceContainsEventsInOrder(
+                [
+                    "transcript.partial",
+                    "transcript.final",
+                    "question.detected",
+                    "question.accepted",
+                    "answer.request.started",
+                    "answer.first_token",
+                    "answer.ui.rendered",
+                    "answer.stream.completed"
+                ],
+                trace: trace
+            )
+            #expect(trace.contains("\"question_id\":\"\(detectedQuestionID)\""))
+            #expect(trace.contains("\"generation_id\":\"\(generationID)\""))
+            #expect(trace.contains("\"event_type\":\"answer.request.skipped\"") == false)
+            #expect(client.detectionCallCount == 0)
         }
-
-        let session = try #require(appState.currentSession)
-        let card = try #require(appState.currentSuggestion)
-        #expect(card.sessionID == session.id)
-        #expect(card.detectedQuestionID == appState.activeQuestionID)
-        #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
-        #expect(appState.micCaptureRunning == false)
-        #expect(appState.visibleAssistantRenderState.generationErrorText == nil)
-
-        try await waitUntil(timeout: 10.0) {
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1
-        }
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.count == 1)
-        #expect(rows.first?.detectedQuestionID == card.detectedQuestionID)
-        let detectedQuestionID = try #require(card.detectedQuestionID)
-        let generationID = try #require(card.generationID)
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        try assertTraceContainsEventsInOrder(
-            [
-                "transcript.partial",
-                "transcript.final",
-                "question.detected",
-                "question.accepted",
-                "answer.request.started",
-                "answer.first_token",
-                "answer.ui.rendered",
-                "answer.stream.completed"
-            ],
-            trace: trace
-        )
-        #expect(trace.contains("\"question_id\":\"\(detectedQuestionID)\""))
-        #expect(trace.contains("\"generation_id\":\"\(generationID)\""))
-        #expect(trace.contains("\"event_type\":\"answer.request.skipped\"") == false)
-        #expect(client.detectionCallCount == 0)
     }
 
     @Test
     func liveSystemAudioSecondQuestionAfterSuccessfulAnswerStartsGeneration() async throws {
         let traceURL = temporaryTraceURL("runtime-live-second-question-after-answer-trace")
         let (appState, _, client) = try makeAppState(traceURL: traceURL)
-        appState.currentSession = nil
-        appState.delayProvider = RealDelayProvider()
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.currentSession = nil
+            appState.delayProvider = RealDelayProvider()
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
-        let mitigationQuestion = "What made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"
-        let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
+            let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+            let mitigationQuestion = "What made real world execution harder than a clean simulation or demo environment and how did mitigate those issues"
+            let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
 
-        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: firstQuestion)
+            await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: firstQuestion)
 
-        try await waitUntil(timeout: 60.0) {
-            appState.visibleAssistantRenderState.questionText == firstQuestion &&
-                appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
-                appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
-                client.streamCallCount > 0
-        }
+            try await waitUntil(timeout: 60.0) {
+                appState.visibleAssistantRenderState.questionText == firstQuestion &&
+                    appState.visibleAssistantRenderState.hasAnswerText &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("YOLOv8") &&
+                    appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
+                    client.streamCallCount > 0
+            }
 
-        let firstCard = try #require(appState.currentSuggestion)
-        let firstQuestionID = try #require(firstCard.detectedQuestionID)
-        let firstGenerationID = try #require(firstCard.generationID)
-        let q1StreamCalls = client.streamCallCount
+            let firstCard = try #require(appState.currentSuggestion)
+            let firstQuestionID = try #require(firstCard.detectedQuestionID)
+            let firstGenerationID = try #require(firstCard.generationID)
+            let q1StreamCalls = client.streamCallCount
 
-        await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: mitigationQuestion)
+            await appState.runLiveSystemAudioFinalCallbackDiagnostic(question: mitigationQuestion)
 
-        try await waitUntil(timeout: 60.0) {
-            appState.visibleAssistantRenderState.questionText == expectedMitigationQuestion &&
-                appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
-                appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
-                appState.visibleAssistantRenderState.generationErrorText == nil &&
-                client.streamCallCount > q1StreamCalls
-        }
+            try await waitUntil(timeout: 60.0) {
+                appState.visibleAssistantRenderState.questionText == expectedMitigationQuestion &&
+                    appState.visibleAssistantRenderState.hasAnswerText &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
+                    appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
+                    appState.visibleAssistantRenderState.generationErrorText == nil &&
+                    client.streamCallCount > q1StreamCalls
+            }
 
-        let session = try #require(appState.currentSession)
-        let secondCard = try #require(appState.currentSuggestion)
-        let secondQuestionID = try #require(secondCard.detectedQuestionID)
-        let secondGenerationID = try #require(secondCard.generationID)
-        #expect(secondCard.questionText == expectedMitigationQuestion)
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("mitigat"))
-        #expect(secondQuestionID != firstQuestionID)
-        #expect(secondGenerationID != firstGenerationID)
-        #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
-        #expect(appState.micCaptureRunning == false)
+            let session = try #require(appState.currentSession)
+            let secondCard = try #require(appState.currentSuggestion)
+            let secondQuestionID = try #require(secondCard.detectedQuestionID)
+            let secondGenerationID = try #require(secondCard.generationID)
+            #expect(secondCard.questionText == expectedMitigationQuestion)
+            #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("mitigat"))
+            #expect(secondQuestionID != firstQuestionID)
+            #expect(secondGenerationID != firstGenerationID)
+            #expect(appState.settings.audioCaptureMode == .systemAudioOnly)
+            #expect(appState.micCaptureRunning == false)
 
-        try await waitUntil(timeout: 10.0) {
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return rows.count == 2 &&
-                rows.map(\.questionText) == [firstQuestion, expectedMitigationQuestion] &&
-                Set(rows.compactMap(\.detectedQuestionID)).count == 2
-        }
+            try await waitUntil(timeout: 10.0) {
+                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                return rows.count == 2 &&
+                    rows.map(\.questionText) == [firstQuestion, expectedMitigationQuestion] &&
+                    Set(rows.compactMap(\.detectedQuestionID)).count == 2
+            }
 
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.count == 2)
-        #expect(rows.map(\.questionText) == [firstQuestion, expectedMitigationQuestion])
-        #expect(rows.last?.detectedQuestionID == secondQuestionID)
-        #expect(rows.last?.generationID == secondGenerationID)
-        let persistedSecondQuestion = (rows.last?.questionText ?? "")
-            .replacingOccurrences(of: "-", with: " ")
-        #expect(persistedSecondQuestion.localizedCaseInsensitiveContains("and how did mitigate those issues"))
-        #expect(persistedSecondQuestion.localizedCaseInsensitiveContains("What made real world execution harder"))
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(rows.count == 2)
+            #expect(rows.map(\.questionText) == [firstQuestion, expectedMitigationQuestion])
+            #expect(rows.last?.detectedQuestionID == secondQuestionID)
+            #expect(rows.last?.generationID == secondGenerationID)
+            let persistedSecondQuestion = (rows.last?.questionText ?? "")
+                .replacingOccurrences(of: "-", with: " ")
+            #expect(persistedSecondQuestion.localizedCaseInsensitiveContains("and how did mitigate those issues"))
+            #expect(persistedSecondQuestion.localizedCaseInsensitiveContains("What made real world execution harder"))
 
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
-        #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
-        #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
-        #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
-        #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
-        #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)
-        if trace.contains("\"event_type\":\"answer.request.skipped\"") {
-            #expect(trace.contains("\"rejection_reason\":\"request_inflight\""))
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
+            #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
+            #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
+            #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
+            #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
+            #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)
+            if trace.contains("\"event_type\":\"answer.request.skipped\"") {
+                #expect(trace.contains("\"rejection_reason\":\"request_inflight\""))
+            }
         }
     }
 
@@ -598,85 +700,88 @@ struct RuntimePathSingleSourceOfTruthTests {
     func cumulativeSystemAudioPartialsDoNotSuppressNovelFinalMitigationQuestion() async throws {
         let traceURL = temporaryTraceURL("runtime-cumulative-partial-final-mitigation-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        appState.delayProvider = RealDelayProvider()
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.delayProvider = RealDelayProvider()
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
-        let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
-        let mitigationQuestion = "What made real-world execution harder than a clean simulation or demo environment and how did you mitigate those issues?"
-        let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
-        let taskID = "runtime-cumulative-partial-final-task"
+            let firstQuestion = "How did your robotics system connect YOLOv8 detection with localization, navigation, manipulation, and recovery behaviors?"
+            let mitigationQuestion = "What made real-world execution harder than a clean simulation or demo environment and how did you mitigate those issues?"
+            let expectedMitigationQuestion = try #require(SystemAudioQuestionExtractor.extract(from: mitigationQuestion).last?.text)
+            let taskID = "runtime-cumulative-partial-final-task"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-cumulative-first-final",
-            sessionID: session.id,
-            text: firstQuestion,
-            asrFinalizationReason: "final is longer or similar",
-            recognitionTaskID: taskID,
-            recognitionEventSequence: 1,
-            sourceTextStartUTF16: 0,
-            sourceTextEndUTF16: firstQuestion.utf16.count
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-cumulative-first-final",
+                sessionID: session.id,
+                text: firstQuestion,
+                asrFinalizationReason: "final is longer or similar",
+                recognitionTaskID: taskID,
+                recognitionEventSequence: 1,
+                sourceTextStartUTF16: 0,
+                sourceTextEndUTF16: firstQuestion.utf16.count
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == firstQuestion &&
-                appState.generationUIState.isTerminal
-        }
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionText == firstQuestion &&
+                    appState.generationUIState.isTerminal
+            }
 
-        let partialCumulative = "\(firstQuestion) What made real world execution harder than a clean simulation or demo environment"
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-cumulative-second",
-            sessionID: session.id,
-            text: partialCumulative,
-            asrFinalizationReason: "partial",
-            recognitionTaskID: taskID,
-            recognitionEventSequence: 2,
-            sourceTextStartUTF16: 0,
-            sourceTextEndUTF16: partialCumulative.utf16.count
-        ))
+            let partialCumulative = "\(firstQuestion) What made real world execution harder than a clean simulation or demo environment"
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-cumulative-second",
+                sessionID: session.id,
+                text: partialCumulative,
+                asrFinalizationReason: "partial",
+                recognitionTaskID: taskID,
+                recognitionEventSequence: 2,
+                sourceTextStartUTF16: 0,
+                sourceTextEndUTF16: partialCumulative.utf16.count
+            ))
 
-        let finalCumulative = "\(firstQuestion) \(mitigationQuestion)"
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-cumulative-second",
-            sessionID: session.id,
-            text: finalCumulative,
-            asrFinalizationReason: "final is longer or similar",
-            recognitionTaskID: taskID,
-            recognitionEventSequence: 3,
-            sourceTextStartUTF16: 0,
-            sourceTextEndUTF16: finalCumulative.utf16.count
-        ))
+            let finalCumulative = "\(firstQuestion) \(mitigationQuestion)"
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-cumulative-second",
+                sessionID: session.id,
+                text: finalCumulative,
+                asrFinalizationReason: "final is longer or similar",
+                recognitionTaskID: taskID,
+                recognitionEventSequence: 3,
+                sourceTextStartUTF16: 0,
+                sourceTextEndUTF16: finalCumulative.utf16.count
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == expectedMitigationQuestion &&
-                appState.visibleAssistantRenderState.hasAnswerText &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
-                appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
-                client.streamCallCount >= 2
-        }
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionText == expectedMitigationQuestion &&
+                    appState.visibleAssistantRenderState.hasAnswerText &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("mitigat") &&
+                    appState.visibleAssistantRenderState.keyPoints.isEmpty == false &&
+                    client.streamCallCount >= 2
+            }
 
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        try assertTraceContainsEventsInOrder(
-            [
-                "transcript.final",
-                "question.accepted",
-                "answer.request.started",
-                "answer.first_token",
-                "answer.ui.rendered",
-                "answer.stream.completed"
-            ],
-            trace: trace
-        )
-        #expect(appState.currentSuggestion?.questionText == expectedMitigationQuestion)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("mitigat") == true)
-        let normalizedExpectedMitigationQuestion = expectedMitigationQuestion
-            .replacingOccurrences(of: "-", with: " ")
-        #expect(normalizedExpectedMitigationQuestion.localizedCaseInsensitiveContains("What made real world execution harder"))
-        #expect(normalizedExpectedMitigationQuestion.localizedCaseInsensitiveContains("how did you mitigate those issues"))
-        #expect(trace.contains("consumed_source_span_overlap") == false)
-        #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
-        #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)
-        if trace.contains("\"event_type\":\"answer.request.skipped\"") {
-            #expect(trace.contains("\"rejection_reason\":\"request_inflight\""))
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            try assertTraceContainsEventsInOrder(
+                [
+                    "transcript.final",
+                    "question.accepted",
+                    "answer.request.started",
+                    "answer.first_token",
+                    "answer.ui.rendered",
+                    "answer.stream.completed"
+                ],
+                trace: trace
+            )
+            #expect(appState.currentSuggestion?.questionText == expectedMitigationQuestion)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("mitigat") == true)
+            let normalizedExpectedMitigationQuestion = expectedMitigationQuestion
+                .replacingOccurrences(of: "-", with: " ")
+            #expect(normalizedExpectedMitigationQuestion.localizedCaseInsensitiveContains("What made real world execution harder"))
+            #expect(normalizedExpectedMitigationQuestion.localizedCaseInsensitiveContains("how did you mitigate those issues"))
+            #expect(trace.contains("consumed_source_span_overlap") == false)
+            #expect(trace.contains("\"rejection_reason\":\"duplicate_question\"") == false)
+            #expect(trace.contains("\"rejection_reason\":\"consumed_source_span_overlap\"") == false)
+            if trace.contains("\"event_type\":\"answer.request.skipped\"") {
+                #expect(trace.contains("\"rejection_reason\":\"request_inflight\""))
+            }
         }
     }
 
@@ -684,105 +789,108 @@ struct RuntimePathSingleSourceOfTruthTests {
     func visualActionQuestionThenInformationNeedQuestionSplitGenerateAndPersistSeparately() async throws {
         let traceURL = temporaryTraceURL("runtime-visual-action-information-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        appState.delayProvider = RealDelayProvider()
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        client.stageAStreamDelayByNeedle["What information did the robot need"] = 250_000_000
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.delayProvider = RealDelayProvider()
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+            client.stageAStreamDelayByNeedle["What information did the robot need"] = 250_000_000
 
-        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world"
-        let secondQuestion = "What information did the robot need before it could decide where to move and what to grasp"
-        let taskID = "runtime-visual-action-information-task"
+            let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world"
+            let secondQuestion = "What information did the robot need before it could decide where to move and what to grasp"
+            let taskID = "runtime-visual-action-information-task"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-visual-action-first",
-            sessionID: session.id,
-            text: firstQuestion,
-            asrFinalizationReason: "final is longer or similar",
-            recognitionTaskID: taskID,
-            recognitionEventSequence: 1,
-            sourceTextStartUTF16: 0,
-            sourceTextEndUTF16: firstQuestion.utf16.count
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-visual-action-first",
+                sessionID: session.id,
+                text: firstQuestion,
+                asrFinalizationReason: "final is longer or similar",
+                recognitionTaskID: taskID,
+                recognitionEventSequence: 1,
+                sourceTextStartUTF16: 0,
+                sourceTextEndUTF16: firstQuestion.utf16.count
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == firstQuestion &&
-                appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("target pose") &&
-                appState.generationUIState.isTerminal
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionText == firstQuestion &&
+                    appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("target pose") &&
+                    appState.generationUIState.isTerminal
+            }
+
+            let firstCard = try #require(appState.currentSuggestion)
+            let firstQuestionID = try #require(firstCard.detectedQuestionID)
+            let firstGenerationID = try #require(firstCard.generationID)
+            let firstAnswer = firstCard.sayFirst
+            #expect(firstAnswer.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+            #expect(firstAnswer.localizedCaseInsensitiveContains("visual") || firstAnswer.localizedCaseInsensitiveContains("detections"))
+            #expect(firstAnswer.localizedCaseInsensitiveContains("navigation"))
+            #expect(firstAnswer.localizedCaseInsensitiveContains("manipulation") || firstAnswer.localizedCaseInsensitiveContains("grasp"))
+
+            let cumulative = "\(firstQuestion) \(secondQuestion)"
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-visual-action-second",
+                sessionID: session.id,
+                text: cumulative,
+                asrFinalizationReason: "final is longer or similar",
+                recognitionTaskID: taskID,
+                recognitionEventSequence: 2,
+                sourceTextStartUTF16: 0,
+                sourceTextEndUTF16: cumulative.utf16.count
+            ))
+
+            try await waitUntil(timeout: 5.0) {
+                appState.lastDetectedQuestion?.questionText == secondQuestion &&
+                    appState.activeQuestionID == appState.lastDetectedQuestion?.id
+            }
+            #expect(appState.visibleAssistantRenderState.questionText == secondQuestion)
+            #expect(appState.visibleAssistantRenderState.answerText != firstAnswer)
+            #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("transformed visual detections") == false)
+
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionText == secondQuestion &&
+                    appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("object identity") &&
+                    appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("grasp") &&
+                    appState.generationUIState.isTerminal &&
+                    client.streamCallCount >= 2
+            }
+
+            let secondCard = try #require(appState.currentSuggestion)
+            let secondQuestionID = try #require(secondCard.detectedQuestionID)
+            let secondGenerationID = try #require(secondCard.generationID)
+            #expect(secondQuestionID != firstQuestionID)
+            #expect(secondGenerationID != firstGenerationID)
+            #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("I’d answer this directly") == false)
+            #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("object identity") || secondCard.sayFirst.localizedCaseInsensitiveContains("target object"))
+            #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("pose") || secondCard.sayFirst.localizedCaseInsensitiveContains("location") || secondCard.sayFirst.localizedCaseInsensitiveContains("position"))
+            #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("navigation"))
+            #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("grasp"))
+
+            try await waitUntil(timeout: 60.0) {
+                let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                return detected.count == 2 &&
+                    rows.count == 2 &&
+                    rows.map(\.questionText) == [firstQuestion, secondQuestion]
+            }
+
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(rows.map(\.questionText) == [firstQuestion, secondQuestion])
+            #expect(Set(rows.compactMap(\.detectedQuestionID)).count == 2)
+            #expect(rows.allSatisfy { ($0.questionText ?? "").localizedCaseInsensitiveContains("real world what information") == false })
+            #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
+            #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == [firstQuestion, secondQuestion])
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"question.accepted\""))
+            #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+            #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
+            #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
+            #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
+            #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
+            #expect(trace.contains("\"question_intent\":\"generic\"") == false)
+            #expect(trace.contains("real world what information") == false)
         }
-
-        let firstCard = try #require(appState.currentSuggestion)
-        let firstQuestionID = try #require(firstCard.detectedQuestionID)
-        let firstGenerationID = try #require(firstCard.generationID)
-        let firstAnswer = firstCard.sayFirst
-        #expect(firstAnswer.localizedCaseInsensitiveContains("I’d answer this directly") == false)
-        #expect(firstAnswer.localizedCaseInsensitiveContains("visual") || firstAnswer.localizedCaseInsensitiveContains("detections"))
-        #expect(firstAnswer.localizedCaseInsensitiveContains("navigation"))
-        #expect(firstAnswer.localizedCaseInsensitiveContains("manipulation") || firstAnswer.localizedCaseInsensitiveContains("grasp"))
-
-        let cumulative = "\(firstQuestion) \(secondQuestion)"
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-visual-action-second",
-            sessionID: session.id,
-            text: cumulative,
-            asrFinalizationReason: "final is longer or similar",
-            recognitionTaskID: taskID,
-            recognitionEventSequence: 2,
-            sourceTextStartUTF16: 0,
-            sourceTextEndUTF16: cumulative.utf16.count
-        ))
-
-        try await waitUntil(timeout: 5.0) {
-            appState.lastDetectedQuestion?.questionText == secondQuestion &&
-                appState.activeQuestionID == appState.lastDetectedQuestion?.id
-        }
-        #expect(appState.visibleAssistantRenderState.questionText == secondQuestion)
-        #expect(appState.visibleAssistantRenderState.answerText != firstAnswer)
-        #expect(appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("transformed visual detections") == false)
-
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionText == secondQuestion &&
-                appState.currentSuggestion?.questionIntent == .systemIntegrationDebugging &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("object identity") &&
-                appState.visibleAssistantRenderState.answerText.localizedCaseInsensitiveContains("grasp") &&
-                appState.generationUIState.isTerminal &&
-                client.streamCallCount >= 2
-        }
-
-        let secondCard = try #require(appState.currentSuggestion)
-        let secondQuestionID = try #require(secondCard.detectedQuestionID)
-        let secondGenerationID = try #require(secondCard.generationID)
-        #expect(secondQuestionID != firstQuestionID)
-        #expect(secondGenerationID != firstGenerationID)
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("I’d answer this directly") == false)
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("object identity") || secondCard.sayFirst.localizedCaseInsensitiveContains("target object"))
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("pose") || secondCard.sayFirst.localizedCaseInsensitiveContains("location") || secondCard.sayFirst.localizedCaseInsensitiveContains("position"))
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("navigation"))
-        #expect(secondCard.sayFirst.localizedCaseInsensitiveContains("grasp"))
-
-        try await waitUntil(timeout: 60.0) {
-            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return detected.count == 2 &&
-                rows.count == 2 &&
-                rows.map(\.questionText) == [firstQuestion, secondQuestion]
-        }
-
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.map(\.questionText) == [firstQuestion, secondQuestion])
-        #expect(Set(rows.compactMap(\.detectedQuestionID)).count == 2)
-        #expect(rows.allSatisfy { ($0.questionText ?? "").localizedCaseInsensitiveContains("real world what information") == false })
-        #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == [firstQuestion, secondQuestion])
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"question.accepted\""))
-        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.contains("\"question_id\":\"\(firstQuestionID)\""))
-        #expect(trace.contains("\"generation_id\":\"\(firstGenerationID)\""))
-        #expect(trace.contains("\"question_id\":\"\(secondQuestionID)\""))
-        #expect(trace.contains("\"generation_id\":\"\(secondGenerationID)\""))
-        #expect(trace.contains("\"question_intent\":\"generic\"") == false)
-        #expect(trace.contains("real world what information") == false)
     }
 
     @Test
@@ -973,235 +1081,242 @@ struct RuntimePathSingleSourceOfTruthTests {
     @Test
     func regenerateUsesCurrentVisibleQuestionInsteadOfCumulativeTranscript() async throws {
         let (appState, session, client) = try makeAppState()
-        let delay = MockDelayProvider()
-        delay.sleepDuration = 60_000_000_000
-        appState.delayProvider = delay
-        appState.stageATimeoutSeconds = 60.0
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        appState.hasCV = true
-        appState.hasJD = true
-        appState.diagnostics.storedCVChunkCount = 1
-        appState.automaticContextReadiness = .ready
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let delay = MockDelayProvider()
+            delay.sleepDuration = 60_000_000_000
+            appState.delayProvider = delay
+            appState.stageATimeoutSeconds = 60.0
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+            try installCompletionDocuments(appState)
+            appState.diagnostics.storedCVChunkCount = 1
+            appState.automaticContextReadiness = .ready
 
-        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
-        let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
-        appState.transcriptSegments = [
-            systemAudioSegment(id: "regen-q1", sessionID: session.id, text: firstQuestion),
-            systemAudioSegment(id: "regen-q2", sessionID: session.id, text: currentQuestion)
-        ]
-        appState.rawTranscriptText = [firstQuestion, currentQuestion].joined(separator: " ")
-        let acceptedQuestion = detectedQuestion(
-            sessionID: session.id,
-            text: currentQuestion,
-            intent: .technical,
-            strategy: .technicalExplanation
-        )
-        var savedAcceptedQuestion = acceptedQuestion
-        savedAcceptedQuestion.id = "regen-current-q2"
-        savedAcceptedQuestion.transcriptSegmentID = nil
-        try appState.suggestionRepository.saveDetectedQuestion(savedAcceptedQuestion)
-        let initialCard = suggestionCard(
-            sessionID: session.id,
-            questionID: "regen-current-q2",
-            questionText: currentQuestion,
-            sayFirst: "Previous visible answer."
-        )
-        appState.currentSuggestion = initialCard
-        #expect(appState.claimSuggestionPersistence(initialCard, generationID: initialCard.generationID))
-        try appState.suggestionRepository.saveSuggestionCard(initialCard)
+            let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
+            let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
+            appState.transcriptSegments = [
+                systemAudioSegment(id: "regen-q1", sessionID: session.id, text: firstQuestion),
+                systemAudioSegment(id: "regen-q2", sessionID: session.id, text: currentQuestion)
+            ]
+            appState.rawTranscriptText = [firstQuestion, currentQuestion].joined(separator: " ")
+            let acceptedQuestion = detectedQuestion(
+                sessionID: session.id,
+                text: currentQuestion,
+                intent: .technical,
+                strategy: .technicalExplanation
+            )
+            var savedAcceptedQuestion = acceptedQuestion
+            savedAcceptedQuestion.id = "regen-current-q2"
+            savedAcceptedQuestion.transcriptSegmentID = nil
+            try appState.suggestionRepository.saveDetectedQuestion(savedAcceptedQuestion)
+            let initialCard = suggestionCard(
+                sessionID: session.id,
+                questionID: "regen-current-q2",
+                questionText: currentQuestion,
+                sayFirst: "Previous visible answer."
+            )
+            appState.currentSuggestion = initialCard
+            #expect(appState.claimSuggestionPersistence(initialCard, generationID: initialCard.generationID))
+            try appState.suggestionRepository.saveSuggestionCard(initialCard)
 
-        appState.regenerateVisibleSuggestion()
+            appState.regenerateVisibleSuggestion()
 
-        try? await waitUntil(timeout: 5.0) {
-            appState.lastRegenerateNewGenerationID != nil || !appState.lastRegenerateRejectionReason.isEmpty
-        }
-
-        let completed: Void? = try? await waitUntil(timeout: 30.0) {
-            appState.lastRegenerateNewGenerationID != nil &&
-                appState.currentSuggestion?.questionText == currentQuestion &&
-                appState.currentSuggestion?.stageBCompleted == true &&
-                appState.generationUIState.isTerminal
-        }
-        #expect(completed != nil, """
-        regenerate timed out: newGenerationId=\(appState.lastRegenerateNewGenerationID ?? "nil") \
-        rejection=\(appState.lastRegenerateRejectionReason) \
-        streamCalls=\(client.streamCallCount) \
-        ui=\(appState.generationUIState.displayName) \
-        currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil") \
-        source=\(appState.currentSuggestion?.finalVisibleSource ?? "nil") \
-        stageB=\(appState.currentSuggestion?.stageBStatus ?? "nil") \
-        alignment=\(appState.currentSuggestion?.alignmentVerdict?.rawValue ?? "nil") \
-        lastAlignmentError=\(appState.lastAlignmentError)
-        """)
-
-        let card = try #require(appState.currentSuggestion)
-        #expect(client.detectionCallCount == 0)
-        #expect(client.streamCallCount > 0)
-        #expect(card.detectedQuestionID == "regen-current-q2")
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("object identity"), "sayFirst=\(card.sayFirst)")
-        #expect(card.finalVisibleSource == "deepseek_stream")
-        #expect(card.isLocal == false)
-        #expect(appState.lastRegenerateQuestionID == "regen-current-q2")
-        #expect(appState.lastRegenerateSourceTextKind == "accepted_question")
-        #expect(appState.lastRegenerateOldGenerationID == "runtime-path-generation")
-        #expect(appState.lastRegenerateNewGenerationID != nil)
-        #expect(appState.lastRegenerateRejectionReason.isEmpty)
-        #expect(appState.lastRegenerateRejectionReason != QuestionRuntimeRejectionReason.multipleQuestionsNeedSegmentation.rawValue)
-
-        try await waitUntil(timeout: 5.0) {
-            guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == initialCard.id }) else {
-                return false
+            try? await waitUntil(timeout: 5.0) {
+                appState.lastRegenerateNewGenerationID != nil || !appState.lastRegenerateRejectionReason.isEmpty
             }
-            return persisted.generationID == appState.lastRegenerateNewGenerationID &&
-                persisted.finalVisibleSource == "deepseek_stream" &&
-                persisted.isLocal == false &&
-                persisted.softFallbackUsed == false
+
+            let completed: Void? = try? await waitUntil(timeout: 30.0) {
+                appState.lastRegenerateNewGenerationID != nil &&
+                    appState.currentSuggestion?.questionText == currentQuestion &&
+                    appState.currentSuggestion?.stageBCompleted == true &&
+                    appState.generationUIState.isTerminal
+            }
+            #expect(completed != nil, """
+            regenerate timed out: newGenerationId=\(appState.lastRegenerateNewGenerationID ?? "nil") \
+            rejection=\(appState.lastRegenerateRejectionReason) \
+            streamCalls=\(client.streamCallCount) \
+            ui=\(appState.generationUIState.displayName) \
+            currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil") \
+            source=\(appState.currentSuggestion?.finalVisibleSource ?? "nil") \
+            stageB=\(appState.currentSuggestion?.stageBStatus ?? "nil") \
+            alignment=\(appState.currentSuggestion?.alignmentVerdict?.rawValue ?? "nil") \
+            lastAlignmentError=\(appState.lastAlignmentError)
+            """)
+
+            let card = try #require(appState.currentSuggestion)
+            #expect(client.detectionCallCount == 0)
+            #expect(client.streamCallCount > 0)
+            #expect(card.detectedQuestionID == "regen-current-q2")
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("object identity"), "sayFirst=\(card.sayFirst)")
+            #expect(card.finalVisibleSource == "deepseek_stream")
+            #expect(card.isLocal == false)
+            #expect(appState.lastRegenerateQuestionID == "regen-current-q2")
+            #expect(appState.lastRegenerateSourceTextKind == "accepted_question")
+            #expect(appState.lastRegenerateOldGenerationID == "runtime-path-generation")
+            #expect(appState.lastRegenerateNewGenerationID != nil)
+            #expect(appState.lastRegenerateRejectionReason.isEmpty)
+            #expect(appState.lastRegenerateRejectionReason != QuestionRuntimeRejectionReason.multipleQuestionsNeedSegmentation.rawValue)
+
+            try await waitUntil(timeout: 5.0) {
+                guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == initialCard.id }) else {
+                    return false
+                }
+                return persisted.generationID == appState.lastRegenerateNewGenerationID &&
+                    persisted.finalVisibleSource == "deepseek_stream" &&
+                    persisted.isLocal == false &&
+                    persisted.softFallbackUsed == false
+            }
+            let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == initialCard.id })
+            #expect(persisted.generationID == appState.lastRegenerateNewGenerationID)
+            #expect(persisted.finalVisibleSource == "deepseek_stream")
+            #expect(persisted.isLocal == false)
+            #expect(persisted.softFallbackUsed == false)
+            #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).filter { $0.questionText == currentQuestion }.count == 1)
         }
-        let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == initialCard.id })
-        #expect(persisted.generationID == appState.lastRegenerateNewGenerationID)
-        #expect(persisted.finalVisibleSource == "deepseek_stream")
-        #expect(persisted.isLocal == false)
-        #expect(persisted.softFallbackUsed == false)
-        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).filter { $0.questionText == currentQuestion }.count == 1)
     }
 
     @Test
     func manualGenerateButtonUsesAcceptedQuestionBeforeRecentTranscript() async throws {
         let (appState, session, client) = try makeAppState()
-        let delay = MockDelayProvider()
-        delay.sleepDuration = 60_000_000_000
-        appState.delayProvider = delay
-        appState.stageATimeoutSeconds = 60.0
-        appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        appState.hasCV = true
-        appState.hasJD = true
-        appState.diagnostics.storedCVChunkCount = 1
-        appState.automaticContextReadiness = .ready
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let delay = MockDelayProvider()
+            delay.sleepDuration = 60_000_000_000
+            appState.delayProvider = delay
+            appState.stageATimeoutSeconds = 60.0
+            appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
+            try installCompletionDocuments(appState)
+            appState.diagnostics.storedCVChunkCount = 1
+            appState.automaticContextReadiness = .ready
 
-        let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
-        let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
-        appState.transcriptSegments = [
-            systemAudioSegment(id: "manual-generate-q1", sessionID: session.id, text: firstQuestion),
-            systemAudioSegment(id: "manual-generate-q2", sessionID: session.id, text: currentQuestion)
-        ]
-        appState.rawTranscriptText = [firstQuestion, currentQuestion].joined(separator: " ")
+            let firstQuestion = "Can you explain how your robot transformed visual detections into physical actions in the real world?"
+            let currentQuestion = "What information did the robot need before it could decide where to move and what to grasp?"
+            appState.transcriptSegments = [
+                systemAudioSegment(id: "manual-generate-q1", sessionID: session.id, text: firstQuestion),
+                systemAudioSegment(id: "manual-generate-q2", sessionID: session.id, text: currentQuestion)
+            ]
+            appState.rawTranscriptText = [firstQuestion, currentQuestion].joined(separator: " ")
 
-        var acceptedQuestion = detectedQuestion(
-            sessionID: session.id,
-            text: currentQuestion,
-            intent: .technical,
-            strategy: .technicalExplanation
-        )
-        acceptedQuestion.id = "manual-generate-current-q2"
-        acceptedQuestion.transcriptSegmentID = nil
-        try appState.suggestionRepository.saveDetectedQuestion(acceptedQuestion)
-        appState.lastDetectedQuestion = acceptedQuestion
-        appState.lastDetectedQuestionText = currentQuestion
-        appState.lastDetectedQuestionSource = AudioSourceType.systemAudio.rawValue
-        appState.lastDetectedQuestionSpeaker = SpeakerRole.interviewer.rawValue
+            var acceptedQuestion = detectedQuestion(
+                sessionID: session.id,
+                text: currentQuestion,
+                intent: .technical,
+                strategy: .technicalExplanation
+            )
+            acceptedQuestion.id = "manual-generate-current-q2"
+            acceptedQuestion.transcriptSegmentID = nil
+            try appState.suggestionRepository.saveDetectedQuestion(acceptedQuestion)
+            appState.lastDetectedQuestion = acceptedQuestion
+            appState.lastDetectedQuestionText = currentQuestion
+            appState.lastDetectedQuestionSource = AudioSourceType.systemAudio.rawValue
+            appState.lastDetectedQuestionSpeaker = SpeakerRole.interviewer.rawValue
 
-        let initialCard = suggestionCard(
-            sessionID: session.id,
-            questionID: acceptedQuestion.id,
-            questionText: currentQuestion,
-            sayFirst: "Previous visible answer."
-        )
-        appState.currentSuggestion = initialCard
-        #expect(appState.claimSuggestionPersistence(initialCard, generationID: initialCard.generationID))
-        try appState.suggestionRepository.saveSuggestionCard(initialCard)
+            let initialCard = suggestionCard(
+                sessionID: session.id,
+                questionID: acceptedQuestion.id,
+                questionText: currentQuestion,
+                sayFirst: "Previous visible answer."
+            )
+            appState.currentSuggestion = initialCard
+            #expect(appState.claimSuggestionPersistence(initialCard, generationID: initialCard.generationID))
+            try appState.suggestionRepository.saveSuggestionCard(initialCard)
 
-        appState.answerCurrentQuestionOrTranscriptNow()
+            appState.answerCurrentQuestionOrTranscriptNow()
 
-        let completed: Void? = try? await waitUntil(timeout: 30.0) {
-            appState.lastRegenerateNewGenerationID != nil &&
-                appState.currentSuggestion?.questionText == currentQuestion &&
-                appState.currentSuggestion?.stageBCompleted == true &&
-                appState.generationUIState.isTerminal
-        }
-        #expect(completed != nil, """
-        manual generate timed out: newGenerationId=\(appState.lastRegenerateNewGenerationID ?? "nil") \
-        rejection=\(appState.lastRegenerateRejectionReason) \
-        streamCalls=\(client.streamCallCount) \
-        detectionCalls=\(client.detectionCallCount) \
-        ui=\(appState.generationUIState.displayName) \
-        currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil")
-        """)
-
-        let card = try #require(appState.currentSuggestion)
-        #expect(client.detectionCallCount == 0)
-        #expect(client.streamCallCount > 0)
-        #expect(card.detectedQuestionID == acceptedQuestion.id)
-        #expect(card.questionText == currentQuestion)
-        #expect(card.sayFirst.localizedCaseInsensitiveContains("object identity"), "sayFirst=\(card.sayFirst)")
-        #expect(card.finalVisibleSource == "deepseek_stream")
-        #expect(card.isLocal == false)
-        #expect(appState.lastRegenerateQuestionID == acceptedQuestion.id)
-        #expect(appState.lastRegenerateSourceTextKind == "accepted_question")
-        #expect(appState.lastRegenerateRejectionReason.isEmpty)
-        #expect(appState.lastRegenerateRejectionReason != QuestionRuntimeRejectionReason.multipleQuestionsNeedSegmentation.rawValue)
-
-        try await waitUntil(timeout: 5.0) {
-            guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == initialCard.id }) else {
-                return false
+            let completed: Void? = try? await waitUntil(timeout: 30.0) {
+                appState.lastRegenerateNewGenerationID != nil &&
+                    appState.currentSuggestion?.questionText == currentQuestion &&
+                    appState.currentSuggestion?.stageBCompleted == true &&
+                    appState.generationUIState.isTerminal
             }
-            return persisted.generationID == appState.lastRegenerateNewGenerationID &&
-                persisted.finalVisibleSource == "deepseek_stream" &&
-                persisted.isLocal == false &&
-                persisted.softFallbackUsed == false
+            #expect(completed != nil, """
+            manual generate timed out: newGenerationId=\(appState.lastRegenerateNewGenerationID ?? "nil") \
+            rejection=\(appState.lastRegenerateRejectionReason) \
+            streamCalls=\(client.streamCallCount) \
+            detectionCalls=\(client.detectionCallCount) \
+            ui=\(appState.generationUIState.displayName) \
+            currentQuestion=\(appState.currentSuggestion?.questionText ?? "nil")
+            """)
+
+            let card = try #require(appState.currentSuggestion)
+            #expect(client.detectionCallCount == 0)
+            #expect(client.streamCallCount > 0)
+            #expect(card.detectedQuestionID == acceptedQuestion.id)
+            #expect(card.questionText == currentQuestion)
+            #expect(card.sayFirst.localizedCaseInsensitiveContains("object identity"), "sayFirst=\(card.sayFirst)")
+            #expect(card.finalVisibleSource == "deepseek_stream")
+            #expect(card.isLocal == false)
+            #expect(appState.lastRegenerateQuestionID == acceptedQuestion.id)
+            #expect(appState.lastRegenerateSourceTextKind == "accepted_question")
+            #expect(appState.lastRegenerateRejectionReason.isEmpty)
+            #expect(appState.lastRegenerateRejectionReason != QuestionRuntimeRejectionReason.multipleQuestionsNeedSegmentation.rawValue)
+
+            try await waitUntil(timeout: 5.0) {
+                guard let persisted = try? appState.suggestionRepository.suggestions(sessionID: session.id).first(where: { $0.id == initialCard.id }) else {
+                    return false
+                }
+                return persisted.generationID == appState.lastRegenerateNewGenerationID &&
+                    persisted.finalVisibleSource == "deepseek_stream" &&
+                    persisted.isLocal == false &&
+                    persisted.softFallbackUsed == false
+            }
+            let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == initialCard.id })
+            #expect(persisted.generationID == appState.lastRegenerateNewGenerationID)
+            #expect(persisted.finalVisibleSource == "deepseek_stream")
+            #expect(persisted.isLocal == false)
+            #expect(persisted.softFallbackUsed == false)
+            #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).filter { $0.questionText == currentQuestion }.count == 1)
         }
-        let persisted = try #require(try appState.suggestionRepository.suggestions(sessionID: session.id).first { $0.id == initialCard.id })
-        #expect(persisted.generationID == appState.lastRegenerateNewGenerationID)
-        #expect(persisted.finalVisibleSource == "deepseek_stream")
-        #expect(persisted.isLocal == false)
-        #expect(persisted.softFallbackUsed == false)
-        #expect(try appState.suggestionRepository.suggestions(sessionID: session.id).filter { $0.questionText == currentQuestion }.count == 1)
     }
 
     @Test
     func mergedBSequenceDetectsFourQuestionsAndGeneratesLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-merged-b-sequence-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        let transcript = [
-            "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders?",
-            "Tell me about a time you had to debug a system integration problem.",
-            "What questions would you ask us about the team or the role before accepting an offer?",
-            "How would you diagnose a sim-to-real gap if your policy works in simulation but fails on a real robot?"
-        ].joined(separator: " ")
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let transcript = [
+                "What did you learn from comparing autoregressive, diffusion, and flow-matching decoders?",
+                "Tell me about a time you had to debug a system integration problem.",
+                "What questions would you ask us about the team or the role before accepting an offer?",
+                "How would you diagnose a sim-to-real gap if your policy works in simulation but fails on a real robot?"
+            ].joined(separator: " ")
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "merged-b-sequence",
-            sessionID: session.id,
-            text: transcript
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "merged-b-sequence",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return detected.count == 4 &&
-                !rows.isEmpty &&
-                rows.last?.questionIntent == .simToRealDebugging &&
-                appState.currentSuggestion?.questionIntent == .simToRealDebugging
+            try await waitUntil(timeout: 60.0) {
+                let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                return detected.count == 4 &&
+                    !rows.isEmpty &&
+                    rows.last?.questionIntent == .simToRealDebugging &&
+                    appState.currentSuggestion?.questionIntent == .simToRealDebugging
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(client.detectionCallCount == 0)
+            #expect(detected.count == 4)
+            #expect(rows.isEmpty == false)
+            #expect(Set(rows.map(\.id)).count == rows.count)
+            #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
+            #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
+            #expect(detected.contains { $0.questionText.contains("autoregressive, diffusion, and flow-matching decoders") })
+            #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("system integration") })
+            #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("questions would you ask us") })
+            #expect(rows.contains { $0.questionIntent == .simToRealDebugging && ($0.questionText ?? "").localizedCaseInsensitiveContains("simulation") })
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"question.accepted\""))
+            #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+            #expect(trace.components(separatedBy: "\"event_type\":\"persistenceStarted\"").count - 1 >= 1)
+            #expect(trace.contains("\"question_intent\":\"sim_to_real_debugging\""))
+            #expect(!trace.contains("What questions would you ask us about that"))
         }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(client.detectionCallCount == 0)
-        #expect(detected.count == 4)
-        #expect(rows.isEmpty == false)
-        #expect(Set(rows.map(\.id)).count == rows.count)
-        #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
-        #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(detected.contains { $0.questionText.contains("autoregressive, diffusion, and flow-matching decoders") })
-        #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("system integration") })
-        #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("questions would you ask us") })
-        #expect(rows.contains { $0.questionIntent == .simToRealDebugging && ($0.questionText ?? "").localizedCaseInsensitiveContains("simulation") })
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"question.accepted\""))
-        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceStarted\"").count - 1 >= 1)
-        #expect(trace.contains("\"question_intent\":\"sim_to_real_debugging\""))
-        #expect(!trace.contains("What questions would you ask us about that"))
     }
 
     @Test
@@ -1283,7 +1398,8 @@ struct RuntimePathSingleSourceOfTruthTests {
             appState.recordTranscriptRuntimeEvent(.audioBufferReceived(
                 sessionID: session.id,
                 frameCount: 960,
-                timestamp: startedAt.addingTimeInterval(Double(offset) * 0.02)
+                timestamp: startedAt.addingTimeInterval(Double(offset) * 0.02),
+                source: .systemAudio
             ))
         }
 
@@ -1438,81 +1554,84 @@ struct RuntimePathSingleSourceOfTruthTests {
     @Test
     func runtimePartialFinalSequenceUpdatesTranscriptButOnlyPersistsAcceptedQuestions() async throws {
         let (appState, session, client) = try makeAppState()
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "sequence-decoder",
-            sessionID: session.id,
-            text: "what did you learn from comp",
-            asrFinalizationReason: "partial"
-        ))
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "sequence-decoder",
-            sessionID: session.id,
-            text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?",
-            asrFinalizationReason: "final is longer or similar"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "sequence-decoder",
+                sessionID: session.id,
+                text: "what did you learn from comp",
+                asrFinalizationReason: "partial"
+            ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "sequence-decoder",
+                sessionID: session.id,
+                text: "What did you learn from comparing autoregressive, diffusion, and flow matching decoders in your MuJoCo VLA project?",
+                asrFinalizationReason: "final is longer or similar"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            acceptedCard(
+            try await waitUntil(timeout: 60.0) {
+                acceptedCard(
+                    in: appState,
+                    intent: .decoderComparison,
+                    questionContains: "autoregressive, diffusion, and flow matching decoders"
+                ) != nil
+            }
+            let firstCard = try #require(acceptedCard(
                 in: appState,
                 intent: .decoderComparison,
                 questionContains: "autoregressive, diffusion, and flow matching decoders"
-            ) != nil
-        }
-        let firstCard = try #require(acceptedCard(
-            in: appState,
-            intent: .decoderComparison,
-            questionContains: "autoregressive, diffusion, and flow matching decoders"
-        ))
-        #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(firstCard).accepted)
-        appState.saveSuggestionSnapshotInBackground(firstCard, chunks: [], consentTicket: appState.persistenceConsent.ticket())
-        try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1
-        }
+            ))
+            #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(firstCard).accepted)
+            appState.saveSuggestionSnapshotInBackground(firstCard, chunks: [], consentTicket: appState.persistenceConsent.ticket())
+            try await waitUntil(timeout: 60.0) {
+                ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 1
+            }
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "sequence-integration",
-            sessionID: session.id,
-            text: "tell me about a time you had",
-            asrFinalizationReason: "partial"
-        ))
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "sequence-integration",
-            sessionID: session.id,
-            text: "Tell me about a time you had to debug a system integration problem.",
-            asrFinalizationReason: "final is longer or similar"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "sequence-integration",
+                sessionID: session.id,
+                text: "tell me about a time you had",
+                asrFinalizationReason: "partial"
+            ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "sequence-integration",
+                sessionID: session.id,
+                text: "Tell me about a time you had to debug a system integration problem.",
+                asrFinalizationReason: "final is longer or similar"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            acceptedCard(
+            try await waitUntil(timeout: 60.0) {
+                acceptedCard(
+                    in: appState,
+                    intent: .systemIntegrationDebugging,
+                    questionContains: "debug a system integration problem"
+                ) != nil
+            }
+            let secondCard = try #require(acceptedCard(
                 in: appState,
                 intent: .systemIntegrationDebugging,
                 questionContains: "debug a system integration problem"
-            ) != nil
-        }
-        let secondCard = try #require(acceptedCard(
-            in: appState,
-            intent: .systemIntegrationDebugging,
-            questionContains: "debug a system integration problem"
-        ))
-        #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(secondCard).accepted)
-        appState.saveSuggestionSnapshotInBackground(secondCard, chunks: [], consentTicket: appState.persistenceConsent.ticket())
+            ))
+            #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(secondCard).accepted)
+            appState.saveSuggestionSnapshotInBackground(secondCard, chunks: [], consentTicket: appState.persistenceConsent.ticket())
 
-        try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 2
-        }
+            try await waitUntil(timeout: 60.0) {
+                ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) >= 2
+            }
 
-        let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(appState.transcriptRuntimeDiagnostics.partialTranscriptCount >= 2)
-        #expect(appState.transcriptRuntimeDiagnostics.finalTranscriptCount >= 2)
-        #expect(client.streamCallCount >= 2)
-        let acceptedRuntimeRows = persisted.filter {
-            $0.questionText == $0.promptPrimaryQuestion &&
-            ($0.questionIntent == .decoderComparison || $0.questionIntent == .systemIntegrationDebugging)
+            let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(appState.transcriptRuntimeDiagnostics.partialTranscriptCount >= 2)
+            #expect(appState.transcriptRuntimeDiagnostics.finalTranscriptCount >= 2)
+            #expect(client.streamCallCount >= 2)
+            let acceptedRuntimeRows = persisted.filter {
+                $0.questionText == $0.promptPrimaryQuestion &&
+                ($0.questionIntent == .decoderComparison || $0.questionIntent == .systemIntegrationDebugging)
+            }
+            #expect(acceptedRuntimeRows.count == 2)
+            #expect(acceptedRuntimeRows.allSatisfy { $0.alignmentVerdict == .aligned })
+            #expect(acceptedRuntimeRows.allSatisfy { $0.questionIntent != .generic })
         }
-        #expect(acceptedRuntimeRows.count == 2)
-        #expect(acceptedRuntimeRows.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(acceptedRuntimeRows.allSatisfy { $0.questionIntent != .generic })
     }
 
     @Test
@@ -1587,146 +1706,152 @@ struct RuntimePathSingleSourceOfTruthTests {
     func observedEngineeringFitThenLeoRoverImprovementRuntimeGeneratesLatestAnswerAndTraceEvents() async throws {
         let traceURL = temporaryTraceURL("runtime-engineering-fit-improvement-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        let transcript = "What would you ask the engineering team to understand whether this role is a good fit? If you had one more month to improve your LeoRover system, what would you improve first?"
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let transcript = "What would you ask the engineering team to understand whether this role is a good fit? If you had one more month to improve your LeoRover system, what would you improve first?"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "engineering-fit-then-improvement",
-            sessionID: session.id,
-            text: transcript
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "engineering-fit-then-improvement",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            let latestAnswer = rows.last?.sayFirst.lowercased() ?? ""
-            let hasExpectedImprovementDetail = ["evaluation", "perception", "real-robot", "calibration", "recovery"]
-                .contains { latestAnswer.contains($0) }
-            return detected.count == 2 &&
-                !rows.isEmpty &&
-                rows.last?.questionIntent == .improvementPlan &&
-                appState.currentSuggestion?.questionIntent == .improvementPlan &&
-                hasExpectedImprovementDetail
+            try await waitUntil(timeout: 60.0) {
+                let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                let latestAnswer = rows.last?.sayFirst.lowercased() ?? ""
+                let hasExpectedImprovementDetail = ["evaluation", "perception", "real-robot", "calibration", "recovery"]
+                    .contains { latestAnswer.contains($0) }
+                return detected.count == 2 &&
+                    !rows.isEmpty &&
+                    rows.last?.questionIntent == .improvementPlan &&
+                    appState.currentSuggestion?.questionIntent == .improvementPlan &&
+                    hasExpectedImprovementDetail
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(client.detectionCallCount == 0)
+            #expect(detected.count == 2)
+            #expect(rows.isEmpty == false)
+            #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
+            #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
+            #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("engineering team") })
+            #expect(rows.last.map {
+                let answer = $0.sayFirst.lowercased()
+                return $0.questionIntent == .improvementPlan &&
+                ($0.questionText ?? "").localizedCaseInsensitiveContains("LeoRover") &&
+                answer.contains("leorover") &&
+                (answer.contains("evaluation") ||
+                 answer.contains("perception") ||
+                 answer.contains("real-robot") ||
+                 answer.contains("calibration") ||
+                 answer.contains("recovery")) &&
+                !answer.contains("semantic-geometric") &&
+                !answer.contains("re-ranker") &&
+                !answer.contains("reranker") &&
+                !answer.contains("vlm grasp")
+            } == true)
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"utteranceBufferConsumed\""))
+            #expect(trace.contains("\"event_type\":\"utteranceBufferReset\""))
+            #expect(trace.contains("\"event_type\":\"question.accepted\""))
+            #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+            #expect(trace.contains("\"question_intent\":\"improvement_plan\""))
+            #expect(!trace.contains("\"visible_question_text\":\"What would you ask the engineering team to understand whether this role is a good fit if you had one more month"))
         }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(client.detectionCallCount == 0)
-        #expect(detected.count == 2)
-        #expect(rows.isEmpty == false)
-        #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
-        #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(detected.contains { $0.questionText.localizedCaseInsensitiveContains("engineering team") })
-        #expect(rows.last.map {
-            let answer = $0.sayFirst.lowercased()
-            return $0.questionIntent == .improvementPlan &&
-            ($0.questionText ?? "").localizedCaseInsensitiveContains("LeoRover") &&
-            answer.contains("leorover") &&
-            (answer.contains("evaluation") ||
-             answer.contains("perception") ||
-             answer.contains("real-robot") ||
-             answer.contains("calibration") ||
-             answer.contains("recovery")) &&
-            !answer.contains("semantic-geometric") &&
-            !answer.contains("re-ranker") &&
-            !answer.contains("reranker") &&
-            !answer.contains("vlm grasp")
-        } == true)
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"utteranceBufferConsumed\""))
-        #expect(trace.contains("\"event_type\":\"utteranceBufferReset\""))
-        #expect(trace.contains("\"event_type\":\"question.accepted\""))
-        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.contains("\"question_intent\":\"improvement_plan\""))
-        #expect(!trace.contains("\"visible_question_text\":\"What would you ask the engineering team to understand whether this role is a good fit if you had one more month"))
     }
 
     @Test
     func secondAcceptedRuntimeQuestionSupersedesOrQueuesAndOwnsLatestAnswer() async throws {
         let traceURL = temporaryTraceURL("runtime-question-queue-trace")
         let (appState, session, client) = try makeAppState(traceURL: traceURL)
-        appState.delayProvider = RealDelayProvider()
-        client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
-        let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit"
-        let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            appState.delayProvider = RealDelayProvider()
+            client.stageAStreamDelayByNeedle["engineering team"] = 250_000_000
+            let firstQuestion = "What would you ask the engineering team to understand whether this role is a good fit"
+            let secondQuestion = "If you had one more month to improve your LeoRover system, what would you improve first?"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "queued-first-engineering-fit",
-            sessionID: session.id,
-            text: firstQuestion
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "queued-first-engineering-fit",
+                sessionID: session.id,
+                text: firstQuestion
+            ))
 
-        try await waitUntil(timeout: 8.0) {
-            appState.activeQuestionID != nil &&
-            appState.activeGenerationID != nil &&
-            !appState.generationUIState.isTerminal
+            try await waitUntil(timeout: 8.0) {
+                appState.activeQuestionID != nil &&
+                appState.activeGenerationID != nil &&
+                !appState.generationUIState.isTerminal
+            }
+
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "queued-second-improvement",
+                sessionID: session.id,
+                text: secondQuestion
+            ))
+
+            try await waitUntil(timeout: 8.0) {
+                let trace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+                let secondQuestionID = appState.lastDetectedQuestion?.id
+                let secondVisible = appState.currentSuggestion?.detectedQuestionID == secondQuestionID ||
+                    appState.currentSuggestion?.questionText == secondQuestion
+                return appState.lastDetectedQuestion?.questionText == secondQuestion &&
+                    appState.pendingAcceptedQuestions.isEmpty &&
+                    (appState.activeQuestionID == secondQuestionID ||
+                     secondVisible ||
+                     trace.contains("\"event_type\":\"questionDequeued\""))
+            }
+
+            try await waitUntil(timeout: 60.0) {
+                appState.currentSuggestion?.questionIntent == .improvementPlan &&
+                appState.currentSuggestion?.alignmentVerdict == .aligned &&
+                appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true &&
+                appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true
+            }
+
+            #expect(appState.currentSuggestion?.questionText == secondQuestion)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true)
+            #expect(!appState.currentSpinnerVisible)
+
+            try await waitUntil(timeout: 60.0) {
+                ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
+                appState.liveSuggestionHistory.contains { $0.questionText == secondQuestion }
+            }
+            let historyQuestions = appState.liveSuggestionHistory.compactMap(\.questionText)
+            let persistedRows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(persistedRows.count == 2)
+            #expect(Set(persistedRows.compactMap(\.questionText)) == Set([firstQuestion, secondQuestion]))
+            let supersededFirst = try #require(persistedRows.first { $0.questionText == firstQuestion })
+            let providerSecond = try #require(persistedRows.first { $0.questionText == secondQuestion })
+            #expect(supersededFirst.finalVisibleSource == "local_superseded_question_snapshot")
+            #expect(supersededFirst.stageBStatus == "superseded")
+            #expect(providerSecond.finalVisibleSource == AnswerSource.deepseekStream.rawValue)
+            #expect(historyQuestions.contains(secondQuestion))
+            #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
+
+            try await waitUntil(timeout: 60.0) {
+                let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
+                let supersededOrQueued = latestTrace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") ||
+                    (latestTrace.contains("\"event_type\":\"questionQueued\"") &&
+                     latestTrace.contains("\"event_type\":\"questionDequeued\""))
+                return supersededOrQueued &&
+                    latestTrace.contains("\"event_type\":\"answer.request.started\"") &&
+                    (latestTrace.contains("\"event_type\":\"answer.first_token\"") || latestTrace.contains("\"event_type\":\"answer.ui.rendered\"")) &&
+                    latestTrace.contains("\"event_type\":\"questionHistoryAppended\"") &&
+                    latestTrace.contains("\"event_type\":\"uiHistoryRefresh\"")
+            }
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") ||
+                (trace.contains("\"event_type\":\"questionQueued\"") &&
+                 trace.contains("\"event_type\":\"questionDequeued\"")))
+            #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+            #expect(trace.contains("\"event_type\":\"answer.first_token\"") || trace.contains("\"event_type\":\"answer.ui.rendered\""))
+            #expect(trace.contains("\"event_type\":\"questionHistoryAppended\""))
+            #expect(trace.contains("\"event_type\":\"uiHistoryRefresh\""))
         }
-
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "queued-second-improvement",
-            sessionID: session.id,
-            text: secondQuestion
-        ))
-
-        try await waitUntil(timeout: 8.0) {
-            let trace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
-            let secondQuestionID = appState.lastDetectedQuestion?.id
-            let secondVisible = appState.currentSuggestion?.detectedQuestionID == secondQuestionID ||
-                appState.currentSuggestion?.questionText == secondQuestion
-            return appState.lastDetectedQuestion?.questionText == secondQuestion &&
-                appState.pendingAcceptedQuestions.isEmpty &&
-                (appState.activeQuestionID == secondQuestionID ||
-                 secondVisible ||
-                 trace.contains("\"event_type\":\"questionDequeued\""))
-        }
-
-        try await waitUntil(timeout: 60.0) {
-            appState.currentSuggestion?.questionIntent == .improvementPlan &&
-            appState.currentSuggestion?.alignmentVerdict == .aligned &&
-            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true &&
-            appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true
-        }
-
-        #expect(appState.currentSuggestion?.questionText == secondQuestion)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("evaluation") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("lighting") == true)
-        #expect(!appState.currentSpinnerVisible)
-
-        try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 2 &&
-            appState.liveSuggestionHistory.contains { $0.questionText == secondQuestion }
-        }
-        let historyQuestions = appState.liveSuggestionHistory.compactMap(\.questionText)
-        let persistedRows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(persistedRows.count == 2)
-        #expect(Set(persistedRows.compactMap(\.questionText)) == Set([firstQuestion, secondQuestion]))
-        let supersededFirst = try #require(persistedRows.first { $0.questionText == firstQuestion })
-        let providerSecond = try #require(persistedRows.first { $0.questionText == secondQuestion })
-        #expect(supersededFirst.finalVisibleSource == "local_superseded_question_snapshot")
-        #expect(supersededFirst.stageBStatus == "superseded")
-        #expect(providerSecond.finalVisibleSource == AnswerSource.deepseekStream.rawValue)
-        #expect(historyQuestions.contains(secondQuestion))
-        #expect(appState.currentSuggestion?.questionText == historyQuestions.last)
-
-        try await waitUntil(timeout: 60.0) {
-            let latestTrace = (try? String(contentsOf: traceURL, encoding: .utf8)) ?? ""
-            let supersededOrQueued = latestTrace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") ||
-                (latestTrace.contains("\"event_type\":\"questionQueued\"") &&
-                 latestTrace.contains("\"event_type\":\"questionDequeued\""))
-            return supersededOrQueued &&
-                latestTrace.contains("\"event_type\":\"answer.request.started\"") &&
-                (latestTrace.contains("\"event_type\":\"answer.first_token\"") || latestTrace.contains("\"event_type\":\"answer.ui.rendered\"")) &&
-                latestTrace.contains("\"event_type\":\"questionHistoryAppended\"") &&
-                latestTrace.contains("\"event_type\":\"uiHistoryRefresh\"")
-        }
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\"") ||
-            (trace.contains("\"event_type\":\"questionQueued\"") &&
-             trace.contains("\"event_type\":\"questionDequeued\"")))
-        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.contains("\"event_type\":\"answer.first_token\"") || trace.contains("\"event_type\":\"answer.ui.rendered\""))
-        #expect(trace.contains("\"event_type\":\"questionHistoryAppended\""))
-        #expect(trace.contains("\"event_type\":\"uiHistoryRefresh\""))
     }
 
     @Test
@@ -1842,85 +1967,91 @@ struct RuntimePathSingleSourceOfTruthTests {
     func rapidThreeQuestionSequenceGeneratesOnlyLatestCurrentCard() async throws {
         let traceURL = temporaryTraceURL("runtime-three-question-history-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
-        let expectedLatestQuestion = "Can you explain the difference between your VLA project and your LeoRover project"
-        let transcript = [
-            "What would you ask the engineering team to understand whether this role is a good fit?",
-            "If you had one more month to improve your LeoRover system, what would you improve first?",
-            "Can you explain the difference between your VLA project and your LeoRover project"
-        ].joined(separator: " ")
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let expectedLatestQuestion = "Can you explain the difference between your VLA project and your LeoRover project"
+            let transcript = [
+                "What would you ask the engineering team to understand whether this role is a good fit?",
+                "If you had one more month to improve your LeoRover system, what would you improve first?",
+                "Can you explain the difference between your VLA project and your LeoRover project"
+            ].joined(separator: " ")
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-three-question-history",
-            sessionID: session.id,
-            text: transcript
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-three-question-history",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            // Visible publication precedes the detached SQLite commit. Wait
-            // for the last question's actual row before comparing histories.
-            return detected.count == 3 && rows.contains(where: { $0.questionText == expectedLatestQuestion }) &&
-                appState.currentSuggestion?.questionText == expectedLatestQuestion &&
-                appState.generationUIState.isTerminal
+            try await waitUntil(timeout: 60.0) {
+                let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                // Visible publication precedes the detached SQLite commit. Wait
+                // for the last question's actual row before comparing histories.
+                return detected.count == 3 && rows.contains(where: { $0.questionText == expectedLatestQuestion }) &&
+                    appState.currentSuggestion?.questionText == expectedLatestQuestion &&
+                    appState.generationUIState.isTerminal
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            let rowQuestions = rows.compactMap(\.questionText)
+            #expect(detected.count == 3)
+            #expect(rows.isEmpty == false)
+            #expect(Set(rows.map(\.id)).count == rows.count)
+            #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == rowQuestions)
+            #expect(appState.currentSuggestion?.questionText == expectedLatestQuestion)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("VLA") == true)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("LeoRover") == true)
+            #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
+            #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"visibleCurrentSuggestionUpdated\""))
+            #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+            #expect(trace.contains("\"question_intent\":\"project_comparison\""))
         }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        let rowQuestions = rows.compactMap(\.questionText)
-        #expect(detected.count == 3)
-        #expect(rows.isEmpty == false)
-        #expect(Set(rows.map(\.id)).count == rows.count)
-        #expect(appState.liveSuggestionHistory.compactMap(\.questionText) == rowQuestions)
-        #expect(appState.currentSuggestion?.questionText == expectedLatestQuestion)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("VLA") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("LeoRover") == true)
-        #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion })
-        #expect(rows.allSatisfy { $0.alignmentVerdict == .aligned })
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"visibleCurrentSuggestionUpdated\""))
-        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.contains("\"question_intent\":\"project_comparison\""))
     }
 
     @Test
     func partialDuplicateLeoRoverImprovementDoesNotCreateSecondRuntimeRow() async throws {
         let traceURL = temporaryTraceURL("runtime-partial-duplicate-improvement-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "complete-improvement",
-            sessionID: session.id,
-            text: "If you had one more month to improve your LeoRover system, what would you improve first"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "complete-improvement",
+                sessionID: session.id,
+                text: "If you had one more month to improve your LeoRover system, what would you improve first"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1
-        }
-
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "partial-improvement",
-            sessionID: session.id,
-            text: "If you had one more month to improve your LeoRover",
-            asrFinalizationReason: "partial"
-        ))
-
-        try await waitUntil(timeout: 8.0) {
-            appState.recentTranscriptRuntimeEvents.contains {
-                $0.name == "questionRejected" &&
-                    $0.rejectionReason == QuestionRuntimeRejectionReason.incompleteFragment.rawValue
+            try await waitUntil(timeout: 60.0) {
+                ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1
             }
+
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "partial-improvement",
+                sessionID: session.id,
+                text: "If you had one more month to improve your LeoRover",
+                asrFinalizationReason: "partial"
+            ))
+
+            try await waitUntil(timeout: 8.0) {
+                appState.recentTranscriptRuntimeEvents.contains {
+                    $0.name == "questionRejected" &&
+                        $0.rejectionReason == QuestionRuntimeRejectionReason.incompleteFragment.rawValue
+                }
+            }
+
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(rows.count == 1)
+            #expect(rows.first?.questionIntent == .improvementPlan)
+            #expect(appState.liveSuggestionHistory.count == 1)
+
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"questionRejected\""))
+            #expect(trace.contains("\"rejection_reason\":\"rejected_incomplete_fragment\""))
         }
-
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.count == 1)
-        #expect(rows.first?.questionIntent == .improvementPlan)
-        #expect(appState.liveSuggestionHistory.count == 1)
-
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"questionRejected\""))
-        #expect(trace.contains("\"rejection_reason\":\"rejected_incomplete_fragment\""))
     }
 
     @Test
@@ -1941,9 +2072,15 @@ struct RuntimePathSingleSourceOfTruthTests {
         )
         card.questionIntent = .improvementPlan
         card.promptPrimaryQuestion = question.questionText
+        appState.activateGeneration(
+            question: question,
+            generationID: try #require(card.generationID),
+            triggerPath: .manualGenerate,
+            requestStart: Date(),
+            source: nil,
+            speaker: nil
+        )
         appState.currentSuggestion = card
-        appState.currentGenerationID = card.generationID
-        appState.activeQuestionID = question.id
 
         appState.saveSuggestionSnapshotInBackground(card, chunks: [], consentTicket: appState.persistenceConsent.ticket())
         try await Task.sleep(nanoseconds: 150_000_000)
@@ -1958,68 +2095,74 @@ struct RuntimePathSingleSourceOfTruthTests {
     func visibleRuntimeAnswerPersistsAndEmitsCompletePersistenceLifecycleTrace() async throws {
         let traceURL = temporaryTraceURL("runtime-visible-persistence-lifecycle-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "visible-persistence-engineering-fit",
-            sessionID: session.id,
-            text: "What would you ask the engineering team to understand whether this role is a good fit?"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "visible-persistence-engineering-fit",
+                sessionID: session.id,
+                text: "What would you ask the engineering team to understand whether this role is a good fit?"
+            ))
 
-        try await awaitPersistenceIdle(
-            appState,
-            sessionID: session.id,
-            expectedRowCount: 1,
-            traceURL: traceURL,
-            timeout: 60.0
-        )
+            try await awaitPersistenceIdle(
+                appState,
+                sessionID: session.id,
+                expectedRowCount: 1,
+                traceURL: traceURL,
+                timeout: 60.0
+            )
 
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        let persisted = try #require(rows.first)
-        #expect(appState.currentSuggestion?.questionText == persisted.questionText)
-        #expect(persisted.questionText == persisted.promptPrimaryQuestion)
-        #expect(persisted.alignmentVerdict == .aligned)
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            let persisted = try #require(rows.first)
+            #expect(appState.currentSuggestion?.questionText == persisted.questionText)
+            #expect(persisted.questionText == persisted.promptPrimaryQuestion)
+            #expect(persisted.alignmentVerdict == .aligned)
 
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"generationStarted\""))
-        #expect(trace.contains("\"event_type\":\"visibleCurrentSuggestionUpdated\""))
-        #expect(trace.contains("\"event_type\":\"persistenceStarted\""))
-        #expect(trace.contains("\"event_type\":\"persistenceSucceeded\""))
-        #expect(!trace.contains("\"event_type\":\"persistenceRejected\""))
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"generationStarted\""))
+            #expect(trace.contains("\"event_type\":\"visibleCurrentSuggestionUpdated\""))
+            #expect(trace.contains("\"event_type\":\"persistenceStarted\""))
+            #expect(trace.contains("\"event_type\":\"persistenceSucceeded\""))
+            #expect(!trace.contains("\"event_type\":\"persistenceRejected\""))
+        }
     }
 
     @Test
     func rapidThreeQuestionRuntimeLatestWinsEmitsLifecycleAndPersistenceTraceReasons() async throws {
         let traceURL = temporaryTraceURL("runtime-three-question-drain-lifecycle-trace")
         let (appState, session, _) = try makeAppState(traceURL: traceURL)
-        let transcript = [
-            "What would you ask the engineering team to understand whether this role is a good fit?",
-            "If you had one more month to improve your LeoRover system, what would you improve first?",
-            "Can you explain the difference between your VLA project and your LeoRover project?"
-        ].joined(separator: " ")
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let transcript = [
+                "What would you ask the engineering team to understand whether this role is a good fit?",
+                "If you had one more month to improve your LeoRover system, what would you improve first?",
+                "Can you explain the difference between your VLA project and your LeoRover project?"
+            ].joined(separator: " ")
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "runtime-three-question-drain-lifecycle",
-            sessionID: session.id,
-            text: transcript
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "runtime-three-question-drain-lifecycle",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await awaitQueueIdle(appState, timeout: 60.0)
-        try await waitUntil(timeout: 60.0) {
-            let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
-            let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-            return detected.count == 3 && !rows.isEmpty && rows.last?.questionIntent == .projectComparison
+            try await awaitQueueIdle(appState, timeout: 60.0)
+            try await waitUntil(timeout: 60.0) {
+                let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                return detected.count == 3 && !rows.isEmpty && rows.last?.questionIntent == .projectComparison
+            }
+
+            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(rows.isEmpty == false)
+            #expect(Set(rows.map(\.id)).count == rows.count)
+            #expect(rows.last?.questionIntent == .projectComparison)
+            let trace = try String(contentsOf: traceURL, encoding: .utf8)
+            #expect(trace.contains("\"event_type\":\"question.accepted\""))
+            #expect(trace.contains("\"event_type\":\"answer.request.started\""))
+            #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 1)
+            #expect(!trace.contains("blocked_stage_b_pending"))
+            #expect(!trace.contains("blocked_stale_generation_flags"))
         }
-
-        let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(rows.isEmpty == false)
-        #expect(Set(rows.map(\.id)).count == rows.count)
-        #expect(rows.last?.questionIntent == .projectComparison)
-        let trace = try String(contentsOf: traceURL, encoding: .utf8)
-        #expect(trace.contains("\"event_type\":\"question.accepted\""))
-        #expect(trace.contains("\"event_type\":\"answer.request.started\""))
-        #expect(trace.components(separatedBy: "\"event_type\":\"persistenceSucceeded\"").count - 1 >= 1)
-        #expect(!trace.contains("blocked_stage_b_pending"))
-        #expect(!trace.contains("blocked_stale_generation_flags"))
     }
 
     @Test
@@ -2035,56 +2178,70 @@ struct RuntimePathSingleSourceOfTruthTests {
         for iteration in 1...10 {
             let traceURL = temporaryTraceURL("runtime-rapid-three-repeat-\(iteration)")
             let (appState, session, _) = try makeAppState(traceURL: traceURL)
+            let fixture = ControlledGenerationWatchdogFixture(app: appState)
+            try await fixture.run {
 
-            await appState.handleTranscriptSegment(systemAudioSegment(
-                id: "runtime-rapid-three-repeat-\(iteration)",
-                sessionID: session.id,
-                text: transcript
-            ))
+                await appState.handleTranscriptSegment(systemAudioSegment(
+                    id: "runtime-rapid-three-repeat-\(iteration)",
+                    sessionID: session.id,
+                    text: transcript
+                ))
 
-            try await awaitQueueIdle(appState, timeout: 60.0)
-            try await waitUntil(timeout: 60.0) {
-                let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
-                let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
-                return detected.count == 3 && !rows.isEmpty && rows.last?.questionIntent == .projectComparison
+                try await awaitQueueIdle(appState, timeout: 60.0)
+                try await waitUntil(timeout: 60.0) {
+                    let detected = (try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []
+                    let rows = (try? appState.suggestionRepository.suggestions(sessionID: session.id)) ?? []
+                    return detected.count == 3 && !rows.isEmpty && rows.last?.questionIntent == .projectComparison
+                }
+
+                let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+                let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
+                let questionTexts = rows.compactMap(\.questionText)
+                #expect(detected.count == 3, "iteration \(iteration)")
+                #expect(rows.isEmpty == false, "iteration \(iteration)")
+                #expect(Set(rows.map(\.id)).count == rows.count, "duplicate row in iteration \(iteration)")
+                #expect(Set(questionTexts).count == rows.count, "duplicate question in iteration \(iteration)")
+                #expect(rows.last?.questionIntent?.rawValue == expectedIntent, "wrong latest intent in iteration \(iteration)")
+                #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion }, "question/prompt mismatch in iteration \(iteration)")
+                #expect(rows.allSatisfy { QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted }, "incomplete answer in iteration \(iteration)")
+                #expect(rows.allSatisfy {
+                    $0.sayFirst.unicodeScalars.last.map(terminalPunctuation.contains) == true
+                }, "unterminated answer in iteration \(iteration)")
             }
-
-            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-            let rows = try appState.suggestionRepository.suggestions(sessionID: session.id)
-            let questionTexts = rows.compactMap(\.questionText)
-            #expect(detected.count == 3, "iteration \(iteration)")
-            #expect(rows.isEmpty == false, "iteration \(iteration)")
-            #expect(Set(rows.map(\.id)).count == rows.count, "duplicate row in iteration \(iteration)")
-            #expect(Set(questionTexts).count == rows.count, "duplicate question in iteration \(iteration)")
-            #expect(rows.last?.questionIntent?.rawValue == expectedIntent, "wrong latest intent in iteration \(iteration)")
-            #expect(rows.allSatisfy { $0.questionText == $0.promptPrimaryQuestion }, "question/prompt mismatch in iteration \(iteration)")
-            #expect(rows.allSatisfy { QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted }, "incomplete answer in iteration \(iteration)")
-            #expect(rows.allSatisfy {
-                $0.sayFirst.unicodeScalars.last.map(terminalPunctuation.contains) == true
-            }, "unterminated answer in iteration \(iteration)")
         }
     }
 
     @Test
     func diagnosticsExposeActiveDatabasePathAndLatestSuggestionMetadata() async throws {
         let (appState, session, _) = try makeAppState()
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "diagnostic-db-path-question",
-            sessionID: session.id,
-            text: "What would you ask the engineering team to understand whether this role is a good fit?"
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "diagnostic-db-path-question",
+                sessionID: session.id,
+                text: "What would you ask the engineering team to understand whether this role is a good fit?"
+            ))
 
-        try await waitUntil(timeout: 60.0) {
-            appState.diagnosticSuggestionRowCount == 1 &&
-            appState.diagnosticLatestSuggestionQuestionText.localizedCaseInsensitiveContains("engineering team")
+            try await waitUntil(timeout: 60.0) {
+                appState.diagnosticSuggestionRowCount == 1 &&
+                appState.diagnosticLatestSuggestionQuestionText.localizedCaseInsensitiveContains("engineering team")
+            }
+
+            #expect(appState.activeDatabasePath.hasSuffix("test.sqlite"))
+            #expect(appState.diagnosticSuggestionRowCount == 1)
+            #expect(appState.diagnosticLatestSuggestionCreatedAt != "None")
+            #expect(appState.diagnosticLatestSuggestionQuestionText.localizedCaseInsensitiveContains("engineering team"))
+            #expect(appState.diagnosticPersistenceState == "enabled")
         }
+    }
 
-        #expect(appState.activeDatabasePath.hasSuffix("test.sqlite"))
-        #expect(appState.diagnosticSuggestionRowCount == 1)
-        #expect(appState.diagnosticLatestSuggestionCreatedAt != "None")
-        #expect(appState.diagnosticLatestSuggestionQuestionText.localizedCaseInsensitiveContains("engineering team"))
-        #expect(appState.diagnosticPersistenceState == "enabled")
+    private func installCompletionDocuments(_ appState: AppState) throws {
+        for type in [DocumentType.cv, .jobDescription] {
+            _ = try appState.documentRepository.saveDocument(type: type, title: "Synthetic completion fixture",
+                content: "Synthetic \(type.title) fixture with enough source text to exercise the existing onboarding gate. This record supplies completion state for isolated runtime tests.")
+        }
+        try appState.documentsState.reload()
     }
 
     private func makeAppState(
@@ -2288,14 +2445,37 @@ struct RuntimePathSingleSourceOfTruthTests {
         )
     }
 
-    private func waitUntil(timeout: TimeInterval, predicate: @escaping @MainActor () -> Bool) async throws {
+    private func runtimeStateSnapshot(_ appState: AppState) -> String {
+        let card = appState.currentSuggestion
+        let fields = [
+            "generation=\(appState.currentGenerationID ?? "nil")",
+            "cardGeneration=\(card?.generationID ?? "nil")",
+            "question=\(card?.questionID ?? "nil")",
+            "source=\(card?.finalVisibleSource ?? "nil")",
+            "stageB=\(card?.stageBStatus ?? "nil")",
+            "providerFirstTokenMS=\(card?.deepseekFirstTokenMS.map(String.init) ?? "nil")",
+            "alignment=\(card?.alignmentVerdict?.rawValue ?? "nil")",
+            "accepted=\(card.map { QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence($0).accepted } ?? false)",
+            "ui=\(appState.generationUIState.displayName)",
+            "providerActive=\(appState.providerStreamActive)",
+            "stageBActive=\(appState.stageBTaskActive)",
+            "queue=\(appState.pendingAcceptedQuestions.count)"
+        ]
+        return fields.joined(separator: " ")
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval,
+        snapshot: (@MainActor () -> String)? = nil,
+        predicate: @escaping @MainActor () -> Bool
+    ) async throws {
         let start = Date()
         while !predicate() {
             if Date().timeIntervalSince(start) > timeout {
                 throw NSError(
                     domain: "RuntimePathSingleSourceOfTruthTests",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for runtime path state."]
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for runtime path state. \(snapshot?() ?? "")"]
                 )
             }
             try await Task.sleep(nanoseconds: 25_000_000)
@@ -2990,3 +3170,47 @@ private final class RuntimePathEmptyContextRetrievalService: ContextRetrievalSer
         )
     }
 }
+
+#if DEBUG
+/// One test's bounded metadata-only diagnostic. This does not replace the real
+/// Date assertion, run extra provider work, or claim rendered/visible latency.
+@MainActor
+private final class RuntimeAcceptedPhaseDiagnostics {
+    private struct Sample: Encodable {
+        let phase: String
+        let sessionID: String?
+        let questionID: String?
+        let generationID: String?
+        let beganNS: UInt64
+        let endedNS: UInt64
+        let textUTF16Count: Int
+    }
+    private struct Report: Encodable {
+        let acceptedToGenerationSeconds: Double?
+        let samples: [Sample]
+        let phaseCounts: [String: Int]
+        let droppedDiagnosticSamples: Int
+    }
+    private var samples: [Sample] = []
+    private var droppedDiagnosticSamples = 0
+    var acceptedToGenerationSeconds: Double?
+
+    func record(_ phase: String, _ sessionID: String?, _ questionID: String?,
+        _ generationID: String?, _ beganNS: UInt64, _ endedNS: UInt64, _ textUTF16Count: Int) {
+        guard samples.count < 1_024 else { droppedDiagnosticSamples += 1; return }
+        samples.append(.init(phase: phase, sessionID: sessionID, questionID: questionID,
+            generationID: generationID, beganNS: beganNS, endedNS: endedNS, textUTF16Count: textUTF16Count))
+    }
+
+    func emit() {
+        let report = Report(acceptedToGenerationSeconds: acceptedToGenerationSeconds,
+            samples: samples, phaseCounts: Dictionary(grouping: samples, by: \.phase).mapValues { $0.count },
+            droppedDiagnosticSamples: droppedDiagnosticSamples)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(report), let line = String(data: data, encoding: .utf8) {
+            print("RUNTIME_ACCEPTED_PHASE_TRACE " + line)
+        }
+    }
+}
+#endif

@@ -66,6 +66,11 @@ case "$CANONICAL_SUITE" in
     ;;
 esac
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -z "${HIREVA_ARTIFACT_LOCK_FD:-}" ]]; then
+    exec python3 "$ROOT_DIR/script/artifact_lifecycle.py" exec -- "$0" --suite "$SUITE"
+fi
+cd "$ROOT_DIR"
 echo "Runtime smoke suite: $SUITE"
 export RUNTIME_SMOKE_SUITE="$CANONICAL_SUITE"
-swift test --filter RuntimeSmokeHarnessTests
+swift test --build-path "$HIREVA_SWIFTPM_BUILD_PATH" --filter RuntimeSmokeHarnessTests

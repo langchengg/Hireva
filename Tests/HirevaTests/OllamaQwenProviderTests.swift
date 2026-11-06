@@ -1,9 +1,103 @@
 import Foundation
+import os
 import Testing
 @testable import Hireva
 
 @Suite(.serialized)
 struct OllamaQwenProviderTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["HIREVA_RUN_TECHNICAL_ANSWER_DIAGNOSTIC"] == "1"), .timeLimit(.minutes(2)))
+    @MainActor func installedModelTechnicalAnswerDiagnosticUsesActualProductRequest() async throws {
+        let model = try #require(ProcessInfo.processInfo.environment["HIREVA_ANSWER_DIAGNOSTIC_MODEL"])
+        try #require(["qwen3.5:4b", "qwen3-vl:4b-instruct-q4_K_M", "gemma4:26b", "qwen3.5:9b-q4_K_M"].contains(model))
+        let artifacts = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["HIREVA_TEST_ARTIFACT_DIR"]))
+        let questionText: String
+        let variant = ProcessInfo.processInfo.environment["HIREVA_ANSWER_DIAGNOSTIC_VARIANT"] ?? "original"
+        switch variant {
+        case "original", "fallback": questionText = "Explain database transaction atomicity and what happens when an operation fails before commit"
+        case "statement": questionText = "What does transaction atomicity guarantee, and does a failed statement necessarily cancel every earlier statement in that transaction?"
+        case "wrapper": questionText = "An application explicitly catches every failed statement and rolls back its current database transaction. What remains after one operation fails before commit?"
+        case "rollback": questionText = "Inside an explicit SQLite transaction a successful insert is followed by INSERT OR ROLLBACK causing a UNIQUE conflict. What happens to the prior insert and the transaction?"
+        case "abort": questionText = "Inside an explicit SQLite transaction, a successful insert is followed by a default INSERT with a UNIQUE constraint failure under ABORT. Does the earlier insert remain, and is the transaction still active?"
+        case "fail": questionText = "In SQLite, UPDATE OR FAIL changes earlier rows and then hits a UNIQUE conflict. Are the earlier changes in that statement undone, and are later rows processed?"
+        case "quoted": questionText = "Someone says 'any failed SQLite statement automatically rolls back the whole transaction'. Is that claim correct for a default UNIQUE conflict under ABORT in an explicit transaction?"
+        case "cache": questionText = "Does calling a cache disk-backed guarantee that cached data will survive a restart? Explain the relevant condition."
+        case "personal-follow-up", "personal-independent": questionText = "In your database learning prototype, how did you test transaction rollback?"
+        case "personal-comparison": questionText = "In your database learning prototype, which concurrency and indexing topic did you compare?"
+        case "personal-missing-results", "personal-results-positive", "personal-results-negative": questionText = "What rollback outcomes or measurements did you observe in your database learning prototype?"
+        case "personal-multiple-parts": questionText = "What did you build, and how did you test transaction rollback in it?"
+        default: throw MaterialError.invalid("Unknown frozen technical-answer diagnostic variant.")
+        }
+        let realtimeBudget = ProcessInfo.processInfo.environment["HIREVA_DIAGNOSTIC_REALTIME_BUDGET"]
+        if let realtimeBudget {
+            try #require(["control", "trim"].contains(realtimeBudget))
+        }
+        var evidenceStatement = "I built a small database learning prototype. I tested transaction rollback with deliberately injected failures. I compared concurrent updates and index trade offs in the prototype."
+        if variant == "personal-results-positive" {
+            evidenceStatement += " I observed that the inserted test record remained after the injected failure."
+        } else if variant == "personal-results-negative" {
+            evidenceStatement += " I did not observe a rollback outcome; I recorded no outcome measurements."
+        }
+        let runtime = try makeRuntime(evidence: evidenceStatement, question: questionText)
+        var question = runtime.question
+        if realtimeBudget != nil {
+            question.intent = .unclear
+            question.answerStrategy = .directAnswer
+        }
+        let personal = variant.hasPrefix("personal-")
+        let followsTechnicalAnswer = variant == "personal-follow-up"
+        let kind: InterviewTaskKind = variant == "personal-comparison" ? .project : (personal ? .coding : .generalKnowledge)
+        var task = InterviewTaskDescriptor(question: question.questionText, kind: kind, language: "en")
+        let routingFailed = variant == "fallback"
+        task.apply(.init(task: routingFailed ? .unknown : kind,
+            personalEvidence: routingFailed ? .uncertain : (personal ? .required : .notRequired),
+            basis: routingFailed ? .unknown : (personal ? .candidateRecord : .generalKnowledge),
+            relation: followsTechnicalAnswer ? .followUp : .independent,
+            parentQuestionID: followsTechnicalAnswer ? "synthetic-technical-parent" : nil,
+            parentQuestionText: followsTechnicalAnswer ? "Explain database transaction atomicity and what happens when an operation fails before commit" : nil,
+            parentAnswerText: followsTechnicalAnswer ? "Atomicity means that either all changes in a transaction are applied or none are, but if an operation fails before commit, the result depends on the specific database's error handling policy." : nil,
+            source: routingFailed ? "safeFallback" : "diagnostic-frozen-decision",
+            routerVersion: InterviewQuestionRouter.version, language: "en", clarification: routingFailed ? "Please clarify the reference or missing constraints." : "", questionID: question.id,
+            questionRevision: 0, contextSnapshotID: runtime.snapshot.id, artifactRevision: 0, model: model,
+            failure: routingFailed ? "timeout" : nil, latencyMS: routingFailed ? 8050 : 0))
+        question.taskDescriptor = task
+        var selectedContext = RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
+        if let notePath = ProcessInfo.processInfo.environment["HIREVA_DIAGNOSTIC_TECHNICAL_NOTES_PATH"] {
+            let notes = try String(contentsOfFile: notePath, encoding: .utf8)
+            try #require(!notes.isEmpty && notes.utf8.count <= 4000)
+            // Developer-selected topic material tests the real request path;
+            // this input is neither test gold nor candidate biography.
+            selectedContext.additionalNotesChunks = [.init(id: "diagnostic-topic-source", documentID: "diagnostic-topic-document",
+                documentType: .additionalNotes, chunkIndex: 0, content: notes,
+                keywords: TextChunker.keywords(in: notes), sectionTitle: "Technical topic material",
+                wordCount: notes.split(whereSeparator: \.isWhitespace).count, metadataJSON: nil, createdAt: Date())]
+        }
+        if realtimeBudget == "trim" {
+            selectedContext = RealtimePromptBudgeter.trim(selectedContext, question: question.questionText,
+                intent: question.intent, strategy: question.answerStrategy)
+        }
+        let base = model == "qwen3.5:9b-q4_K_M"
+            ? OllamaQwenProvider(baseURL: URL(string: "http://127.0.0.1:11535")!) : OllamaQwenProvider()
+        let capture = SyntheticCaptureProvider(suffix: "technical-answer", base: base, artifactDirectory: artifacts)
+        do {
+            let finished = try await runtime.appState.finishWithLocalQwenAnswer(question: question, session: runtime.session,
+                transcript: question.questionText, context: selectedContext, retrievedChunks: [],
+                cvSummary: "", jdSummary: "", generationID: runtime.generationID, cardID: "technical-diagnostic-card",
+                requestStart: Date(), triggerPath: .autoDetect, source: .systemAudio, speaker: .interviewer,
+                localProvider: capture, modelName: model, fallbackReason: nil, interviewContextSnapshot: runtime.snapshot)
+            #expect(finished)
+            let card = try #require(runtime.appState.currentSuggestion)
+            try JSONEncoder().encode(card).write(to: artifacts.appendingPathComponent("product-card.json"))
+            #expect(capture.base.lastGenerationDiagnostics.transportRequestCount <= 4)
+            // Mechanical product admission is not independent technical accuracy or a GUI render.
+            await runtime.appState.shutdownForTesting()
+            await capture.cancelAndJoinCaptures()
+        } catch {
+            await runtime.appState.shutdownForTesting()
+            await capture.cancelAndJoinCaptures()
+            throw error
+        }
+    }
+
     @Test
     func localQwenGenerationErrorIncludesSafeDiagnostic() {
         let error = LocalQwenGenerationError(
@@ -177,14 +271,14 @@ struct OllamaQwenProviderTests {
         #expect(OllamaFailureCategory.staleContextSnapshot != .providerReturnedNoContent)
     }
 
-    @Test @MainActor
-    func ollamaNonEmptyAlignmentRejectionIsNotReportedAsProviderEmpty() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func ollamaNonEmptyAlignmentRejectionIsNotReportedAsProviderEmpty(unknownTask: Bool) async throws {
         let runtime = try makeRuntime(
             evidence: "Implemented Kotlin REST services and PostgreSQL query tuning to improve API reliability.",
-            question: "Tell me about the most technically difficult project you worked on."
+            question: unknownTask ? "Explain database transaction atomicity and what happens when an operation fails before commit" : "Tell me about the most technically difficult project you worked on."
         )
-        let provider = DiagnosticMockLocalLLMProvider(
-            answer: "I published a medical imaging paper after leading a clinical deployment."
+        let provider = SequencedDiagnosticMockLocalLLMProvider(
+            answers: Array(repeating: "I published a medical imaging paper after leading a clinical deployment.", count: 4)
         )
 
         do {
@@ -216,6 +310,26 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.ollamaDiagnostics.rawContentCharacters > 0)
         #expect(runtime.appState.ollamaDiagnostics.finalErrorCategory == .alignmentRejectedNonemptyContent)
         #expect(runtime.appState.ollamaDiagnostics.finalErrorCategory != .providerReturnedNoContent)
+        #expect(provider.requests.count == 4)
+        for request in provider.requests.suffix(2) {
+            #expect(request.responseSchema == (unknownTask ? nil : LocalQwenAnswerParser.scopedResponseSchema))
+            #expect(request.prompt.hasSuffix(unknownTask
+                ? "Use the frozen answer language and output only the final spoken answer. General explanations do not need a first-person opening."
+                : "Answer the current question now:\n\"\(runtime.question.questionText)\""))
+        }
+        if unknownTask {
+            let policy = InterviewTaskDescriptor(question: runtime.question.questionText).answerPromptPolicy
+            #expect(runtime.question.taskDescriptor == nil)
+            let requests = provider.requests
+            try #require(requests.count == 4)
+            #expect(requests[0].prompt.contains(policy))
+            #expect(requests[2].systemPrompt?.contains(policy) == true)
+            #expect(requests[3].systemPrompt?.contains(policy) == true)
+        }
+        let compact = try #require(provider.requests.first { $0.prompt.contains("Candidate/project summary:") })
+        #expect(compact.prompt.contains("For general technical tasks, no CV is required."))
+        #expect(!compact.prompt.contains("State relevant assumptions and limitations; no CV is required."))
+        #expect(compact.prompt.contains("State past personal experience only when it is explicit"))
     }
 
     @Test @MainActor
@@ -292,9 +406,10 @@ struct OllamaQwenProviderTests {
         )
 
         #expect(finished)
-        #expect(runtime.appState.ollamaDiagnostics.rawContentCharacters == answer.count)
+        let wire = String(decoding: try JSONEncoder().encode(["scoped_claim": answer, "say_first": answer]), as: UTF8.self)
+        #expect(runtime.appState.ollamaDiagnostics.rawContentCharacters == wire.count)
         #expect(runtime.appState.ollamaDiagnostics.parsedContentCharacters == answer.count)
-        #expect(runtime.appState.ollamaDiagnostics.sectionParserResult == "direct_answer")
+        #expect(runtime.appState.ollamaDiagnostics.sectionParserResult == "scoped_json_answer")
         #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
         #expect(runtime.appState.ollamaDiagnostics.contextSnapshotMatched == true)
         #expect(runtime.appState.ollamaDiagnostics.finalErrorCategory == nil)
@@ -334,6 +449,8 @@ struct OllamaQwenProviderTests {
         #expect(runtime.appState.currentSuggestion?.sayFirst == answer)
         #expect(runtime.appState.currentSuggestion?.finalVisibleSource == AnswerSource.ollamaQwen.rawValue)
         #expect(runtime.appState.currentSuggestion?.softFallbackUsed == false)
+        #expect(runtime.appState.currentSuggestion?.confidence == nil)
+        #expect(runtime.appState.currentSuggestion?.riskLevel == nil)
         #expect(runtime.appState.ollamaDiagnostics.alignmentDecision == "aligned")
     }
 
@@ -591,21 +708,26 @@ private final class DiagnosticMockLocalLLMProvider: LocalLLMProvider {
     }
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
+        let output = try TestSupport.scriptedLocalAnswer(answer, request: request)
+        return AsyncThrowingStream { continuation in
+            continuation.yield(LLMToken(text: output, source: .ollamaQwen, modelName: request.modelName))
             continuation.finish()
         }
     }
 }
 
-private final class SequencedDiagnosticMockLocalLLMProvider: LocalLLMProvider {
+private final class SequencedDiagnosticMockLocalLLMProvider: LocalLLMProvider, Sendable {
     let id = "sequenced-diagnostic-mock"
     let displayName = "Sequenced Diagnostic Mock"
-    private var answers: [String]
-    private(set) var requests: [LocalLLMRequest] = []
+    private struct State: Sendable {
+        var answers: [String]
+        var requests: [LocalLLMRequest] = []
+    }
+    private let state: OSAllocatedUnfairLock<State>
+    var requests: [LocalLLMRequest] { state.withLock { $0.requests } }
 
     init(answers: [String]) {
-        self.answers = answers
+        state = OSAllocatedUnfairLock(initialState: State(answers: answers))
     }
 
     func healthCheck(modelName: String) async -> LocalLLMHealth {
@@ -623,10 +745,13 @@ private final class SequencedDiagnosticMockLocalLLMProvider: LocalLLMProvider {
     }
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        requests.append(request)
-        let answer = answers.isEmpty ? "" : answers.removeFirst()
+        let answer = state.withLock { state in
+            state.requests.append(request)
+            return state.answers.isEmpty ? "" : state.answers.removeFirst()
+        }
+        let output = try TestSupport.scriptedLocalAnswer(answer, request: request)
         return AsyncThrowingStream { continuation in
-            continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
+            continuation.yield(LLMToken(text: output, source: .ollamaQwen, modelName: request.modelName))
             continuation.finish()
         }
     }

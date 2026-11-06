@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-struct SQLPracticeResult: Codable {
+struct SQLPracticeResult: Codable, Sendable {
     var query: String
     var dataset = "synthetic-orders-v1"
     var schema = PracticeSQLService.schema

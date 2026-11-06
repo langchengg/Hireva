@@ -2,7 +2,100 @@ import AppKit
 import SwiftUI
 
 struct FloatingAssistantView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var live: LiveInterviewFeature
+    @ObservedObject var manual: ManualCaptureController
+    @ObservedObject var settingsState: SettingsState
+    @ObservedObject var diagnosticsState: DiagnosticsState
+    let activeIdentity: GenerationIdentity?
+    private var generationState: GenerationUIState { live.generationUIState }
+    let elapsedMS: Int
+    private var isStreaming: Bool { live.isStreamingSayFirst }
+    private var isExpanding: Bool { live.isExpandingSuggestionCard }
+    let providerStreamActive: Bool
+    let productInterviewStatus: ProductInterviewStatus
+    let systemCaptureRunning: Bool
+    let micCaptureRunning: Bool
+    let canStopCapture: Bool
+    let selectedAnswerProviderStatusTitle: String
+    let selectedAnswerProviderConfigured: Bool
+    let userFacingRelevantContextStatus: String
+    let hasCleanRelevantContext: Bool
+    var queuedQuestionID: String? { live.pendingAcceptedQuestions.first?.question.id }
+    var hasQueuedQuestions: Bool { !live.pendingAcceptedQuestions.isEmpty }
+    let diagnosticDisplay: FloatingAssistantDiagnosticsDisplay?
+    let currentSuspectedMismatchReason: String
+    let lastAlignmentError: String
+    let saveSettings: (AppSettings) -> Void
+    let stopListening: () -> Void
+    let openMainWindow: () -> Void
+    let regenerateManualSuggestion: () -> Void
+    let regenerateVisibleSuggestion: () -> Void
+    let feedbacks: [ActionFeedback]
+    let loadingStates: [String: Bool]
+    let beginFeedback: (String, String, String) -> Void
+    let completeFeedback: (String, String, String) -> Void
+    let infoFeedback: (String, String, String, TimeInterval?) -> Void
+    let failFeedback: (String, String, String) -> Void
+
+    init(live: LiveInterviewFeature,
+        manual: ManualCaptureController,
+        settingsState: SettingsState,
+        diagnosticsState: DiagnosticsState,
+        activeIdentity: GenerationIdentity?,
+        elapsedMS: Int,
+        providerStreamActive: Bool,
+        productInterviewStatus: ProductInterviewStatus,
+        systemCaptureRunning: Bool,
+        micCaptureRunning: Bool,
+        canStopCapture: Bool,
+        selectedAnswerProviderStatusTitle: String,
+        selectedAnswerProviderConfigured: Bool,
+        userFacingRelevantContextStatus: String,
+        hasCleanRelevantContext: Bool,
+        diagnosticDisplay: FloatingAssistantDiagnosticsDisplay?,
+        currentSuspectedMismatchReason: String,
+        lastAlignmentError: String,
+        saveSettings: @escaping (AppSettings) -> Void,
+        stopListening: @escaping () -> Void,
+        openMainWindow: @escaping () -> Void,
+        regenerateManualSuggestion: @escaping () -> Void,
+        regenerateVisibleSuggestion: @escaping () -> Void,
+        feedbacks: [ActionFeedback],
+        loadingStates: [String: Bool],
+        beginFeedback: @escaping (String, String, String) -> Void,
+        completeFeedback: @escaping (String, String, String) -> Void,
+        infoFeedback: @escaping (String, String, String, TimeInterval?) -> Void,
+        failFeedback: @escaping (String, String, String) -> Void) {
+        self.live = live
+        self.manual = manual
+        self.settingsState = settingsState
+        self.diagnosticsState = diagnosticsState
+        self.activeIdentity = activeIdentity
+        self.elapsedMS = elapsedMS
+        self.providerStreamActive = providerStreamActive
+        self.productInterviewStatus = productInterviewStatus
+        self.systemCaptureRunning = systemCaptureRunning
+        self.micCaptureRunning = micCaptureRunning
+        self.canStopCapture = canStopCapture
+        self.selectedAnswerProviderStatusTitle = selectedAnswerProviderStatusTitle
+        self.selectedAnswerProviderConfigured = selectedAnswerProviderConfigured
+        self.userFacingRelevantContextStatus = userFacingRelevantContextStatus
+        self.hasCleanRelevantContext = hasCleanRelevantContext
+        self.diagnosticDisplay = diagnosticDisplay
+        self.currentSuspectedMismatchReason = currentSuspectedMismatchReason
+        self.lastAlignmentError = lastAlignmentError
+        self.saveSettings = saveSettings
+        self.stopListening = stopListening
+        self.openMainWindow = openMainWindow
+        self.regenerateManualSuggestion = regenerateManualSuggestion
+        self.regenerateVisibleSuggestion = regenerateVisibleSuggestion
+        self.feedbacks = feedbacks
+        self.loadingStates = loadingStates
+        self.beginFeedback = beginFeedback
+        self.completeFeedback = completeFeedback
+        self.infoFeedback = infoFeedback
+        self.failFeedback = failFeedback
+    }
     @State private var answerVisible = true
     @State private var sourcesExpanded = false
     @State private var followUpExpanded = false
@@ -14,19 +107,26 @@ struct FloatingAssistantView: View {
         ) {
             return .normal
         }
-        return appState.settings.floatingAssistantDisplayMode
+        return settingsState.settings.floatingAssistantDisplayMode
     }
 
     private var activeCard: SuggestionCard? {
-        appState.manualCaptureSuggestion ?? appState.currentSuggestion
+        manual.suggestion ?? live.currentSuggestion
     }
 
-    private var renderState: VisibleAssistantRenderState {
-        appState.visibleAssistantRenderState
+    var renderState: VisibleAssistantRenderState {
+        live.renderState(activeIdentity: activeIdentity, generationState: generationState,
+            elapsedMS: elapsedMS, isStreaming: isStreaming, isExpanding: isExpanding,
+            providerStreamActive: providerStreamActive)
     }
-
+    private var shouldShowBlockingAnswerSpinner: Bool {
+        live.shouldShowBlockingAnswerSpinner(generationState: generationState, elapsedMS: elapsedMS)
+    }
+    private var shouldShowAnswerExpansionStatus: Bool {
+        live.shouldShowAnswerExpansionStatus(generationState: generationState, isExpanding: isExpanding)
+    }
     private var effectiveOpacity: Double {
-        max(appState.settings.highContrastFloatingPanel ? 0.72 : 0.62, appState.settings.floatingWindowOpacity)
+        max(settingsState.settings.highContrastFloatingPanel ? 0.72 : 0.62, settingsState.settings.floatingWindowOpacity)
     }
 
     var body: some View {
@@ -65,7 +165,7 @@ struct FloatingAssistantView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Label(appState.productInterviewStatus.title, systemImage: appState.productInterviewStatus.systemImage)
+            Label(productInterviewStatus.title, systemImage: productInterviewStatus.systemImage)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(statusTint)
 
@@ -91,7 +191,7 @@ struct FloatingAssistantView: View {
             Button {
                 regenerate()
             } label: {
-                if appState.isActionLoading(ActionID.floatingRegenerate) || appState.isActionLoading(ActionID.generateAnswer) || appState.isActionLoading(ActionID.manualGenerate) {
+                if isActionLoading(ActionID.floatingRegenerate) || isActionLoading(ActionID.generateAnswer) || isActionLoading(ActionID.manualGenerate) {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -105,23 +205,23 @@ struct FloatingAssistantView: View {
             Button {
                 copyAnswer()
             } label: {
-                Image(systemName: appState.latestActionFeedback(for: ActionID.floatingCopy)?.kind == .success ? "checkmark.circle.fill" : "doc.on.doc")
+                Image(systemName: latestActionFeedback(for: ActionID.floatingCopy)?.kind == .success ? "checkmark.circle.fill" : "doc.on.doc")
             }
             .buttonStyle(.borderless)
             .help("Copy Answer")
-            .disabled(activeCard?.sayFirst.isEmpty != false && appState.streamedSayFirst.isEmpty)
+            .disabled(activeCard?.sayFirst.isEmpty != false && live.streamedSayFirst.isEmpty)
 
             Button {
-                appState.stopListening()
+                stopListening()
             } label: {
                 Image(systemName: "stop.fill")
             }
             .buttonStyle(.borderless)
             .help("Stop Listening")
-            .disabled(!appState.canStopCapture)
+            .disabled(!canStopCapture)
 
             Button {
-                appState.openMainWindow()
+                openMainWindow()
             } label: {
                 Image(systemName: "macwindow")
             }
@@ -132,10 +232,10 @@ struct FloatingAssistantView: View {
 
     private var statusRow: some View {
         HStack(spacing: 8) {
-            StatusPill(title: appState.systemCaptureRunning ? "System Active" : "System Off", systemImage: "speaker.wave.2.fill", tint: appState.systemCaptureRunning ? .green : .secondary, isCompact: true)
-            StatusPill(title: appState.micCaptureRunning ? "Mic Active" : "Mic Off", systemImage: "mic.fill", tint: appState.micCaptureRunning ? .green : .secondary, isCompact: true)
-            StatusPill(title: appState.selectedAnswerProviderStatusTitle, systemImage: appState.selectedAnswerProviderConfigured ? "sparkles" : "key", tint: appState.selectedAnswerProviderConfigured ? .blue : .orange, isCompact: true)
-            StatusPill(title: appState.userFacingRelevantContextStatus, systemImage: "doc.text.magnifyingglass", tint: appState.hasCleanRelevantContext ? .green : .orange, isCompact: true)
+            StatusPill(title: systemCaptureRunning ? "System Active" : "System Off", systemImage: "speaker.wave.2.fill", tint: systemCaptureRunning ? .green : .secondary, isCompact: true)
+            StatusPill(title: micCaptureRunning ? "Mic Active" : "Mic Off", systemImage: "mic.fill", tint: micCaptureRunning ? .green : .secondary, isCompact: true)
+            StatusPill(title: selectedAnswerProviderStatusTitle, systemImage: selectedAnswerProviderConfigured ? "sparkles" : "key", tint: selectedAnswerProviderConfigured ? .blue : .orange, isCompact: true)
+            StatusPill(title: userFacingRelevantContextStatus, systemImage: "doc.text.magnifyingglass", tint: hasCleanRelevantContext ? .green : .orange, isCompact: true)
         }
     }
 
@@ -171,6 +271,7 @@ struct FloatingAssistantView: View {
 
     private var diagnosticBody: some View {
         ScrollView {
+            if let diagnosticDisplay {
             VStack(alignment: .leading, spacing: 12) {
                 questionBlock(lineLimit: 4)
 
@@ -186,20 +287,20 @@ struct FloatingAssistantView: View {
 
                 diagnosticSection("Visible Lifecycle") {
                     diagnosticRow("currentQuestionText", currentQuestionText)
-                    diagnosticRow("currentQuestionId", renderState.activeQuestionID ?? appState.lastDetectedQuestion?.id ?? "nil")
-                    diagnosticRow("currentSessionId", appState.currentSession?.id ?? emptyAware(appState.transcriptRuntimeDiagnostics.audioSessionID, fallback: "nil"))
+                    diagnosticRow("currentQuestionId", renderState.activeQuestionID ?? live.lastDetectedQuestion?.id ?? "nil")
+                    diagnosticRow("currentSessionId", live.currentSession?.id ?? emptyAware(diagnosticsState.runtime.audioSessionID, fallback: "nil"))
                     diagnosticRow("activeGenerationId", renderState.activeGenerationID ?? "nil")
-                    diagnosticRow("selectedProvider", activeCard?.providerName ?? appState.activeRealtimeProvider?.name ?? "None")
-                    diagnosticRow("selectedModel", activeCard?.modelName ?? appState.activeRealtimeProvider?.model ?? "None")
+                    diagnosticRow("selectedProvider", activeCard?.providerName ?? settingsState.activeRealtimeProvider?.name ?? "None")
+                    diagnosticRow("selectedModel", activeCard?.modelName ?? settingsState.activeRealtimeProvider?.model ?? "None")
                     diagnosticRow("generationStatus", renderState.generationStatus)
-                    diagnosticRow("queuedQuestionId", appState.pendingAcceptedQuestions.first?.question.id ?? "nil")
-                    diagnosticRow("queuedReason", appState.pendingAcceptedQuestions.isEmpty ? "none" : "active_generation_in_progress")
+                    diagnosticRow("queuedQuestionId", queuedQuestionID ?? "nil")
+                    diagnosticRow("queuedReason", !hasQueuedQuestions ? "none" : "active_generation_in_progress")
                     diagnosticRow("lastLifecycleEvent", lastLifecycleEvent?.name ?? "None")
                     diagnosticRow("lastLifecycleTimestamp", lastLifecycleEvent.map { diagnosticTime($0.timestamp) } ?? "None")
-                    diagnosticRow("lastGenerationSkipReason", emptyAware(appState.transcriptRuntimeDiagnostics.lastGenerationRejectedReason, fallback: "None"))
-                    diagnosticRow("lastGenerationError", renderState.generationErrorText ?? appState.diagnostics.lastError ?? "None")
-                    diagnosticRow("systemAudioEnabled", appState.settings.audioCaptureMode == .microphoneOnly ? "false" : "true")
-                    diagnosticRow("micEnabled", appState.settings.audioCaptureMode == .systemAudioOnly ? "false" : (appState.micCaptureRunning ? "true" : "false"))
+                    diagnosticRow("lastGenerationSkipReason", emptyAware(diagnosticsState.runtime.lastGenerationRejectedReason, fallback: "None"))
+                    diagnosticRow("lastGenerationError", renderState.generationErrorText ?? diagnosticsState.developer.lastError ?? "None")
+                    diagnosticRow("systemAudioEnabled", settingsState.settings.audioCaptureMode == .microphoneOnly ? "false" : "true")
+                    diagnosticRow("micEnabled", settingsState.settings.audioCaptureMode == .systemAudioOnly ? "false" : (micCaptureRunning ? "true" : "false"))
                     diagnosticRow("answerOwnerQuestionId", activeCard?.detectedQuestionID ?? activeCard?.questionID ?? renderState.activeQuestionID ?? "nil")
                     diagnosticRow("visibleAnswerNonEmpty", renderState.hasAnswerText ? "true" : "false")
                     diagnosticRow("fallbackType", activeCard?.finalVisibleSource ?? activeCard?.sayFirstSource ?? "none")
@@ -209,89 +310,90 @@ struct FloatingAssistantView: View {
                     diagnosticRow("isPlaceholder", isPlaceholderAnswer ? "true" : "false")
                     diagnosticRow("isProjectGroundedFallback", isProjectGroundedFallback ? "true" : "false")
                     diagnosticRow("isGenericTemplateRejected", isGenericTemplateRejected ? "true" : "false")
-                    diagnosticRow("historyRowCount", "\(appState.liveSuggestionHistory.count)")
+                    diagnosticRow("historyRowCount", "\(live.liveSuggestionHistory.count)")
                 }
 
                 diagnosticSection("Provider") {
-                    diagnosticRow("selectedProvider", activeCard?.providerName ?? appState.activeRealtimeProvider?.name ?? appState.diagnostics.lastProviderName ?? "None")
-                    diagnosticRow("selectedModel", activeCard?.modelName ?? appState.activeRealtimeProvider?.model ?? appState.diagnostics.lastProviderModel ?? "None")
-                    diagnosticRow("selectedBaseURL", activeCard?.providerBaseURL ?? appState.activeRealtimeProvider?.baseURL ?? "None")
-                    diagnosticRow("providerConfigured", appState.deepSeekProviderConfigured ? "true" : "false")
-                    diagnosticRow("deepSeekConfigured", appState.deepSeekConfigured ? "true" : "false")
-                    diagnosticRow("credentialSource", appState.deepSeekCredentialSource)
-                    diagnosticRow("keyExists", appState.keychainDeepSeekKeyExists ? "true" : "false")
-                    diagnosticRow("keyLengthCategory", appState.keychainDeepSeekKeyLengthCategory)
-                    diagnosticRow("keychainService", appState.keychainServiceName)
-                    diagnosticRow("keychainAccount", appState.keychainDeepSeekAccount)
+                    diagnosticRow("selectedProvider", activeCard?.providerName ?? settingsState.activeRealtimeProvider?.name ?? diagnosticsState.developer.lastProviderName ?? "None")
+                    diagnosticRow("selectedModel", activeCard?.modelName ?? settingsState.activeRealtimeProvider?.model ?? diagnosticsState.developer.lastProviderModel ?? "None")
+                    diagnosticRow("selectedBaseURL", activeCard?.providerBaseURL ?? settingsState.activeRealtimeProvider?.baseURL ?? "None")
+                    diagnosticRow("providerConfigured", diagnosticDisplay.providerConfigured)
+                    diagnosticRow("deepSeekConfigured", diagnosticDisplay.deepSeekConfigured)
+                    diagnosticRow("credentialSource", diagnosticDisplay.credentialSource)
+                    diagnosticRow("keyExists", diagnosticDisplay.keyExists)
+                    diagnosticRow("keyLengthCategory", diagnosticDisplay.keyLengthCategory)
+                    diagnosticRow("keychainService", diagnosticDisplay.keychainService)
+                    diagnosticRow("keychainAccount", diagnosticDisplay.keychainAccount)
                     diagnosticRow("bundleIdentifier", Bundle.main.bundleIdentifier ?? "nil")
-                    diagnosticRow("generationConfigSource", appState.generationConfigSource)
-                    diagnosticRow("settingsConfigSource", appState.settingsConfigSource)
-                    diagnosticRow("lastProviderConfigError", appState.lastProviderConfigError)
-                    diagnosticRow("lastError", appState.diagnostics.lastError ?? "None")
+                    diagnosticRow("generationConfigSource", diagnosticDisplay.generationConfigSource)
+                    diagnosticRow("settingsConfigSource", diagnosticDisplay.settingsConfigSource)
+                    diagnosticRow("lastProviderConfigError", diagnosticDisplay.lastProviderConfigError)
+                    diagnosticRow("lastError", diagnosticsState.developer.lastError ?? "None")
                 }
 
                 diagnosticSection("Current Generation") {
-                    diagnosticRow("state", appState.generationUIState.displayName)
-                    diagnosticRow("activeGenerationID", appState.activeGenerationID ?? "nil")
-                    diagnosticRow("activeQuestionID", appState.activeQuestionID ?? "nil")
-                    diagnosticRow("activeTriggerPath", appState.activeTriggerPath?.rawValue ?? "nil")
-                    diagnosticRow("activeElapsedMs", appState.activeGenerationElapsedMs.map { "\($0)" } ?? "nil")
-                    diagnosticRow("activeTaskSummary", appState.activeTaskSummary)
-                    diagnosticRow("previousGenerationID", appState.previousGenerationID ?? "nil")
-                    diagnosticRow("regenerate.questionId", appState.lastRegenerateQuestionID ?? "nil")
-                    diagnosticRow("regenerate.sourceTextKind", appState.lastRegenerateSourceTextKind.isEmpty ? "nil" : appState.lastRegenerateSourceTextKind)
-                    diagnosticRow("regenerate.oldGenerationId", appState.lastRegenerateOldGenerationID ?? "nil")
-                    diagnosticRow("regenerate.newGenerationId", appState.lastRegenerateNewGenerationID ?? "nil")
-                    diagnosticRow("regenerate.rejectionReason", appState.lastRegenerateRejectionReason.isEmpty ? "nil" : appState.lastRegenerateRejectionReason)
-                    diagnosticRow("visibleAnswerExists", appState.visibleAnswerExists ? "true" : "false")
-                    diagnosticRow("currentSpinnerVisible", appState.currentSpinnerVisible ? "true" : "false")
-                    diagnosticRow("fallbackWatchdogActive", appState.fallbackWatchdogActive ? "true" : "false")
-                    diagnosticRow("stageBTaskActive", appState.stageBTaskActive ? "true" : "false")
-                    diagnosticRow("providerStreamActive", appState.providerStreamActive ? "true" : "false")
-                    diagnosticRow("lastProviderError", appState.currentGenerationTelemetry.providerError ?? "nil")
+                    diagnosticRow("state", diagnosticDisplay.generationStateTitle)
+                    diagnosticRow("activeGenerationID", diagnosticDisplay.activeGenerationID)
+                    diagnosticRow("activeQuestionID", diagnosticDisplay.activeQuestionID)
+                    diagnosticRow("activeTriggerPath", diagnosticDisplay.activeTriggerPath)
+                    diagnosticRow("activeElapsedMs", diagnosticDisplay.activeElapsedMs)
+                    diagnosticRow("activeTaskSummary", diagnosticDisplay.activeTaskSummary)
+                    diagnosticRow("previousGenerationID", diagnosticDisplay.previousGenerationID)
+                    diagnosticRow("regenerate.questionId", diagnosticDisplay.regenerate_questionId)
+                    diagnosticRow("regenerate.sourceTextKind", diagnosticDisplay.regenerate_sourceTextKind)
+                    diagnosticRow("regenerate.oldGenerationId", diagnosticDisplay.regenerate_oldGenerationId)
+                    diagnosticRow("regenerate.newGenerationId", diagnosticDisplay.regenerate_newGenerationId)
+                    diagnosticRow("regenerate.rejectionReason", diagnosticDisplay.regenerate_rejectionReason)
+                    diagnosticRow("visibleAnswerExists", live.visibleAnswerExists ? "true" : "false")
+                    diagnosticRow("currentSpinnerVisible", diagnosticDisplay.currentSpinnerVisible)
+                    diagnosticRow("fallbackWatchdogActive", diagnosticDisplay.fallbackWatchdogActive)
+                    diagnosticRow("stageBTaskActive", diagnosticDisplay.stageBTaskActive)
+                    diagnosticRow("providerStreamActive", providerStreamActive ? "true" : "false")
+                    diagnosticRow("lastProviderError", diagnosticDisplay.lastProviderError)
                     diagnosticRow("generationError", renderState.generationErrorText ?? "nil")
-                    diagnosticRow("lastJSONParseError", appState.currentGenerationTelemetry.jsonParseError ?? "nil")
-                    diagnosticRow("lastDBError", appState.currentGenerationTelemetry.dbError ?? "nil")
-                    diagnosticRow("cancelledGenerationCount", "\(appState.cancelledGenerationCount)")
-                    diagnosticRow("staleCallbackDiscardCount", "\(appState.staleCallbackDiscardCount)")
-                    diagnosticRow("duplicateSuppressionCount", "\(appState.duplicateSuppressionCount)")
-                    diagnosticRow("heartbeatDelayMs", "\(appState.mainThreadHeartbeatDelayMs)")
-                    diagnosticRow("lastSQLiteOperation", appState.lastSQLiteOperation)
-                    diagnosticRow("lastRAGOperation", appState.lastRAGOperation)
-                    diagnosticRow("lastProviderOperation", appState.lastProviderOperation)
+                    diagnosticRow("lastJSONParseError", diagnosticDisplay.lastJSONParseError)
+                    diagnosticRow("lastDBError", diagnosticDisplay.lastDBError)
+                    diagnosticRow("cancelledGenerationCount", diagnosticDisplay.cancelledGenerationCount)
+                    diagnosticRow("staleCallbackDiscardCount", diagnosticDisplay.staleCallbackDiscardCount)
+                    diagnosticRow("duplicateSuppressionCount", diagnosticDisplay.duplicateSuppressionCount)
+                    diagnosticRow("heartbeatDelayMs", diagnosticDisplay.heartbeatDelayMs)
+                    diagnosticRow("lastSQLiteOperation", diagnosticDisplay.lastSQLiteOperation)
+                    diagnosticRow("lastRAGOperation", diagnosticDisplay.lastRAGOperation)
+                    diagnosticRow("lastProviderOperation", diagnosticDisplay.lastProviderOperation)
                 }
 
                 diagnosticSection("Latency") {
                     diagnosticRow("latencyMS", activeCard?.latencyMS.map { "\($0)" } ?? "nil")
-                    diagnosticRow("ragRetrievalLatencyMS", appState.ragRetrievalLatencyMS.map { "\($0)" } ?? "nil")
-                    diagnosticRow("deepseekFirstVisibleMS", appState.deepseekFirstVisibleMS.map { "\($0)" } ?? "nil")
-                    diagnosticRow("softFallbackUsed", appState.softFallbackUsed ? "true" : "false")
+                    diagnosticRow("ragRetrievalLatencyMS", diagnosticDisplay.ragRetrievalLatencyMS)
+                    diagnosticRow("deepseekFirstVisibleMS", diagnosticDisplay.deepseekFirstVisibleMS)
+                    diagnosticRow("softFallbackUsed", diagnosticDisplay.softFallbackUsed)
                 }
 
                 diagnosticSection("RAG") {
-                    diagnosticRow("retrievalMode", appState.manualVerificationRAGMode)
-                    diagnosticRow("latexPollutedChunkCount", "\(appState.latexPollutedChunkCount)")
-                    diagnosticRow("retrievedChunks", "\(appState.currentSuggestionRetrievedChunks.count)")
+                    diagnosticRow("retrievalMode", diagnosticDisplay.retrievalMode)
+                    diagnosticRow("latexPollutedChunkCount", diagnosticDisplay.latexPollutedChunkCount)
+                    diagnosticRow("retrievedChunks", "\(live.currentSuggestionRetrievedChunks.count)")
                 }
 
                 diagnosticSection("Capture") {
-                    diagnosticRow("captureMode", appState.captureMode.rawValue)
-                    diagnosticRow("currentCaptureRuntimeState", appState.currentCaptureRuntimeState.displayName)
-                    diagnosticRow("systemCaptureRunning", appState.systemCaptureRunning ? "true" : "false")
-                    diagnosticRow("micCaptureRunning", appState.micCaptureRunning ? "true" : "false")
-                    diagnosticRow("stopReason", appState.stopReason?.rawValue ?? "None")
+                    diagnosticRow("captureMode", diagnosticDisplay.captureMode)
+                    diagnosticRow("currentCaptureRuntimeState", diagnosticDisplay.currentCaptureRuntimeState)
+                    diagnosticRow("systemCaptureRunning", systemCaptureRunning ? "true" : "false")
+                    diagnosticRow("micCaptureRunning", micCaptureRunning ? "true" : "false")
+                    diagnosticRow("stopReason", diagnosticDisplay.stopReason)
                 }
 
                 diagnosticSection("ASR") {
-                    diagnosticRow("recognitionRequestActive", appState.recognitionRequestActive ? "true" : "false")
-                    diagnosticRow("recognitionTaskActive", appState.recognitionTaskActive ? "true" : "false")
-                    diagnosticRow("systemASRTaskActive", appState.systemASRTaskActive ? "true" : "false")
-                    diagnosticRow("micASRTaskActive", appState.micASRTaskActive ? "true" : "false")
+                    diagnosticRow("recognitionRequestActive", diagnosticDisplay.recognitionRequestActive)
+                    diagnosticRow("recognitionTaskActive", diagnosticDisplay.recognitionTaskActive)
+                    diagnosticRow("systemASRTaskActive", diagnosticDisplay.systemASRTaskActive)
+                    diagnosticRow("micASRTaskActive", diagnosticDisplay.micASRTaskActive)
                 }
 
                 sourcesDisclosure(showScores: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -314,13 +416,13 @@ struct FloatingAssistantView: View {
                 Text("Say First")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                if appState.shouldShowBlockingAnswerSpinner {
+                if shouldShowBlockingAnswerSpinner {
                     ProgressView()
                         .controlSize(.small)
                     Text("Generating first answer")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                } else if appState.shouldShowAnswerExpansionStatus {
+                } else if shouldShowAnswerExpansionStatus {
                     Text("Expanding full answer...")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -389,7 +491,7 @@ struct FloatingAssistantView: View {
     }
 
     private func sourcesDisclosure(showScores: Bool) -> some View {
-        let included = appState.currentSuggestionRetrievedChunks.filter { $0.isIncludedInPrompt }
+        let included = live.currentSuggestionRetrievedChunks.filter { $0.isIncludedInPrompt }
         return DisclosureGroup(isExpanded: $sourcesExpanded) {
             VStack(alignment: .leading, spacing: 8) {
                 if included.isEmpty {
@@ -460,7 +562,7 @@ struct FloatingAssistantView: View {
     }
 
     private var lastLifecycleEvent: TranscriptRuntimeEventRecord? {
-        appState.recentTranscriptRuntimeEvents.last
+        diagnosticsState.recentEvents.last
     }
 
     private var answerSource: String {
@@ -473,10 +575,10 @@ struct FloatingAssistantView: View {
         if renderState.generationErrorText != nil {
             return "error"
         }
-        if !appState.pendingAcceptedQuestions.isEmpty {
+        if hasQueuedQuestions {
             return "queued"
         }
-        return appState.providerStreamActive ? "provider_stream" : "none"
+        return providerStreamActive ? "provider_stream" : "none"
     }
 
     private var isPlaceholderAnswer: Bool {
@@ -493,8 +595,8 @@ struct FloatingAssistantView: View {
     }
 
     private var isGenericTemplateRejected: Bool {
-        appState.currentSuspectedMismatchReason.localizedCaseInsensitiveContains("generic coaching") ||
-            appState.lastAlignmentError.localizedCaseInsensitiveContains("generic coaching") ||
+        currentSuspectedMismatchReason.localizedCaseInsensitiveContains("generic coaching") ||
+            lastAlignmentError.localizedCaseInsensitiveContains("generic coaching") ||
             (activeCard?.mismatchReason?.localizedCaseInsensitiveContains("generic coaching") == true)
     }
 
@@ -512,10 +614,10 @@ struct FloatingAssistantView: View {
         Binding(
             get: { displayMode },
             set: { mode in
-                var next = appState.settings
+                var next = settingsState.settings
                 next.floatingAssistantDisplayMode = mode
-                appState.infoAction(ActionID.floatingDisplayMode, title: "Display mode changed", message: "\(mode.displayName) mode is active.")
-                appState.saveSettings(next)
+                infoAction(ActionID.floatingDisplayMode, title: "Display mode changed", message: "\(mode.displayName) mode is active.")
+                saveSettings(next)
             }
         )
     }
@@ -531,7 +633,7 @@ struct FloatingAssistantView: View {
         if renderState.hasAnswerText {
             return renderState.answerText
         }
-        if appState.shouldShowBlockingAnswerSpinner {
+        if shouldShowBlockingAnswerSpinner {
             return "Generating first answer..."
         }
         if renderState.generationErrorText != nil {
@@ -553,7 +655,7 @@ struct FloatingAssistantView: View {
     }
 
     private var statusTint: Color {
-        switch appState.productInterviewStatus {
+        switch productInterviewStatus {
         case .ready: return .green
         case .listening, .questionDetected, .generatingFirstAnswer, .expandingAnswer: return .blue
         case .needsAttention: return .orange
@@ -571,33 +673,33 @@ struct FloatingAssistantView: View {
 
     private func regenerate() {
         guard !regenerateDisabled else { return }
-        appState.beginAction(ActionID.floatingRegenerate, title: "Regenerating", message: "Keeping the current answer visible until a new answer is ready.")
-        if appState.manualCaptureState == .suggestionReady {
-            appState.regenerateManualSuggestion()
-            appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "Manual capture answer is being refreshed.")
+        beginAction(ActionID.floatingRegenerate, title: "Regenerating", message: "Keeping the current answer visible until a new answer is ready.")
+        if manual.state == .suggestionReady {
+            regenerateManualSuggestion()
+            completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "Manual capture answer is being refreshed.")
         } else {
-            appState.regenerateVisibleSuggestion()
-            appState.completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "A new answer is being generated from the current question.")
+            regenerateVisibleSuggestion()
+            completeAction(ActionID.floatingRegenerate, title: "Regeneration started", message: "A new answer is being generated from the current question.")
         }
     }
 
     private func copyAnswer() {
-        appState.beginAction(ActionID.floatingCopy, title: "Copying answer", message: "Copying the visible answer to the clipboard...")
+        beginAction(ActionID.floatingCopy, title: "Copying answer", message: "Copying the visible answer to the clipboard...")
         NSPasteboard.general.clearContents()
         if NSPasteboard.general.setString(answerText, forType: .string) {
-            appState.completeAction(ActionID.floatingCopy, title: "Copied", message: "Answer copied to clipboard.")
+            completeAction(ActionID.floatingCopy, title: "Copied", message: "Answer copied to clipboard.")
         } else {
-            appState.failAction(ActionID.floatingCopy, title: "Copy failed", message: "The clipboard did not accept the answer text.")
+            failAction(ActionID.floatingCopy, title: "Copy failed", message: "The clipboard did not accept the answer text.")
         }
     }
 
     private var regenerateDisabled: Bool {
-        (appState.isActionLoading(ActionID.floatingRegenerate) || appState.isActionLoading(ActionID.generateAnswer) || appState.isActionLoading(ActionID.manualGenerate)) ||
-        (!appState.liveState.canAnswerNow && appState.manualCaptureState != .suggestionReady)
+        (isActionLoading(ActionID.floatingRegenerate) || isActionLoading(ActionID.generateAnswer) || isActionLoading(ActionID.manualGenerate)) ||
+        (!live.liveState.canAnswerNow && manual.state != .suggestionReady)
     }
 
     private var floatingFeedback: ActionFeedback? {
-        appState.latestActionFeedback(matching: [
+        latestActionFeedback(matching: [
             ActionID.floatingCopy,
             ActionID.floatingRegenerate,
             ActionID.floatingDisplayMode,
@@ -606,4 +708,24 @@ struct FloatingAssistantView: View {
             ActionID.stopListening
         ])
     }
+    private func isActionLoading(_ id: String) -> Bool { loadingStates[id] == true }
+    private func latestActionFeedback(for id: String) -> ActionFeedback? {
+        feedbacks.last { $0.actionID == id }
+    }
+    private func latestActionFeedback(matching ids: [String]) -> ActionFeedback? {
+        feedbacks.last { ids.contains($0.actionID) }
+    }
+    private func beginAction(_ id: String, title: String, message: String) {
+        beginFeedback(id, title, message)
+    }
+    private func completeAction(_ id: String, title: String, message: String) {
+        completeFeedback(id, title, message)
+    }
+    private func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4) {
+        infoFeedback(id, title, message, autoDismissAfter)
+    }
+    private func failAction(_ id: String, title: String, message: String) {
+        failFeedback(id, title, message)
+    }
+
 }

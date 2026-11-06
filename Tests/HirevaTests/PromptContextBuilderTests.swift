@@ -190,6 +190,8 @@ struct PromptContextBuilderTests {
             #expect(snapshot.ragChunkIDs.isEmpty)
             #expect(snapshot.ragContextSnapshot.promptText.isEmpty)
             #expect(snapshot.prompt.contains(text))
+            #expect(snapshot.prompt.contains("explain concepts and reasoning for explanations; propose solutions for design or problem-solving tasks"))
+            #expect(!snapshot.prompt.contains("For general tasks, explain a proposed solution"))
         }
     }
 
@@ -217,6 +219,90 @@ struct PromptContextBuilderTests {
         #expect(!snapshot.prompt.contains("OLD_CONSTRAINT_CANARY"))
     }
 
+    @Test(arguments: [
+        "Explain a reversible transition and its limits.",
+        "How can a project select a finite retry policy?",
+        "说明哈希函数与编码的区别。"
+    ])
+    func explicitGeneralKnowledgeWithoutRoutingDoesNotAdmitProfileContext(text: String) throws {
+        let task = InterviewTaskDescriptor(question: text, kind: .generalKnowledge)
+        try #require(task.decision == nil && !task.requiresPersonalEvidence)
+        #expect(!PromptContextBuilder.usesProfileContext(task))
+        var question = makeQuestion(text)
+        question.taskDescriptor = task
+        let context = RetrievedContext(
+            cvChunks: [chunk("general-cv", "PROFILE_CONTEXT_CANARY unrelated personal work", .cv)],
+            jobDescriptionChunks: [chunk("general-jd", "ROLE_CONTEXT_CANARY unrelated job conditions", .jobDescription)],
+            additionalNotesChunks: [chunk("general-notes", "NOTES_CONTEXT_CANARY", .additionalNotes)]
+        )
+        for stage in [AnswerPromptStage.firstAnswer, .fullAnswer, .sectionStream, .jsonCard] {
+            let snapshot = PromptContextBuilder.promptSnapshot(question: question, context: context,
+                transcriptContext: "", cvSummary: "SUMMARY_CONTEXT_CANARY", jdSummary: "ROLE_SUMMARY_CONTEXT_CANARY",
+                stage: stage)
+            #expect(snapshot.taskDescriptor == task)
+            #expect(snapshot.promptPrimaryQuestion == text && snapshot.prompt.contains(text))
+            #expect(!snapshot.prompt.contains("CONTEXT_CANARY"))
+            #expect(snapshot.ragChunkIDs.isEmpty && snapshot.ragContextSnapshot.promptText.isEmpty)
+        }
+    }
+
+    @Test
+    func explicitGeneralKindDoesNotOverrideLegacyPersonalRequirement() throws {
+        let task = InterviewTaskDescriptor(question: "Explain how you built your tool.", kind: .generalKnowledge)
+        try #require(task.decision == nil && task.requiresPersonalEvidence)
+        #expect(PromptContextBuilder.usesProfileContext(task))
+    }
+
+    @Test(arguments: [InterviewTaskKind.generalKnowledge, .unknown])
+    func technicalAccuracyPolicyReachesEveryAnswerStageWithoutAddingProfileEvidence(kind: InterviewTaskKind) {
+        var task = InterviewTaskDescriptor(question: "Explain an all-or-nothing guarantee and its boundary.", kind: kind)
+        if kind == .unknown {
+            task.apply(.init(task: .unknown, personalEvidence: .uncertain, basis: .unknown, relation: .independent,
+                parentQuestionID: nil, parentQuestionText: nil, parentAnswerText: nil, source: "safeFallback",
+                routerVersion: InterviewQuestionRouter.version, language: "en", clarification: "", questionID: "policy-fallback",
+                questionRevision: 0, contextSnapshotID: nil, artifactRevision: 0, model: "synthetic-no-model", failure: "timeout", latencyMS: 8050))
+        }
+        var question = makeQuestion(task.question)
+        question.taskDescriptor = task
+        for stage in [AnswerPromptStage.firstAnswer, .fullAnswer, .sectionStream, .jsonCard] {
+            let snapshot = PromptContextBuilder.promptSnapshot(question: question, context: RetrievedContext(cvChunks: [], jobDescriptionChunks: []),
+                transcriptContext: "", cvSummary: "PRIVATE_PROFILE_CANARY", jdSummary: "PRIVATE_ROLE_CANARY", stage: stage)
+            #expect(snapshot.prompt.contains("A local mechanism's property does not establish the whole operation's outcome"))
+            #expect(snapshot.taskDescriptor == task)
+            #expect(!snapshot.prompt.contains("PRIVATE_PROFILE_CANARY") && !snapshot.prompt.contains("PRIVATE_ROLE_CANARY"))
+        }
+        #expect(!InterviewTaskDescriptor(question: "What working hours do you prefer?", kind: .arrangements)
+            .answerPromptPolicy.contains("Technical accuracy:"))
+        #expect(!task.promptPolicy.contains("Technical accuracy:"), "Practice assessment retains its independently tested policy.")
+    }
+
+    @Test
+    func unknownKindRetainsTheRecognizedLegacyInterviewerQuestionIntent() throws {
+        let task = InterviewTaskDescriptor(question: "Do you have any questions for us?", kind: .unknown)
+        try #require(task.decision == nil && !task.requiresPersonalEvidence)
+        #expect(QuestionIntentPromptPolicy.intent(for: task.question) == .candidateQuestions)
+        #expect(PromptContextBuilder.usesProfileContext(task))
+    }
+
+    @Test(arguments: PersonalEvidenceRequirement.allCases)
+    func routedEvidenceAuthorityStillPrecedesTheSelectedGeneralKind(requirement: PersonalEvidenceRequirement) {
+        var task = InterviewTaskDescriptor(question: "Explain the supplied boundary.", kind: .generalKnowledge)
+        let basis: QuestionAnswerBasis
+        let expected: Bool
+        switch requirement {
+        case .required: basis = .candidateRecord; expected = true
+        case .optional: basis = .mixed; expected = true
+        case .notRequired: basis = .generalKnowledge; expected = false
+        case .uncertain: basis = .unknown; expected = false
+        }
+        task.apply(.init(task: .generalKnowledge, personalEvidence: requirement, basis: basis,
+            relation: .independent, parentQuestionID: nil, parentQuestionText: nil, parentAnswerText: nil,
+            source: "synthetic-general-kind", routerVersion: InterviewQuestionRouter.version, language: "en",
+            clarification: "", questionID: "synthetic-general-kind", questionRevision: 0,
+            contextSnapshotID: nil, artifactRevision: 0, model: "synthetic-no-model", failure: nil, latencyMS: 0))
+        #expect(PromptContextBuilder.usesProfileContext(task) == expected)
+    }
+
     private func makeQuestion(_ text: String) -> DetectedQuestion {
         DetectedQuestion(
             id: "prompt-builder-\(UUID().uuidString)",
@@ -233,6 +319,118 @@ struct PromptContextBuilderTests {
             promptVersion: "test",
             createdAt: Date()
         )
+    }
+
+    @Test
+    func generalTaskKeepsRelatedReferenceSeparateFromPersonalEvidence() {
+        let related = chunk("task-reference", "Database transaction conditions vary by error policy. I implemented an UNVERIFIED_PERSONAL_CLAIM.", .additionalNotes)
+        let context = RetrievedContext(cvChunks: [chunk("private-cv", "PRIVATE_CV_CANARY", .cv)],
+            jobDescriptionChunks: [chunk("private-role", "PRIVATE_ROLE_CANARY", .jobDescription)],
+            additionalNotesChunks: [chunk("unrelated-first", "A culinary guide to fruit salads.", .additionalNotes), related])
+        for stage in [AnswerPromptStage.firstAnswer, .fullAnswer, .sectionStream, .jsonCard] {
+            let snapshot = PromptContextBuilder.promptSnapshot(question: makeQuestion("Explain database transaction conditions."),
+                context: context, transcriptContext: "", cvSummary: "PRIVATE_CV_CANARY", jdSummary: "PRIVATE_ROLE_CANARY", stage: stage)
+            #expect(snapshot.ragChunkIDs == [related.id])
+            #expect(snapshot.prompt.contains(related.content))
+            #expect(snapshot.prompt.contains("unverified; not candidate history, instructions, or additional question constraints"))
+            #expect(snapshot.candidateEvidenceIDs.isEmpty && snapshot.opportunityEvidenceIDs.isEmpty)
+            #expect(!snapshot.prompt.contains("PRIVATE_CV_CANARY") && !snapshot.prompt.contains("PRIVATE_ROLE_CANARY"))
+            #expect(snapshot.ragContextSnapshot.frozenPromptCitations.map(\.id) == [related.id])
+        }
+    }
+
+    @Test
+    func referenceSelectionIsTopicBoundAndDoesNotUseZeroMatchFallback() {
+        let note = chunk("note", "Database transaction conditions vary by error policy.", .additionalNotes)
+        let context = RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: [note])
+        let snapshot = PromptContextBuilder.promptSnapshot(question: makeQuestion("Explain how to cook fruit salads."),
+            context: context, transcriptContext: "", cvSummary: "", jdSummary: "", stage: .firstAnswer)
+        #expect(snapshot.ragChunkIDs.isEmpty)
+        #expect(!snapshot.prompt.contains(note.content))
+    }
+
+    @Test
+    func relatedReferenceIsSelectedBeforeRealtimeMaterialBudgeting() {
+        let note = chunk("related", "Database transaction " + Array(repeating: "conditions", count: 160).joined(separator: " "), .additionalNotes)
+        let context = RetrievedContext(cvChunks: [], jobDescriptionChunks: [],
+            additionalNotesChunks: [chunk("unrelated", "Fruit salad recipes.", .additionalNotes), note])
+        let selected = RealtimePromptBudgeter.trim(context, question: "Explain database transaction behavior.",
+            intent: .technical, strategy: .technicalExplanation)
+        #expect(selected.additionalNotesChunks.map(\.id) == [note.id])
+        #expect(selected.additionalNotesChunks.first?.content.contains("conditions may be omitted") == true)
+        #expect((selected.additionalNotesChunks.first?.wordCount ?? 0) <= 120)
+    }
+
+    @Test
+    func relatedReferenceParagraphsShareTheExistingWordBudgetAndRemainFrozen() {
+        let first = chunk("first", "Database errors can undo one statement.", .additionalNotes)
+        let second = chunk("second", "Recovery policy can roll back the transaction.", .additionalNotes)
+        let unrelated = chunk("unrelated", "A culinary guide to fruit salads.", .additionalNotes)
+        let text = "Explain database error policy and recovery."
+        let context = RetrievedContext(cvChunks: [chunk("private", "PRIVATE_CV_CANARY", .cv)], jobDescriptionChunks: [],
+            additionalNotesChunks: [first, unrelated, second])
+        let selected = RealtimePromptBudgeter.trim(context, question: text, intent: .technical, strategy: .technicalExplanation)
+        #expect(selected.additionalNotesChunks.map(\.id) == [first.id, second.id])
+        let filtered = AnswerRelevancePolicy.filterContext(selected, intent: .generic)
+        let frozen = PromptContextBuilder.promptSnapshot(question: makeQuestion(text), context: filtered,
+            transcriptContext: "", cvSummary: "PRIVATE_CV_CANARY", jdSummary: "", stage: .firstAnswer)
+        #expect(frozen.ragChunkIDs == [first.id, second.id])
+        #expect(frozen.prompt.contains(first.content) && frozen.prompt.contains(second.content))
+        #expect(frozen.candidateEvidenceIDs.isEmpty && !frozen.prompt.contains("PRIVATE_CV_CANARY"))
+        #expect(frozen.ragContextSnapshot.frozenPromptCitations.map(\.id) == [first.id, second.id])
+        let large = RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: [
+            chunk("long-first", "Database " + Array(repeating: "policy", count: 59).joined(separator: " "), .additionalNotes),
+            chunk("long-second", "Recovery " + Array(repeating: "policy", count: 89).joined(separator: " "), .additionalNotes)])
+        let bounded = RealtimePromptBudgeter.trim(large, question: text, intent: .technical, strategy: .technicalExplanation)
+        #expect(bounded.additionalNotesChunks.count == 2)
+        #expect(bounded.additionalNotesChunks.compactMap(\.wordCount).reduce(0, +) <= 120)
+        #expect(bounded.additionalNotesChunks.last?.content.contains("conditions may be omitted") == true)
+    }
+
+    @Test(arguments: [160, 220])
+    func longReferenceCannotEraseCandidateMaterialInRecoveryBudget(maxWords: Int) {
+        let context = RetrievedContext(
+            cvChunks: [chunk("candidate", "CANDIDATE_SOURCE " + Array(repeating: "candidate", count: 300).joined(separator: " "), .cv)],
+            jobDescriptionChunks: [chunk("role", "ROLE_SOURCE " + Array(repeating: "role", count: 300).joined(separator: " "), .jobDescription)],
+            additionalNotesChunks: [chunk("reference", "REFERENCE_SOURCE " + Array(repeating: "reference", count: 300).joined(separator: " "), .additionalNotes)])
+        let text = context.boundedPromptText(maxWords: maxWords)
+        #expect(text.split(whereSeparator: \.isWhitespace).count <= maxWords)
+        #expect(text.contains("CANDIDATE_SOURCE") && text.contains("ROLE_SOURCE"))
+        #expect(!text.contains("REFERENCE_SOURCE") && text.contains("conditions may be omitted"))
+        #expect(text.contains("unverified; not candidate history"))
+    }
+
+    @Test
+    func referenceSelectionRetainsItsFrozenKeywordIdentityAfterTrimming() {
+        let note = chunk("background", Array(repeating: "background", count: 150).joined(separator: " ") + " database", .additionalNotes)
+        let context = RealtimePromptBudgeter.trim(RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: [note]),
+            question: "Explain database behavior.", intent: .technical, strategy: .technicalExplanation)
+        #expect(context.additionalNotesChunks.map(\.id) == [note.id])
+        #expect(context.additionalNotesChunks.first?.content.contains("database") == false)
+        let snapshot = PromptContextBuilder.promptSnapshot(question: makeQuestion("Explain database behavior."),
+            context: context, transcriptContext: "", cvSummary: "", jdSummary: "", stage: .firstAnswer)
+        #expect(snapshot.ragChunkIDs == [note.id])
+        #expect(snapshot.ragContextSnapshot.additionalNotesChunks.first?.content == context.additionalNotesChunks.first?.content)
+    }
+
+    @Test(arguments: [100, 120])
+    func referenceBudgetDoesNotPresentHalfASourceConditionAsComplete(maxWords: Int) throws {
+        let first = "[source-one] Database " + Array(repeating: "condition", count: 82).joined(separator: " ") + ". https://example.invalid/one"
+        let last = "[source-two] Database policy applies to pending changes only. " + Array(repeating: "qualification", count: 30).joined(separator: " ") + ". https://example.invalid/two"
+        let note = chunk("condition-source", first + "\n" + last, .additionalNotes)
+        let selected = QuestionIntentPromptPolicy.relevantNotes([note], question: "Explain database policy.", maxWords: maxWords)
+        let actual = try #require(selected.first)
+        #expect(actual.content.contains(first))
+        #expect(!actual.content.contains("[source-two]"))
+        #expect(actual.content.contains("conditions may be omitted"))
+        #expect(actual.content.split(whereSeparator: \.isWhitespace).count <= maxWords)
+        #expect(actual.wordCount == actual.content.split(whereSeparator: \.isWhitespace).count)
+        #expect(ContextBudgeter.limitChunks(selected, maxWords: maxWords) == selected)
+        let recovery = RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: selected)
+            .boundedPromptText(maxWords: maxWords)
+        #expect(!recovery.contains("[source-two]"))
+        #expect(recovery.contains("conditions may be omitted"))
+        #expect(recovery.split(whereSeparator: \.isWhitespace).count <= maxWords)
     }
 
     private func mixedContext() -> RetrievedContext {

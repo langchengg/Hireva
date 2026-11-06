@@ -5,17 +5,8 @@ import AppKit
 
 extension AppState {
     func loadSessionDetails(sessionID: String) {
-        selectedSessionID = sessionID
         do {
-            selectedSessionTranscript = try transcriptRepository.segments(sessionID: sessionID)
-            selectedSessionSuggestions = try suggestionRepository.suggestions(sessionID: sessionID)
-            selectedSessionRecap = try recapRepository.recap(sessionID: sessionID)
-            
-            var chunksDict: [String: [RetrievedChunk]] = [:]
-            for card in selectedSessionSuggestions {
-                chunksDict[card.id] = (try? suggestionRepository.retrievedChunks(suggestionCardID: card.id)) ?? []
-            }
-            historicalSuggestionChunks = chunksDict
+            try historyState.loadSessionDetails(sessionID: sessionID)
         } catch {
             showError("Could not load session: \(error.localizedDescription)")
         }
@@ -35,19 +26,23 @@ extension AppState {
         }
         practiceController.reviews.removeAll { $0.sessionID == session.id }
         if recapSessionID == session.id {
-            recapTask?.cancel()
-            recapTask = nil
-            recapSessionID = nil
-            isGeneratingRecap = false
+            historyState.cancelRecap(sessionID: session.id)
             clearActionFeedback(ActionID.sessionRecap)
         }
         do {
             try sessionRepository.deleteSession(id: session.id)
+            if currentSession?.id == session.id {
+                // A Manual entry can still be publishing before activation;
+                // successful deletion revokes its existing request authority.
+                // Historical deletion never cancels an unrelated live request.
+                cancelActiveGenerationForContextChange()
+                if currentSession?.id == session.id {
+                    currentSession = nil
+                    if currentSession == nil { activeContextSnapshot = nil }
+                }
+            }
             if selectedSessionID == session.id {
-                selectedSessionID = nil
-                selectedSessionTranscript = []
-                selectedSessionSuggestions = []
-                selectedSessionRecap = nil
+                historyState.clearSelection()
             }
             refreshAll()
             completeAction(ActionID.sessionDelete, title: "Session deleted", message: "\(session.title) was removed.")
@@ -63,6 +58,7 @@ extension AppState {
         cancelMaterialImport()
         AutomaticInterviewContextBuilder.clearExtractionCache()
         guard !isActionLoading(ActionID.clearLocalData) else { return }
+        documentsState.embeddings.allSourcesWillChange()
         beginAction(ActionID.clearLocalData, title: "Clearing local data", message: "Stopping capture and deleting local app data...")
         pausePreparationForLive()
         practiceController.cancel()
@@ -100,67 +96,32 @@ extension AppState {
             return
         }
         guard !isActionLoading(ActionID.sessionRecap) else { return }
-        if let practice = try? PracticeRepository(database: database).load(sessionID: session.id) {
-            let recap = RecapReport(id: "practice-recap-" + session.id + "-v\(session.contentRevision ?? 0)", sessionID: session.id, markdown: RecapGenerationService.practiceMarkdown(practice), modelName: "Validated practice feedback", promptVersion: practice.task.rubricVersion, isLocal: true, createdAt: Date(), contentRevision: session.contentRevision ?? 0)
-            do {
-                try recapRepository.saveRecap(recap)
-                selectedSessionRecap = recap
-                completeAction(ActionID.sessionRecap, title: "Recap ready", message: "All attempts included with source quotes and coverage.")
-            } catch { showError(error.localizedDescription) }
-            return
-        }
-        beginAction(ActionID.sessionRecap, title: "Generating recap", message: "Processing all saved text units; unknown speakers are not graded...")
-        isGeneratingRecap = true
-        recapTask?.cancel()
-        recapSessionID = session.id
-        let consentTicket = persistenceConsent.ticket()
-        recapTask = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                if !Task.isCancelled, self.recapSessionID == session.id {
-                    self.recapTask = nil
-                    self.recapSessionID = nil
-                    self.isGeneratingRecap = false
-                }
-            }
-            do {
-                let corrections = HistoryCorrectionRepository(database: database)
-                let transcript = try corrections.effectiveTranscript(transcriptRepository.segments(sessionID: session.id), sessionID: session.id)
-                let questions = try corrections.effectiveQuestions(suggestionRepository.questions(sessionID: session.id), transcript: transcript, sessionID: session.id)
-                let history = try corrections.revisions(sessionID: session.id)
-                let latestCorrections = Dictionary(history.map { ($0.segmentID, $0) }, uniquingKeysWith: { _, latest in latest })
-                let suppressedBoundaries = Set(latestCorrections.values.filter { !$0.startsQuestion }.map(\.segmentID))
-                let context = RetrievedContext(cvChunks: [], jobDescriptionChunks: [], additionalNotesChunks: [])
-                let result = try await recapGenerationService.generate(
-                    session: session,
-                    transcript: transcript,
-                    context: context,
-                    questions: questions,
-                    model: activeRecapProvider?.model,
-                    routingProvider: localLLMProviderOverride ?? OllamaQwenProvider(), routingModel: selectedQwenModelName,
-                    cachedUnits: try recapRepository.cachedUnits(sessionID: session.id),
-                    suppressedQuestionBoundaries: suppressedBoundaries,
-                    cacheNamespace: [activeRecapProvider?.id.uuidString ?? "", activeRecapProvider?.baseURL ?? "", activeRecapProvider?.model ?? ""].joined(separator: "|"),
-                    localOnly: selectedAnswerProviderMode == .localQwenPrimary
-                )
-                guard !Task.isCancelled else { return }
-                guard settings.saveTranscriptsLocally, try sessionRepository.session(id: session.id)?.contentRevision == session.contentRevision else { return }
-                try persistenceConsent.write(ticket: consentTicket) {
-                    try self.recapRepository.saveRecap(result.recap)
-                    try self.recapRepository.saveUnits(result.units, sessionID: session.id)
-                }
-                if selectedSessionID == session.id { selectedSessionRecap = result.recap }
-                updateDiagnostics {
-                    $0.lastAPILatencyMS = result.response.latencyMS
-                    $0.apiCallCount += 1
-                }
-                completeAction(ActionID.sessionRecap, title: "Recap ready", message: "Session recap is visible.")
-            } catch {
-                guard !Task.isCancelled else { return }
-                let message = userFacing(error)
-                failAction(ActionID.sessionRecap, title: "Recap failed", message: message)
-                showError(message)
-            }
+        // The selected mode is policy. Inputs and the provider configuration
+        // are submitted now; the feature owner never rereads AppState later.
+        let localOnly = selectedAnswerProviderMode == .localQwenPrimary
+        let configuration = localOnly ? activeRecapProvider : (try? llmRouter.recapConfiguration())
+        let provider = localLLMProviderOverride ?? OllamaQwenProvider()
+        let model = selectedQwenModelName
+        let settingsOwner = settingsState
+        do {
+            try historyState.requestRecap(sessionID: session.id, providerConfiguration: configuration,
+                routingProvider: provider, routingModel: model, localOnly: localOnly,
+                persistenceAllowed: { [weak settingsOwner] in settingsOwner?.settings.saveTranscriptsLocally ?? false },
+                onFeedback: { [weak self] feedback in
+                    guard let self else { return }
+                    self.publishActionFeedback(feedback)
+                },
+                onError: { [weak self] message in self?.showError(message) },
+                didPublish: { [weak self] response in
+                    self?.updateDiagnostics {
+                        $0.lastAPILatencyMS = response.latencyMS
+                        $0.apiCallCount += 1
+                    }
+                })
+        } catch {
+            let message = userFacing(error)
+            failAction(ActionID.sessionRecap, title: "Recap failed", message: message)
+            showError(message)
         }
     }
 
@@ -168,7 +129,7 @@ extension AppState {
         guard settings.saveTranscriptsLocally, !primaryHomeActionShouldStop else { return }
         persistenceConsent.invalidate()
         if practiceController.run?.sessionID == sessionID { practiceController.pause() }
-        recapTask?.cancel(); recapTask = nil; recapSessionID = nil; isGeneratingRecap = false
+        historyState.cancelRecap()
         clearActionFeedback(ActionID.sessionRecap)
         do {
             try PracticeRepository(database: database).correctAttempt(sessionID: sessionID, attemptID: attemptID, question: question, answer: answer)
@@ -181,7 +142,7 @@ extension AppState {
     func saveTranscriptCorrection(_ segment: TranscriptSegment, text: String, speaker: SpeakerRole, startsQuestion: Bool, question: String) {
         guard settings.saveTranscriptsLocally, !primaryHomeActionShouldStop else { showError("Stop capture and enable history before correcting saved text."); return }
         persistenceConsent.invalidate()
-        recapTask?.cancel(); recapTask = nil; recapSessionID = nil; isGeneratingRecap = false
+        historyState.cancelRecap()
         clearActionFeedback(ActionID.sessionRecap)
         do {
             try HistoryCorrectionRepository(database: database).save(segment: segment, text: text, speaker: speaker, startsQuestion: startsQuestion, question: question)

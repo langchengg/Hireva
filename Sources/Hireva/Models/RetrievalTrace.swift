@@ -1,6 +1,6 @@
 import Foundation
 
-struct RetrievedChunk: Codable, Identifiable, Equatable, Hashable {
+struct RetrievedChunk: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String                  // document_chunks.id
     let documentID: String
     let documentType: DocumentType
@@ -23,7 +23,7 @@ struct RetrievedChunk: Codable, Identifiable, Equatable, Hashable {
     var retrievalMode: String?      // keywordOnly / vectorOnly / hybrid / keywordFallback
 }
 
-struct RetrievalTrace: Codable, Equatable, Hashable {
+struct RetrievalTrace: Codable, Equatable, Hashable, Sendable {
     let id: UUID
     let query: String
     let intent: String?
@@ -54,4 +54,6 @@ struct RetrievalTrace: Codable, Equatable, Hashable {
     var hybridKeywordWeight: Double = 0.3
     var embeddingWarnings: [String] = []
     var fallbackReason: String?
+    // Actual service return boundary; cached traces retain their original time.
+    var verificationCompletedHostTicks: UInt64? = nil
 }

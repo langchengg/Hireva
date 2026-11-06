@@ -52,8 +52,8 @@ struct SuggestionCard: Identifiable, Hashable, Codable {
     var promptContextPreview: String? = nil
     var mismatchReason: String? = nil
     var ingressIdentity: TranscriptQuestionIngressIdentity? = nil
-    // Frozen in-flight validation context. Durable source remains the existing
-    // detected_questions.task_descriptor_json row, referenced by questionID.
+    // Immutable answer-level routing provenance. Regeneration can reuse the
+    // question ID with a new decision; legacy cards without this snapshot stay nil.
     var questionDecision: InterviewQuestionDecision? = nil
 
     var detectedQuestionID: String? {

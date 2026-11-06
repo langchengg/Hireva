@@ -27,7 +27,7 @@ enum StageBDecision: String, Codable, Equatable, Hashable {
 ///
 /// The decision has no authority to mutate UI or persistence. It only explains
 /// how the already-owned AppState generation lifecycle should treat a result.
-struct GenerationStageBResult: Equatable {
+struct GenerationStageBResult: Equatable, Sendable {
     let identity: GenerationIdentity?
     let generationID: String
     let detectedQuestionID: String?

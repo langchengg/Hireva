@@ -1,6 +1,6 @@
 import Foundation
 
-final class OpenAICompatibleLLMClient: LLMClientProtocol {
+final class OpenAICompatibleLLMClient: LLMClientProtocol, Sendable {
     let providerKind: LLMProviderKind
 
     private let apiKeyStore: APIKeyStore
@@ -202,7 +202,7 @@ final class OpenAICompatibleLLMClient: LLMClientProtocol {
     }
 }
 
-final class DeepSeekLLMClient: LLMClientProtocol {
+final class DeepSeekLLMClient: LLMClientProtocol, Sendable {
     let providerKind: LLMProviderKind = .deepSeek
     private let compatibleClient: OpenAICompatibleLLMClient
 

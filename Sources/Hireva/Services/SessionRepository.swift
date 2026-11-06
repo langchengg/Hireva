@@ -60,12 +60,15 @@ final class SessionRepository {
         return session
     }
 
-    func endSession(id: String) throws {
+    @discardableResult
+    func endSession(id: String, at endedAt: Date = Date()) throws -> Date? {
         try database.dbQueue.write { db in
             try db.execute(
-                sql: "UPDATE interview_sessions SET ended_at = ? WHERE id = ?",
-                arguments: [DateCoding.string(from: Date()), id]
+                sql: "UPDATE interview_sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
+                arguments: [DateCoding.string(from: endedAt), id]
             )
+            return try String.fetchOne(db, sql: "SELECT ended_at FROM interview_sessions WHERE id = ?",
+                arguments: [id]).map(DateCoding.date)
         }
     }
 

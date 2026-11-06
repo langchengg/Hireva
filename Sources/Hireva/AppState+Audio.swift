@@ -4,8 +4,43 @@
 // captured transcript segments flow into AppState+Transcript instead.
 
 import Foundation
+import Darwin
 
 extension AppState {
+    static func verificationPCMCommit(verification: HirevaVerificationConfiguration?,
+        verificationOnlyBundle: Bool, captureMode: AudioCaptureMode, provider: ASRProviderID,
+        consent: PersistenceConsent, ticket: Int) throws -> ParakeetSidecarRuntimeClient.VerificationPCMCommit? {
+        guard let verification, verification.retainNativePCM else { return nil }
+        guard captureMode == .systemAudioOnly, provider == .localParakeet,
+              verification.controlledAudioProcessID != nil, verification.controlledAudioBundleIdentifier != nil,
+              verificationOnlyBundle, consent.isCurrent(ticket: ticket) else { throw CancellationError() }
+        // Explicit synthetic PCM opt-in is separate from trace mode; never place audio in trace records.
+        guard let frozenDirectory = verification.nativePCMOutputDirectory,
+              let device = verification.nativePCMOutputDevice, let inode = verification.nativePCMOutputInode,
+              verification.outputDirectory.resolvingSymlinksInPath().standardizedFileURL == frozenDirectory else { throw POSIXError(.ESTALE) }
+        let directory = frozenDirectory.path
+        var identity = stat()
+        guard lstat(directory, &identity) == 0, identity.st_dev == device, identity.st_ino == inode else { throw POSIXError(.ESTALE) }
+        let stem = "writer-submitted-pcm-\(verification.runID)-\(UUID().uuidString)"
+        return { data, generation, truncated, diagnostics in
+            try consent.write(ticket: ticket) {
+                let directoryFD = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+                guard directoryFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                defer { close(directoryFD) }
+                var current = stat()
+                guard fstat(directoryFD, &current) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                guard current.st_dev == device, current.st_ino == inode else { throw POSIXError(.ESTALE) }
+                let filename = "\(stem)-g\(generation).jsonl"
+                let fd = openat(directoryFD, filename, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+                guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+                do { try handle.write(contentsOf: data); try handle.close() }
+                catch { try? handle.close(); throw error }
+                print("[VerificationPCM] writer-submitted file=\(filename) generation=\(generation) bytes=\(data.count) truncated=\(truncated) dropped=\(diagnostics.droppedChunks)")
+            }
+        }
+    }
+
     // MARK: - Public Entry Points
 
     /// Starts the selected live capture path and prepares cancellation of any
@@ -14,6 +49,7 @@ extension AppState {
     /// The mode passed here is the interview runtime mode; the microphone/system
     /// routing decision is still taken from `settings.audioCaptureMode`.
     func startListening(mode: InterviewMode) {
+        guard !isShuttingDown else { return }
         let actionID = ActionID.startInterview
         guard !isActionLoading(actionID) else { return }
         guard onboardingComplete else {
@@ -26,57 +62,123 @@ extension AppState {
             warnAction(actionID, title: "Already running", message: "Stop listening before starting a new interview.")
             return
         }
-        practiceController.pause()
-        pausePreparationForLive()
-        beginAction(actionID, title: "Starting audio", message: "Starting \(settings.audioCaptureMode.shortDisplayName) capture...")
-        errorMessage = nil
-        possibleQuestion = nil
-        activeDetectionTask?.cancel()
-        activeAITask?.cancel()
-        detectionDebounceTask?.cancel()
-        transcriptionTask?.cancel()
-
-        let previousStartupTask = captureStartupTask
-        previousStartupTask?.cancel()
-        let previousTeardownTask = captureTeardownTask
-        let startupID = UUID()
-        captureStartupID = startupID
-        captureStartupTask = Task { [weak self] in
-            await previousStartupTask?.value
-            await previousTeardownTask?.value
-            guard let self else { return }
-            guard self.captureStartupIsCurrent(startupID) else { return }
-            await self.startListeningAsync(mode: mode, startupID: startupID)
-            guard self.captureStartupID == startupID else { return }
-            self.captureStartupID = nil
-            self.captureStartupTask = nil
+        // Permission requests and backend startup use the same submitted
+        // configuration, even if settings change while authorization awaits.
+        let captureMode = settings.audioCaptureMode
+        let requestedASRProvider = selectedASRProviderID
+        let answerMode = selectedAnswerProviderMode
+        let answerModel = selectedQwenModelName
+        let modelPreparation = mode != .mock && answerMode == .localQwenPrimary
+            ? ((localLLMProviderOverride ?? OllamaQwenProvider()) as? OllamaQwenProvider)
+                .map { (provider: $0, model: answerModel) } : nil
+        let pcmTicket = persistenceConsent.ticket()
+        let pcmCommit: ParakeetSidecarRuntimeClient.VerificationPCMCommit?
+        do {
+            pcmCommit = try Self.verificationPCMCommit(verification: HirevaVerificationConfiguration.current,
+                verificationOnlyBundle: Bundle.main.object(forInfoDictionaryKey: "HirevaVerificationOnly") as? Bool == true,
+                captureMode: captureMode, provider: requestedASRProvider, consent: persistenceConsent, ticket: pcmTicket)
+        } catch {
+            failAction(actionID, title: "Audio evidence unavailable", message: userFacing(error))
+            showError(userFacing(error))
+            return
         }
+        let pcmConsent = persistenceConsent
+        let requiresOnDeviceRecognition = HirevaVerificationConfiguration.current?.requiresLocalASR ?? false
+        let biasSelection = requestedASRProvider == .localParakeet && settingsState.parakeetContextBiasEnabled
+            ? currentInterviewContextSelection : nil
+        let biasOpportunity = biasSelection == nil ? nil : activeOpportunityContext
+        let contextualStrings = ASRConfig.opportunityTerms(biasOpportunity)
+        // This handoff is filled synchronously on MainActor before the owned
+        // startup can execute on that same actor. Register before any publisher
+        // can submit a later Manual/Live intent and revoke this exact startup.
+        var manualTeardown: Task<Void, Error>?
+        guard let startup = captureLifecycle.start(onCleanupBlocked: { [weak self] in
+            self?.failAction(actionID, title: "Audio cleanup failed",
+                message: "The previous audio capture has not been released. Retry cleanup before starting another capture.")
+        }, operation: { [weak self] startupID in
+            guard let self, self.captureStartupIsCurrent(startupID) else { return }
+            await self.startListeningAsync(mode: mode, captureMode: captureMode,
+                requestedASRProvider: requestedASRProvider, modelPreparation: modelPreparation,
+                requiresOnDeviceRecognition: requiresOnDeviceRecognition,
+                pcmCommit: pcmCommit, pcmIsCurrent: { pcmConsent.isCurrent(ticket: pcmTicket) },
+                contextualStrings: contextualStrings, biasSelection: biasSelection,
+                biasOpportunityID: biasOpportunity?.id, biasOpportunityVersion: biasOpportunity?.version,
+                manualTeardown: manualTeardown, startupID: startupID)
+        }), let startupID = captureStartupID else { return }
+        do { manualTeardown = try manualCaptureController.prepareForLiveCapture() }
+        catch {
+            guard captureStartupIsCurrent(startupID) else { return }
+            captureLifecycle.invalidateStartup()
+            let message = userFacing(error)
+            liveState = .error(message)
+            guard captureStartupTask == startup else { return }
+            currentCaptureRuntimeState = .error(reason: message)
+            guard captureStartupTask == startup else { return }
+            failAction(actionID, title: "Could not start", message: message)
+            guard captureStartupTask == startup else { return }
+            showError(message)
+            return
+        }
+        guard captureStartupIsCurrent(startupID) else { return }
+        practiceController.pause()
+        guard captureStartupIsCurrent(startupID) else { return }
+        pausePreparationForLive()
+        guard captureStartupIsCurrent(startupID) else { return }
+        beginAction(actionID, title: "Starting audio", message: "Starting \(captureMode.shortDisplayName) capture...")
+        guard captureStartupIsCurrent(startupID) else {
+            // A replacement Manual owns its own action. Clear this revoked
+            // loading feedback only when no newer Live startup owns it.
+            if captureStartupID == nil { clearActionFeedback(actionID) }
+            return
+        }
+        errorMessage = nil
+        guard captureStartupIsCurrent(startupID) else { return }
+        possibleQuestion = nil
+        guard captureStartupIsCurrent(startupID) else { return }
+        liveInterview.cancelAutomaticDetection()
+        cancelActiveGenerationForStop()
+        guard captureStartupIsCurrent(startupID) else { return }
+        liveInterview.cancelAutomaticDetectionDebounce()
+        captureLifecycle.invalidateConsumer()
     }
 
     func pausePreparationForLive() {
+        preparationState.cancel()
         if materialImportTask != nil { cancelMaterialImport() }
-        automaticContextBuildTask?.cancel()
-        automaticContextBuildID = UUID()
-        automaticContextReadiness = automaticContextBuildResult?.readiness ?? .noDocuments
-        clearActionFeedback(ActionID.buildInterviewContext)
-        activeEmbeddingRebuildTask?.cancel()
+        interviewContextState.invalidateBuild()
+        documentsState.embeddings.cancelRebuild()
         clearActionFeedback(ActionID.rebuildEmbeddings)
-        recapTask?.cancel()
-        recapTask = nil
-        recapSessionID = nil
-        isGeneratingRecap = false
+        historyState.cancelRecap()
         clearActionFeedback(ActionID.sessionRecap)
     }
 
     // MARK: - Capture Startup
 
+    private func captureAdmissionState(for result: ScreenSystemAudioPermissionProbeResult) throws
+        -> ScreenSystemAudioPermissionState {
+        let state = determineProbeState(result: result)
+        switch state {
+        case .shareableContentProbeFailed(let detail), .streamAudioProbeFailed(let detail):
+            throw TranscriptionError.unavailable("System audio capture unavailable: \(detail)")
+        default:
+            return state
+        }
+    }
+
     /// Coordinates permissions, session creation, Apple Speech startup, and
     /// capture diagnostics on MainActor.
     ///
-    /// System Audio Only must not request microphone or speech-recognition
-    /// permission. Microphone Only must not start system audio capture. Mic +
-    /// System starts both streams through AppleSpeechTranscriptionService.
-    private func startListeningAsync(mode: InterviewMode, startupID: UUID) async {
+    /// System Audio Only never requests microphone permission. Speech
+    /// recognition permission follows the selected provider's requirements.
+    /// Microphone Only never starts system audio capture.
+    private func startListeningAsync(mode: InterviewMode, captureMode: AudioCaptureMode,
+        requestedASRProvider: ASRProviderID, modelPreparation: (provider: OllamaQwenProvider, model: String)?,
+        requiresOnDeviceRecognition: Bool,
+        pcmCommit: ParakeetSidecarRuntimeClient.VerificationPCMCommit?,
+        pcmIsCurrent: @escaping @Sendable () -> Bool,
+        contextualStrings: [String], biasSelection: InterviewContextSelection?,
+        biasOpportunityID: String?, biasOpportunityVersion: Int?,
+        manualTeardown: Task<Void, Error>?, startupID: UUID) async {
         await practiceController.finishStoppingAudio()
         guard captureStartupIsCurrent(startupID) else { return }
         currentCaptureRuntimeState = .starting
@@ -86,13 +188,22 @@ extension AppState {
         recordLifecycleTrace("capture.start.requested", reason: "user_requested")
 
         do {
+            try await manualTeardown?.value
+            guard captureStartupIsCurrent(startupID) else { return }
+            guard mode == .mock || requestedASRProvider != .localWhisper else {
+                throw ASRProviderError.providerUnavailable(
+                    "Local Whisper runtime is not configured. Select Apple Speech or Local Parakeet to start listening."
+                )
+            }
+            try await systemAudioCaptureService.finishStoppingSystemAudioCapture()
+            guard captureStartupIsCurrent(startupID) else { return }
+            try await systemAudioPermissions.finishPreparingForCapture()
+            guard captureStartupIsCurrent(startupID) else { return }
             liveState = .requestingPermission
             if mode != .mock {
-                refreshPermissions()
+                refreshPermissions(automaticallyProbe: false)
             }
             if mode == .microphone {
-                let captureMode = settings.audioCaptureMode
-                let requestedASRProvider = selectedASRProviderID
                 // Permission gating is capture-mode specific. Do not collapse
                 // this into a generic "live transcription requires mic" check:
                 // System Audio Only is the user escape hatch when mic access is
@@ -119,7 +230,7 @@ extension AppState {
                     if microphone == .notDetermined {
                         microphone = await permissionService.requestMicrophonePermission()
                         guard captureStartupIsCurrent(startupID) else { return }
-                        refreshPermissions()
+                        refreshPermissions(automaticallyProbe: false)
                     } else if microphone == .authorized {
                         // Success immediately, do not prompt/error
                     } else {
@@ -148,7 +259,7 @@ extension AppState {
                     if speech == .notDetermined {
                         speech = await permissionService.requestSpeechRecognition()
                         guard captureStartupIsCurrent(startupID) else { return }
-                        refreshPermissions()
+                        refreshPermissions(automaticallyProbe: false)
                     }
 
                     guard speech == .granted else {
@@ -163,12 +274,9 @@ extension AppState {
                 }
 
                 if systemAudioRequired {
-                    let probeResult = await ScreenSystemAudioPermissionProbe.shared.probe()
+                    let probeResult = try await systemAudioPermissions.probeNow()
                     guard captureStartupIsCurrent(startupID) else { return }
-                    let state = determineProbeState(result: probeResult)
-
-                    self.systemAudioProbeResult = probeResult
-                    self.systemAudioPermissionState = state
+                    let state = try captureAdmissionState(for: probeResult)
 
                     if state == .granted {
                         // Success! Continue
@@ -178,12 +286,9 @@ extension AppState {
                             try? await Task.sleep(for: .milliseconds(1000))
                             guard captureStartupIsCurrent(startupID) else { return }
 
-                            let finalProbe = await ScreenSystemAudioPermissionProbe.shared.probe()
+                            let finalProbe = try await systemAudioPermissions.probeNow()
                             guard captureStartupIsCurrent(startupID) else { return }
-                            let finalState = determineProbeState(result: finalProbe)
-                            self.systemAudioProbeResult = finalProbe
-                            self.systemAudioPermissionState = finalState
-
+                            let finalState = try captureAdmissionState(for: finalProbe)
                             if finalState == .granted {
                                 // Succeeded after prompt
                             } else {
@@ -248,10 +353,39 @@ extension AppState {
                         }
                     }
                 }
-                refreshPermissions()
+                refreshPermissions(automaticallyProbe: false)
             }
 
+            try await systemAudioPermissions.finishPreparingForCapture()
             guard captureStartupIsCurrent(startupID) else { return }
+            var modelPreparationNote = ""
+            if let preparation = modelPreparation {
+                guard selectedAnswerProviderMode == .localQwenPrimary, selectedQwenModelName == preparation.model else {
+                    throw MaterialError.invalid("Answer model changed during startup. Start listening again.")
+                }
+                do {
+                    try await GenerationCoordinator.withTimeout(seconds: 8) {
+                        try await preparation.provider.prepareModel(modelName: preparation.model)
+                    }
+                    guard captureStartupIsCurrent(startupID) else { return }
+                    addCaptureEvent(name: "localModelPrepared", stateBefore: "starting", stateAfter: "starting", reason: "loadConfirmed")
+                } catch {
+                    guard captureStartupIsCurrent(startupID) else { return }
+                    modelPreparationNote = " Local answer model preparation failed; the first answer may be unavailable."
+                    addCaptureEvent(name: "localModelPreparationFailed", stateBefore: "starting", stateAfter: "starting", reason: userFacing(error))
+                }
+                guard captureStartupIsCurrent(startupID) else { return }
+                guard selectedAnswerProviderMode == .localQwenPrimary, selectedQwenModelName == preparation.model else {
+                    throw MaterialError.invalid("Answer model changed during startup. Start listening again.")
+                }
+            }
+            if let biasSelection {
+                guard currentInterviewContextSelection == biasSelection,
+                      activeOpportunityContext?.id == biasOpportunityID,
+                      activeOpportunityContext?.version == biasOpportunityVersion else {
+                    throw ASRProviderError.providerUnavailable("Opportunity context changed during audio startup. Start listening again to use its current vocabulary.")
+                }
+            }
             let reusableSession: InterviewSession? = {
                 guard let currentSession else { return nil }
                 let persistedSession = try? sessionRepository.session(id: currentSession.id)
@@ -268,7 +402,7 @@ extension AppState {
             }
             currentSession = session
             if transcriptSegments.isEmpty {
-                transcriptSegments.append(.system("Live interview session started in \(mode.displayName). Mode: \(settings.audioCaptureMode.displayName)", sessionID: session.id))
+                transcriptSegments.append(.system("Live interview session started in \(mode.displayName). Mode: \(captureMode.displayName)", sessionID: session.id))
             }
 
             if mode == .mock {
@@ -284,8 +418,6 @@ extension AppState {
                 consumeSegments(from: provider)
                 completeAction(ActionID.startInterview, title: "Listening started", message: "Practice capture is active.")
             } else {
-                let captureMode = settings.audioCaptureMode
-                let requestedASRProvider = selectedASRProviderID
                 print("[DualAudio] mode = \(captureMode.rawValue)")
                 print("[DualAudio] selectedASRProvider = \(requestedASRProvider.rawValue)")
 
@@ -299,47 +431,52 @@ extension AppState {
                 }
 
                 if requestedASRProvider == .localParakeet {
-                    let provider = LocalParakeetASRProvider()
-                    let stream = try await provider.startTranscription(config: ASRConfig(
-                        sessionID: session.id,
-                        captureMode: captureMode
-                    ))
-                    guard captureStartupIsCurrent(startupID) else {
-                        await provider.stopTranscription()
-                        return
-                    }
+                    try liveASRWillStart?(.localParakeet, captureMode)
+                    let provider = LocalParakeetASRProvider(runtimeClient: pcmCommit.map {
+                        ParakeetSidecarRuntimeClient(verificationPCMCommit: $0, verificationPCMIsCurrent: pcmIsCurrent)
+                    })
+                    // Failed startup can retain its native cleanup capability.
+                    // Register that exact owner before the first suspension;
+                    // listening and the provider badge still require success.
                     self.appleSpeechService = nil
                     self.activeTranscriptionProvider = nil
                     self.activeASRProviderRuntime = provider
+                    let stream = try await provider.startTranscription(config: ASRConfig(
+                        sessionID: session.id,
+                        captureMode: captureMode,
+                        requiresOnDeviceRecognition: requiresOnDeviceRecognition,
+                        contextualStrings: contextualStrings
+                    ))
+                    guard captureStartupIsCurrent(startupID) else {
+                        await provider.stopTranscription(retryFailedResource: false)
+                        return
+                    }
+                    if let biasSelection,
+                       currentInterviewContextSelection != biasSelection ||
+                        activeOpportunityContext?.id != biasOpportunityID ||
+                        activeOpportunityContext?.version != biasOpportunityVersion {
+                        await provider.stopTranscription(retryFailedResource: false)
+                        throw ASRProviderError.providerUnavailable("Opportunity context changed during audio startup. Start listening again to use its current vocabulary.")
+                    }
                     self.markActiveASRProvider(.localParakeet)
                     self.lastSystemAudioASRError = nil
                     self.lastSystemAudioASRPartialTranscript = ""
                     self.lastSystemAudioASRFinalTranscript = ""
                     ownsSystemAudioCaptureRuntime = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
 
-                    transcriptionTask = Task { [weak self] in
-                        do {
-                            for try await segment in stream {
-                                guard !Task.isCancelled else { return }
-                                await self?.handleTranscriptSegment(segment)
-                            }
-                            guard !Task.isCancelled else { return }
-                            await MainActor.run {
-                                self?.handleParakeetStreamTermination(error: nil)
-                            }
-                        } catch {
-                            await MainActor.run {
-                                self?.handleParakeetStreamTermination(error: error)
-                            }
-                        }
-                    }
+                    consumeParakeetSegments(stream, provider: provider, sessionID: session.id, startupID: startupID)
 
                     liveState = .listening
                     currentCaptureRuntimeState = .listening
                     addCaptureEvent(name: "listeningActive", stateBefore: "starting", stateAfter: "listening", reason: "localParakeetCaptureActive")
                     showFloatingAssistant()
-                    completeAction(ActionID.startInterview, title: "Listening started", message: "\(ASRProviderID.localParakeet.displayName) is active.")
-                    startAudioSignalMonitoring()
+                    completeAction(ActionID.startInterview, title: "Listening started", message: "\(ASRProviderID.localParakeet.displayName) is active." + modelPreparationNote)
+                    if provider.hasHealthyCaptureSource {
+                        for (source, error) in provider.captureSourceFailures {
+                            reportParakeetSourceFailure(source: source, error: error)
+                        }
+                    }
+                    await startAudioSignalMonitoring()
                     return
                 }
 
@@ -349,15 +486,19 @@ extension AppState {
                 self.activeASRProviderRuntime = nil
                 self.markActiveASRProvider(.appleSpeech)
 
-                speechService.onSessionStateChanged = { [weak self] in
-                    Task { @MainActor in
-                        self?.objectWillChange.send()
-                    }
+                speechService.onSessionStateChanged = { [weak self, weak speechService] in
+                    guard let self, let speechService,
+                        (self.captureStartupID == nil || self.captureStartupID == startupID),
+                        self.currentSession?.id == session.id,
+                        self.appleSpeechService === speechService else { return }
+                    self.objectWillChange.send()
                 }
-                speechService.onRuntimeEvent = { [weak self] event in
-                    Task { @MainActor in
-                        self?.recordTranscriptRuntimeEvent(event)
-                    }
+                speechService.onRuntimeEvent = { [weak self, weak speechService] event in
+                    guard let self, let speechService,
+                        (self.captureStartupID == nil || self.captureStartupID == startupID),
+                        self.currentSession?.id == session.id,
+                        self.appleSpeechService === speechService else { return }
+                    self.recordTranscriptRuntimeEvent(event)
                 }
 
                 self.lastSystemAudioASRError = nil
@@ -367,38 +508,52 @@ extension AppState {
                 // The speech service owns stream startup for the selected
                 // capture mode. It is responsible for not creating disabled
                 // streams for System Audio Only or Microphone Only.
-                try await speechService.start(sessionID: session.id, captureMode: captureMode)
+                try liveASRWillStart?(.appleSpeech, captureMode)
+                try await speechService.start(sessionID: session.id, captureMode: captureMode,
+                    requiresOnDeviceRecognition: requiresOnDeviceRecognition)
                 guard captureStartupIsCurrent(startupID) else {
-                    speechService.stop()
+                    speechService.stop(retryFailedResource: false)
                     return
                 }
                 ownsSystemAudioCaptureRuntime = captureMode == .systemAudioOnly || captureMode == .microphoneAndSystem
 
-                transcriptionTask = Task { [weak self] in
-                    for await segment in speechService.segments {
-                        guard !Task.isCancelled else { return }
-                        await self?.handleTranscriptSegment(segment)
-                    }
-                }
+                consumeSegments(from: speechService)
 
                 if captureMode == .microphoneOnly || captureMode == .microphoneAndSystem {
                     // Keep diagnostics active during transcription for real-time visual levels
-                    microphoneDiagnostics.refreshSelectedInputDevice()
-                    AudioEngineManager.shared.register(microphoneDiagnostics)
+                    do {
+                        try microphoneDiagnostics.startMeteringForCapture()
+                    } catch {
+                        // The selected ASR already started before level metering.
+                        // A failed shared engine start must release that exact
+                        // speech capture before publishing startup failure.
+                        speechService.stop(retryFailedResource: false)
+                        captureLifecycle.invalidateConsumer()
+                        activeTranscriptionProvider = nil
+                        appleSpeechService = nil
+                        queueCaptureTeardown(after: nil, provider: nil, speech: speechService)
+                        throw error
+                    }
                 }
 
                 liveState = .listening
                 currentCaptureRuntimeState = .listening
                 addCaptureEvent(name: "listeningActive", stateBefore: "starting", stateAfter: "listening", reason: "captureActive")
                 showFloatingAssistant()
-                completeAction(ActionID.startInterview, title: "Listening started", message: "\(captureMode.shortDisplayName) is active.")
+                completeAction(ActionID.startInterview, title: "Listening started", message: "\(captureMode.shortDisplayName) is active." + modelPreparationNote)
 
                 // Start background silence / signal validation
-                startAudioSignalMonitoring()
+                await startAudioSignalMonitoring()
             }
         } catch {
             guard captureStartupIsCurrent(startupID) else { return }
+            if let provider = activeASRProviderRuntime as? LocalParakeetASRProvider {
+                // Retain failed native cleanup before another startup can replace the public slot.
+                queueCaptureTeardown(after: nil, provider: provider)
+                activeASRProviderRuntime = nil
+            }
             markActiveASRProvider(nil)
+            guard captureStartupIsCurrent(startupID) else { return }
             ownsSystemAudioCaptureRuntime = false
             let message = userFacing(error)
             liveState = .error(message)
@@ -409,9 +564,66 @@ extension AppState {
         }
     }
 
-    func handleParakeetStreamTermination(error: Error?) {
-        guard activeASRProviderID == .localParakeet,
-              activeASRProviderRuntime != nil else { return }
+    func consumeParakeetSegments(
+        _ stream: AsyncThrowingStream<TranscriptSegment, Error>,
+        provider: any ASRProvider,
+        sessionID: String,
+        startupID: UUID
+    ) {
+        if let local = provider as? LocalParakeetASRProvider {
+            local.onCaptureSourceFailure = { [weak self] failedProvider, source, error in
+                guard let self,
+                      self.parakeetCaptureIsCurrent(provider: failedProvider, sessionID: sessionID, startupID: startupID),
+                      failedProvider.hasHealthyCaptureSource else { return }
+                self.reportParakeetSourceFailure(source: source, error: error)
+            }
+        }
+        captureLifecycle.consume { [weak self] consumerID in
+            do {
+                for try await segment in stream {
+                    guard let self,
+                          self.captureLifecycle.isConsumerCurrent(consumerID),
+                          self.parakeetCaptureIsCurrent(provider: provider, sessionID: sessionID, startupID: startupID),
+                          segment.sessionID == sessionID else { return }
+                    await self.handleTranscriptSegment(segment)
+                    guard self.captureLifecycle.isConsumerCurrent(consumerID),
+                          self.parakeetCaptureIsCurrent(provider: provider, sessionID: sessionID, startupID: startupID) else { return }
+                }
+                guard let self, self.captureLifecycle.isConsumerCurrent(consumerID) else { return }
+                self.handleParakeetStreamTermination(error: nil, provider: provider, sessionID: sessionID, startupID: startupID)
+            } catch {
+                guard let self, self.captureLifecycle.isConsumerCurrent(consumerID) else { return }
+                self.handleParakeetStreamTermination(error: error, provider: provider, sessionID: sessionID, startupID: startupID)
+            }
+        }
+    }
+
+    // Current provider/source facts drive display; a queued signal does not
+    // create another writable capture state or revive a retired runtime.
+    var hasHealthyParakeetAfterSystemFailure: Bool {
+        guard let local = activeASRProviderRuntime as? LocalParakeetASRProvider else { return false }
+        return local.hasHealthyCaptureSource && local.captureSourceFailures[.systemAudio] != nil
+    }
+
+    func reportParakeetSourceFailure(source: AudioSourceType, error: Error) {
+        let name = source == .microphone ? "Microphone" : "System audio"
+        let message = name + " capture failed: " + error.localizedDescription +
+            ". The other selected audio source is still listening."
+        // Repeated display signals of the same fact do not restart feedback.
+        if latestActionFeedback(for: ActionID.startInterview)?.message != message {
+            warnAction(ActionID.startInterview, title: name + " unavailable", message: message)
+        }
+        updateDiagnostics { $0.lastError = message }
+        objectWillChange.send()
+    }
+
+    func handleParakeetStreamTermination(
+        error: Error?,
+        provider: any ASRProvider,
+        sessionID: String,
+        startupID: UUID
+    ) {
+        guard parakeetCaptureIsCurrent(provider: provider, sessionID: sessionID, startupID: startupID) else { return }
         let message = error?.localizedDescription ?? "Local Parakeet transcript stream ended unexpectedly."
         stopListening(reason: .asrTaskFailed)
         lastSystemAudioASRError = message
@@ -420,39 +632,82 @@ extension AppState {
         showError(message)
     }
 
+    private func parakeetCaptureIsCurrent(provider: any ASRProvider, sessionID: String, startupID: UUID) -> Bool {
+        guard !Task.isCancelled,
+              activeASRProviderID == .localParakeet,
+              activeASRProviderRuntime === provider,
+              currentSession?.id == sessionID else { return false }
+        // Startup identity is cleared when startup completes. The exact runtime
+        // instance remains the live epoch; a newer pending startup invalidates it.
+        return captureStartupID == nil || captureStartupID == startupID
+    }
+
     private func captureStartupIsCurrent(_ startupID: UUID) -> Bool {
-        captureStartupID == startupID && !Task.isCancelled
+        captureLifecycle.isStartupCurrent(startupID)
     }
 
     @discardableResult
     private func invalidateCaptureStartup() -> Task<Void, Never>? {
-        let startupTask = captureStartupTask
-        captureStartupID = nil
-        startupTask?.cancel()
-        return startupTask
+        captureLifecycle.invalidateStartup()
     }
 
     private func queueCaptureTeardown(
         after startupTask: Task<Void, Never>?,
-        provider: (any ASRProvider)?
+        provider: (any ASRProvider)?,
+        speech: AppleSpeechTranscriptionService? = nil,
+        retryRetainedFailures: Bool = false
     ) {
-        let previousTeardownTask = captureTeardownTask
-        captureTeardownTask = Task {
-            await startupTask?.value
-            await previousTeardownTask?.value
-            await provider?.stopTranscription()
+        let metering = microphoneDiagnostics
+        let cleanupSessionID = currentSession?.id ?? transcriptRuntimeDiagnostics.audioSessionID
+        let monitorWorker = audioSignalMonitor.stop()
+        captureLifecycle.queueTeardown(after: startupTask, quiescing: monitorWorker,
+            retryRetainedFailures: retryRetainedFailures,
+            onCleanupChanged: { [weak self] teardownID, released in
+                guard let self else { return }
+                self.objectWillChange.send()
+                self.diagnosticsState.recordCaptureCleanupResult(
+                    sessionID: cleanupSessionID, teardownID: teardownID, released: released,
+                    mode: self.settings.effectiveDiagnosticTraceMode)
+            }) { [weak self] teardownID, retryAuthorized in
+            await metering.finishStoppingMicTest()
+            if let local = provider as? LocalParakeetASRProvider {
+                await local.stopTranscription(retryFailedResource: retryAuthorized)
+            } else if let apple = provider as? AppleSpeechASRProvider {
+                await apple.stopTranscription(retryFailedResource: retryAuthorized)
+            } else {
+                await provider?.stopTranscription()
+            }
+            // A synchronous stop has already closed this standalone service.
+            // Only an explicit retained-operation replay can retry its failure.
+            // A provider owning the same service performs that exact retry once.
+            if retryAuthorized, let speech,
+               (provider as? AppleSpeechASRProvider)?.ownsSpeechService(speech) != true {
+                speech.retryStoppingAudioInput()
+            }
+            await speech?.finishStoppingAudioInput()
+            let failure = (provider as? LocalParakeetASRProvider)?.captureCleanupFailure ??
+                (provider as? AppleSpeechASRProvider)?.captureCleanupFailure ?? speech?.captureCleanupFailure
+            guard failure == nil, speech?.hasUnreleasedAudioInput != true else {
+                if self?.captureLifecycle.isCurrentTeardown(teardownID) == true {
+                    self?.lastSystemAudioASRError = failure?.localizedDescription ??
+                        "Audio input cleanup has not completed."
+                }
+                return false
+            }
+            // Captured concrete owners prove their exact native leases exited.
+            // Draining a mutable shared-service slot can join another caller's
+            // resource or falsely report release after our owner's failure.
+            return true
         }
     }
 
     // MARK: - Session Reset
 
     private func resetLiveContextForFreshSession() {
-        precomputeDebounceTask?.cancel()
-        detectionDebounceTask?.cancel()
-        activeDetectionTask?.cancel()
+        liveRAGPrefetch.cancelWorker()
+        liveInterview.cancelAutomaticDetectionDebounce()
+        liveInterview.cancelAutomaticDetection()
         cancelStageBTask()
-        fullCardWatchdogTask?.cancel()
-        fullCardWatchdogTask = nil
 
         transcriptSegments = []
         resetRuntimeTranscriptState(clearEvents: true)
@@ -485,29 +740,18 @@ extension AppState {
         lastDetectionQuestionComplete = false
         lastDetectionAnswerStrategy = ""
         lastDetectionAt = nil
-        lastAutoQuestionText = nil
-        recentQuestionTimestamps.removeAll()
-        acceptedQuestionSegmentIDs.removeAll()
-        consumedQuestionOccurrenceKeys.removeAll()
-        consumedQuestionSourceSpanKeys.removeAll()
-        consumedQuestionOccurrences.removeAll()
-        consumedQuestionSourceSpans.removeAll()
-        consumedQuestionAbsoluteSourceSpans.removeAll()
-        acceptedNormalizedQuestionKeys.removeAll()
-        intentionalRepeatQuestionIDs.removeAll()
-        transcriptReconciler.reset()
+        liveInterview.resetQuestionIngress()
         cancelledPersistenceGenerationIDs.removeAll()
-        terminalGenerationIDs.removeAll()
+        generationCoordinator.resetTerminalHistory()
         suggestionPersistenceClaims.removeAll()
         successfulSuggestionPersistenceOwners.removeAll()
         recentQuestionsFingerprints.removeAll()
-        precomputedRAGCache.removeAll()
+        liveRAGPrefetch.clearCache()
         streamedSayFirst = ""
         streamedSayFirstSetAt = nil
         isStreamingSayFirst = false
         isExpandingSuggestionCard = false
         suggestionGenerationStarted = false
-        currentGenerationID = nil
         generationUIState = .idle
         resolvedInterviewSessionPhase = .initial(for: interviewSessionMode)
         detectedDialogueSpeakerRole = .ambiguous
@@ -525,6 +769,7 @@ extension AppState {
     // MARK: - Stop And Cleanup
 
     func handleApplicationWillTerminate() {
+        practiceController.cancel()
         let sessionIsOpen = currentSession?.endedAt == nil
         guard sessionIsOpen || captureStartupTask != nil || activeTranscriptionProvider != nil || activeASRProviderRuntime != nil else {
             return
@@ -545,6 +790,7 @@ extension AppState {
         line: Int = #line,
         function: String = #function
     ) {
+        liveRAGPrefetch.cancelAndClear()
         let startupTask = invalidateCaptureStartup()
         if isActionLoading(ActionID.startInterview) {
             clearActionFeedback(ActionID.startInterview)
@@ -578,26 +824,31 @@ extension AppState {
             // after the user has explicitly stopped listening.
             cancelStageBTask()
         }
-        activeDetectionTask?.cancel()
-        activeAITask?.cancel()
-        detectionDebounceTask?.cancel()
-        transcriptionTask?.cancel()
+        liveInterview.cancelAutomaticDetection()
+        cancelActiveGenerationForStop()
+        liveInterview.cancelAutomaticDetectionDebounce()
+        captureLifecycle.invalidateConsumer()
         markRuntimeAudioStopped()
 
-        activeTranscriptionProvider?.stop()
+        let capturedSpeech = appleSpeechService ?? activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        let activeSpeech = activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        activeSpeech?.stop(retryFailedResource: reason == .userRequested)
+        if let capturedSpeech, capturedSpeech !== activeSpeech {
+            capturedSpeech.stop(retryFailedResource: reason == .userRequested)
+        }
+        if activeSpeech == nil { activeTranscriptionProvider?.stop() }
         activeTranscriptionProvider = nil
         let asrProviderRuntime = activeASRProviderRuntime
         activeASRProviderRuntime = nil
-        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime)
+        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime, speech: capturedSpeech,
+            retryRetainedFailures: reason == .userRequested)
         markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
-        appleSpeechService?.stop()
         appleSpeechService = nil
         ownsSystemAudioCaptureRuntime = false
 
         // Stop diagnostics level metering
-        AudioEngineManager.shared.unregister(microphoneDiagnostics)
         microphoneDiagnostics.stopMicTest()
 
         stopAudioSignalMonitoring()
@@ -625,7 +876,6 @@ extension AppState {
 
         // Reset ASR, Segment, Detection, and Suggestion Diagnostics
         systemASRTaskRunning = false
-        totalSystemAudioASRBuffersAppended = 0
         lastSystemAudioASRPartialTranscript = ""
         lastSystemAudioASRFinalTranscript = ""
         recognitionRequestActive = false
@@ -645,17 +895,21 @@ extension AppState {
         lastSuggestionCardJSON = ""
         floatingPanelUpdated = false
 
-        if let sessionID = currentSession?.id {
-            try? sessionRepository.endSession(id: sessionID)
-            currentSession?.endedAt = stoppedAt
+        let endingSessionID = currentSession?.id
+        var persistedSessionEnd: Date?
+        var sessionEndFailed = false
+        if let endingSessionID {
+            do {
+                persistedSessionEnd = try sessionRepository.endSession(id: endingSessionID,
+                    at: currentSession?.endedAt ?? stoppedAt)
+            } catch { sessionEndFailed = true }
         }
         liveState = .stopped
         currentCaptureRuntimeState = .stopped(reason: reason)
 
-        let cleanupDurationMS = max(0, Int(Date().timeIntervalSince(stoppedAt) * 1_000))
         recordLifecycleTrace(
-            "capture.stop.completed",
-            reason: "cleanup_ms=\(cleanupDurationMS)|reason=\(reason.rawValue)"
+            "capture.stop.request.closed",
+            reason: "reason=\(reason.rawValue)"
         )
 
         addCaptureEvent(
@@ -672,48 +926,49 @@ extension AppState {
         if reason == .userRequested {
             completeAction(ActionID.stopListening, title: "Listening stopped", message: "The latest suggestion remains visible.")
         }
+        if let persistedSessionEnd, currentSession?.id == endingSessionID {
+            currentSession?.endedAt = persistedSessionEnd
+        }
+        if sessionEndFailed, currentSession?.id == endingSessionID {
+            showError("Audio stopped, but the session end could not be saved. Stop again or quit to retry.")
+        }
     }
 
     /// Clears the current live workspace after capture has been stopped or when
     /// the user intentionally resets the interview view.
     func clearLiveSession() {
+        liveRAGPrefetch.cancelAndClear()
         let startupTask = invalidateCaptureStartup()
         beginAction(ActionID.clearLiveSession, title: "Clearing session", message: "Removing current transcript, question, and answer from the live workspace...")
         let stateBefore = currentCaptureRuntimeState.displayName
         cancelStageBTask()
-        fullCardWatchdogTask?.cancel()
-        fullCardWatchdogTask = nil
-        activeDetectionTask?.cancel()
-        activeAITask?.cancel()
-        detectionDebounceTask?.cancel()
-        transcriptionTask?.cancel()
+        liveInterview.cancelAutomaticDetection()
+        liveInterview.cancelAutomaticDetectionDebounce()
+        captureLifecycle.invalidateConsumer()
 
-        activeTranscriptionProvider?.stop()
+        let capturedSpeech = appleSpeechService ?? activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        let activeSpeech = activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        activeSpeech?.stop(retryFailedResource: true)
+        if let capturedSpeech, capturedSpeech !== activeSpeech {
+            capturedSpeech.stop(retryFailedResource: true)
+        }
+        if activeSpeech == nil { activeTranscriptionProvider?.stop() }
         activeTranscriptionProvider = nil
         let asrProviderRuntime = activeASRProviderRuntime
         activeASRProviderRuntime = nil
-        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime)
+        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime, speech: capturedSpeech,
+            retryRetainedFailures: true)
         markActiveASRProvider(nil)
         ownsSystemAudioCaptureRuntime = false
 
         // Ensure diagnostics are unregistered
-        AudioEngineManager.shared.unregister(microphoneDiagnostics)
         microphoneDiagnostics.stopMicTest()
 
         stopAudioSignalMonitoring()
         recentQuestionsFingerprints.removeAll()
-        recentQuestionTimestamps.removeAll()
-        acceptedQuestionSegmentIDs.removeAll()
-        consumedQuestionOccurrenceKeys.removeAll()
-        consumedQuestionSourceSpanKeys.removeAll()
-        consumedQuestionOccurrences.removeAll()
-        consumedQuestionSourceSpans.removeAll()
-        consumedQuestionAbsoluteSourceSpans.removeAll()
-        acceptedNormalizedQuestionKeys.removeAll()
-        intentionalRepeatQuestionIDs.removeAll()
-        transcriptReconciler.reset()
+        liveInterview.resetQuestionIngress()
         cancelledPersistenceGenerationIDs.removeAll()
-        terminalGenerationIDs.removeAll()
+        generationCoordinator.resetTerminalHistory()
         suggestionPersistenceClaims.removeAll()
         successfulSuggestionPersistenceOwners.removeAll()
 
@@ -725,10 +980,8 @@ extension AppState {
         liveSuggestionHistory = []
         lastDetectedQuestion = nil
         possibleQuestion = nil
-        currentGenerationID = nil
         generationUIState = .idle
         lastTranscriptSnippet = ""
-        lastAutoQuestionText = nil
         errorMessage = nil
         liveState = .idle
         currentCaptureRuntimeState = .idle
@@ -738,34 +991,42 @@ extension AppState {
     }
 
     public func restartAudioInput() {
+        guard !isShuttingDown else { return }
         beginAction(ActionID.restartAudioInput, title: "Restarting audio input", message: "Resetting the local audio input path...")
-        AudioEngineManager.shared.restartForRouteChange(reason: "Manual restart requested by user")
+        audioDeviceRouteMonitor?.handleRouteChange(reason: "Manual restart requested by user")
         completeAction(ActionID.restartAudioInput, title: "Audio input restarted", message: "Watch the audio status and retry listening if needed.")
     }
 
     // MARK: - Diagnostics
 
-    private func startAudioSignalMonitoring() {
-        audioSignalMonitoringTimer?.invalidate()
-        audioSignalMonitoringTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.monitorAudioSignal()
-            }
-        }
+    func startAudioSignalMonitoring() async {
+        guard !isShuttingDown else { return }
+        await audioSignalMonitor.start()
     }
 
-    private func stopAudioSignalMonitoring() {
-        audioSignalMonitoringTimer?.invalidate()
-        audioSignalMonitoringTimer = nil
+    func stopAudioSignalMonitoring() {
+        audioSignalMonitor.stop()
         noAudioWarningVisible = false
         audioRouteError = nil
     }
 
-    private func monitorAudioSignal() {
-        // Keep ASR diagnostic properties updated
-        if let speechService = appleSpeechService {
+    func monitorAudioSignal(now: Date = Date()) {
+        // Sample the exact local round on the existing owned one-second timer.
+        // PCM itself stays on the capture executor; numeric events stay off disk.
+        if let local = activeASRProviderRuntime as? LocalParakeetASRProvider,
+           let sessionID = currentSession?.id {
+            if let snapshot = local.captureIngressSnapshot(forSessionID: sessionID) {
+                for event in diagnosticsState.sampleCaptureIngress(snapshot, sessionID: sessionID) {
+                    recordTranscriptRuntimeEvent(event)
+                }
+            }
+            systemASRTaskRunning = local.isTranscriptionActive(source: .systemAudio, sessionID: sessionID)
+            // These are Apple-specific request diagnostics. Local Parakeet has
+            // no SFSpeech request/task, even while its own bridge is active.
+            recognitionRequestActive = false
+            recognitionTaskActive = false
+        } else if let speechService = appleSpeechService {
             self.systemASRTaskRunning = speechService.systemAudioSession?.recognitionTask != nil
-            self.totalSystemAudioASRBuffersAppended = speechService.systemAudioSession?.totalBuffersAppended ?? 0
             self.recognitionRequestActive = speechService.systemAudioSession?.request != nil
             self.recognitionTaskActive = speechService.systemAudioSession?.recognitionTask != nil
             if let err = speechService.systemAudioSession?.lastError {
@@ -776,7 +1037,6 @@ extension AppState {
             }
         } else {
             self.systemASRTaskRunning = false
-            self.totalSystemAudioASRBuffersAppended = 0
             self.recognitionRequestActive = false
             self.recognitionTaskActive = false
         }
@@ -786,33 +1046,29 @@ extension AppState {
             return
         }
 
-        // Only monitor mic levels if microphone pipeline is actually running
-        guard appleSpeechService?.microphoneSession != nil else {
+        // The exact current microphone session owns this epoch's start and PCM
+        // activity. Question detection and another capture's shared meter cannot
+        // postpone or manufacture its no-buffer deadline.
+        guard let microphone = appleSpeechService?.microphoneSession,
+              microphone.serviceState == .running,
+              let startedAt = microphone.sessionStartedAt else {
             noAudioWarningVisible = false
             return
         }
-
-        if let lastBuffer = AudioEngineManager.shared.lastAudioBufferAt {
-            self.lastAudioBufferAt = lastBuffer
-            let elapsed = Date().timeIntervalSince(lastBuffer)
-            if elapsed > 3.0 {
-                self.noAudioWarningVisible = true
-                self.audioRouteError = "No microphone signal detected. Check input device or restart audio capture."
-            } else {
-                self.noAudioWarningVisible = false
-                if self.audioRouteError == "No microphone signal detected. Check input device or restart audio capture." {
-                    self.audioRouteError = "Audio input restored."
-                }
-            }
+        let lastBuffer = microphone.lastBufferReceivedAt.flatMap { $0 >= startedAt ? $0 : nil }
+        if let lastBuffer { self.lastAudioBufferAt = lastBuffer }
+        let elapsed = now.timeIntervalSince(lastBuffer ?? startedAt)
+        let noSignal = "No microphone signal detected. Check input device or restart audio capture."
+        if elapsed > 3.0 {
+            noAudioWarningVisible = true
+            audioRouteError = noSignal
         } else {
-            let elapsed = Date().timeIntervalSince(lastDetectionAt ?? Date())
-            if elapsed > 3.0 {
-                self.noAudioWarningVisible = true
-                self.audioRouteError = "No microphone signal detected. Check input device or restart audio capture."
+            noAudioWarningVisible = false
+            if audioRouteError == noSignal {
+                audioRouteError = lastBuffer == nil ? nil : "Audio input restored."
             }
         }
 
-        self.currentInputDeviceName = AudioDeviceRouteMonitor.shared.currentInputDeviceName
     }
 
     // internal for AppState extension access only
@@ -822,6 +1078,8 @@ extension AppState {
         line: Int = #line,
         function: String = #function
     ) {
+        liveInterview.cancelAutomaticDetection()
+        liveRAGPrefetch.cancelAndClear()
         let startupTask = invalidateCaptureStartup()
         let stateBefore = currentCaptureRuntimeState.displayName
         currentCaptureRuntimeState = .stopping
@@ -842,24 +1100,27 @@ extension AppState {
             function: function
         )
 
-        activeAITask?.cancel()
         cancelActiveGenerationForStop()
-        detectionDebounceTask?.cancel()
-        transcriptionTask?.cancel()
+        liveInterview.cancelAutomaticDetectionDebounce()
+        captureLifecycle.invalidateConsumer()
 
-        activeTranscriptionProvider?.stop()
+        let capturedSpeech = appleSpeechService ?? activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        let activeSpeech = activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        activeSpeech?.stop(retryFailedResource: false)
+        if let capturedSpeech, capturedSpeech !== activeSpeech {
+            capturedSpeech.stop(retryFailedResource: false)
+        }
+        if activeSpeech == nil { activeTranscriptionProvider?.stop() }
         activeTranscriptionProvider = nil
         let asrProviderRuntime = activeASRProviderRuntime
         activeASRProviderRuntime = nil
-        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime)
+        queueCaptureTeardown(after: startupTask, provider: asrProviderRuntime, speech: capturedSpeech)
         markActiveASRProvider(nil)
 
-        appleSpeechService?.stop()
         appleSpeechService = nil
         ownsSystemAudioCaptureRuntime = false
 
         // Stop diagnostics level metering
-        AudioEngineManager.shared.unregister(microphoneDiagnostics)
         microphoneDiagnostics.stopMicTest()
 
         stopAudioSignalMonitoring()

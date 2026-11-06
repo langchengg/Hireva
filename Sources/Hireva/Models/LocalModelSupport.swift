@@ -1,6 +1,6 @@
 import Foundation
 
-enum LocalModelKind: String, Codable, CaseIterable, Identifiable, Hashable {
+enum LocalModelKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case transcription
     case localLLM
 
@@ -16,7 +16,7 @@ enum LocalModelKind: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
-struct LocalModelFileRequirement: Codable, Hashable {
+struct LocalModelFileRequirement: Codable, Hashable, Sendable {
     let relativePath: String
     let minimumBytes: Int64?
     let exactBytes: Int64?
@@ -35,7 +35,7 @@ struct LocalModelFileRequirement: Codable, Hashable {
     }
 }
 
-struct LocalModelDescriptor: Codable, Hashable, Identifiable {
+struct LocalModelDescriptor: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let version: String?
     let displayName: String
@@ -172,7 +172,7 @@ struct LocalModelDescriptor: Codable, Hashable, Identifiable {
     static let ollamaQwen = defaultQwenLocalLLM
 }
 
-enum LocalModelStatus: Equatable {
+enum LocalModelStatus: Equatable, Sendable {
     case notInstalled
     case downloading(progress: Double, downloadedBytes: Int64, totalBytes: Int64?, speedBytesPerSecond: Double?)
     case installed
@@ -200,7 +200,7 @@ enum LocalModelStatus: Equatable {
     }
 }
 
-struct ModelDownloadProgress: Equatable {
+struct ModelDownloadProgress: Equatable, Sendable {
     let modelID: String
     let progress: Double
     let downloadedBytes: Int64
@@ -220,7 +220,7 @@ struct ModelDownloadProgress: Equatable {
     }
 }
 
-protocol LocalModelManager {
+protocol LocalModelManager: Sendable {
     func modelStatus(_ model: LocalModelDescriptor) async -> LocalModelStatus
     func downloadModel(_ model: LocalModelDescriptor) -> AsyncThrowingStream<ModelDownloadProgress, Error>
     func repairModel(_ model: LocalModelDescriptor) -> AsyncThrowingStream<ModelDownloadProgress, Error>
@@ -228,9 +228,19 @@ protocol LocalModelManager {
     func deleteModel(_ model: LocalModelDescriptor) async throws
     func verifyModel(_ model: LocalModelDescriptor) async throws -> Bool
     func fileURL(for model: LocalModelDescriptor) -> URL
+    /// These describe producer work behind download/repair streams, not their consumers.
+    var pendingDownloadProducerCount: Int { get }
+    func closeDownloadAdmission()
+    func finishStoppingDownloadProducers() async -> Bool
 }
 
 extension LocalModelManager {
+    // Defaults apply only to implementations whose streams spawn no private
+    // producer Tasks. A manager with producer work must own and join it.
+    var pendingDownloadProducerCount: Int { 0 }
+    func closeDownloadAdmission() {}
+    func finishStoppingDownloadProducers() async -> Bool { true }
+
     func repairModel(_ model: LocalModelDescriptor) -> AsyncThrowingStream<ModelDownloadProgress, Error> {
         downloadModel(model)
     }
@@ -371,7 +381,7 @@ enum AnswerSource: String, Codable, CaseIterable, Hashable {
     }
 }
 
-enum ASRSource: String, Codable, CaseIterable, Hashable {
+enum ASRSource: String, Codable, CaseIterable, Hashable, Sendable {
     case appleASR = "apple_asr"
     case localWhisperASR = "local_whisper_asr"
     case localParakeetASR = "local_parakeet_asr"

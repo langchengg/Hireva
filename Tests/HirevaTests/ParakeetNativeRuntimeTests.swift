@@ -6,12 +6,97 @@ import Testing
 @Suite("Parakeet native runtime", .serialized)
 struct ParakeetNativeRuntimeTests {
     @Test
+    func contextualTermsUseOnlyReviewedShortOpportunitySkills() {
+        func evidence(_ statement: String, type: EvidenceType = .requiredSkill,
+                      explicitness: EvidenceExplicitness = .explicit) -> ProfileEvidence {
+            .init(id: UUID().uuidString, statement: statement, confidence: 1,
+                evidenceType: type, explicitness: explicitness)
+        }
+        let opportunity = OpportunityContext(id: "synthetic-vocabulary", opportunityType: .job,
+            responsibilities: [evidence("private responsibility", type: .responsibility)],
+            requiredSkills: [evidence("deduplication"), evidence("Deduplication"),
+                evidence("not reviewed", explicitness: .inferred), evidence("word:99"), evidence("#comment"),
+                evidence("hidden\nterm"), evidence("one two three four five")],
+            preferredSkills: [evidence("data replication", type: .preferredSkill)],
+            researchTopics: [], evaluationCriteria: [], sourceDocumentIDs: [], version: 1, updatedAt: .now)
+        #expect(ASRConfig.opportunityTerms(opportunity) == ["deduplication", "data replication"])
+        #expect(ASRConfig.opportunityTerms(nil).isEmpty)
+        #expect(ASRConfig(sessionID: "ordinary", captureMode: .systemAudioOnly).contextualStrings.isEmpty)
+    }
+
+    @Test
+    func contextualVocabularyIsPassedToExactHelperAndRemovedAfterDrain() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let receipt = root.appendingPathComponent("arguments.txt")
+        let escapedReceipt = receipt.path.replacingOccurrences(of: "'", with: "'\\''")
+        let helper = root.appendingPathComponent("helper")
+        try "#!/bin/sh\nprintf '%s\\n' \"$@\" > '\(escapedReceipt)'\nexec /bin/cat > /dev/null\n"
+            .write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper }, vocabularyRoot: root)
+        let stream = try await runtime.startTranscription(modelDirectory: root,
+            config: .init(sessionID: "context-vocabulary", captureMode: .systemAudioOnly,
+                contextualStrings: ["idempotency", "deduplication"]))
+        await runtime.stop()
+        withExtendedLifetime(stream) {}
+        let arguments = try String(contentsOf: receipt, encoding: .utf8).split(separator: "\n").map(String.init)
+        let index = try #require(arguments.firstIndex(of: "--hotwords-file"))
+        let directory = URL(fileURLWithPath: arguments[index + 1]).deletingLastPathComponent()
+        #expect(arguments.contains("modified_beam_search"))
+        #expect(arguments.contains("--approximate-bpe-vocab"))
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+        #expect(runtime.audioWriterDiagnostics().pendingChunks == 0)
+    }
+
+    @Test
+    func invalidContextVocabularyFailsBeforeLaunchingHelper() async throws {
+        let helper = try makeExecutable("#!/bin/sh\nexit 99\n")
+        defer { try? FileManager.default.removeItem(at: helper.deletingLastPathComponent()) }
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        do {
+            _ = try await runtime.startTranscription(modelDirectory: helper.deletingLastPathComponent(),
+                config: .init(sessionID: "invalid-vocabulary", captureMode: .systemAudioOnly,
+                    contextualStrings: ["deduplication:99"]))
+            Issue.record("Hotword weight injection must fail before Process.run.")
+        } catch let error as ParakeetSidecarError {
+            #expect(error.localizedDescription.contains("Invalid contextual vocabulary"))
+        }
+        await runtime.stop()
+    }
+
+    @Test
+    func failedVocabularyRemovalRetainsAnObservableOwnerAndExplicitRetry() async throws {
+        let root = temporaryDirectory()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let helper = root.appendingPathComponent("helper")
+        let escapedRoot = root.path.replacingOccurrences(of: "'", with: "'\\''")
+        try "#!/bin/sh\nchmod 500 '\(escapedRoot)'\nexec /bin/cat > /dev/null\n"
+            .write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper }, vocabularyRoot: root)
+        let stream = try await runtime.startTranscription(modelDirectory: root,
+            config: .init(sessionID: "retained-vocabulary", captureMode: .systemAudioOnly,
+                contextualStrings: ["idempotency"]))
+        await runtime.stop()
+        #expect(await runtime.cleanupFailure != nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        await runtime.stop()
+        #expect(await runtime.cleanupFailure == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["helper"])
+        withExtendedLifetime(stream) {}
+    }
+
+    @Test
     func healthRequiresStructuredNativeResponse() async throws {
         let helper = try makeExecutable("""
         #!/bin/sh
         exit 0
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
 
         #expect(await runtime.isRuntimeAvailable() == false)
         let diagnostics = await runtime.runtimeDiagnostics()
@@ -22,7 +107,7 @@ struct ParakeetNativeRuntimeTests {
     @Test
     func healthReportsPinnedNativeRuntimeMetadata() async throws {
         let helper = try makeHealthExecutable(architecture: currentArchitecture)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
 
         #expect(await runtime.isRuntimeAvailable() == true)
         let diagnostics = await runtime.runtimeDiagnostics()
@@ -37,7 +122,7 @@ struct ParakeetNativeRuntimeTests {
     func wrongArchitectureFailsHealth() async throws {
         let wrongArchitecture = currentArchitecture == "arm64" ? "x86_64" : "arm64"
         let helper = try makeHealthExecutable(architecture: wrongArchitecture)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
 
         #expect(await runtime.isRuntimeAvailable() == false)
         #expect((await runtime.runtimeDiagnostics()).lastHealthError?.contains("does not match") == true)
@@ -54,14 +139,16 @@ struct ParakeetNativeRuntimeTests {
             environment: ["PARAKEET_ASR_HELPER_PATH": external.path],
             storedDevelopmentPath: external.path,
             currentDirectory: root,
-            allowDevelopmentOverrides: false
+            allowDevelopmentOverrides: false,
+            verificationConfiguration: nil
         )
         let debugResult = ParakeetSidecarRuntimeClient.discoverExecutable(
             bundleURL: bundle,
             environment: ["PARAKEET_ASR_HELPER_PATH": external.path],
             storedDevelopmentPath: nil,
             currentDirectory: root,
-            allowDevelopmentOverrides: true
+            allowDevelopmentOverrides: true,
+            verificationConfiguration: nil
         )
 
         #expect(releaseResult == nil)
@@ -86,7 +173,8 @@ struct ParakeetNativeRuntimeTests {
             environment: ["PARAKEET_ASR_HELPER_PATH": external.path],
             storedDevelopmentPath: external.path,
             currentDirectory: root,
-            allowDevelopmentOverrides: true
+            allowDevelopmentOverrides: true,
+            verificationConfiguration: nil
         )
 
         #expect(result == bundled)
@@ -102,7 +190,7 @@ struct ParakeetNativeRuntimeTests {
           printf '%s\n' '{"status":"ok","runtimeMode":"bundled_native","runtimeVersion":"1","sherpaVersion":"1.13.4","onnxRuntimeVersion":"1.27.0","architecture":"\(currentArchitecture)","source":"local_parakeet_asr","modelStatus":"not_probed"}'
         fi
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
 
         #expect(await runtime.probeModel(at: temporaryDirectory()) == true)
     }
@@ -113,7 +201,7 @@ struct ParakeetNativeRuntimeTests {
         #!/bin/sh
         printf '%s\n' '{"segmentId":"mixed-1","text":"Can you explain the tradeoff?","isFinal":true,"startTime":1.0,"endTime":2.0,"confidence":null,"source":"local_parakeet_asr","audioSource":"microphone","speaker":"candidate"}'
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
             config: ASRConfig(sessionID: "mixed", captureMode: .microphoneAndSystem)
@@ -140,7 +228,7 @@ struct ParakeetNativeRuntimeTests {
         sleep 1
         printf '%s\n' '{"segmentId":"line-3","text":"Third question?","isFinal":true,"source":"local_parakeet_asr","audioSource":"systemAudio","speaker":"interviewer"}'
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
             config: ASRConfig(sessionID: "delayed-lines", captureMode: .systemAudioOnly)
@@ -162,7 +250,7 @@ struct ParakeetNativeRuntimeTests {
         #!/bin/sh
         cat > '\(escapedInputLog)'
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
             config: ASRConfig(sessionID: "immediate-stop", captureMode: .systemAudioOnly)
@@ -189,9 +277,9 @@ struct ParakeetNativeRuntimeTests {
     func audioWriterIsBoundedAndStopCannotWaitBehindBlockedPipeWrites() async throws {
         let helper = try makeExecutable("""
         #!/bin/sh
-        sleep 30
+        exec /bin/sleep 30
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
             config: ASRConfig(sessionID: "blocked-writer", captureMode: .systemAudioOnly)
@@ -223,19 +311,24 @@ struct ParakeetNativeRuntimeTests {
         withExtendedLifetime(stream) {}
     }
 
-    @Test
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["HIREVA_REAL_PARAKEET_STREAM_TEST"] == "1"))
     func realRuntimePreservesMultipleUtterancesInOneStream() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["HIREVA_REAL_PARAKEET_STREAM_TEST"] == "1" else { return }
         let helperPath = try #require(environment["HIREVA_PARAKEET_HELPER_PATH"])
         let modelPath = try #require(environment["HIREVA_PARAKEET_MODEL_PATH"])
         let audioPath = try #require(environment["HIREVA_PARAKEET_TEST_AUDIO"])
-        let runtime = ParakeetSidecarRuntimeClient(
+        let contextualStrings: [String]
+        if let vocabularyPath = environment["HIREVA_PARAKEET_CONTEXT_TERMS_PATH"] {
+            contextualStrings = try String(contentsOf: URL(fileURLWithPath: vocabularyPath), encoding: .utf8)
+                .split(separator: "\n").map(String.init)
+        } else { contextualStrings = [] }
+        let runtime = await ParakeetSidecarRuntimeClient(
             executableURLProvider: { URL(fileURLWithPath: helperPath) }
         )
         let stream = try await runtime.startTranscription(
             modelDirectory: URL(fileURLWithPath: modelPath),
-            config: ASRConfig(sessionID: "real-multi-utterance", captureMode: .systemAudioOnly)
+            config: ASRConfig(sessionID: "real-multi-utterance", captureMode: .systemAudioOnly,
+                contextualStrings: contextualStrings)
         )
         let collector = Task { () throws -> [ParakeetTranscriptEvent] in
             var events: [ParakeetTranscriptEvent] = []
@@ -245,29 +338,41 @@ struct ParakeetNativeRuntimeTests {
             return events
         }
 
-        let audioFile = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))
-        let format = audioFile.processingFormat
-        let chunkFrames = AVAudioFrameCount(max(1, Int(format.sampleRate / 50)))
-        var sampleTime: AVAudioFramePosition = 0
-        while audioFile.framePosition < audioFile.length {
-            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames))
-            try audioFile.read(into: buffer, frameCount: chunkFrames)
-            guard buffer.frameLength > 0 else { break }
-            runtime.appendAudioBuffer(
-                buffer,
-                at: AVAudioTime(sampleTime: sampleTime, atRate: format.sampleRate),
-                source: .systemAudio
-            )
-            sampleTime += AVAudioFramePosition(buffer.frameLength)
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        do {
+            let audioFile = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))
+            let format = audioFile.processingFormat
+            let chunkFrames = AVAudioFrameCount(max(1, Int(format.sampleRate / 50)))
+            var sampleTime: AVAudioFramePosition = 0
+            while audioFile.framePosition < audioFile.length {
+                let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames))
+                try audioFile.read(into: buffer, frameCount: chunkFrames)
+                guard buffer.frameLength > 0 else { break }
+                runtime.appendAudioBuffer(
+                    buffer,
+                    at: AVAudioTime(sampleTime: sampleTime, atRate: format.sampleRate),
+                    source: .systemAudio
+                )
+                sampleTime += AVAudioFramePosition(buffer.frameLength)
+                try await Task.sleep(for: .milliseconds(20))
+            }
 
-        try await Task.sleep(for: .seconds(15))
-        await runtime.stop()
-        let events = try await collector.value
-        #expect(events.count == 3)
-        #expect(events.allSatisfy { $0.source == ASRSource.localParakeetASR.rawValue })
-        #expect(runtime.audioWriterDiagnostics().droppedChunks == 0)
+            try await Task.sleep(for: .seconds(15))
+            await runtime.stop()
+            let events = try await collector.value
+            #expect(events.count == 3)
+            if let expectedPath = environment["HIREVA_PARAKEET_EXPECTED_TEXTS_PATH"] {
+                let expected = try JSONDecoder().decode([String].self, from: Data(contentsOf: URL(fileURLWithPath: expectedPath)))
+                #expect(events.map(\.text) == expected)
+            }
+            #expect(events.allSatisfy { $0.source == ASRSource.localParakeetASR.rawValue })
+            #expect(runtime.audioWriterDiagnostics().droppedChunks == 0)
+            #expect(await runtime.cleanupFailure == nil)
+        } catch {
+            collector.cancel()
+            await runtime.stop()
+            _ = await collector.result
+            throw error
+        }
     }
 
     private var currentArchitecture: String {

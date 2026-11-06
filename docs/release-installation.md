@@ -9,6 +9,10 @@
 
 - Apple Silicon Mac with `arm64` architecture.
 - macOS 14.0 or later.
+- Bundled Native Parakeet requires macOS 15.5 or later because the pinned
+  ONNX Runtime dependency loads before helper startup. Hireva rejects that
+  helper before spawning it on older systems; old-system end-to-end operation
+  remains unverified.
 - A release artifact obtained directly from the release owner, together with
   its independently published SHA-256 value.
 - Microphone permission for microphone interviews.

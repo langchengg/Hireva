@@ -2,7 +2,7 @@ import Foundation
 
 /// Encodes an actual JSON schema object for Ollama's `format` parameter.
 /// Existing string-format requests retain their original wire representation.
-indirect enum LocalJSONValue: Codable, Equatable {
+indirect enum LocalJSONValue: Codable, Equatable, Sendable {
     case object([String: LocalJSONValue]), array([LocalJSONValue]), string(String), boolean(Bool), number(Double), null
     init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer()

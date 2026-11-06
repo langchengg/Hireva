@@ -22,7 +22,7 @@ final class FloatingAssistantPanelController: NSObject, NSWindowDelegate {
         }
 
         let panel = panel ?? makePanel()
-        panel.contentView = NSHostingView(rootView: FloatingAssistantView(appState: appState))
+        panel.contentView = NSHostingView(rootView: FloatingAssistantApplicationHost(appState: appState))
         self.panel = panel
         panel.orderFrontRegardless()
         appState.isFloatingAssistantVisible = true
@@ -54,7 +54,9 @@ final class FloatingAssistantPanelController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.titlebarAppearsTransparent = true
         panel.delegate = self
-        panel.setFrameAutosaveName("HirevaFloatingAssistant")
+        Self.configureFrameAutosave(verification: HirevaVerificationConfiguration.current) {
+            _ = panel.setFrameAutosaveName($0)
+        }
         
         // Translucency window modifications
         panel.isOpaque = false
@@ -62,6 +64,14 @@ final class FloatingAssistantPanelController: NSObject, NSWindowDelegate {
         panel.hasShadow = true
         
         return panel
+    }
+
+    static func configureFrameAutosave(
+        verification: HirevaVerificationConfiguration?,
+        setName: (String) -> Void
+    ) {
+        guard verification == nil else { return }
+        setName("HirevaFloatingAssistant")
     }
 
     private static var isRunningInTestBundle: Bool {

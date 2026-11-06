@@ -71,70 +71,64 @@ struct ASRReleaseHardeningRegressionTests {
         #expect(system.asrSource == .localParakeetASR)
     }
 
-    @Test
-    func stdoutEOFDoesNotWaitForStillRunningHelperProcess() async throws {
-        let pidURL = temporaryDirectory().appendingPathComponent("stdout-eof-helper.pid")
+    @Test(.timeLimit(.minutes(1)))
+    func stdoutEOFRetiresItsHelperAndPreservesTheActualExitCause() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pidURL = directory.appendingPathComponent("stdout-eof-helper.pid")
         let helper = try makeExecutable("""
         #!/bin/sh
         printf '%s' "$$" > '\(pidURL.path)'
         printf '%s\n' '{"segmentId":"eof-1","text":"How did you validate it?","isFinal":true,"source":"local_parakeet_asr","audioSource":"systemAudio","speaker":"interviewer"}'
         exec 1>&-
-        sleep 30
+        exec /bin/sleep 30
         """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
+        defer { try? FileManager.default.removeItem(at: helper.deletingLastPathComponent()) }
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
         let stream = try await runtime.startTranscription(
-            modelDirectory: temporaryDirectory(),
+            modelDirectory: directory,
             config: ASRConfig(sessionID: "stdout-eof", captureMode: .systemAudioOnly)
         )
 
         var events: [ParakeetTranscriptEvent] = []
-        for try await event in stream {
-            events.append(event)
+        do {
+            for try await event in stream { events.append(event) }
+            Issue.record("Closing stdout while a helper is alive must not manufacture successful completion.")
+        } catch ParakeetSidecarError.exited(let status) where status == SIGTERM {
+            // This fixture ignores the protocol stop message, but accepts TERM.
+            // The output owner retires it at stdout EOF and reports its exit.
+        } catch {
+            await runtime.stop()
+            throw error
         }
 
+        // Join the exact cleanup even if stream termination precedes owner release.
+        await runtime.stop()
         #expect(events.map(\.segmentId) == ["eof-1"])
         let pidText = try String(contentsOf: pidURL, encoding: .utf8)
         let pid = try #require(Int32(pidText))
-        // EOF must complete the stream while the helper is still alive. This
-        // proves lifecycle behavior without a wall-clock performance threshold.
-        #expect(Darwin.kill(pid, 0) == 0)
-        await runtime.stop()
-
-        let terminationDeadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while Darwin.kill(pid, 0) == 0, ContinuousClock.now < terminationDeadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        // The actual awaitable stop must finish reaping; no scheduler-dependent poll.
         #expect(Darwin.kill(pid, 0) == -1)
         #expect(errno == ESRCH)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func healthTimeoutReapsHelperThatIgnoresTermination() async throws {
-        let pidURL = temporaryDirectory().appendingPathComponent("health-helper.pid")
-        let helper = try makeExecutable("""
-        #!/bin/sh
-        printf '%s' "$$" > '\(pidURL.path)'
-        trap '' TERM
-        sleep 30
-        """)
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { helper })
-
-        #expect(await runtime.isRuntimeAvailable() == false)
-        let pidText = try String(contentsOf: pidURL, encoding: .utf8)
-        let pid = try #require(Int32(pidText))
-        #expect(Darwin.kill(pid, 0) == -1)
-        #expect(errno == ESRCH)
+        try await ParakeetHealthCheckTestFixture.verifyDeadline()
     }
 
     @Test @MainActor
-    func parakeetFailureClearsActiveRuntimeAndListeningState() throws {
+    func parakeetFailureClearsActiveRuntimeAndListeningState() async throws {
         let appState = AppState(database: try TestSupport.makeTemporaryDatabase(prefix: "ParakeetFailure"))
-        appState.activeASRProviderRuntime = HermeticTestASRProvider()
+        let session = try appState.sessionRepository.createSession(mode: .microphone)
+        let provider = HermeticTestASRProvider()
+        appState.currentSession = session
+        appState.activeASRProviderRuntime = provider
         appState.markActiveASRProvider(.localParakeet)
         appState.liveState = .listening
         appState.currentCaptureRuntimeState = .listening
 
-        appState.handleParakeetStreamTermination(error: ParakeetSidecarError.exited(9))
+        appState.handleParakeetStreamTermination(error: ParakeetSidecarError.exited(9), provider: provider, sessionID: session.id, startupID: UUID())
 
         #expect(appState.activeASRProviderRuntime == nil)
         #expect(appState.activeASRProviderID == nil)
@@ -148,6 +142,7 @@ struct ASRReleaseHardeningRegressionTests {
         } else {
             Issue.record("Parakeet failure left capture runtime outside the error state")
         }
+        await appState.captureTeardownTask?.value
     }
 
     private func event(

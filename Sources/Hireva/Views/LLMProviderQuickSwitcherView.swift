@@ -2,7 +2,11 @@ import SwiftUI
 import AppKit
 
 struct LLMProviderQuickSwitcherView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var settingsState: SettingsState
+    let feedbacks: [ActionFeedback]
+    let loadingStates: [String: Bool]
+    let errorMessage: String?
+    let openSettings: () -> Void
     var isCompact: Bool = false
 
     @State private var isShowingPopover = false
@@ -15,7 +19,7 @@ struct LLMProviderQuickSwitcherView: View {
             HStack(spacing: 4) {
                 Image(systemName: "cloud")
                     .imageScale(.small)
-                Text(isCompact ? (appState.activeRealtimeProvider?.name ?? "Realtime") : appState.activeRealtimeProviderBadge)
+                Text(isCompact ? (settingsState.activeRealtimeProvider?.name ?? "Realtime") : settingsState.activeRealtimeProviderBadge)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Image(systemName: "chevron.down")
@@ -33,11 +37,11 @@ struct LLMProviderQuickSwitcherView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("LLM Provider Switcher")
         .onAppear {
-            if let active = appState.activeRealtimeProvider {
+            if let active = settingsState.activeRealtimeProvider {
                 manualModelName = active.model
             }
         }
-        .onChange(of: appState.activeRealtimeProvider) { _, newProvider in
+        .onChange(of: settingsState.activeRealtimeProvider) { _, newProvider in
             if let active = newProvider {
                 manualModelName = active.model
             }
@@ -61,7 +65,7 @@ struct LLMProviderQuickSwitcherView: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    appState.selectedSection = .settings
+                    openSettings()
                     isShowingPopover = false
                 } label: {
                     Image(systemName: "gearshape")
@@ -79,7 +83,7 @@ struct LLMProviderQuickSwitcherView: View {
     private var mainSwitcherView: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Active status & connection state
-            if let active = appState.activeRealtimeProvider {
+            if let active = settingsState.activeRealtimeProvider {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Currently Active:")
                         .font(.caption)
@@ -93,21 +97,21 @@ struct LLMProviderQuickSwitcherView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        ActionButton(
-                            appState: appState,
-                            actionID: ActionID.provider(ActionID.providerTest, active.id),
+                        ActionButtonContent(
+                            isLoading: loadingStates[ActionID.provider(ActionID.providerTest, active.id)] == true,
+                            feedback: latestFeedback(for: ActionID.provider(ActionID.providerTest, active.id)),
                             title: "Test",
                             loadingTitle: "Testing...",
                             successTitle: "Connected",
                             systemImage: "network",
                             controlSize: .small,
-                            disabled: appState.isTestingConnection
+                            disabled: settingsState.isTestingConnection
                         ) {
-                            appState.testProviderConnection(active)
+                            settingsState.testProviderConnection(active)
                         }
                     }
                     InlineStatusBanner(quickSwitcherFeedback)
-                    if let result = appState.providerConnectionResults[active.id] {
+                    if let result = settingsState.providerConnectionResults[active.id] {
                         Text(result)
                             .font(.system(size: 10))
                             .foregroundStyle(result.contains("Found") || result.contains("success") ? .green : .red)
@@ -127,7 +131,7 @@ struct LLMProviderQuickSwitcherView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
                     ForEach(visibleProviderConfigurations) { provider in
-                        let isActive = provider.id == appState.activeRealtimeProvider?.id
+                        let isActive = provider.id == settingsState.activeRealtimeProvider?.id
                         Button {
                             selectProvider(provider)
                         } label: {
@@ -148,7 +152,7 @@ struct LLMProviderQuickSwitcherView: View {
                             .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
-                        .disabled(appState.isActionLoading(ActionID.providerSwitch))
+                        .disabled((loadingStates[ActionID.providerSwitch] == true))
                     }
                 }
             }
@@ -157,7 +161,7 @@ struct LLMProviderQuickSwitcherView: View {
             Divider()
 
             // Model customization
-            if let active = appState.activeRealtimeProvider {
+            if let active = settingsState.activeRealtimeProvider {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Select Model:")
                         .font(.caption).bold()
@@ -175,7 +179,7 @@ struct LLMProviderQuickSwitcherView: View {
                                     .buttonStyle(.bordered)
                                     .tint(isCurrent ? .blue : .secondary)
                                     .controlSize(.small)
-                                    .disabled(appState.isActionLoading(ActionID.providerSwitch))
+                                    .disabled((loadingStates[ActionID.providerSwitch] == true))
                                 }
                             }
                         }
@@ -191,7 +195,7 @@ struct LLMProviderQuickSwitcherView: View {
                                     .buttonStyle(.bordered)
                                     .tint(isCurrent ? .blue : .secondary)
                                     .controlSize(.small)
-                                    .disabled(appState.isActionLoading(ActionID.providerSwitch))
+                                    .disabled((loadingStates[ActionID.providerSwitch] == true))
                                 }
                             }
                         }
@@ -209,9 +213,9 @@ struct LLMProviderQuickSwitcherView: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.subheadline)
                             
-                            ActionButton(
-                                appState: appState,
-                                actionID: ActionID.providerSwitch,
+                            ActionButtonContent(
+                                isLoading: loadingStates[ActionID.providerSwitch] == true,
+                                feedback: latestFeedback(for: ActionID.providerSwitch),
                                 title: "Apply",
                                 loadingTitle: "Applying...",
                                 successTitle: "Applied",
@@ -226,7 +230,7 @@ struct LLMProviderQuickSwitcherView: View {
                 }
             }
 
-            if let error = appState.errorMessage {
+            if let error = errorMessage {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -236,33 +240,41 @@ struct LLMProviderQuickSwitcherView: View {
     }
 
     private func selectProvider(_ provider: LLMProviderConfiguration) {
-        appState.updateActiveRealtimeProvider(provider: provider, model: nil)
+        settingsState.updateActiveRealtimeProvider(provider: provider, model: nil)
     }
 
     private func switchModel(_ model: String) {
-        guard let active = appState.activeRealtimeProvider else { return }
+        guard let active = settingsState.activeRealtimeProvider else { return }
         
-        appState.updateActiveRealtimeProvider(provider: active, model: model)
+        settingsState.updateActiveRealtimeProvider(provider: active, model: model)
     }
 
     private func commitManualModel() {
         let cleaned = manualModelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty, let active = appState.activeRealtimeProvider else { return }
-        appState.updateActiveRealtimeProvider(provider: active, model: cleaned)
+        guard !cleaned.isEmpty, let active = settingsState.activeRealtimeProvider else { return }
+        settingsState.updateActiveRealtimeProvider(provider: active, model: cleaned)
     }
 
     private var visibleProviderConfigurations: [LLMProviderConfiguration] {
-        appState.providerConfigurations.filter { $0.kind != .ollamaLocal }
+        settingsState.providerConfigurations.filter { $0.kind != .ollamaLocal }
     }
 
     private var quickSwitcherFeedback: ActionFeedback? {
-        guard let active = appState.activeRealtimeProvider else {
-            return appState.latestActionFeedback(for: ActionID.providerSwitch)
+        guard let active = settingsState.activeRealtimeProvider else {
+            return latestFeedback(for: ActionID.providerSwitch)
         }
-        return appState.latestActionFeedback(matching: [
+        return latestFeedback(matching: [
             ActionID.providerSwitch,
             ActionID.provider(ActionID.providerTest, active.id)
         ])
     }
 
+
+    private func latestFeedback(for actionID: String) -> ActionFeedback? {
+        feedbacks.last { $0.actionID == actionID }
+    }
+    private func latestFeedback(matching actionIDs: [String]) -> ActionFeedback? {
+        let ids = Set(actionIDs)
+        return feedbacks.last { ids.contains($0.actionID) }
+    }
 }

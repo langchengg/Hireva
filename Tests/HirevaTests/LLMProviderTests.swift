@@ -1,13 +1,14 @@
 import Foundation
 import Security
+import os
 import Testing
 @testable import Hireva
 
 @Suite(.serialized)
 struct LLMProviderTests {
     @Test
-    func providerConfigurationStorageCreatesDefaultsAndActiveSelections() throws {
-        let database = try makeTemporaryDatabase()
+    func providerConfigurationStorageCreatesDefaultsAndActiveSelections() async throws {
+        let database = try await makeTemporaryDatabase()
         let repository = SettingsRepository(database: database)
 
         let providers = try repository.ensureDefaultProviderConfigurations()
@@ -33,13 +34,13 @@ struct LLMProviderTests {
     }
 
     @Test
-    func legacyLocalProviderRowsAreHiddenAndActiveSelectionMigratesToDeepSeek() throws {
-        let database = try makeTemporaryDatabase()
+    func legacyLocalProviderRowsAreHiddenAndActiveSelectionMigratesToDeepSeek() async throws {
+        let database = try await makeTemporaryDatabase()
         let repository = SettingsRepository(database: database)
         let legacyID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let now = DateCoding.string(from: Date())
 
-        try database.dbQueue.write { db in
+        try await database.dbQueue.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO llm_provider_configurations (
@@ -77,7 +78,7 @@ struct LLMProviderTests {
         let providers = try repository.ensureDefaultProviderConfigurations()
         let realtime = try #require(try repository.activeRealtimeProvider())
         let recap = try #require(try repository.activeRecapProvider())
-        let legacyRows = try database.dbQueue.read { db in
+        let legacyRows = try await database.dbQueue.read { db in
             try Int.fetchOne(
                 db,
                 sql: "SELECT COUNT(*) FROM llm_provider_configurations WHERE kind = ?",
@@ -94,8 +95,8 @@ struct LLMProviderTests {
     }
 
     @Test
-    func legacyEmbeddingSettingsJSONIsMigratedAwayFromLocalProviderValues() throws {
-        let database = try makeTemporaryDatabase()
+    func legacyEmbeddingSettingsJSONIsMigratedAwayFromLocalProviderValues() async throws {
+        let database = try await makeTemporaryDatabase()
         let repository = SettingsRepository(database: database)
         let now = DateCoding.string(from: Date())
         let legacyJSON = """
@@ -108,7 +109,7 @@ struct LLMProviderTests {
         }
         """
 
-        try database.dbQueue.write { db in
+        try await database.dbQueue.write { db in
             try db.execute(
                 sql: "INSERT INTO app_settings (key, value, updated_at) VALUES ('app_settings', ?, ?)",
                 arguments: [legacyJSON, now]
@@ -116,7 +117,7 @@ struct LLMProviderTests {
         }
 
         let settings = try repository.loadSettings()
-        let rewritten = try #require(try database.dbQueue.read { db in
+        let rewritten = try #require(try await database.dbQueue.read { db in
             try String.fetchOne(db, sql: "SELECT value FROM app_settings WHERE key = 'app_settings'")
         })
 
@@ -258,7 +259,7 @@ struct LLMProviderTests {
 
     @Test
     func routerUsesActiveRealtimeProviderConfiguration() async throws {
-        let database = try makeTemporaryDatabase()
+        let database = try await makeTemporaryDatabase()
         let repository = SettingsRepository(database: database)
         let providers = try repository.ensureDefaultProviderConfigurations()
         let deepSeek = try #require(providers.first { $0.kind == .deepSeek })
@@ -281,7 +282,7 @@ struct LLMProviderTests {
     @Test
     @MainActor
     func quickSwitcherRejectsMissingCloudKeyAndAllowsConfiguredProvider() async throws {
-        let database = try makeTemporaryDatabase()
+        let database = try await makeTemporaryDatabase()
         let settingsRepo = SettingsRepository(database: database)
         let keychain = InMemoryAPIKeyStore()
         let router = LLMRouter(settingsRepository: settingsRepo, apiKeyStore: keychain)
@@ -341,8 +342,8 @@ struct LLMProviderTests {
 
     @Test
     @MainActor
-    func settingsSavedDeepSeekKeyMakesProductStatusConfigured() throws {
-        let database = try makeTemporaryDatabase()
+    func settingsSavedDeepSeekKeyMakesProductStatusConfigured() async throws {
+        let database = try await makeTemporaryDatabase()
         let settingsRepo = SettingsRepository(database: database)
         let keychain = KeychainService(store: InMemoryMockKeychainStore())
         let router = LLMRouter(settingsRepository: settingsRepo, apiKeyStore: keychain)
@@ -391,13 +392,14 @@ struct LLMProviderTests {
     @Test
     func generationRequestUsesSameDeepSeekCredentialAccountAsSettings() throws {
         final class TrackingAPIKeyStore: APIKeyStore {
-            var requestedAccounts: [String] = []
+            private let reads = OSAllocatedUnfairLock(initialState: [String]())
+            var requestedAccounts: [String] { reads.withLock { $0 } }
 
             func saveAPIKey(_ apiKey: String, account: String) throws {}
             func deleteAPIKey(account: String) throws {}
 
             func loadAPIKey(account: String) throws -> String? {
-                requestedAccounts.append(account)
+                reads.withLock { $0.append(account) }
                 return "sk-generation-abcdefghijklmnopqrstuvwxyz"
             }
         }
@@ -420,7 +422,8 @@ struct LLMProviderTests {
     @Test
     func providerRequestUsesInteractiveKeychainPolicyWhenAvailable() throws {
         final class PolicyTrackingKeychainStore: KeychainStore {
-            var policies: [KeychainAuthenticationPolicy] = []
+            private let recordedPolicies = OSAllocatedUnfairLock(initialState: [KeychainAuthenticationPolicy]())
+            var policies: [KeychainAuthenticationPolicy] { recordedPolicies.withLock { $0 } }
 
             func saveGenericPassword(data: Data, service: String, account: String) throws {}
             func deleteGenericPassword(service: String, account: String) throws {}
@@ -430,7 +433,7 @@ struct LLMProviderTests {
                 account: String,
                 authenticationPolicy: KeychainAuthenticationPolicy
             ) throws -> String? {
-                policies.append(authenticationPolicy)
+                recordedPolicies.withLock { $0.append(authenticationPolicy) }
                 return "sk-provider-request-abcdefghijklmnopqrstuvwxyz"
             }
         }
@@ -453,19 +456,24 @@ struct LLMProviderTests {
     @Test
     func providerRequestPrefersProviderCredentialReadOverStatusRead() throws {
         final class TrackingAPIKeyStore: APIKeyStore, ProviderRequestAPIKeyStore {
-            var regularReadAccounts: [String] = []
-            var providerReadAccounts: [String] = []
+            private struct Reads: Sendable {
+                var regular: [String] = []
+                var provider: [String] = []
+            }
+            private let reads = OSAllocatedUnfairLock(initialState: Reads())
+            var regularReadAccounts: [String] { reads.withLock { $0.regular } }
+            var providerReadAccounts: [String] { reads.withLock { $0.provider } }
 
             func saveAPIKey(_ apiKey: String, account: String) throws {}
             func deleteAPIKey(account: String) throws {}
 
             func loadAPIKey(account: String) throws -> String? {
-                regularReadAccounts.append(account)
+                reads.withLock { $0.regular.append(account) }
                 return nil
             }
 
             func loadAPIKeyForProviderRequest(account: String) throws -> String? {
-                providerReadAccounts.append(account)
+                reads.withLock { $0.provider.append(account) }
                 return "sk-provider-request-abcdefghijklmnopqrstuvwxyz"
             }
         }
@@ -488,7 +496,8 @@ struct LLMProviderTests {
     @Test
     func keychainStatusChecksRemainNonInteractive() {
         final class PolicyTrackingKeychainStore: KeychainStore {
-            var policies: [KeychainAuthenticationPolicy] = []
+            private let recordedPolicies = OSAllocatedUnfairLock(initialState: [KeychainAuthenticationPolicy]())
+            var policies: [KeychainAuthenticationPolicy] { recordedPolicies.withLock { $0 } }
 
             func saveGenericPassword(data: Data, service: String, account: String) throws {}
             func deleteGenericPassword(service: String, account: String) throws {}
@@ -498,7 +507,7 @@ struct LLMProviderTests {
                 account: String,
                 authenticationPolicy: KeychainAuthenticationPolicy
             ) throws -> String? {
-                policies.append(authenticationPolicy)
+                recordedPolicies.withLock { $0.append(authenticationPolicy) }
                 return "sk-status-check-abcdefghijklmnopqrstuvwxyz"
             }
         }
@@ -512,7 +521,7 @@ struct LLMProviderTests {
 
     @Test
     @MainActor
-    func keychainAuthorizationFailureShowsReauthorizationWarning() throws {
+    func keychainAuthorizationFailureShowsReauthorizationWarning() async throws {
         final class AuthorizationFailingKeychainStore: KeychainStore {
             func saveGenericPassword(data: Data, service: String, account: String) throws {
                 throw KeychainError.unexpectedStatus(errSecAuthFailed)
@@ -538,7 +547,7 @@ struct LLMProviderTests {
         #expect(message.contains("signing identity changed"))
         #expect(keychain.lastReadStatus.contains("re-authorization"))
 
-        let database = try makeTemporaryDatabase()
+        let database = try await makeTemporaryDatabase()
         let appState = AppState(database: database, keychainService: keychain)
 
         #expect(appState.keychainDeepSeekKeyExists == false)
@@ -570,7 +579,7 @@ struct LLMProviderTests {
 
     @Test
     @MainActor
-    func keychainNonDestructiveLegacyMigrationAndMismatchDetection() throws {
+    func keychainNonDestructiveLegacyMigrationAndMismatchDetection() async throws {
         let mockStore = InMemoryMockKeychainStore()
         let keychain = KeychainService(store: mockStore)
 
@@ -591,7 +600,7 @@ struct LLMProviderTests {
         let preservedKey = try mockStore.loadGenericPassword(service: legacyService, account: legacyAccount)
         #expect(preservedKey == rawKey)
 
-        let database = try makeTemporaryDatabase()
+        let database = try await makeTemporaryDatabase()
         let appState = AppState(database: database, keychainService: keychain)
 
         #expect(appState.keychainDeepSeekKeyExists == true)
@@ -614,8 +623,8 @@ struct LLMProviderTests {
 
     @Test
     @MainActor
-    func immediateRefreshOnSavingAPIKey() throws {
-        let database = try makeTemporaryDatabase()
+    func immediateRefreshOnSavingAPIKey() async throws {
+        let database = try await makeTemporaryDatabase()
         let mockStore = InMemoryMockKeychainStore()
         let keychain = KeychainService(store: mockStore)
         let appState = AppState(database: database, keychainService: keychain)
@@ -631,11 +640,11 @@ struct LLMProviderTests {
         #expect(appState.hasAPIKey == true)
     }
 
-    private func makeTemporaryDatabase() throws -> AppDatabase {
+    private func makeTemporaryDatabase() async throws -> sending AppDatabase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HirevaProviderTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
+        return try await TestSupport.makeDatabase(at: directory.appendingPathComponent("test.sqlite"))
     }
 
     private func makeMockSession() -> URLSession {
@@ -663,24 +672,32 @@ struct LLMProviderTests {
 }
 
 final class InMemoryAPIKeyStore: APIKeyStore {
-    var keys: [String: String] = [:]
+    private let storedKeys = OSAllocatedUnfairLock(initialState: [String: String]())
+    var keys: [String: String] {
+        get { storedKeys.withLock { $0 } }
+        set { storedKeys.withLock { $0 = newValue } }
+    }
 
     func saveAPIKey(_ apiKey: String, account: String) throws {
-        keys[account] = apiKey
+        storedKeys.withLock { $0[account] = apiKey }
     }
 
     func loadAPIKey(account: String) throws -> String? {
-        keys[account]
+        storedKeys.withLock { $0[account] }
     }
 
     func deleteAPIKey(account: String) throws {
-        keys.removeValue(forKey: account)
+        _ = storedKeys.withLock { $0.removeValue(forKey: account) }
     }
 }
 
 final class FakeLLMClient: LLMClientProtocol {
     let providerKind: LLMProviderKind
-    var lastConfiguration: LLMProviderConfiguration?
+    private let state = OSAllocatedUnfairLock<LLMProviderConfiguration?>(initialState: nil)
+    var lastConfiguration: LLMProviderConfiguration? {
+        get { state.withLock { $0 } }
+        set { state.withLock { $0 = newValue } }
+    }
 
     init(kind: LLMProviderKind) {
         self.providerKind = kind

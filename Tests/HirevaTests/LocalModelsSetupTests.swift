@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import Testing
 @testable import Hireva
 
@@ -65,13 +66,14 @@ struct LocalModelsSetupTests {
     }
 
     @Test @MainActor
-    func legacyLocalParakeetASRSelectionMigratesToAppleSpeechDefaultOnce() throws {
+    func legacyLocalParakeetASRSelectionMigratesToAppleSpeechDefaultOnce() async throws {
         let selectedKey = "Hireva.selectedASRProvider"
         let migrationKey = "Hireva.asrDefaultMigration.appleSpeech.20260706"
         let (defaults, suiteName) = makeIsolatedUserDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(ASRProviderID.localParakeet.rawValue, forKey: selectedKey)
-        let appState = try AppState(database: AppDatabase(inMemory: true), dialogueDefaults: defaults)
+        let database = try await TestSupport.makeInMemoryDatabase()
+        let appState = AppState(database: database, dialogueDefaults: defaults)
 
         appState.migrateStoredASRProviderToAppleSpeechDefaultIfNeeded()
 
@@ -360,7 +362,7 @@ struct LocalModelsSetupTests {
         #expect(progress.last?.progress == 1)
     }
 
-    @Test
+    @Test @MainActor
     func localPlaceholderASRReportsModelNotReady() async {
         let provider = LocalPlaceholderASRProvider(
             id: .localWhisper,
@@ -401,7 +403,7 @@ struct LocalModelsSetupTests {
         #expect(await manager.modelStatus(descriptor) == .installed)
     }
 
-    @Test
+    @Test @MainActor
     func parakeetModelReadyButRuntimeMissingFailsExplicitly() async {
         let provider = LocalParakeetASRProvider(
             modelManager: StaticLocalModelManager(status: .installed),
@@ -409,12 +411,12 @@ struct LocalModelsSetupTests {
         )
 
         #expect(await provider.isAvailable() == false)
-        await #expect(throws: ASRProviderError.localASRRuntimeNotImplemented(.localParakeet)) {
+        await #expect(throws: ASRProviderError.providerUnavailable("Runtime health check failed")) {
             _ = try await provider.startTranscription(config: ASRConfig(sessionID: "s1", captureMode: .systemAudioOnly))
         }
     }
 
-    @Test
+    @Test @MainActor
     func selectingParakeetWhenModelMissingShowsModelNotReady() async {
         let provider = LocalParakeetASRProvider(
             modelManager: StaticLocalModelManager(status: .notInstalled),
@@ -427,7 +429,7 @@ struct LocalModelsSetupTests {
         }
     }
 
-    @Test
+    @Test @MainActor
     func selectingParakeetWhenModelAndRuntimeReadyChangesActiveProviderEligibility() async {
         let provider = LocalParakeetASRProvider(
             modelManager: StaticLocalModelManager(status: .installed),
@@ -437,9 +439,9 @@ struct LocalModelsSetupTests {
         #expect(await provider.isAvailable() == true)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func parakeetSidecarRuntimeAvailabilityRequiresExecutablePath() async throws {
-        let missing = ParakeetSidecarRuntimeClient(executableURLProvider: { nil })
+        let missing = await ParakeetSidecarRuntimeClient(executableURLProvider: { nil })
         #expect(await missing.isRuntimeAvailable() == false)
 
         let executable = temporaryDirectory().appendingPathComponent("fake-sidecar.sh")
@@ -456,8 +458,15 @@ struct LocalModelsSetupTests {
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let ready = ParakeetSidecarRuntimeClient(executableURLProvider: { executable })
-        #expect(await ready.isRuntimeAvailable() == true)
+        let clock = ControlledGenerationWatchdogClock()
+        defer { clock.cancelAll() }
+        let ready = await ParakeetSidecarRuntimeClient(
+            executableURLProvider: { executable },
+            healthCheckDelayProvider: clock
+        )
+        let available = await ready.isRuntimeAvailable()
+        #expect(available == true)
+        #expect(clock.pendingCount == 0)
     }
 
     @Test
@@ -469,7 +478,7 @@ struct LocalModelsSetupTests {
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let runtime = ParakeetSidecarRuntimeClient(executableURLProvider: { executable })
+        let runtime = await ParakeetSidecarRuntimeClient(executableURLProvider: { executable })
         let stream = try await runtime.startTranscription(
             modelDirectory: temporaryDirectory(),
             config: ASRConfig(sessionID: "sidecar-test", captureMode: .systemAudioOnly)
@@ -502,31 +511,46 @@ struct LocalModelsSetupTests {
                 ]
             )
         )
-        let appState = try AppState(database: AppDatabase(inMemory: true))
-        let session = try appState.sessionRepository.createSession(mode: .microphone)
-        appState.currentSession = session
-        let stream = try await provider.startTranscription(config: ASRConfig(sessionID: session.id, captureMode: .systemAudioOnly))
-        var emitted: [TranscriptSegment] = []
-        for try await segment in stream {
-            emitted.append(segment)
+        let database = try await TestSupport.makeInMemoryDatabase()
+        let appState = AppState(database: database,
+            questionRoutingProvider: HermeticQuestionRoutingProvider(),
+            permissionService: HermeticPermissionService(),
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()))
+        appState.localLLMProviderOverride = MockLocalLLMProvider(tokens: [])
+        do {
+            let session = try appState.sessionRepository.createSession(mode: .microphone)
+            appState.currentSession = session
+            let stream = try await provider.startTranscription(config: ASRConfig(sessionID: session.id, captureMode: .systemAudioOnly))
+            var emitted: [TranscriptSegment] = []
+            for try await segment in stream {
+                emitted.append(segment)
+            }
+
+            #expect(emitted.count == 1)
+            #expect(emitted[0].source == .systemAudio)
+            #expect(emitted[0].speaker == .unknown)
+            #expect(emitted[0].asrSource == .localParakeetASR)
+            #expect(emitted[0].recognitionIsFinal == true)
+
+            await appState.handleTranscriptSegment(emitted[0])
+            #expect(appState.lastTranscriptQuestionGenerationTrace.asrSource == ASRSource.localParakeetASR.rawValue)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.source == AudioSourceType.systemAudio.rawValue)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.questionCandidate == true)
+
+            try appState.transcriptRepository.saveSegment(emitted[0])
+            let persisted = try #require(try appState.transcriptRepository.segmentByID("p1"))
+            #expect(persisted.asrSource == .localParakeetASR)
+            await provider.stopTranscription()
+            #expect(await appState.shutdownResources())
+            #expect(appState.generationCoordinator.pendingCleanupTaskCount == 0)
+            try database.close()
+        } catch {
+            await provider.stopTranscription()
+            await appState.shutdownForTesting()
+            try? database.close()
+            throw error
         }
-
-        #expect(emitted.count == 1)
-        #expect(emitted[0].source == .systemAudio)
-        #expect(emitted[0].speaker == .unknown)
-        #expect(emitted[0].asrSource == .localParakeetASR)
-        #expect(emitted[0].recognitionIsFinal == true)
-
-        await appState.handleTranscriptSegment(emitted[0])
-        #expect(appState.lastTranscriptQuestionGenerationTrace.asrSource == ASRSource.localParakeetASR.rawValue)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.source == AudioSourceType.systemAudio.rawValue)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.questionCandidate == true)
-
-        try appState.transcriptRepository.saveSegment(emitted[0])
-        let persisted = try #require(try appState.transcriptRepository.segmentByID("p1"))
-        #expect(persisted.asrSource == .localParakeetASR)
     }
-
     @Test @MainActor
     func automaticLocalQwenFailureUsesNonblockingFeedbackWithoutModalAlert() async throws {
         let appState = try AppState(database: AppDatabase(inMemory: true))
@@ -756,11 +780,22 @@ struct LocalModelsSetupTests {
                 "A complete robot task connected perception, localization, navigation, manipulation, and action execution."
             ]
         )
-        let q4A = localQwenQuestion(
+        var q4A = localQwenQuestion(
             id: "q4a-superseded",
             sessionID: session.id,
             text: "Walk me through one complete robot task from perception to action."
         )
+        // This positive legacy helper bypasses the router. Freeze its selected
+        // personal-project prerequisite; an unresolved generic walkthrough must
+        // still not infer candidate evidence from the active profile alone.
+        var q4ATask = InterviewTaskDescriptor(question: q4A.questionText, kind: .project)
+        q4ATask.apply(InterviewQuestionDecision(task: .project, personalEvidence: .required,
+            basis: .candidateRecord, relation: .independent, parentQuestionID: nil,
+            parentQuestionText: nil, parentAnswerText: nil, source: "synthetic-selected-personal-project",
+            routerVersion: InterviewQuestionRouter.version, language: "en", clarification: "",
+            questionID: q4A.id, questionRevision: 0, contextSnapshotID: session.contextSnapshotID,
+            artifactRevision: 0, model: "test", failure: nil, latencyMS: 0))
+        q4A.taskDescriptor = q4ATask
         let q4B = localQwenQuestion(
             id: "q4b-current",
             sessionID: session.id,
@@ -1049,14 +1084,11 @@ struct LocalModelsSetupTests {
         #expect(persisted.isLocal == true)
     }
 
-    @Test
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["HIREVA_REAL_OLLAMA_SMOKE"] == "1"))
     func realOllamaQwenProviderSmokeWhenExplicitlyEnabled() async throws {
-        guard ProcessInfo.processInfo.environment["HIREVA_REAL_OLLAMA_SMOKE"] == "1" else {
-            return
-        }
         let provider = OllamaQwenProvider()
         let health = await provider.healthCheck(modelName: "qwen3.5:4b")
-        #expect(health.isReady == true)
+        try #require(health.isReady, "Explicit Ollama smoke requires the selected model to be ready.")
 
         let stream = try await provider.generateAnswer(request: LocalLLMRequest(
             prompt: "Answer in one sentence: what is the role of localization in a robot pipeline?",
@@ -1276,11 +1308,14 @@ struct LocalModelsSetupTests {
     }
 }
 
-private final class MockLocalLLMProvider: LocalLLMProvider {
+
+private final class MockLocalLLMProvider: LocalLLMProvider, Sendable {
     let id = "mock_ollama_qwen"
     let displayName = "Mock Ollama Qwen"
     let tokens: [String]
-    private(set) var requests: [LocalLLMRequest] = []
+    private struct State: Sendable { var requests: [LocalLLMRequest] = [] }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    var requests: [LocalLLMRequest] { state.withLock { $0.requests } }
 
     init(tokens: [String]) {
         self.tokens = tokens
@@ -1304,8 +1339,9 @@ private final class MockLocalLLMProvider: LocalLLMProvider {
     }
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        requests.append(request)
-        let tokens = tokens
+        state.withLock { $0.requests.append(request) }
+        let tokens = request.responseSchema == LocalQwenAnswerParser.scopedResponseSchema && !tokens.joined().isEmpty
+            ? [try TestSupport.scriptedLocalAnswer(tokens.joined(), request: request)] : tokens
         return AsyncThrowingStream { continuation in
             for token in tokens {
                 continuation.yield(LLMToken(text: token, source: .ollamaQwen, modelName: request.modelName))
@@ -1315,12 +1351,17 @@ private final class MockLocalLLMProvider: LocalLLMProvider {
     }
 }
 
-private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
+private final class SequencedMockLocalLLMProvider: LocalLLMProvider, Sendable {
     let id = "mock_ollama_qwen_sequence"
     let displayName = "Mock Ollama Qwen Sequence"
     private let tokenBatches: [[String]]
-    private(set) var generateCallCount = 0
-    private(set) var requests: [LocalLLMRequest] = []
+    private struct State: Sendable {
+        var generateCallCount = 0
+        var requests: [LocalLLMRequest] = []
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    var generateCallCount: Int { state.withLock { $0.generateCallCount } }
+    var requests: [LocalLLMRequest] { state.withLock { $0.requests } }
 
     init(tokenBatches: [[String]]) {
         self.tokenBatches = tokenBatches
@@ -1344,12 +1385,16 @@ private final class SequencedMockLocalLLMProvider: LocalLLMProvider {
     }
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        generateCallCount += 1
-        requests.append(request)
-        let index = min(generateCallCount - 1, max(tokenBatches.count - 1, 0))
-        let tokens = tokenBatches.isEmpty ? [] : tokenBatches[index]
+        let tokens = state.withLock { state in
+            state.generateCallCount += 1
+            state.requests.append(request)
+            let index = min(state.generateCallCount - 1, max(tokenBatches.count - 1, 0))
+            return tokenBatches.isEmpty ? [] : tokenBatches[index]
+        }
+        let outputTokens = request.responseSchema == LocalQwenAnswerParser.scopedResponseSchema && !tokens.joined().isEmpty
+            ? [try TestSupport.scriptedLocalAnswer(tokens.joined(), request: request)] : tokens
         return AsyncThrowingStream { continuation in
-            for token in tokens {
+            for token in outputTokens {
                 continuation.yield(LLMToken(text: token, source: .ollamaQwen, modelName: request.modelName))
             }
             continuation.finish()

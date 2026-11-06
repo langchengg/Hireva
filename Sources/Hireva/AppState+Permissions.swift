@@ -22,10 +22,13 @@ extension AppState {
     }
 
     func requestSpeechPermission() {
-        Task {
-            _ = await permissionService.requestSpeechRecognition()
-            refreshPermissions()
+        guard !isShuttingDown else { return }
+        let task = systemAudioPermissions.requestSpeechAuthorization { [weak self] _ in
+            self?.refreshPermissions()
         }
+#if DEBUG
+        if let task { speechPermissionTaskDidRegisterForTesting?(task) }
+#endif
     }
 
     func requestScreenRecordingPermission() {
@@ -71,70 +74,45 @@ extension AppState {
         }
     }
 
-    func refreshPermissions() {
-        microphonePermissionState = permissionService.checkMicrophonePermission()
-        permissionSnapshot = permissionService.refreshPermissions()
-        microphoneDiagnostics.refreshSelectedInputDevice()
+    /// Native probing is an application policy decision. Passive observations
+    /// remain available while audio is starting, running or retiring.
+    var canRunSystemAudioPermissionProbe: Bool {
+        guard !isShuttingDown, captureStartupTask == nil, captureTeardownTask == nil,
+              !isListening, !isActionLoading(ActionID.startInterview),
+              !isActionLoading(ActionID.manualRecord) else { return false }
+        switch manualCaptureState {
+        case .waitingForPermission, .recording, .stopping, .transcribing: return false
+        default: return true
+        }
+    }
 
-        if isRunningUnderTestOrAutomation() {
-            let result = ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
-            systemAudioProbeResult = result
-            systemAudioPermissionState = .granted
-            permissionSnapshot.screenRecording = .granted
-            permissionSnapshot.systemAudioCapture = .granted
+    func refreshPermissions(automaticallyProbe: Bool = true) {
+        // Older already-queued active callbacks also enter this boundary.
+        guard !isShuttingDown else { return }
+        systemAudioPermissions.refresh(captureMode: settings.audioCaptureMode,
+            automaticallyProbe: automaticallyProbe && canRunSystemAudioPermissionProbe)
+        microphoneDiagnostics.refreshSelectedInputDevice()
+    }
+
+    /// Explicit Diagnostics buttons can probe when Microphone Only is selected.
+    /// The controller creates and retains the task; the view creates none.
+    func requestScreenSystemAudioProbe() {
+        refreshPermissions(automaticallyProbe: false)
+        guard canRunSystemAudioPermissionProbe else {
+            showError("Stop audio capture before checking system audio permissions.")
             return
         }
-        
-        Task {
-            await refreshScreenSystemAudioProbe()
-        }
+        systemAudioPermissions.requestExplicitProbe()
     }
-    
+
     func refreshScreenSystemAudioProbe() async {
-        let result = await ScreenSystemAudioPermissionProbe.shared.probe()
-        let state = determineProbeState(result: result)
-        
-        await MainActor.run {
-            self.systemAudioProbeResult = result
-            self.systemAudioPermissionState = state
-            
-            if state == .granted {
-                self.permissionSnapshot.screenRecording = .granted
-                self.permissionSnapshot.systemAudioCapture = .granted
-            } else {
-                self.permissionSnapshot.screenRecording = .denied
-                self.permissionSnapshot.systemAudioCapture = .denied
-            }
-        }
+        guard canRunSystemAudioPermissionProbe else { return }
+        do { _ = try await systemAudioPermissions.probeNow() }
+        catch is CancellationError { return }
+        catch { showError(error.localizedDescription) }
     }
-    
+
     func determineProbeState(result: ScreenSystemAudioPermissionProbeResult) -> ScreenSystemAudioPermissionState {
-        if result.shareableContentProbeSucceeded {
-            if result.likelyIdentityMismatch {
-                return .identityMismatch
-            }
-            if !result.streamAudioProbeSucceeded {
-                return .streamAudioProbeFailed(result.errorDescription ?? "Stream audio timeout")
-            }
-            return .granted
-        } else {
-            if result.preflightGranted {
-                if result.likelyIdentityMismatch {
-                    return .identityMismatch
-                }
-                return .restartLikely
-            } else {
-                if result.likelyIdentityMismatch {
-                    return .identityMismatch
-                }
-                return .permissionMissing
-            }
-        }
+        SystemAudioPermissionController.state(for: result)
     }
 }

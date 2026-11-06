@@ -2,17 +2,31 @@ import Foundation
 
 final class HybridContextRetrievalService: ContextRetrievalService {
     private let documentRepository: DocumentRepository
-    private let settingsProvider: () -> AppSettings
-    private let embeddingProviderResolver: () -> EmbeddingProvider?
+    private let configurationProvider: @MainActor @Sendable () -> (settings: AppSettings, provider: EmbeddingProvider?)
 
     init(
         documentRepository: DocumentRepository,
-        settingsProvider: @escaping () -> AppSettings,
-        embeddingProviderResolver: @escaping () -> EmbeddingProvider?
+        configurationProvider: @escaping @MainActor @Sendable () -> (settings: AppSettings, provider: EmbeddingProvider?)
     ) {
         self.documentRepository = documentRepository
-        self.settingsProvider = settingsProvider
-        self.embeddingProviderResolver = embeddingProviderResolver
+        self.configurationProvider = configurationProvider
+    }
+
+    convenience init(
+        documentRepository: DocumentRepository,
+        settingsProvider: @escaping @MainActor @Sendable () -> AppSettings,
+        embeddingProviderResolver: @escaping @MainActor @Sendable () -> EmbeddingProvider?
+    ) {
+        self.init(documentRepository: documentRepository, configurationProvider: {
+            (settingsProvider(), embeddingProviderResolver())
+        })
+    }
+
+    @MainActor
+    func freezeConfiguration() -> any ContextRetrievalService {
+        let configuration = configurationProvider()
+        return HybridContextRetrievalService(documentRepository: documentRepository,
+            configurationProvider: { configuration })
     }
 
     func retrieveContext(
@@ -41,8 +55,12 @@ final class HybridContextRetrievalService: ContextRetrievalService {
         strategy: AnswerStrategy?
     ) async throws -> (context: RetrievedContext, trace: RetrievalTrace) {
         let startTime = Date()
-        let settings = settingsProvider()
-        let provider = embeddingProviderResolver()
+        // Provider resolution can publish application diagnostics. Acquire one
+        // coherent pair on its owning executor, then retain those values across
+        // embedding awaits. Repository access and scoring stay off MainActor.
+        let configurationProvider = self.configurationProvider
+        let (settings, provider) = await configurationProvider()
+        try Task.checkCancellation()
 
         let emptyQueryFallbackUsed = question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let queryTokens = Set(TextChunker.tokenize(question + " " + intent.rawValue))
@@ -125,12 +143,17 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                 }
                 queryEmbeddingGenerated = true
                 queryEmbeddingLatencyMS = Date().timeIntervalSince(embedStart) * 1000.0
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                try Task.checkCancellation()
                 activeMode = "keywordOnly"
                 fallbackReason = "Query Embed Failed: \(error.localizedDescription)"
                 embeddingWarnings.append("Failed to embed query: \(error.localizedDescription)")
             }
         }
+
+        try Task.checkCancellation()
 
         // Execute Hybrid Scoring or Keyword scoring depending on the mode
         func rankAndScore(chunks: [DocumentChunk]) -> (ranked: [RetrievedChunk], zeroScoreFallback: Bool) {
@@ -350,8 +373,17 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                         chunksCount += 1
                     } else {
                         chunk.isIncludedInPrompt = true
-                        let trimmedWords = words.prefix(remaining)
-                        let trimmedContent = trimmedWords.joined(separator: " ")
+                        let trimmedContent = chunk.documentType == .additionalNotes
+                            ? ContextBudgeter.limitReferenceWords(chunk.fullContent, maxWords: remaining)
+                            : words.prefix(remaining).joined(separator: " ")
+                        let trimmedCount = trimmedContent.split(whereSeparator: \.isWhitespace).count
+                        guard !trimmedContent.isEmpty else {
+                            chunk.isIncludedInPrompt = false
+                            excluded.append(chunk)
+                            updatedCandidates.append(chunk)
+                            remaining = 0
+                            continue
+                        }
                         let trimmedChunk = RetrievedChunk(
                             id: chunk.id,
                             documentID: chunk.documentID,
@@ -366,14 +398,14 @@ final class HybridContextRetrievalService: ContextRetrievalService {
                             rank: chunk.rank,
                             isIncludedInPrompt: true,
                             sectionTitle: chunk.sectionTitle,
-                            wordCount: remaining,
+                            wordCount: trimmedCount,
                             semanticScore: chunk.semanticScore,
                             keywordScoreNormalized: chunk.keywordScoreNormalized,
                             finalHybridScore: chunk.finalHybridScore,
                             retrievalMode: chunk.retrievalMode
                         )
                         included.append(trimmedChunk)
-                        wordsUsed += remaining
+                        wordsUsed += trimmedCount
                         remaining = 0
                         chunk = trimmedChunk
                         chunksCount += 1
@@ -430,7 +462,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
 
         let latencyMS = Date().timeIntervalSince(startTime) * 1000.0
 
-        let trace = RetrievalTrace(
+        var trace = RetrievalTrace(
             id: UUID(),
             query: question,
             intent: intent.rawValue,
@@ -508,6 +540,7 @@ final class HybridContextRetrievalService: ContextRetrievalService {
             }
         )
 
+        trace.verificationCompletedHostTicks = VerificationTiming.hostTicks()
         return (context, trace)
     }
 }

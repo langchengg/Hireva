@@ -1,6 +1,6 @@
 import Foundation
 
-public enum DeepSeekModel: String, CaseIterable, Identifiable, Codable {
+public enum DeepSeekModel: String, CaseIterable, Identifiable, Codable, Sendable {
     case realtime = "deepseek-v4-flash"
     case analysis = "deepseek-v4-pro"
 
@@ -16,7 +16,7 @@ public enum DeepSeekModel: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
+public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case microphoneOnly = "microphoneOnly"
     case systemAudioOnly = "systemAudioOnly"
     case microphoneAndSystem = "microphoneAndSystem"
@@ -57,7 +57,7 @@ public enum AudioCaptureMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-public enum FloatingAssistantDisplayMode: String, CaseIterable, Identifiable, Codable {
+public enum FloatingAssistantDisplayMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case compact
     case normal
     case diagnostic
@@ -73,7 +73,7 @@ public enum FloatingAssistantDisplayMode: String, CaseIterable, Identifiable, Co
     }
 }
 
-public enum ManualCaptureSource: String, CaseIterable, Identifiable, Codable {
+public enum ManualCaptureSource: String, CaseIterable, Identifiable, Codable, Sendable {
     case systemAudio = "systemAudio"
     case microphone = "microphone"
 
@@ -87,7 +87,7 @@ public enum ManualCaptureSource: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-public enum HirevaMode: String, CaseIterable, Identifiable, Codable {
+public enum HirevaMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case autoDetect = "autoDetect"
     case manualCapture = "manualCapture"
     case practiceMock = "practiceMock"
@@ -103,7 +103,7 @@ public enum HirevaMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-public enum EmbeddingProviderKind: String, CaseIterable, Identifiable, Codable {
+public enum EmbeddingProviderKind: String, CaseIterable, Identifiable, Codable, Sendable {
     case openAICompatibleCloud = "openAICompatibleCloud"
     case customCloud = "customCloud"
     case disabled = "disabled"
@@ -127,7 +127,7 @@ public enum EmbeddingProviderKind: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-public enum DiagnosticTraceMode: String, CaseIterable, Codable, Hashable, Identifiable {
+public enum DiagnosticTraceMode: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case off
     case metadataOnly
     case fullText
@@ -143,7 +143,7 @@ public enum DiagnosticTraceMode: String, CaseIterable, Codable, Hashable, Identi
     }
 }
 
-public struct AppSettings: Hashable, Codable {
+public struct AppSettings: Hashable, Codable, Sendable {
     public var realtimeModel: DeepSeekModel
     public var recapModel: DeepSeekModel
     public var automaticQuestionDetectionEnabled: Bool

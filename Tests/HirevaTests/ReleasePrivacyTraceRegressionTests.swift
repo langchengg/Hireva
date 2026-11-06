@@ -104,6 +104,33 @@ struct ReleasePrivacyTraceRegressionTests {
         #expect(fullText.contains(canary))
     }
 
+    @Test
+    func consecutiveWritesRotateWhenTheirCombinedGrowthCrossesTheFileLimit() async throws {
+        let fixture = try makeFixture()
+        let store = RuntimeTranscriptTraceStore()
+        defer {
+            store.waitForPendingOperations()
+            try? FileManager.default.removeItem(at: fixture.root)
+        }
+        try Data().write(to: fixture.traceURL)
+        let handle = try FileHandle(forWritingTo: fixture.traceURL)
+        try handle.truncate(atOffset: UInt64(RuntimeTranscriptTraceStore.maxTraceFileSize - 100))
+        try handle.close()
+        let writer = store.makeWriter()
+        for _ in 0..<2 {
+            #expect(writer.append(line: String(repeating: "x", count: 74),
+                to: fixture.traceURL, mode: .metadataOnly) == .admitted)
+            await writer.drain()
+        }
+        await writer.sealAndDrain()
+        let archive = fixture.traceURL.deletingPathExtension().appendingPathExtension("1.jsonl")
+        #expect(FileManager.default.fileExists(atPath: archive.path))
+        let size = try FileManager.default.attributesOfItem(atPath: fixture.traceURL.path)[.size] as? NSNumber
+        #expect(size?.intValue == 75)
+        #expect(writer.snapshot.completedWriteCount == 2)
+        #expect(writer.snapshot.failedWriteCount == 0)
+    }
+
     private func makeCanaryRecord() -> TranscriptRuntimeEventRecord {
         TranscriptRuntimeEventRecord(
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),

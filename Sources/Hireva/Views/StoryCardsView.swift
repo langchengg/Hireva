@@ -15,7 +15,8 @@ struct StoryDraft: Codable, Identifiable {
 }
 
 struct StoryCardsView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var settings: SettingsState
+    let repository: PreparationRepository
     let profile: CandidateProfile
     @State private var drafts: [StoryDraft] = []
     @State private var status = ""
@@ -52,11 +53,11 @@ struct StoryCardsView: View {
                         }
                         HStack {
                             Button("Save Draft (not confirmed facts)") {
-                                do { try PreparationRepository(database: appState.database).saveStory(draft); status = "Draft saved separately from personal facts." }
+                                do { try repository.saveStory(draft); status = "Draft saved separately from personal facts." }
                                 catch { status = error.localizedDescription }
-                            }.disabled(!appState.settings.saveTranscriptsLocally)
+                            }.disabled(!settings.settings.saveTranscriptsLocally)
                             Button("Delete Draft", role: .destructive) {
-                                do { try PreparationRepository(database: appState.database).delete(draft.id); drafts.removeAll { $0.id == draft.id } }
+                                do { try repository.delete(draft.id); drafts.removeAll { $0.id == draft.id } }
                                 catch { status = error.localizedDescription }
                             }
                         }
@@ -65,7 +66,7 @@ struct StoryCardsView: View {
                 Text(status).font(.caption)
             }
         }.onAppear {
-            drafts = ((try? PreparationRepository(database: appState.database).records()) ?? []).filter { $0.kind == "story-draft" }.compactMap { try? JSONDecoder().decode(StoryDraft.self, from: $0.payload) }.filter { $0.candidateProfileID == profile.id }
+            drafts = ((try? repository.records()) ?? []).filter { $0.kind == "story-draft" }.compactMap { try? JSONDecoder().decode(StoryDraft.self, from: $0.payload) }.filter { $0.candidateProfileID == profile.id }
         }
     }
 }

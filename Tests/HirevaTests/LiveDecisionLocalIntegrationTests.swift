@@ -110,50 +110,61 @@ struct LiveDecisionLocalIntegrationTests {
         let url = URL(fileURLWithPath: root).appendingPathComponent("correction-" + UUID().uuidString + ".sqlite")
         let database = try AppDatabase(path: url)
         let app = AppState(database: database, keychainService: KeychainService(store: InMemoryMockKeychainStore()))
-        app.answerProviderModeOverride = .localQwenPrimary
-        app.localLLMProviderOverride = SyntheticCaptureProvider(suffix: "correction")
-        app.setSelectedQwenModelName("qwen3.5:4b")
-        var settings = app.settings; settings.saveTranscriptsLocally = true; settings.diagnosticTraceMode = .off
-        app.saveSettings(settings)
-        let question = "Explain a retry policy with bounded attempts, exponential backoff and jitter."
-        app.practiceController.start(kind: nil, question: question, language: "en", criteria: [], maxFollowUps: 1)
-        app.practiceController.beginAnswer()
-        app.practiceController.run?.draft = "A retrieve policy repeats failed requests at most three times. Exponential backoff doubles the delay; jitter randomizes it to spread concurrent requests."
-        app.practiceController.submit()
-        func waitForEvaluation() async throws {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(95))
-            while app.practiceController.run?.phase == .evaluating, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
-            try #require(app.practiceController.error == nil)
-            try #require(app.practiceController.run?.phase == .completed)
+        do {
+            app.answerProviderModeOverride = .localQwenPrimary
+            app.localLLMProviderOverride = SyntheticCaptureProvider(suffix: "correction")
+            app.setSelectedQwenModelName("qwen3.5:4b")
+            var settings = app.settings; settings.saveTranscriptsLocally = true; settings.diagnosticTraceMode = .off
+            app.saveSettings(settings)
+            let question = "Explain a retry policy with bounded attempts, exponential backoff and jitter."
+            app.practiceController.start(kind: nil, question: question, language: "en", criteria: [], maxFollowUps: 1)
+            app.practiceController.beginAnswer()
+            app.practiceController.run?.draft = "A retrieve policy repeats failed requests at most three times. Exponential backoff doubles the delay; jitter randomizes it to spread concurrent requests."
+            app.practiceController.submit()
+            func waitForEvaluation() async throws {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(95))
+                while app.practiceController.run?.phase == .evaluating, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
+                try #require(app.practiceController.error == nil)
+                try #require(app.practiceController.run?.phase == .completed)
+            }
+            try await waitForEvaluation()
+            let originalRun = try #require(app.practiceController.run)
+            let original = try #require(originalRun.attempts.first)
+            let session = try #require(try app.sessionRepository.session(id: originalRun.sessionID))
+            app.generateRecap(for: session)
+            let corrected = original.answer.replacingOccurrences(of: "retrieve", with: "retry") // Explicit user correction, never an ASR normalizer.
+            app.correctPracticeAttempt(sessionID: session.id, attemptID: original.id, question: question, answer: corrected)
+            app.practiceController.reevaluate(attemptID: original.id)
+            try await waitForEvaluation()
+            app.generateRecap(for: session)
+            let repository = PracticeRepository(database: database)
+            let revised = try #require(try repository.load(sessionID: session.id)?.attempts.first)
+            #expect(revised.id == original.id && revised.revision == original.revision + 1)
+            #expect(revised.hinted)
+            #expect(revised.corrections?.first?.hinted == false)
+            #expect(revised.corrections?.first?.answer == original.answer)
+            #expect(revised.corrections?.first?.feedback == original.feedback)
+            #expect(revised.task?.decision?.questionRevision == revised.revision)
+            #expect(revised.feedback?.covered.allSatisfy { corrected.contains($0.quote) } == true)
+            #expect(try app.recapRepository.versions(sessionID: session.id).count == 2)
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(revised).write(to: URL(fileURLWithPath: root).appendingPathComponent("corrected-attempt.json"))
+            await app.shutdownForTesting()
+            try database.close()
+            let reopened = try AppDatabase(path: url)
+            do {
+                #expect(try PracticeRepository(database: reopened).load(sessionID: session.id)?.attempts.first == revised)
+                #expect(try RecapRepository(database: reopened).versions(sessionID: session.id).count == 2)
+                try reopened.close()
+            } catch {
+                try? reopened.close()
+                throw error
+            }
+        } catch {
+            await app.shutdownForTesting()
+            try? database.close()
+            throw error
         }
-        try await waitForEvaluation()
-        let originalRun = try #require(app.practiceController.run)
-        let original = try #require(originalRun.attempts.first)
-        let session = try #require(try app.sessionRepository.session(id: originalRun.sessionID))
-        app.generateRecap(for: session)
-        let corrected = original.answer.replacingOccurrences(of: "retrieve", with: "retry") // Explicit user correction, never an ASR normalizer.
-        app.correctPracticeAttempt(sessionID: session.id, attemptID: original.id, question: question, answer: corrected)
-        app.practiceController.reevaluate(attemptID: original.id)
-        try await waitForEvaluation()
-        app.generateRecap(for: session)
-        let repository = PracticeRepository(database: database)
-        let revised = try #require(try repository.load(sessionID: session.id)?.attempts.first)
-        #expect(revised.id == original.id && revised.revision == original.revision + 1)
-        #expect(revised.hinted)
-        #expect(revised.corrections?.first?.hinted == false)
-        #expect(revised.corrections?.first?.answer == original.answer)
-        #expect(revised.corrections?.first?.feedback == original.feedback)
-        #expect(revised.task?.decision?.questionRevision == revised.revision)
-        #expect(revised.feedback?.covered.allSatisfy { corrected.contains($0.quote) } == true)
-        #expect(try app.recapRepository.versions(sessionID: session.id).count == 2)
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(revised).write(to: URL(fileURLWithPath: root).appendingPathComponent("corrected-attempt.json"))
-        app.practiceController.pause()
-        try database.close()
-        let reopened = try AppDatabase(path: url)
-        #expect(try PracticeRepository(database: reopened).load(sessionID: session.id)?.attempts.first == revised)
-        #expect(try RecapRepository(database: reopened).versions(sessionID: session.id).count == 2)
-        try reopened.close()
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["HIREVA_RUN_LOCAL_LIVE_DECISION"] == "1"))

@@ -9,16 +9,17 @@ Run the complete automated stability gate from the repository root:
 ```
 
 This command runs the Swift build, full test suite, terminal runtime smoke
-harness, and verified rebuild/launch of `dist/Hireva.app`. A
+harness, and a signed, verified build in the managed application slot. A
 passing `swift test` result alone is not sufficient acceptance for runtime
 changes.
 
-The final verification step terminates any running app instance, rebuilds and
-signs the app bundle, then relaunches it to verify the packaged executable.
+The final step uses `--build-only`; it does not launch or terminate applications.
+The artifact coordinator refuses to replace a running or externally changed
+managed bundle. GUI and real-audio verification are separate checks.
 
 ## macOS Signing and Launch Verification
 
-Ad-hoc signing is the fallback for local builds, but repeated rebuilds produce
+Ad-hoc signing is the default explicit local mode, but repeated rebuilds produce
 a new code-signing hash. AMFI can reject an ad-hoc build on some systems, and
 TCC permissions can stop matching the rebuilt app. An Apple Development
 identity is recommended for stable launch verification.
@@ -32,24 +33,22 @@ security find-identity -v -p codesigning
 Run verification with a configured identity:
 
 ```bash
-HIREVA_SIGNING_IDENTITY="Apple Development: NAME (TEAMID)" ./script/build_and_run.sh --verify
+HIREVA_SIGNING_MODE=development HIREVA_SIGNING_IDENTITY="Apple Development: NAME (TEAMID)" ./script/build_and_run.sh --verify
 ```
 
-The repository is currently under a Google Drive file-provider path. Cloud
-synchronization can recreate extended attributes, `.DS_Store`, or AppleDouble
-`._*` files after cleanup, making signing verification unstable. If those
-artifacts keep returning, copy the repository to a non-cloud local path before
-diagnosing the signing identity itself.
+The canonical artifact coordinator keeps build caches and bundles outside the
+source checkout, including when the checkout is under a cloud file-provider path.
+It signs a fresh owned staging bundle before publication.
 
 When launch verification fails, `build_and_run.sh` prints the following
 diagnostics automatically. They can also be run manually:
 
 ```bash
-codesign -dv --verbose=4 dist/Hireva.app
-codesign --verify --deep --strict --verbose=4 dist/Hireva.app
-spctl --assess --type execute --verbose=4 dist/Hireva.app || true
-xattr -lr dist/Hireva.app || true
-log show --predicate 'process == "amfid" OR eventMessage CONTAINS "Hireva"' --last 5m --style compact
+HIREVA_CHECK_APP="$(python3 script/artifact_lifecycle.py paths)"
+codesign -dv --verbose=4 "$HIREVA_CHECK_APP"
+codesign --verify --deep --strict --verbose=4 "$HIREVA_CHECK_APP"
+spctl --assess --type execute --verbose=4 "$HIREVA_CHECK_APP" || true
+xattr -lr "$HIREVA_CHECK_APP" || true
 ```
 
 Use the read-only database diagnostic when investigating persisted runtime

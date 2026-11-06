@@ -38,6 +38,11 @@ struct Options {
   std::string sessionID = "sidecar";
   std::string captureMode = "systemAudioOnly";
   std::string wavPath;
+  std::string decodingMethod = "greedy_search";
+  std::string hotwordsFile;
+  std::string bpeVocab;
+  bool approximateBPEVocab = false;
+  float hotwordsScore = 1.5F;
   int32_t numThreads = 2;
   float silenceThreshold = 0.0035F;
   float trailingSilenceSeconds = 0.85F;
@@ -47,6 +52,8 @@ struct Options {
 
 using Recognizer = std::unique_ptr<const SherpaOnnxOfflineRecognizer,
                                    decltype(&SherpaOnnxDestroyOfflineRecognizer)>;
+using Resampler = std::unique_ptr<const SherpaOnnxLinearResampler,
+                                  decltype(&SherpaOnnxDestroyLinearResampler)>;
 
 [[noreturn]] void Fail(const std::string &message);
 
@@ -143,6 +150,16 @@ Options ParseOptions(int argc, char **argv) {
       options.captureMode = RequiredArgument(argc, argv, &index, argument);
     } else if (argument == "--wav") {
       options.wavPath = RequiredArgument(argc, argv, &index, argument);
+    } else if (argument == "--decoding-method") {
+      options.decodingMethod = RequiredArgument(argc, argv, &index, argument);
+    } else if (argument == "--hotwords-file") {
+      options.hotwordsFile = RequiredArgument(argc, argv, &index, argument);
+    } else if (argument == "--bpe-vocab") {
+      options.bpeVocab = RequiredArgument(argc, argv, &index, argument);
+    } else if (argument == "--approximate-bpe-vocab") {
+      options.approximateBPEVocab = true;
+    } else if (argument == "--hotwords-score") {
+      options.hotwordsScore = FloatArgument(argc, argv, &index, argument);
     } else if (argument == "--num-threads") {
       options.numThreads = static_cast<int32_t>(
           FloatArgument(argc, argv, &index, argument));
@@ -160,6 +177,25 @@ Options ParseOptions(int argc, char **argv) {
     } else {
       Fail("Unsupported argument: " + argument);
     }
+  }
+  if (options.decodingMethod != "greedy_search" &&
+      options.decodingMethod != "modified_beam_search") {
+    Fail("Unsupported decoding method");
+  }
+  if (!std::isfinite(options.hotwordsScore) || options.hotwordsScore < 0 || options.hotwordsScore > 3) {
+    Fail("Hotwords score must be finite and between 0 and 3");
+  }
+  if (!std::isfinite(options.silenceThreshold) || options.silenceThreshold < 0 ||
+      !std::isfinite(options.trailingSilenceSeconds) || options.trailingSilenceSeconds <= 0 ||
+      !std::isfinite(options.minimumUtteranceSeconds) || options.minimumUtteranceSeconds < 0 ||
+      !std::isfinite(options.maximumUtteranceSeconds) || options.maximumUtteranceSeconds <= 0 ||
+      options.maximumUtteranceSeconds < options.minimumUtteranceSeconds ||
+      static_cast<double>(options.maximumUtteranceSeconds) * kTargetSampleRate > INT32_MAX) {
+    Fail("Invalid audio segmentation limits");
+  }
+  if ((!options.hotwordsFile.empty() || !options.bpeVocab.empty() || options.approximateBPEVocab) &&
+      (options.hotwordsFile.empty() || options.bpeVocab.empty() || options.decodingMethod != "modified_beam_search")) {
+    Fail("Hotwords require modified_beam_search, --hotwords-file and --bpe-vocab");
   }
   return options;
 }
@@ -198,18 +234,102 @@ Recognizer CreateRecognizer(const Options &options) {
   config.model_config.num_threads = std::max<int32_t>(1, options.numThreads);
   config.model_config.provider = "cpu";
   config.model_config.model_type = "nemo_transducer";
-  config.decoding_method = "greedy_search";
+  config.decoding_method = options.decodingMethod.c_str();
+  config.max_active_paths = 4;
+  if (!options.hotwordsFile.empty()) {
+    if (!IsRegularReadableFile(options.hotwordsFile)) { Fail("Missing hotwords file"); }
+    NSString *path = [NSString stringWithUTF8String:options.hotwordsFile.c_str()];
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '-"];
+    if (data.length == 0 || data.length > 4096 || text == nil || lines.count > 33) {
+      Fail("Invalid contextual vocabulary size or encoding");
+    }
+    for (NSString *line in lines) {
+      if (line.length == 0) { continue; }
+      if ([line lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 64 ||
+          ![line isEqualToString:[line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]] ||
+          [line containsString:@"  "] ||
+          [line rangeOfCharacterFromSet:NSCharacterSet.alphanumericCharacterSet].location == NSNotFound ||
+          [line rangeOfCharacterFromSet:allowed.invertedSet].location != NSNotFound ||
+          [line componentsSeparatedByString:@" "].count > 4) {
+        Fail("Invalid contextual term");
+      }
+    }
+    if (options.approximateBPEVocab) {
+      // ponytail: equal scores follow the pinned sherpa v2 example; replace with matched v3 tokenizer scores when available.
+      NSData *tokenData = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:tokens.c_str()]];
+      NSString *tokenText = [[NSString alloc] initWithData:tokenData encoding:NSUTF8StringEncoding];
+      if (tokenText == nil || tokenData.length == 0 || tokenData.length > 2097152) { Fail("Invalid token vocabulary"); }
+      NSMutableString *vocabulary = [NSMutableString string];
+      for (NSString *line in [tokenText componentsSeparatedByString:@"\n"]) {
+        if (line.length == 0) { continue; }
+        NSRange separator = [line rangeOfString:@" " options:NSBackwardsSearch];
+        if (separator.location == NSNotFound) { Fail("Invalid token vocabulary line"); }
+        [vocabulary appendFormat:@"%@\t-1\n", [line substringToIndex:separator.location]];
+      }
+      NSData *vocabularyData = [vocabulary dataUsingEncoding:NSUTF8StringEncoding];
+      int fd = open(options.bpeVocab.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+      if (fd < 0) { Fail("Could not create contextual BPE vocabulary"); }
+      size_t offset = 0;
+      while (offset < vocabularyData.length) {
+        ssize_t written = write(fd, static_cast<const char *>(vocabularyData.bytes) + offset, vocabularyData.length - offset);
+        if (written <= 0) { close(fd); Fail("Could not write contextual BPE vocabulary"); }
+        offset += written;
+      }
+      close(fd);
+    }
+    if (!IsRegularReadableFile(options.bpeVocab)) { Fail("Missing BPE vocabulary"); }
+    config.hotwords_file = options.hotwordsFile.c_str();
+    config.hotwords_score = options.hotwordsScore;
+    config.model_config.modeling_unit = "bpe";
+    config.model_config.bpe_vocab = options.bpeVocab.c_str();
+  }
 
   const SherpaOnnxOfflineRecognizer *recognizer =
       SherpaOnnxCreateOfflineRecognizer(&config);
   if (recognizer == nullptr) {
     Fail("Failed to create the Parakeet recognizer");
   }
+  // Submitted C values after successful create, not an internal GetConfig.
+  WriteJSON(@{
+    @"type": @"recognizer_configuration", @"schemaVersion": @1,
+    @"configurationScope": @"submitted_after_successful_create", @"creationSucceeded": @YES,
+    @"helperPID": @(getpid()), @"sessionID": [NSString stringWithUTF8String:options.sessionID.c_str()],
+    @"captureMode": [NSString stringWithUTF8String:options.captureMode.c_str()],
+    @"decodingMethod": [NSString stringWithUTF8String:config.decoding_method],
+    @"maxActivePaths": @(config.max_active_paths), @"numThreads": @(config.model_config.num_threads),
+    @"modelType": [NSString stringWithUTF8String:config.model_config.model_type],
+    @"modelingUnit": config.model_config.modeling_unit
+        ? static_cast<id>([NSString stringWithUTF8String:config.model_config.modeling_unit]) : NSNull.null,
+    @"hotwordsScore": @(config.hotwords_score), @"hasHotwordsConfiguration": @(config.hotwords_file != nullptr),
+    @"hasBPEVocabulary": @(config.model_config.bpe_vocab != nullptr)
+  }, stderr);
   return Recognizer(recognizer, &SherpaOnnxDestroyOfflineRecognizer);
 }
 
+std::vector<float> ResampleChunk(const SherpaOnnxLinearResampler *resampler,
+                               const float *samples, size_t count, bool flush) {
+  if (count > INT32_MAX) {
+    Fail("Audio chunk exceeds the resampler sample limit");
+  }
+  std::unique_ptr<const SherpaOnnxResampleOut,
+                  decltype(&SherpaOnnxLinearResamplerResampleFree)> output(
+      SherpaOnnxLinearResamplerResample(resampler, samples,
+                                       static_cast<int32_t>(count), flush),
+      &SherpaOnnxLinearResamplerResampleFree);
+  if (!output || output->n < 0 || (output->n > 0 && !output->samples)) {
+    Fail("Failed to resample audio");
+  }
+  if (output->n == 0) {
+    return {};
+  }
+  return std::vector<float>(output->samples, output->samples + output->n);
+}
+
 std::vector<float> Resample(const float *samples, size_t count,
-                            int32_t sourceRate) {
+                           int32_t sourceRate) {
   if (samples == nullptr || count == 0 || sourceRate <= 0) {
     return {};
   }
@@ -217,18 +337,12 @@ std::vector<float> Resample(const float *samples, size_t count,
     return std::vector<float>(samples, samples + count);
   }
 
-  const double ratio = static_cast<double>(kTargetSampleRate) / sourceRate;
-  const size_t targetCount =
-      std::max<size_t>(1, static_cast<size_t>(std::llround(count * ratio)));
-  std::vector<float> output(targetCount);
-  for (size_t index = 0; index < targetCount; ++index) {
-    const double sourcePosition = static_cast<double>(index) / ratio;
-    const size_t lower = std::min(static_cast<size_t>(sourcePosition), count - 1);
-    const size_t upper = std::min(lower + 1, count - 1);
-    const float fraction = static_cast<float>(sourcePosition - lower);
-    output[index] = samples[lower] + (samples[upper] - samples[lower]) * fraction;
+  Resampler resampler(SherpaOnnxCreateLinearResampler(
+      sourceRate, kTargetSampleRate, 0, 0), &SherpaOnnxDestroyLinearResampler);
+  if (!resampler) {
+    Fail("Failed to create the audio resampler");
   }
-  return output;
+  return ResampleChunk(resampler.get(), samples, count, true);
 }
 
 std::string Decode(const SherpaOnnxOfflineRecognizer *recognizer,
@@ -273,17 +387,41 @@ class UtteranceSegmenter {
       : silenceThreshold_(options.silenceThreshold),
         trailingSilenceSeconds_(options.trailingSilenceSeconds),
         minimumUtteranceSeconds_(options.minimumUtteranceSeconds),
-        maximumUtteranceSeconds_(options.maximumUtteranceSeconds),
+        maximumUtteranceSamples_(std::max<size_t>(1, static_cast<size_t>(
+            std::llround(static_cast<double>(options.maximumUtteranceSeconds) * kTargetSampleRate)))),
         audioSource_(std::move(audioSource)),
         emit_(std::move(emit)) {}
 
   void Accept(const float *samples, size_t count, int32_t sourceRate) {
-    std::vector<float> resampled = Resample(samples, count, sourceRate);
+    if (!samples || count == 0 || sourceRate <= 0) {
+      return;
+    }
+    if (sourceRate != sourceRate_) {
+      Flush();
+      sourceRate_ = sourceRate;
+      resampler_.reset(sourceRate == kTargetSampleRate ? nullptr :
+          SherpaOnnxCreateLinearResampler(sourceRate, kTargetSampleRate, 0, 0));
+      if (sourceRate != kTargetSampleRate && !resampler_) {
+        Fail("Failed to create the streaming audio resampler");
+      }
+    }
+    AcceptResampled(resampler_ ? ResampleChunk(resampler_.get(), samples, count, false)
+                              : std::vector<float>(samples, samples + count));
+  }
+
+  void Flush() {
+    // End-of-input drains the filter; an automatic utterance split must not.
+    if (resampler_) {
+      AcceptResampled(ResampleChunk(resampler_.get(), nullptr, 0, true));
+    }
+    Emit();
+  }
+
+ private:
+  void AcceptResampled(const std::vector<float> &resampled) {
     if (resampled.empty()) {
       return;
     }
-    const float duration =
-        static_cast<float>(resampled.size()) / kTargetSampleRate;
     double energy = 0;
     for (float sample : resampled) {
       energy += static_cast<double>(sample) * sample;
@@ -291,33 +429,57 @@ class UtteranceSegmenter {
     const float rms =
         static_cast<float>(std::sqrt(energy / resampled.size()));
     const bool speechLike = rms >= silenceThreshold_;
-    if (speechLike && samples_.empty()) {
-      segmentStart_ = audioClock_;
-      silenceSeconds_ = 0;
-    }
-    if (!samples_.empty() || speechLike) {
-      samples_.insert(samples_.end(), resampled.begin(), resampled.end());
-      silenceSeconds_ = speechLike ? 0 : silenceSeconds_ + duration;
-    }
-    audioClock_ += duration;
-
-    const float activeDuration =
-        static_cast<float>(samples_.size()) / kTargetSampleRate;
-    if (!samples_.empty() &&
-        ((silenceSeconds_ >= trailingSilenceSeconds_ &&
-          activeDuration >= minimumUtteranceSeconds_) ||
-         activeDuration >= maximumUtteranceSeconds_)) {
-      Flush();
+    size_t offset = 0;
+    while (offset < resampled.size()) {
+      if (speechLike && samples_.empty()) {
+        leadingSamples_ = preRoll_.size();
+        segmentStart_ = std::max(0.F, audioClock_ -
+            static_cast<float>(leadingSamples_) / kTargetSampleRate);
+        samples_.swap(preRoll_);
+        silenceSeconds_ = 0;
+      }
+      const bool active = !samples_.empty() || speechLike;
+      const size_t count = active
+          ? std::min(resampled.size() - offset, maximumUtteranceSamples_ - samples_.size())
+          : resampled.size() - offset;
+      const float duration = static_cast<float>(count) / kTargetSampleRate;
+      if (active) {
+        samples_.insert(samples_.end(), resampled.begin() + offset,
+                        resampled.begin() + offset + count);
+        silenceSeconds_ = speechLike ? 0 : silenceSeconds_ + duration;
+      } else {
+        preRoll_.insert(preRoll_.end(), resampled.begin() + offset, resampled.end());
+        const size_t minimumSamples = std::min(maximumUtteranceSamples_,
+            static_cast<size_t>(std::ceil(static_cast<double>(minimumUtteranceSeconds_) * kTargetSampleRate)));
+        const size_t limit = std::min<size_t>(3200,
+            maximumUtteranceSamples_ - std::max<size_t>(1, minimumSamples));
+        if (preRoll_.size() > limit) {
+          preRoll_.erase(preRoll_.begin(), preRoll_.end() - limit);
+        }
+      }
+      offset += count;
+      audioClock_ += duration;
+      const float activeDuration =
+          static_cast<float>(samples_.size() - leadingSamples_) / kTargetSampleRate;
+      if (active && ((silenceSeconds_ >= trailingSilenceSeconds_ &&
+                      activeDuration >= minimumUtteranceSeconds_) ||
+                     samples_.size() == maximumUtteranceSamples_)) {
+        Emit();
+      }
     }
   }
 
-  void Flush() {
+  void Emit() {
     if (samples_.empty()) {
+      preRoll_.clear();
+      leadingSamples_ = 0;
       return;
     }
     const float duration =
         static_cast<float>(samples_.size()) / kTargetSampleRate;
-    if (duration >= minimumUtteranceSeconds_) {
+    const float activeDuration =
+        static_cast<float>(samples_.size() - leadingSamples_) / kTargetSampleRate;
+    if (activeDuration >= minimumUtteranceSeconds_) {
       emit_(PendingUtterance{
           std::move(samples_),
           audioSource_,
@@ -326,6 +488,8 @@ class UtteranceSegmenter {
       });
     }
     samples_.clear();
+    preRoll_.clear();
+    leadingSamples_ = 0;
     silenceSeconds_ = 0;
   }
 
@@ -333,12 +497,16 @@ class UtteranceSegmenter {
   float silenceThreshold_;
   float trailingSilenceSeconds_;
   float minimumUtteranceSeconds_;
-  float maximumUtteranceSeconds_;
+  size_t maximumUtteranceSamples_;
   std::string audioSource_;
   float audioClock_ = 0;
   float segmentStart_ = 0;
   float silenceSeconds_ = 0;
+  int32_t sourceRate_ = kTargetSampleRate;
+  Resampler resampler_{nullptr, &SherpaOnnxDestroyLinearResampler};
   std::vector<float> samples_;
+  std::vector<float> preRoll_;
+  size_t leadingSamples_ = 0;
   std::function<void(PendingUtterance)> emit_;
 };
 

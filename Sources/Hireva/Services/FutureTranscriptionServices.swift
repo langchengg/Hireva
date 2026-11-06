@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 
+@MainActor
 final class OpenAIRealtimeTranscriptionService: TranscriptionProvider {
     let providerName = "OpenAI Realtime"
     var segments: AsyncStream<TranscriptSegment> { AsyncStream { $0.finish() } }
@@ -10,6 +11,7 @@ final class OpenAIRealtimeTranscriptionService: TranscriptionProvider {
     func stop() {}
 }
 
+@MainActor
 final class DeepgramTranscriptionService: TranscriptionProvider {
     let providerName = "Deepgram"
     var segments: AsyncStream<TranscriptSegment> { AsyncStream { $0.finish() } }
@@ -39,6 +41,7 @@ final class PlaceholderSystemAudioCaptureService: SystemAudioCaptureService {
     func stopSystemAudioCapture() {}
 }
 
+@MainActor
 final class FutureSystemAudioTranscriptionService: TranscriptionProvider {
     let providerName = "System Audio Capture"
     var segments: AsyncStream<TranscriptSegment> { AsyncStream { $0.finish() } }

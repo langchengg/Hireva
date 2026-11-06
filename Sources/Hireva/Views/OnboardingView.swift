@@ -1,10 +1,17 @@
 import SwiftUI
 
+@MainActor
 struct OnboardingView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var documentsState: DocumentsState
     @State private var cvText = ""
     @State private var jdText = ""
     @State private var apiKey = ""
+
+    init(appState: AppState) {
+        self.appState = appState
+        self.documentsState = appState.documentsState
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -21,8 +28,8 @@ struct OnboardingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 12) {
-                    checklistRow("CV added", complete: appState.hasCV)
-                    checklistRow("JD added", complete: appState.hasJD)
+                    checklistRow("CV added", complete: documentsState.hasCV)
+                    checklistRow("JD added", complete: documentsState.hasJD)
                     checklistRow("Cloud API key added (optional)", complete: appState.hasAPIKey)
                 }
                 .padding(18)
@@ -41,19 +48,23 @@ struct OnboardingView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    documentEditor(
+                    OnboardingDocumentEditor(documents: documentsState,
                         title: "CV / Resume",
                         type: .cv,
                         placeholder: "Paste resume text here. Plain text, .txt, and .md content work best in this MVP.",
                         text: $cvText,
+                        isLoading: appState.isActionLoading(ActionID.saveDocument(.cv)),
+                        feedback: appState.latestActionFeedback(for: ActionID.saveDocument(.cv)),
                         action: { appState.saveDocument(type: .cv, title: "CV / Resume", content: cvText) }
                     )
 
-                    documentEditor(
+                    OnboardingDocumentEditor(documents: documentsState,
                         title: "Job Description",
                         type: .jobDescription,
                         placeholder: "Paste the target role's job description here.",
                         text: $jdText,
+                        isLoading: appState.isActionLoading(ActionID.saveDocument(.jobDescription)),
+                        feedback: appState.latestActionFeedback(for: ActionID.saveDocument(.jobDescription)),
                         action: { appState.saveDocument(type: .jobDescription, title: "Job Description", content: jdText) }
                     )
 
@@ -123,14 +134,6 @@ struct OnboardingView: View {
                 .padding(28)
             }
         }
-        .onAppear {
-            if let cv = appState.documents.first(where: { $0.type == .cv }) {
-                cvText = cv.content
-            }
-            if let jd = appState.documents.first(where: { $0.type == .jobDescription }) {
-                jdText = jd.content
-            }
-        }
     }
 
     private func checklistRow(_ title: String, complete: Bool) -> some View {
@@ -139,55 +142,4 @@ struct OnboardingView: View {
             .font(.callout.weight(.medium))
     }
 
-    private func documentEditor(
-        title: String,
-        type: DocumentType,
-        placeholder: String,
-        text: Binding<String>,
-        action: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title)
-                    .font(.headline)
-                Spacer()
-                Text("\(text.wrappedValue.count) chars")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            TextEditor(text: text)
-                .font(.body)
-                .frame(minHeight: 150)
-                .overlay(alignment: .topLeading) {
-                    if text.wrappedValue.isEmpty {
-                        Text(placeholder)
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 8)
-                            .padding(.leading, 5)
-                    }
-                }
-                .padding(8)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            HStack {
-                Text(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).count < 80 ? "Paste at least 80 characters to complete this step." : "Ready to save.")
-                    .font(.caption)
-                    .foregroundStyle(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).count < 80 ? Color.secondary : Color.green)
-                Spacer()
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.saveDocument(type),
-                    title: "Save \(title)",
-                    loadingTitle: "Saving...",
-                    successTitle: "Saved",
-                    systemImage: "square.and.arrow.down",
-                    isProminent: true,
-                    disabled: text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).count < 80,
-                    action: action
-                )
-            }
-            InlineStatusBanner(appState.latestActionFeedback(for: ActionID.saveDocument(type)))
-        }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
 }

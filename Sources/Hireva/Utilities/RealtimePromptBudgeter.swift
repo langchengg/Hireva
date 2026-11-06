@@ -42,7 +42,8 @@ struct RealtimePromptBudgeter {
         return RetrievedContext(
             cvChunks: trim(chunks: context.cvChunks, limit: selectedProfile.cvChunkLimit, wordsPerChunk: selectedProfile.wordsPerChunk),
             jobDescriptionChunks: trim(chunks: context.jobDescriptionChunks, limit: selectedProfile.jdChunkLimit, wordsPerChunk: selectedProfile.wordsPerChunk),
-            additionalNotesChunks: []
+            additionalNotesChunks: QuestionIntentPromptPolicy.relevantNotes(context.additionalNotesChunks,
+                question: question, maxWords: selectedProfile.wordsPerChunk)
         )
     }
 

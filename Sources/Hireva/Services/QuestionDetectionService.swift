@@ -6,7 +6,7 @@ struct LocalQuestionHeuristicResult {
     let reason: String
 }
 
-final class QuestionDetectionService {
+final class QuestionDetectionService: Sendable {
     private let llmRouter: LLMRouter
 
     init(llmRouter: LLMRouter) {
@@ -65,7 +65,8 @@ final class QuestionDetectionService {
         transcriptContext: String,
         sessionID: String,
         transcriptSegmentID: String?,
-        model: String? = nil
+        model: String? = nil,
+        providerConfiguration: LLMProviderConfiguration? = nil
     ) async throws -> (question: DetectedQuestion, response: LLMChatResult) {
         let heuristic = isLikelyQuestion(transcriptContext)
         if !heuristic.shouldTrigger {
@@ -111,11 +112,17 @@ final class QuestionDetectionService {
         """
 
         do {
-            let response = try await llmRouter.chatForRealtime(
-                messages: [.system(prompt.text), .user(userPrompt)],
-                responseFormat: .jsonObject,
-                options: LLMRequestOptions(temperature: 0.0)
-            )
+            let messages: [LLMChatMessage] = [.system(prompt.text), .user(userPrompt)]
+            let response: LLMChatResult
+            if let providerConfiguration {
+                response = try await llmRouter.chat(configuration: providerConfiguration,
+                    messages: messages, responseFormat: .jsonObject,
+                    options: LLMRequestOptions(temperature: 0.0))
+            } else {
+                response = try await llmRouter.chatForRealtime(messages: messages,
+                    responseFormat: .jsonObject,
+                    options: LLMRequestOptions(temperature: 0.0))
+            }
             let providerPayload = try JSONParsing.decodeObject(QuestionDetectionPayload.self, from: response.content)
             let payload = normalizeProviderDetection(
                 providerPayload,
@@ -216,32 +223,7 @@ final class QuestionDetectionService {
     }
 
     private func isStrongCompleteQuestion(_ text: String) -> Bool {
-        let lower = text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard lower.split(whereSeparator: \.isWhitespace).count >= 4 else {
-            return false
-        }
-        if SystemAudioQuestionExtractor.isIncompleteQuestionFragment(lower) {
-            return false
-        }
-
-        let incompleteEndings = [
-            " can you", " could you", " would you", " do you", " are you",
-            " and", " or", " but", " so", " because", " with", " to", " for", " about", " from"
-        ]
-        if incompleteEndings.contains(where: { lower.hasSuffix($0) }) {
-            return false
-        }
-
-        let strongPrefixes = [
-            "what ", "how ", "why ", "where ", "who ", "when ",
-            "can you ", "could you ", "would you ", "should you ",
-            "are you ", "do you ", "have you ", "is there ",
-            "walk me through ", "tell me about ", "give me an example ",
-            "talk about ", "describe ", "explain ", "elaborate ", "imagine "
-        ]
-        return strongPrefixes.contains { lower.hasPrefix($0) }
+        QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: text).accepted
     }
 
     private func localFallbackDetection(

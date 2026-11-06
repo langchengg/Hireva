@@ -1,9 +1,16 @@
 import SwiftUI
 
 struct SessionDetailView: View {
-    @ObservedObject var appState: AppState
+    let appState: AppState
+    @ObservedObject private var history: HistoryState
     var session: InterviewSession
     @State private var confirmDeleteSession = false
+
+    init(appState: AppState, session: InterviewSession) {
+        self.appState = appState
+        self.session = session
+        history = appState.historyState
+    }
 
     var body: some View {
         ScrollView {
@@ -38,7 +45,7 @@ struct SessionDetailView: View {
                         Button("Open Practice / Resume") { appState.practiceController.restore(sessionID: session.id); appState.selectSection(.practice) }
                     }
                 }
-                InlineStatusBanner(sessionFeedback)
+                HistoryActionFeedbackView(appState: appState)
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -53,7 +60,7 @@ struct SessionDetailView: View {
                             successTitle: "Recap ready",
                             systemImage: "wand.and.stars",
                             isProminent: true,
-                            disabled: appState.isGeneratingRecap
+                            disabled: history.isGeneratingRecap
                         ) {
                             appState.generateRecap(for: session)
                         }
@@ -64,21 +71,21 @@ struct SessionDetailView: View {
                             loadingTitle: "Exporting...",
                             successTitle: "Exported",
                             systemImage: "square.and.arrow.up",
-                            disabled: appState.selectedSessionRecap == nil
+                            disabled: history.selectedSessionRecap == nil
                         ) {
                             appState.exportSelectedRecap()
                         }
                     }
-                    InlineStatusBanner(sessionFeedback)
-                    if appState.isGeneratingRecap {
+                    HistoryActionFeedbackView(appState: appState)
+                    if history.isGeneratingRecap {
                         ProgressView("Generating recap...")
                     }
-                    if let recap = appState.selectedSessionRecap {
+                    if let recap = history.selectedSessionRecap {
                         let revision = (try? appState.sessionRepository.session(id: session.id))?.contentRevision ?? 0
                         Text("Recap input v\(recap.contentRevision ?? 0)\((recap.contentRevision ?? 0) < revision ? " · Based on old inputs — explicitly regenerate / 基于旧版本，请重评" : " · Current input")")
                             .foregroundStyle((recap.contentRevision ?? 0) < revision ? .orange : .secondary)
                     }
-                    Text(appState.selectedSessionRecap?.markdown ?? "No recap generated yet.")
+                    Text(history.selectedSessionRecap?.markdown ?? "No recap generated yet.")
                         .font(.body.monospaced())
                         .textSelection(.enabled)
                         .padding(12)
@@ -91,12 +98,12 @@ struct SessionDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Suggestions · frozen original inputs")
                         .font(.headline)
-                    if appState.selectedSessionSuggestions.isEmpty {
+                    if history.selectedSessionSuggestions.isEmpty {
                         Text("No suggestion cards saved for this session.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(appState.selectedSessionSuggestions) { card in
-                            SuggestionCardView(card: card, retrievedChunks: appState.historicalSuggestionChunks[card.id] ?? [], isSourcesExpandedInitially: true)
+                        ForEach(history.selectedSessionSuggestions) { card in
+                            SuggestionCardView(card: card, retrievedChunks: history.historicalSuggestionChunks[card.id] ?? [], isSourcesExpandedInitially: true)
                                 .frame(minHeight: 240)
                         }
                     }
@@ -105,7 +112,7 @@ struct SessionDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Transcript")
                         .font(.headline)
-                    ForEach(appState.selectedSessionTranscript) { segment in
+                    ForEach(history.selectedSessionTranscript) { segment in
                         Text("\(segment.speaker.displayName): \(segment.text)")
                             .textSelection(.enabled)
                             .padding(10)
@@ -130,12 +137,18 @@ struct SessionDetailView: View {
             Text("This removes the transcript, suggestions, and recap for this interview session.")
         }
     }
+}
 
-    private var sessionFeedback: ActionFeedback? {
-        appState.latestActionFeedback(matching: [
+/// Action feedback still belongs to the app policy surface. Keep that observation
+/// scoped to the banner; history records observe their own owner directly.
+private struct HistoryActionFeedbackView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        InlineStatusBanner(appState.latestActionFeedback(matching: [
             ActionID.sessionDelete,
             ActionID.sessionRecap,
             ActionID.sessionExport
-        ])
+        ]))
     }
 }

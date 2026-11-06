@@ -104,13 +104,12 @@ struct PracticeView: View {
         if run.phase == .completed || run.phase == .followUp, let attempt = run.attempts.last {
             if let feedback = attempt.feedback {
                 Text("Feedback · \(attempt.hinted ? "assisted attempt" : "unprompted attempt")").font(.headline)
-                ForEach(Array(feedback.covered.enumerated()), id: \.offset) { _, item in
-                    Text("\(item.criterion): “\(item.quote)” [answer \(attempt.id.prefix(8))]").textSelection(.enabled)
+                ForEach(Array(feedback.assessmentLines.enumerated()), id: \.offset) { _, line in
+                    Text("\(line) [answer \(attempt.id.prefix(8)) v\(attempt.revision)]").textSelection(.enabled)
                 }
-                Text("Missing: " + feedback.missing.joined(separator: "; "))
                 Text(feedback.suggestions.joined(separator: "\n"))
                 Text("Next question reason: " + feedback.reason).foregroundStyle(.secondary)
-                DisclosureGroup("Reference approach — system generated") { Text(feedback.reference).textSelection(.enabled) }
+                DisclosureGroup("Reference approach — " + referenceLabel(feedback.referenceOrigin)) { Text(feedback.reference).textSelection(.enabled) }
                 Text("Code / calculation: not executed by this evaluation. Use the explicit SQL tool for an actual check.").font(.caption)
                 HStack {
                     if run.phase == .completed, feedback.followUp != nil, run.followUpCount < run.maxFollowUps { Button("Targeted Follow-up / 针对性追问") { controller.followUp() } }
@@ -132,6 +131,7 @@ struct PracticeView: View {
                     Text("Due: \(card.card.due.formatted()) · \(card.hinted ? "created from assisted attempt" : "created from unprompted attempt")").font(.caption)
                     Button("Reveal After Recall") { revealedReviews.insert(card.id) }
                     if revealedReviews.contains(card.id) {
+                        Text(referenceLabel(controller.referenceOrigin(for: card)) + " · source revision " + (card.sourceAttemptRevision.map(String.init) ?? "unknown")).font(.caption).foregroundStyle(.secondary)
                         Text(card.answer).textSelection(.enabled)
                         HStack {
                             ForEach([1, 2, 3, 4], id: \.self) { rating in
@@ -142,6 +142,13 @@ struct PracticeView: View {
                     Button("Delete Card", role: .destructive) { controller.deleteReview(card.id) }
                 }.padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
+        }
+    }
+    private func referenceLabel(_ origin: PracticeFeedback.ReferenceOrigin?) -> String {
+        switch origin {
+        case .modelDraft: return "model draft · technical facts not independently verified"
+        case .applicationSourceNotice: return "source limitation notice"
+        case nil: return "source unknown · technical facts not independently verified"
         }
     }
 }

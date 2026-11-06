@@ -738,7 +738,7 @@ private final class PhDReplayLocalQwenProvider: LocalLLMProvider {
     }
 
     func generateAnswer(request: LocalLLMRequest) async throws -> AsyncThrowingStream<LLMToken, Error> {
-        let answer = answer(for: request.prompt)
+        let answer = try TestSupport.scriptedLocalAnswer(answer(for: request.prompt), request: request)
         return AsyncThrowingStream { continuation in
             continuation.yield(LLMToken(text: answer, source: .ollamaQwen, modelName: request.modelName))
             continuation.finish()

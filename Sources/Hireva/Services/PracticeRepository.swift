@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import FSRS
 
 final class PracticeRepository {
     let database: AppDatabase
@@ -80,10 +81,44 @@ final class PracticeRepository {
             try db.execute(sql: "INSERT INTO knowledge_reviews (id, session_id, payload_json) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json", arguments: [card.id, card.sessionID, try JSONEncoder().encode(card)])
         }
     }
+    /// A UI action carries the card it displayed. Check that value against the
+    /// current row and update within the same writer transaction; rating an old
+    /// value must not undo source invalidation, replace ratings, or insert a row.
+    func rateReview(expected: KnowledgeReviewCard, rating: Rating, now: Date) throws {
+        try database.dbQueue.write { db in
+            guard let bytes = try Data.fetchOne(db,
+                sql: "SELECT payload_json FROM knowledge_reviews WHERE id = ? AND session_id = ?",
+                arguments: [expected.id, expected.sessionID]) else { return }
+            let current = try JSONDecoder().decode(KnowledgeReviewCard.self, from: bytes)
+            guard current.id == expected.id, current.sessionID == expected.sessionID,
+                  current.question == expected.question, current.answer == expected.answer,
+                  current.card == expected.card, current.log == expected.log,
+                  current.hinted == expected.hinted, current.algorithm == expected.algorithm,
+                  current.sourceAttemptRevision == expected.sourceAttemptRevision,
+                  current.needsReevaluation != true, expected.needsReevaluation != true,
+                  now >= current.card.lastReview else { return }
+            // Legacy nil and explicit false invalidation flags both mean eligible.
+            // The user supplies Rating; the scheduler does not infer it from feedback.
+            guard let result = FSRS().repeat(card: current.card, now: now)[rating] else { return }
+            var next = current
+            next.card = result.card
+            next.log.append(result.reviewLog)
+            try db.execute(sql: "UPDATE knowledge_reviews SET payload_json = ? WHERE id = ? AND session_id = ?",
+                arguments: [try JSONEncoder().encode(next), current.id, current.sessionID])
+        }
+    }
+
     func reviews() throws -> [KnowledgeReviewCard] {
         try database.dbQueue.read { db in
             try Data.fetchAll(db, sql: "SELECT payload_json FROM knowledge_reviews").map { try JSONDecoder().decode(KnowledgeReviewCard.self, from: $0) }.sorted { $0.card.due < $1.card.due }
         }
+    }
+    func referenceOrigin(for card: KnowledgeReviewCard) throws -> PracticeFeedback.ReferenceOrigin? {
+        guard let revision = card.sourceAttemptRevision,
+              let attempt = try load(sessionID: card.sessionID)?.attempts.first(where: { $0.id == card.id }),
+              attempt.revision == revision, attempt.question == card.question,
+              let feedback = attempt.feedback, feedback.reference == card.answer else { return nil }
+        return feedback.referenceOrigin
     }
     func deleteReview(id: String) throws {
         try database.dbQueue.write { try $0.execute(sql: "DELETE FROM knowledge_reviews WHERE id = ?", arguments: [id]) }

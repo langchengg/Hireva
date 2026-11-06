@@ -273,7 +273,9 @@ enum MultiQuestionSplitter {
         return questions
     }
 
-    static func questionStarts(in source: String) -> [Int] {
+    // These source-defined patterns are immutable and independent of an utterance.
+    // Compile once; matching still reads only the caller's copied source value.
+    private static let questionStartExpressions: [NSRegularExpression] = {
         let auxiliaryQuestionStarts = [
             "\\bcould\\s+you\\b",
             "\\bcan\\s+you\\b",
@@ -322,12 +324,13 @@ enum MultiQuestionSplitter {
             "\\bhow\\s+did\\b",
             "\\bhow\\s+do\\b",
             "\\bhow\\s+does\\b",
+            "\\bhow\\s+can\\b",
             "\\bhow\\s+are\\s+you\\b",
             "\\bhow\\s+would\\b",
             "\\bhow\\s+should\\b",
             "\\bhow\\s+comfortable\\b",
             "\\bwhy\\s+are\\s+you\\b",
-            "\\bwhy\\s+(?:is|are|was|were|should)\\b",
+            "\\bwhy\\s+(?:is|are|was|were|should|can|could|would|will|may|must|does)\\b",
             "\\bwhy\\s+did\\b",
             "\\bwhy\\s+do\\b",
             "\\bwhy\\s+might\\b",
@@ -351,13 +354,39 @@ enum MultiQuestionSplitter {
             whQuestionStarts +
             temporalQuestionStarts +
             contextualQuestionStarts
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+    }()
 
+    static func questionStarts(in source: String) -> [Int] {
+        recognizedQuestionStarts(in: source).map { start in
+            attachedScopeRange(in: source, before: start)?.location ?? start
+        }
+    }
+
+    /// The scope stays in the displayed question, while completeness still
+    /// checks its interrogative clause (a prefix cannot complete a fragment).
+    static func mainClauseOfScopedQuestion(in source: String) -> String? {
+        guard let start = recognizedQuestionStarts(in: source).first,
+              start > 0,
+              attachedScopeRange(in: source, before: start)?.location == 0 else { return nil }
+        return String(source[String.Index(utf16Offset: start, in: source)...])
+    }
+
+    private static let scopePrefixExpression = try? NSRegularExpression(
+        pattern: #"(?:^|[.!?])\s*((?:(?:in|during|within|for)\s+|your\s+)[^,.!?;\n]{1,140},\s*)$"#,
+        options: [.caseInsensitive]
+    )
+
+    private static func attachedScopeRange(in source: String, before start: Int) -> NSRange? {
+        let preceding = (source as NSString).substring(to: start)
+        return scopePrefixExpression?.firstMatch(in: preceding,
+            range: NSRange(location: 0, length: (preceding as NSString).length))?.range(at: 1)
+    }
+
+    private static func recognizedQuestionStarts(in source: String) -> [Int] {
         var starts = Set<Int>()
         let range = NSRange(location: 0, length: (source as NSString).length)
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-                continue
-            }
+        for regex in questionStartExpressions {
             for match in regex.matches(in: source, options: [], range: range) {
                 starts.insert(match.range.location)
             }

@@ -27,7 +27,7 @@ enum GenerationProviderErrorClassification: String, Codable, Equatable, Hashable
 ///
 /// This struct intentionally has no question-binding authority. A result must
 /// still pass active generation and alignment checks before it becomes visible.
-struct GenerationProviderResult: Equatable {
+struct GenerationProviderResult: Equatable, Sendable {
     let identity: GenerationIdentity?
     let sayFirst: String
     let keyPoints: [String]

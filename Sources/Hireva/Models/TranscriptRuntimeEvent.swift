@@ -6,7 +6,7 @@ import Foundation
 /// and does not own UI mutation, detection, generation, or persistence.
 enum TranscriptRuntimeEvent: Equatable {
     case audioStarted(sessionID: String, timestamp: Date)
-    case audioBufferReceived(sessionID: String, frameCount: Int, timestamp: Date)
+    case audioBufferReceived(sessionID: String, frameCount: Int, timestamp: Date, bufferCount: Int = 1, source: AudioSourceType? = nil)
     case asrPartial(sessionID: String, text: String, recognitionTaskID: String?, eventSequence: Int?, sourceStartUTF16: Int?, sourceEndUTF16: Int?, isFinal: Bool, timestamp: Date)
     case asrFinal(sessionID: String, text: String, recognitionTaskID: String?, eventSequence: Int?, sourceStartUTF16: Int?, sourceEndUTF16: Int?, isFinal: Bool, timestamp: Date)
     case utteranceCandidate(sessionID: String, text: String, timestamp: Date)
@@ -47,8 +47,8 @@ enum TranscriptRuntimeEvent: Equatable {
         switch self {
         case let .audioStarted(sessionID, timestamp):
             return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "audioStarted", sessionID: sessionID)
-        case let .audioBufferReceived(sessionID, frameCount, timestamp):
-            return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "audioBufferReceived", sessionID: sessionID, frameCount: frameCount)
+        case let .audioBufferReceived(sessionID, frameCount, timestamp, bufferCount, source):
+            return TranscriptRuntimeEventRecord(timestamp: timestamp, name: "audioBufferReceived", sessionID: sessionID, frameCount: frameCount, bufferCount: bufferCount, audioSource: source)
         case let .asrPartial(sessionID, text, recognitionTaskID, eventSequence, sourceStartUTF16, sourceEndUTF16, isFinal, timestamp):
             return TranscriptRuntimeEventRecord(
                 timestamp: timestamp,
@@ -523,6 +523,8 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
     var text: String
     var reason: String
     var frameCount: Int?
+    var bufferCount: Int?
+    var audioSource: AudioSourceType?
     var rawText: String
     var canonicalText: String
     var candidateText: String
@@ -532,6 +534,7 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
     var rejectionReason: String
     var generationRejectedReason: String
     var generationID: String?
+    var captureTeardownID: String?
     var generationStarted: Bool
     var persistenceStarted: Bool
     var uiTranscriptText: String
@@ -566,9 +569,12 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
         sessionID: String,
         questionID: String? = nil,
         generationID: String? = nil,
+        captureTeardownID: String? = nil,
         text: String = "",
         reason: String = "",
         frameCount: Int? = nil,
+        bufferCount: Int? = nil,
+        audioSource: AudioSourceType? = nil,
         rawText: String = "",
         canonicalText: String = "",
         candidateText: String = "",
@@ -611,9 +617,12 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
         self.sessionID = sessionID
         self.questionID = questionID
         self.generationID = generationID
+        self.captureTeardownID = captureTeardownID
         self.text = text
         self.reason = reason
         self.frameCount = frameCount
+        self.bufferCount = bufferCount
+        self.audioSource = audioSource
         self.rawText = rawText.isEmpty ? text : rawText
         self.canonicalText = canonicalText
         self.candidateText = candidateText
@@ -666,7 +675,10 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
                 eventType: name,
                 questionID: questionID ?? "",
                 generationID: generationID ?? "",
+                captureTeardownID: captureTeardownID,
                 frameCount: frameCount,
+                bufferCount: bufferCount,
+                audioSource: audioSource,
                 generationStarted: generationStarted,
                 persistenceStarted: persistenceStarted,
                 recognitionEventSequence: recognitionEventSequence,
@@ -713,6 +725,7 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             timestamp: ISO8601DateFormatter().string(from: timestamp),
             sessionID: sessionID,
             eventType: name,
+            audioSource: audioSource,
             rawText: traceLimited(rawText),
             canonicalText: traceLimited(canonicalText),
             candidateText: traceLimited(candidateText),
@@ -725,6 +738,7 @@ struct TranscriptRuntimeEventRecord: Identifiable, Equatable {
             rejectionReason: traceLimited(rejectionReason),
             generationRejectedReason: traceLimited(generationRejectedReason),
             generationID: generationID ?? "",
+            captureTeardownID: captureTeardownID,
             questionID: questionID ?? "",
             generationStarted: generationStarted,
             persistenceStarted: persistenceStarted,
@@ -771,7 +785,10 @@ private struct RuntimeTranscriptMetadataTracePayload: Encodable {
     var eventType: String
     var questionID: String
     var generationID: String
+    var captureTeardownID: String?
     var frameCount: Int?
+    var bufferCount: Int?
+    var audioSource: AudioSourceType?
     var generationStarted: Bool
     var persistenceStarted: Bool
     var recognitionEventSequence: Int
@@ -786,6 +803,7 @@ private struct RuntimeTranscriptTracePayload: Encodable {
     var timestamp: String
     var sessionID: String
     var eventType: String
+    var audioSource: AudioSourceType?
     var rawText: String
     var canonicalText: String
     var candidateText: String
@@ -798,6 +816,7 @@ private struct RuntimeTranscriptTracePayload: Encodable {
     var rejectionReason: String
     var generationRejectedReason: String
     var generationID: String
+    var captureTeardownID: String?
     var questionID: String
     var generationStarted: Bool
     var persistenceStarted: Bool
@@ -828,6 +847,7 @@ private struct RuntimeTranscriptTracePayload: Encodable {
         case timestamp
         case sessionID = "session_id"
         case eventType = "event_type"
+        case audioSource = "audio_source"
         case rawText = "raw_text"
         case canonicalText = "canonical_text"
         case candidateText = "candidate_text"
@@ -840,6 +860,7 @@ private struct RuntimeTranscriptTracePayload: Encodable {
         case rejectionReason = "rejection_reason"
         case generationRejectedReason = "generation_rejected_reason"
         case generationID = "generation_id"
+        case captureTeardownID = "capture_teardown_id"
         case questionID = "question_id"
         case generationStarted = "generation_started"
         case persistenceStarted = "persistence_started"
@@ -872,7 +893,19 @@ struct TranscriptRuntimeDiagnostics: Equatable {
     var audioSessionID: String = ""
     var audioIsRunning: Bool = false
     var lastAudioBufferAt: Date?
-    var audioBufferCount: Int = 0
+    private(set) var audioBufferCountsBySource: [AudioSourceType: Int] = [:]
+    private(set) var unattributedAudioBufferCount: Int = 0
+    var audioBufferCount: Int {
+        unattributedAudioBufferCount + audioBufferCountsBySource.values.reduce(0, +)
+    }
+    func bufferCount(for source: AudioSourceType) -> Int {
+        audioBufferCountsBySource[source, default: 0]
+    }
+    mutating func recordAudioBufferBatch(count: Int, source: AudioSourceType?) {
+        let acceptedCount = max(0, count)
+        if let source { audioBufferCountsBySource[source, default: 0] += acceptedCount }
+        else { unattributedAudioBufferCount += acceptedCount }
+    }
     var lastASRPartialAt: Date?
     var lastASRFinalAt: Date?
     var partialTranscriptCount: Int = 0

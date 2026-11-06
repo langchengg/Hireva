@@ -4,11 +4,20 @@ import Foundation
 enum QuestionCompletenessGate {
     static func isIncompleteFragment(_ text: String) -> Bool {
         let lower = QuestionTextUtilities.collapse(text).lowercased()
+        if let mainClause = MultiQuestionSplitter.mainClauseOfScopedQuestion(in: lower) {
+            return isIncompleteFragment(mainClause)
+        }
         let words = lower.split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return false }
         // A transitive request without its object is truncated, not a deictic
         // follow-up. A final ASR marker alone cannot supply that missing object.
-        if lower.range(of: #"^(?:why|how) (?:did|would|do|will) you (?:choose|select|compare|implement|explain|evaluate|use)[?.! ]*$"#, options: .regularExpression) != nil {
+        if lower.range(of: #"^(?:why|how) (?:did|would|do|will|can) you (?:choose|select|compare|implement|explain|evaluate|use)[?.! ]*$"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        // shortcut: guards short article-led subjects; extend if longer fragments are reproduced.
+        if lower.range(of: #"^how can (?:a|an|the)\b"#, options: .regularExpression) != nil,
+           words.count < 6 {
             return true
         }
 
@@ -136,6 +145,9 @@ enum QuestionCompletenessGate {
     }
 
     static func isCompleteQuestion(_ text: String, isFinal: Bool) -> Bool {
+        if let mainClause = MultiQuestionSplitter.mainClauseOfScopedQuestion(in: text) {
+            return isCompleteQuestion(mainClause, isFinal: isFinal)
+        }
         if QuestionLanguageSupport.containsHan(text), MultiQuestionSplitter.questionStarts(in: text.lowercased()).first != 0 {
             return QuestionLanguageSupport.completeChineseRequest(text, isFinal: isFinal)
         }

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Every asynchronous result and side-effect boundary can compare this complete
 /// snapshot instead of relying on a generation ID or question string alone.
-struct GenerationIdentity: Equatable, Hashable {
+struct GenerationIdentity: Equatable, Hashable, Sendable {
     let acceptedQuestionID: String
     let generationID: String
     let sessionID: String

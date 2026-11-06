@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import Hireva
 
@@ -118,6 +119,7 @@ struct LatencyOptimizationTests {
         appState.generationFullCardWatchdogNanoseconds = 30_000_000_000
 
         let session = try makeContextBoundSession(appState)
+        appState.currentSession = session
         defer { appState.cancelActiveGenerationForContextChange() }
         let question = DetectedQuestion(
             id: "latency-q",
@@ -166,7 +168,7 @@ struct LatencyOptimizationTests {
     }
 
     @MainActor
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func transcriptIngestionReturnsWhileProviderStreamsRemainBlocked() async throws {
         let database = try makeTemporaryDatabase()
         let settingsRepository = SettingsRepository(database: database)
@@ -174,60 +176,78 @@ struct LatencyOptimizationTests {
         if let deepSeek = try settingsRepository.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
             try settingsRepository.setActiveRealtimeProvider(id: deepSeek.id)
         }
-
         let client = LatencyBlockingLLMClient()
-        let appState = AppState(
-            database: database,
+        let appState = AppState(database: database,
             questionRoutingProvider: HermeticQuestionRoutingProvider(),
             llmRouter: LLMRouter(settingsRepository: settingsRepository, clients: [.deepSeek: client]),
             permissionService: HermeticPermissionService(),
-            keychainService: KeychainService(store: InMemoryMockKeychainStore()),
-            dialogueDefaults: nil
-        )
+            keychainService: KeychainService(store: InMemoryMockKeychainStore()), dialogueDefaults: nil)
         appState.answerProviderModeOverride = .deepSeekPrimary
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
-        defer {
+        let pipelineClock = ControlledGenerationWatchdogClock(
+            trace: TestEventWaitTrace(label: "latency-ingestion.pipeline-clock"))
+        let displayClock = ControlledGenerationWatchdogClock(
+            trace: TestEventWaitTrace(label: "latency-ingestion.display-clock"))
+        appState.generationWatchdogDelayProvider = pipelineClock
+        appState.delayProvider = displayClock
+        var owned: [Task<Void, Never>] = []
+        @MainActor func cleanup() async throws {
             client.releaseStreams()
+            pipelineClock.cancelAll(); displayClock.cancelAll()
+            owned.forEach { $0.cancel() }
             appState.cancelActiveGenerationForContextChange()
+            for task in owned { await task.value }
+            await appState.shutdownForTesting()
+            await client.joinWorkers()
+            try database.close()
         }
+        do {
+            var settings = appState.settings
+            settings.audioCaptureMode = .systemAudioOnly
+            settings.automaticQuestionDetectionEnabled = true
+            settings.manualOnlyMode = false
+            settings.allowQuestionDetectionFromMicrophoneOnly = false
+            appState.saveSettings(settings)
+            let session = try makeContextBoundSession(appState, mode: .mock)
+            appState.currentSession = session
+            appState.liveState = .listening
+            appState.currentCaptureRuntimeState = .listening
 
-        var settings = appState.settings
-        settings.audioCaptureMode = .systemAudioOnly
-        settings.automaticQuestionDetectionEnabled = true
-        settings.manualOnlyMode = false
-        settings.allowQuestionDetectionFromMicrophoneOnly = false
-        appState.saveSettings(settings)
+            await appState.handleTranscriptSegment(TranscriptSegment(
+                id: "latency-ingestion-question", sessionID: session.id,
+                source: .systemAudio, speaker: .interviewer, text: "Why do you want this role?",
+                confidence: 1, asrFinalizationReason: "final_accepted", recognitionIsFinal: true))
+            // The actual public ingestion returned while its first provider
+            // remains gated. This is causality, not a visible-latency sample.
+            try await client.waitForStartedStreams(atLeast: 1)
+            let root = try #require(appState.activeAITask)
+            owned.append(root)
+            try await pipelineClock.waitUntilPending(nanoseconds: 500_000_000)
+            // Advance only the existing 500ms Stage B trigger. The 1.5s UI
+            // fallback uses the other clock, and 6s/60s remain unexpired.
+            pipelineClock.advance(by: 500_000_000)
+            try await client.waitForStartedStreams(atLeast: 2)
+            let expansion = try #require(appState.stageBTask)
+            owned.append(expansion)
+            #expect(client.finishedStreamCount == 0)
+            #expect(appState.lastTranscriptSnippet == "Why do you want this role?")
 
-        let session = try makeContextBoundSession(appState, mode: .mock)
-        appState.currentSession = session
-        appState.liveState = .listening
-        appState.currentCaptureRuntimeState = .listening
-
-        await appState.handleTranscriptSegment(TranscriptSegment(
-            id: "latency-ingestion-question",
-            sessionID: session.id,
-            source: .systemAudio,
-            speaker: .interviewer,
-            text: "Why do you want this role?",
-            confidence: 1,
-            asrFinalizationReason: "final_accepted",
-            recognitionIsFinal: true
-        ))
-
-        try await waitUntil(timeout: 12.0) { client.startedStreamCount >= 2 }
-        #expect(client.finishedStreamCount == 0)
-        #expect(appState.lastTranscriptSnippet == "Why do you want this role?")
-
-        client.releaseStreams()
-        try await waitUntil(timeout: 12.0) {
-            client.finishedStreamCount >= 2 &&
-                appState.currentSuggestion?.questionText == "Why do you want this role?" &&
-                appState.currentSuggestion?.stageBCompleted == true &&
-                ((try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == 1)
+            client.releaseStreams()
+            try await client.waitForFinishedStreams(atLeast: 2)
+            await withTaskCancellationHandler { await root.value } onCancel: { root.cancel() }
+            await withTaskCancellationHandler { await expansion.value } onCancel: { expansion.cancel() }
+            await appState.generationCoordinator.drainRetiredTasks()
+            #expect(client.finishedStreamCount >= 2)
+            #expect(appState.currentSuggestion?.questionText == "Why do you want this role?")
+            #expect(appState.currentSuggestion?.stageBCompleted == true)
+            let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(persisted.count == 1)
+            #expect(persisted.first?.questionText == "Why do you want this role?")
+            try await cleanup()
+        } catch {
+            try? await cleanup()
+            throw error
         }
-        let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(persisted.count == 1)
-        #expect(persisted.first?.questionText == "Why do you want this role?")
     }
 
     private func makeTemporaryDatabase() throws -> AppDatabase {
@@ -318,74 +338,84 @@ struct LatencyOptimizationTests {
     }
 }
 
-private final class LatencyBlockingLLMClient: LLMClientProtocol, @unchecked Sendable {
+private final class LatencyBlockingLLMClient: LLMClientProtocol {
     let providerKind: LLMProviderKind = .deepSeek
-    private let lock = NSLock()
+    private struct State: Sendable {
+        var started = 0
+        var finished = 0
+        var workers: [UUID: Task<Void, Never>] = [:]
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
     private let gate = LatencyBroadcastGate()
-    private var startedStreams = 0
-    private var finishedStreams = 0
-
-    var startedStreamCount: Int { lock.withLock { startedStreams } }
-    var finishedStreamCount: Int { lock.withLock { finishedStreams } }
+    private let started = AsyncStream<Int>.makeStream(bufferingPolicy: .bufferingNewest(2))
+    private let finished = AsyncStream<Int>.makeStream(bufferingPolicy: .bufferingNewest(2))
+    private let trace = TestEventWaitTrace(label: "latency-ingestion.provider")
+    var startedStreamCount: Int { state.withLock { $0.started } }
+    var finishedStreamCount: Int { state.withLock { $0.finished } }
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
         LLMConnectionTestResult(success: true, message: "fixture", latencyMS: 0, models: [])
     }
-
     func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] { [] }
-
-    func chatCompletion(
-        configuration: LLMProviderConfiguration,
-        messages: [LLMChatMessage],
-        responseFormat: LLMResponseFormat?,
-        options: LLMRequestOptions
-    ) async throws -> LLMChatResult {
+    func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
         let prompt = messages.map(\.content).joined(separator: "\n")
         let content: String
         if prompt.contains("Decide whether the interviewer has asked") {
             content = """
             {"should_trigger":true,"question_complete":true,"question_text":"Why do you want this role?","intent":"company_fit","answer_strategy":"direct_answer","confidence":0.99,"reason":"Deterministic system-audio question."}
             """
-        } else {
-            content = Self.jsonCard
-        }
-        return LLMChatResult(
-            content: content,
-            modelName: "latency-blocking-fixture",
-            providerKind: .deepSeek,
-            providerName: "Latency Blocking Fixture",
-            baseURL: "fixture://latency",
-            latencyMS: 0,
-            isLocal: false,
-            rawResponse: content
-        )
+        } else { content = Self.jsonCard }
+        return LLMChatResult(content: content, modelName: "latency-blocking-fixture",
+            providerKind: .deepSeek, providerName: "Latency Blocking Fixture",
+            baseURL: "fixture://latency", latencyMS: 0, isLocal: false, rawResponse: content)
     }
-
-    func chatCompletionStream(
-        configuration: LLMProviderConfiguration,
-        messages: [LLMChatMessage],
-        responseFormat: LLMResponseFormat?,
-        options: LLMRequestOptions
-    ) -> AsyncThrowingStream<String, Error> {
+    func chatCompletionStream(configuration: LLMProviderConfiguration, messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?, options: LLMRequestOptions) -> AsyncThrowingStream<String, Error> {
         let prompt = messages.map(\.content).joined(separator: "\n")
         let response = prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.")
-            ? Self.sectionCard
-            : Self.sayFirst
+            ? Self.sectionCard : Self.sayFirst
         return AsyncThrowingStream { continuation in
-            Task {
-                self.lock.withLock { self.startedStreams += 1 }
-                await self.gate.wait()
-                continuation.yield(response)
-                continuation.finish()
-                self.lock.withLock { self.finishedStreams += 1 }
+            let id = UUID()
+            let worker = Task {
+                let count = self.state.withLock { $0.started += 1; return $0.started }
+                self.trace.mark("producer.stream-started.\(count)")
+                self.started.continuation.yield(count)
+                do {
+                    try await self.gate.wait()
+                    try Task.checkCancellation()
+                    continuation.yield(response)
+                    continuation.finish()
+                    let count = self.state.withLock { $0.finished += 1; return $0.finished }
+                    self.trace.mark("producer.stream-finished.\(count)")
+                    self.finished.continuation.yield(count)
+                } catch { continuation.finish(throwing: error) }
             }
+            self.state.withLock { $0.workers[id] = worker }
+            continuation.onTermination = { _ in worker.cancel() }
         }
     }
-
-    func releaseStreams() {
-        gate.release()
+    func releaseStreams() { gate.release() }
+    func waitForStartedStreams(atLeast target: Int) async throws {
+        while startedStreamCount < target {
+            _ = try await trace.nextEvent(in: started.stream, event: "stream-start")
+        }
+        try Task.checkCancellation()
     }
-
+    func waitForFinishedStreams(atLeast target: Int) async throws {
+        while finishedStreamCount < target {
+            _ = try await trace.nextEvent(in: finished.stream, event: "stream-finish")
+        }
+        try Task.checkCancellation()
+    }
+    func joinWorkers() async {
+        // Every caller closes generation admission before final fixture join.
+        // Completed workers remain owned until this exact snapshot is joined.
+        let captured = state.withLock { $0.workers }
+        for worker in captured.values { await worker.value }
+        state.withLock { for id in captured.keys { $0.workers.removeValue(forKey: id) } }
+        started.continuation.finish(); finished.continuation.finish()
+    }
     private static let sayFirst = "I want this role because it matches my robotics, AI, perception, and real-world deployment experience and lets me contribute reliable engineering work."
 
     private static let sectionCard = """
@@ -407,34 +437,39 @@ private final class LatencyBlockingLLMClient: LLMClientProtocol, @unchecked Send
     """
 }
 
-private final class LatencyBroadcastGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var isOpen = false
-    private var waiters = [CheckedContinuation<Void, Never>]()
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            let shouldResume = lock.withLock {
-                if isOpen {
-                    return true
-                }
-                waiters.append(continuation)
-                return false
-            }
-            if shouldResume {
-                continuation.resume()
-            }
-        }
+private final class LatencyBroadcastGate: Sendable {
+    private struct State: Sendable {
+        var open = false
+        var waiters: [UUID: AsyncStream<Void>.Continuation] = [:]
     }
-
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    func wait() async throws {
+        try Task.checkCancellation()
+        let id = UUID()
+        let events = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let open = state.withLock {
+            if $0.open { return true }
+            $0.waiters[id] = events.continuation
+            return false
+        }
+        if open { events.continuation.yield(()); events.continuation.finish() }
+        defer {
+            _ = state.withLock { $0.waiters.removeValue(forKey: id) }
+            events.continuation.finish()
+        }
+        await withTaskCancellationHandler {
+            var iterator = events.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        } onCancel: { events.continuation.finish() }
+        try Task.checkCancellation()
+    }
     func release() {
-        let continuations = lock.withLock {
-            guard isOpen == false else { return [CheckedContinuation<Void, Never>]() }
-            isOpen = true
-            let pending = waiters
-            waiters.removeAll()
+        let pending = state.withLock {
+            $0.open = true
+            let pending = Array($0.waiters.values)
+            $0.waiters.removeAll()
             return pending
         }
-        continuations.forEach { $0.resume() }
+        for continuation in pending { continuation.yield(()); continuation.finish() }
     }
 }

@@ -21,141 +21,29 @@ private enum LocalSetupStep: String, CaseIterable, Identifiable {
     }
 }
 
-@MainActor
-final class LocalModelsSetupViewModel: ObservableObject {
-    @Published var transcriptionStatus: LocalModelStatus = .notInstalled
-    @Published var transcriptionProgress: ModelDownloadProgress?
-    @Published var qwenHealth = LocalLLMHealth(
-        ollamaRunning: false,
-        selectedModel: LocalModelDescriptor.defaultQwenLocalLLM.id,
-        modelInstalled: false,
-        providerSource: .ollamaQwen,
-        lastError: nil
-    )
-    @Published var qwenProgress: ModelDownloadProgress?
-    @Published var parakeetRuntimeAvailable = false
-    @Published var lastError: String?
-    @Published var isRefreshing = false
-    @Published var isDownloadingTranscription = false
-    @Published var isPullingQwen = false
-    @Published var isInstallingRecommended = false
-
-    let transcriptionModel: LocalModelDescriptor
-    private let modelManager: any LocalModelManager
-    private let qwenProvider: any LocalLLMProvider
-    private let parakeetRuntimeClient: any ParakeetRuntimeClient
-
-    init(
-        transcriptionModel: LocalModelDescriptor = .defaultParakeetASR,
-        modelManager: any LocalModelManager = FileLocalModelManager(),
-        qwenProvider: any LocalLLMProvider = OllamaQwenProvider(),
-        parakeetRuntimeClient: any ParakeetRuntimeClient = ParakeetSidecarRuntimeClient()
-    ) {
-        self.transcriptionModel = transcriptionModel
-        self.modelManager = modelManager
-        self.qwenProvider = qwenProvider
-        self.parakeetRuntimeClient = parakeetRuntimeClient
-    }
-
-    func refresh(qwenModel: String) async {
-        isRefreshing = true
-        defer { isRefreshing = false }
-        transcriptionStatus = await modelManager.modelStatus(transcriptionModel)
-        qwenHealth = await qwenProvider.healthCheck(modelName: qwenModel)
-        parakeetRuntimeAvailable = await parakeetRuntimeClient.isRuntimeAvailable()
-    }
-
-    func downloadTranscriptionModel() {
-        guard !isDownloadingTranscription else { return }
-        isDownloadingTranscription = true
-        lastError = nil
-        Task {
-            do {
-                for try await progress in modelManager.downloadModel(transcriptionModel) {
-                    transcriptionProgress = progress
-                    transcriptionStatus = .downloading(
-                        progress: progress.progress,
-                        downloadedBytes: progress.downloadedBytes,
-                        totalBytes: progress.totalBytes,
-                        speedBytesPerSecond: progress.speedBytesPerSecond
-                    )
-                }
-                transcriptionStatus = await modelManager.modelStatus(transcriptionModel)
-            } catch {
-                lastError = error.localizedDescription
-                transcriptionStatus = .failed(error.localizedDescription)
-            }
-            isDownloadingTranscription = false
-        }
-    }
-
-    func deleteTranscriptionModel() {
-        Task {
-            do {
-                try await modelManager.deleteModel(transcriptionModel)
-                transcriptionProgress = nil
-                transcriptionStatus = await modelManager.modelStatus(transcriptionModel)
-            } catch {
-                lastError = error.localizedDescription
-            }
-        }
-    }
-
-    func pullQwen(modelName: String) {
-        guard !isPullingQwen else { return }
-        isPullingQwen = true
-        lastError = nil
-        Task {
-            do {
-                for try await progress in qwenProvider.pullModel(modelName) {
-                    qwenProgress = progress
-                }
-                qwenHealth = await qwenProvider.healthCheck(modelName: modelName)
-            } catch {
-                lastError = error.localizedDescription
-            }
-            isPullingQwen = false
-        }
-    }
-
-    func installRecommended(qwenModel: String) {
-        guard !isInstallingRecommended else { return }
-        isInstallingRecommended = true
-        lastError = nil
-        Task {
-            await refresh(qwenModel: qwenModel)
-            if transcriptionStatus.isReady == false {
-                downloadTranscriptionModel()
-            }
-            if qwenHealth.ollamaRunning && !qwenHealth.modelInstalled {
-                pullQwen(modelName: qwenModel)
-            } else if !qwenHealth.ollamaRunning {
-                lastError = "Ollama is not running. Start Ollama, then pull \(qwenModel)."
-            }
-            isInstallingRecommended = false
-        }
-    }
-
-    func modelPath(for model: LocalModelDescriptor) -> URL {
-        modelManager.fileURL(for: model)
-    }
-
-    func canEnableParakeet() -> Bool {
-        transcriptionStatus.isReady && parakeetRuntimeAvailable
-    }
-
-    var parakeetRuntimeStatusText: String {
-        parakeetRuntimeAvailable ? "Runtime Ready" : "Runtime Missing"
-    }
-}
-
 struct LocalModelsSetupView: View {
     @ObservedObject var appState: AppState
-    @StateObject private var viewModel = LocalModelsSetupViewModel()
+    @ObservedObject var viewModel: LocalModelsSetupViewModel
+    @ObservedObject private var settingsState: SettingsState
     @State private var selectedStep: LocalSetupStep = .welcome
     @State private var permissionsSkipped = false
-    @AppStorage(HirevaPreferenceKeys.selectedQwenModel) private var selectedQwenModel = LocalModelDescriptor.defaultQwenLocalLLM.id
-    @AppStorage(HirevaPreferenceKeys.answerProviderMode) private var answerProviderMode = AnswerProviderMode.localQwenPrimary.rawValue
+    init(appState: AppState) {
+        self.appState = appState
+        viewModel = appState.localModelsSetupState
+        settingsState = appState.settingsState
+    }
+
+    private var selectedQwenModel: String { settingsState.selectedQwenModelName }
+
+    var qwenModelSelection: Binding<String> {
+        Binding(get: { settingsState.selectedQwenModelName }, set: { settingsState.setSelectedQwenModelName($0) })
+    }
+
+    var answerProviderSelection: Binding<String> {
+        Binding(get: { appState.selectedAnswerProviderMode.rawValue },
+            set: { settingsState.setSelectedAnswerProviderMode(AnswerProviderMode(storedValue: $0),
+                currentMode: appState.selectedAnswerProviderMode) })
+    }
 
     var body: some View {
         ScrollView {
@@ -187,12 +75,17 @@ struct LocalModelsSetupView: View {
             .frame(maxWidth: 1040, alignment: .leading)
         }
         .navigationTitle("Setup & Local Models")
-        .task {
-            appState.refreshPermissions()
-            await viewModel.refresh(qwenModel: selectedQwenModel)
-            appState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: viewModel.qwenHealth.isReady)
-            answerProviderMode = appState.selectedAnswerProviderMode.rawValue
-        }
+        .task { await refreshReadinessForSetup() }
+    }
+
+    // One actual setup action freezes the model outcome and migration ticket.
+    // The view does not publish readiness from a later mutable model snapshot.
+    func refreshReadinessForSetup() async {
+        appState.refreshPermissions()
+        let ticket = settingsState.makeLocalQwenMigrationTicket()
+        guard let snapshot = await viewModel.refreshSnapshot(qwenModel: selectedQwenModel),
+              !Task.isCancelled, viewModel.isCurrent(snapshot), let ticket else { return }
+        settingsState.applyLocalQwenMigrationReadiness(snapshot.qwenHealth, ticket: ticket)
     }
 
     private var header: some View {
@@ -340,15 +233,12 @@ struct LocalModelsSetupView: View {
                 status: providerMode.displayName,
                 tint: .indigo
             ) {
-                Picker("Answer Provider", selection: $answerProviderMode) {
+                Picker("Answer Provider", selection: answerProviderSelection) {
                     ForEach(AnswerProviderMode.allCases) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
                     }
                 }
                 .pickerStyle(.radioGroup)
-                .onChange(of: answerProviderMode) { _, newValue in
-                    appState.setSelectedAnswerProviderMode(AnswerProviderMode(storedValue: newValue))
-                }
 
                 HStack {
                     Button {
@@ -380,7 +270,7 @@ struct LocalModelsSetupView: View {
 
                 Divider()
 
-                diagnosticRow("DeepSeek configured", appState.hasAPIKey ? "true" : "false")
+                diagnosticRow("DeepSeek configured", settingsState.hasAPIKey ? "true" : "false")
                 diagnosticRow("Local Qwen ready", viewModel.qwenHealth.isReady ? "true" : "false")
                 diagnosticRow("Selected Qwen model", selectedQwenModel)
                 diagnosticRow("Qwen selection status", viewModel.qwenHealth.isReady ? "enabled" : "model_not_ready")
@@ -389,14 +279,14 @@ struct LocalModelsSetupView: View {
 
                 HStack {
                     Button {
-                        appState.testDeepSeekConnection()
+                        settingsState.testDeepSeekConnection()
                     } label: {
                         Label("Test DeepSeek", systemImage: "network")
                     }
-                    .disabled(!appState.hasAPIKey || appState.isTestingConnection)
+                    .disabled(!settingsState.hasAPIKey || settingsState.isTestingConnection)
 
                     Button {
-                        Task { await viewModel.refresh(qwenModel: selectedQwenModel) }
+                        viewModel.requestRefresh(qwenModel: selectedQwenModel)
                     } label: {
                         Label("Refresh Local Qwen", systemImage: "arrow.clockwise")
                     }
@@ -406,7 +296,7 @@ struct LocalModelsSetupView: View {
             setupCard(
                 icon: "waveform.badge.magnifyingglass",
                 title: "Transcription Provider",
-                status: appState.selectedASRProviderID.displayName,
+                status: settingsState.selectedASRProviderID.displayName,
                 tint: .teal
             ) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -414,20 +304,20 @@ struct LocalModelsSetupView: View {
                     diagnosticRow("Recommended local ASR", ASRProviderID.localParakeet.displayName)
                     diagnosticRow("Parakeet model status", viewModel.transcriptionStatus.displayName)
                     diagnosticRow("Parakeet runtime status", viewModel.parakeetRuntimeStatusText)
-                    diagnosticRow("Selected ASR source", appState.selectedASRProviderID.source.rawValue)
+                    diagnosticRow("Selected ASR source", settingsState.selectedASRProviderID.source.rawValue)
                     diagnosticRow("Active ASR provider", appState.activeASRProviderDisplayName)
                     HStack {
                         Button {
-                            appState.setSelectedASRProvider(.appleSpeech)
+                            settingsState.setSelectedASRProvider(.appleSpeech)
                         } label: {
                             Label("Use Apple Speech", systemImage: "apple.logo")
                         }
                         .buttonStyle(.bordered)
-                        .tint(appState.selectedASRProviderID == .appleSpeech ? .accentColor : .secondary)
+                        .tint(settingsState.selectedASRProviderID == .appleSpeech ? .accentColor : .secondary)
 
                         Button {
                             if viewModel.canEnableParakeet() {
-                                appState.setSelectedASRProvider(.localParakeet)
+                                settingsState.setSelectedASRProvider(.localParakeet)
                             } else if !viewModel.transcriptionStatus.isReady {
                                 viewModel.lastError = "Parakeet model_not_ready. Install the model before enabling Local Parakeet."
                             } else {
@@ -437,12 +327,18 @@ struct LocalModelsSetupView: View {
                             Label("Enable Local Parakeet", systemImage: "waveform.badge.plus")
                         }
                         .buttonStyle(.bordered)
-                        .tint(appState.selectedASRProviderID == .localParakeet ? .accentColor : .secondary)
+                        .tint(settingsState.selectedASRProviderID == .localParakeet ? .accentColor : .secondary)
                         .disabled(!viewModel.canEnableParakeet())
                     }
                 }
                 Text("Apple Speech is the default. Local Parakeet is experimental and final-only, and activates only after the model and bundled native helper pass readiness checks.")
                     .font(.callout)
+                    .foregroundStyle(.secondary)
+                Toggle("Use selected opportunity skills for Parakeet recognition", isOn: Binding(
+                    get: { settingsState.parakeetContextBiasEnabled },
+                    set: { settingsState.setParakeetContextBiasEnabled($0) }))
+                Text("Optional: uses up to 32 short English skill terms at the next start. Context bias can also cause recognition mistakes; leave it off for ordinary speech.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -464,7 +360,7 @@ struct LocalModelsSetupView: View {
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 diagnosticRow("Answer mode", providerMode.displayName)
-                diagnosticRow("Selected ASR mode", appState.selectedASRProviderID.displayName)
+                diagnosticRow("Selected ASR mode", settingsState.selectedASRProviderID.displayName)
                 diagnosticRow("Active ASR mode", appState.activeASRProviderDisplayName)
                 diagnosticRow("Latest transcript ASR source", appState.latestTranscriptASRSource)
                 diagnosticRow("Transcription model", viewModel.transcriptionStatus.displayName)
@@ -538,10 +434,10 @@ struct LocalModelsSetupView: View {
             tint: viewModel.qwenHealth.isReady ? .green : .orange
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                TextField("Qwen model name", text: $selectedQwenModel)
+                TextField("Qwen model name", text: qwenModelSelection)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
-                        Task { await viewModel.refresh(qwenModel: selectedQwenModel) }
+                        viewModel.requestRefresh(qwenModel: selectedQwenModel)
                     }
                 diagnosticRow("Ollama running", viewModel.qwenHealth.ollamaRunning ? "true" : "false")
                 diagnosticRow("Model installed", viewModel.qwenHealth.modelInstalled ? "true" : "false")
@@ -556,7 +452,7 @@ struct LocalModelsSetupView: View {
                 }
                 HStack {
                     Button {
-                        Task { await viewModel.refresh(qwenModel: selectedQwenModel) }
+                        viewModel.requestRefresh(qwenModel: selectedQwenModel)
                     } label: {
                         Label("Check Ollama", systemImage: "stethoscope")
                     }
@@ -600,12 +496,11 @@ struct LocalModelsSetupView: View {
     }
 
     private var providerMode: AnswerProviderMode {
-        AnswerProviderMode(storedValue: answerProviderMode)
+        appState.selectedAnswerProviderMode
     }
 
     private func setAnswerProviderMode(_ mode: AnswerProviderMode) {
-        answerProviderMode = mode.rawValue
-        appState.setSelectedAnswerProviderMode(mode)
+        settingsState.setSelectedAnswerProviderMode(mode, currentMode: appState.selectedAnswerProviderMode)
     }
 
     private func permissionCard(

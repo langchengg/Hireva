@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-final class RecapGenerationService {
+final class RecapGenerationService: Sendable {
     private let llmRouter: LLMRouter
 
     init(llmRouter: LLMRouter) {
@@ -14,6 +14,7 @@ final class RecapGenerationService {
         context: RetrievedContext,
         questions: [DetectedQuestion] = [],
         model: String? = nil,
+        providerConfiguration: LLMProviderConfiguration? = nil,
         routingProvider: any LocalLLMProvider = OllamaQwenProvider(),
         routingModel: String = "qwen3.5:4b",
         cachedUnits: [CachedRecapUnit] = [],
@@ -59,7 +60,8 @@ final class RecapGenerationService {
             if localOnly {
                 response = try await Self.localRecap(input: input, system: system, provider: routingProvider, model: routingModel)
             } else {
-                response = try await llmRouter.chatForRecap(messages: [.system(system), .user(input)], responseFormat: .jsonObject,
+                guard let providerConfiguration else { throw LLMProviderError.notConfigured("Frozen recap LLM provider") }
+                response = try await llmRouter.chat(configuration: providerConfiguration, messages: [.system(system), .user(input)], responseFormat: .jsonObject,
                     options: LLMRequestOptions(temperature: 0, timeoutInterval: 90))
             }
             try Task.checkCancellation()
@@ -95,18 +97,49 @@ final class RecapGenerationService {
         let start = ContinuousClock.now
         return try await withThrowingTaskGroup(of: LLMChatResult.self) { group in
             group.addTask {
-                let stream = try await provider.generateAnswer(request: .init(prompt: input, systemPrompt: system, modelName: model, temperature: 0, numPredict: 1200, responseFormat: "json"))
-                var text = ""
-                for try await token in stream {
-                    try Task.checkCancellation(); text += token.text
-                    guard text.utf8.count <= 32000 else { throw MaterialError.invalid("Recap response exceeds limit.") }
-                }
+                let request = LocalLLMRequest(prompt: input, systemPrompt: system, modelName: model,
+                    temperature: 0, numPredict: 1200, responseFormat: "json")
+                let text = try await Self.localRecapText(provider: provider, request: request)
                 let duration = start.duration(to: .now).components
                 return LLMChatResult(content: text, modelName: model, providerKind: .ollamaLocal, providerName: provider.displayName, baseURL: "http://127.0.0.1:11434", latencyMS: Int(duration.seconds * 1000 + duration.attoseconds / 1_000_000_000_000_000), isLocal: true, rawResponse: nil)
             }
             group.addTask { try await Task.sleep(for: .seconds(90)); throw MaterialError.invalid("Local recap timed out") }
             defer { group.cancelAll() }
             return try await group.next()!
+        }
+    }
+
+    /// The real local provider's producer is joined on success, error and
+    /// cancellation. A stream-only injected provider exposes no producer handle;
+    /// its independent internal resources are not certified by consumer exit.
+    private static func localRecapText(provider: any LocalLLMProvider, request: LocalLLMRequest) async throws -> String {
+        let stream: AsyncThrowingStream<LLMToken, Error>
+        let producer: Task<Void, Never>?
+        if let ollama = provider as? OllamaQwenProvider {
+            let owned = try await ollama.generateOwnedAnswer(request: request)
+            stream = owned.stream
+            producer = owned.producerTask
+        } else {
+            stream = try await provider.generateAnswer(request: request)
+            producer = nil
+        }
+        do {
+            return try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                var text = ""
+                for try await token in stream {
+                    try Task.checkCancellation()
+                    text += token.text
+                    guard text.utf8.count <= 32000 else { throw MaterialError.invalid("Recap response exceeds limit.") }
+                }
+                await producer?.value
+                try Task.checkCancellation()
+                return text
+            } onCancel: { producer?.cancel() }
+        } catch {
+            producer?.cancel()
+            await producer?.value
+            throw error
         }
     }
 
@@ -145,8 +178,8 @@ final class RecapGenerationService {
         for attempt in run.attempts {
             lines += ["", "## \(attempt.question)", "Attempt \(attempt.id) · revision \(attempt.revision) · \(attempt.hinted ? "assisted" : "unprompted")", "Answer:", attempt.answer]
             if let feedback = attempt.feedback {
-                lines += feedback.covered.map { "- \($0.criterion): “\($0.quote)” [\(attempt.id)]" }
-                lines += ["Missing: " + feedback.missing.joined(separator: "; "), "Next question reason: " + feedback.reason]
+                lines += feedback.assessmentLines.map { "- \($0) [\(attempt.id) v\(attempt.revision)]" }
+                lines += ["Next question reason: " + feedback.reason]
                 lines += feedback.suggestions
             } else { lines.append("Not evaluated; no ability judgement.") }
         }
@@ -170,7 +203,7 @@ struct RecapUnitFeedback: Codable {
     }
 }
 
-struct CachedRecapUnit: Codable {
+struct CachedRecapUnit: Codable, Sendable {
     var inputKey: String
     var markdown: String
     var decision: InterviewQuestionDecision

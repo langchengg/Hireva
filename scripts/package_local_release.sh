@@ -9,12 +9,13 @@ Build and validate a local Hireva release package.
 
 Options:
   --skip-verify  Skip verify_runtime_stability.sh only. The packaged app is
-                 still rebuilt, launched, and validated.
+                 still rebuilt and signature-validated without launching.
   -h, --help     Show this help without building or modifying release output.
 USAGE
 }
 
 SKIP_VERIFY=0
+PACKAGE_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --skip-verify)
@@ -34,13 +35,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
+if [[ -z "${HIREVA_PACKAGE_WORK_DIR:-}" ]]; then
+    exec python3 "$ROOT_DIR/script/artifact_lifecycle.py" package-local "${PACKAGE_ARGS[@]}"
+fi
+python3 "$ROOT_DIR/script/artifact_lifecycle.py" check-package
+APP_BUNDLE="${HIREVA_APP_BUNDLE:?managed bundle required}"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/Hireva"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 EXPECTED_BUNDLE_ID="com.langcheng.Hireva"
 DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
 TRACE_PATH="$HOME/Library/Application Support/Hireva/runtime_transcript_trace.jsonl"
-RELEASE_ROOT="$ROOT_DIR/release"
+RELEASE_ROOT="${HIREVA_PACKAGE_WORK_DIR:?owned package task required}"
 STARTED_AT="$(date +%s)"
 
 cd "$ROOT_DIR"
@@ -54,9 +59,8 @@ else
     GATE_RESULT="SKIPPED (--skip-verify)"
 fi
 
-echo "[build] Rebuilding, signing, launching, and verifying app bundle..."
-./script/build_and_run.sh --verify
-BUILD_VERIFY_RESULT="PASS"
+echo "[build] Using the coordinator-built, verified managed bundle."
+BUILD_VERIFY_RESULT="signature PASS; GUI NOT RUN"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
     echo "error: app bundle is missing: $APP_BUNDLE" >&2
@@ -161,7 +165,7 @@ APP_BINARY_TIMESTAMP="$(stat -f '%Sm' "$APP_BINARY" 2>/dev/null || echo unavaila
     echo "Signing identity if used: $SIGNING_IDENTITY"
     echo "App binary timestamp: $APP_BINARY_TIMESTAMP"
     echo "Runtime stability gate: $GATE_RESULT"
-    echo "Build and launch verification: $BUILD_VERIFY_RESULT"
+    echo "Build verification: $BUILD_VERIFY_RESULT"
     echo "Source signature verification: PASS"
     echo "Packaged signature verification: PASS"
     echo "Expected DB path: $DB_PATH"
@@ -172,7 +176,7 @@ APP_BINARY_TIMESTAMP="$(stat -f '%Sm' "$APP_BINARY" 2>/dev/null || echo unavaila
         echo "WARNING: This package is ad-hoc signed. It is for local development/handoff only."
     fi
     if [[ "$ROOT_DIR" == *"/Library/CloudStorage/GoogleDrive-"* ]]; then
-        echo "WARNING: Source was built under a Google Drive path; cloud xattrs/AppleDouble files can destabilize signing."
+        echo "WARNING: Source is in Google Drive; generated artifacts are in local managed storage."
     fi
     if [[ -n "$GIT_STATUS" ]]; then
         echo "WARNING: The source worktree was dirty when this package was generated."

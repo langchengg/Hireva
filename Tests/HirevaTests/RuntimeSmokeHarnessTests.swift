@@ -226,9 +226,8 @@ func hermeticJSONString(_ value: String) -> String {
 @Suite(.serialized)
 @MainActor
 struct RuntimeSmokeHarnessTests {
-    @Test
+    @Test(.enabled(if: Self.shouldRun("release-64")))
     func release64QuestionGate() async throws {
-        guard Self.shouldRun("release-64") else { return }
         let manifestURL = try #require(Bundle.module.url(
             forResource: "release_64_questions",
             withExtension: "json"
@@ -328,9 +327,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(rejected > 0)
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("bad-fragments")))
     func badFragmentsSuiteRejectsWithoutGenerationOrPersistence() async throws {
-        guard Self.shouldRun("bad-fragments") else { return }
         let harness = try makeHarness(suite: "bad-fragments")
         let fragments = [
             "what did you learn from comp",
@@ -353,9 +351,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(trace.contains("\"event_type\":\"questionRejected\""))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("rapid-two")))
     func rapidTwoQuestionSuiteRejectsLateFirstQuestionCallbacksAndPersistsSeparateRows() async throws {
-        guard Self.shouldRun("rapid-two") else { return }
         let harness = try makeHarness(suite: "rapid-two")
         harness.appState.delayProvider = RuntimeSmokeDeferredFallbackDelayProvider()
         harness.appState.generationFullCardWatchdogNanoseconds = 30_000_000_000
@@ -397,9 +394,8 @@ struct RuntimeSmokeHarnessTests {
         )
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("callback-ownership")))
     func replacementCancelsLiveCallbackAfterGenerationBecomesTerminal() async throws {
-        guard Self.shouldRun("callback-ownership") else { return }
         let harness = try makeHarness(suite: "callback-ownership")
         let first = harness.detectedQuestion(
             id: "callback-owner-q1",
@@ -451,9 +447,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(harness.appState.activeQuestionID == second.id)
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("rapid-three")))
     func rapidThreeQuestionSuiteKeepsLatestCardAfterTwoLateProviderCompletions() async throws {
-        guard Self.shouldRun("rapid-three") else { return }
         let harness = try makeHarness(suite: "rapid-three")
         harness.client.blockStreams(containing: "engineering team")
         harness.client.blockStreams(containing: "one more month")
@@ -508,9 +503,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(trace.contains("\"event_type\":\"questionDequeued\""))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("conditional-asr")))
     func conditionalASRSuiteKeepsFullConditionalQuestion() async throws {
-        guard Self.shouldRun("conditional-asr") else { return }
         let harness = try makeHarness(suite: "conditional-asr")
 
         await harness.feed(
@@ -531,9 +525,8 @@ struct RuntimeSmokeHarnessTests {
         #expect((row.questionText ?? "").hasPrefix("If your yo love eight"))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("noisy-canonicalization")))
     func noisyCanonicalizationSuiteNormalizesCommonASRVariants() async throws {
-        guard Self.shouldRun("noisy-canonicalization") else { return }
         let harness = try makeHarness(suite: "noisy-canonicalization")
 
         await harness.feed(text: "How would you diagnose a sim to real gap if your policy works in simulation but fails on hardware?", id: "noisy-sim-real")
@@ -549,9 +542,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(rows.contains { ($0.questionText ?? "").contains("auto aggressive") && ($0.questionText ?? "").contains("flow matching") && ($0.questionText ?? "").contains("villa project") })
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("incomplete-stream")))
     func incompleteStreamSuiteRejectsPartialProviderAnswerAndUsesFallback() async throws {
-        guard Self.shouldRun("incomplete-stream") else { return }
         let harness = try makeHarness(suite: "incomplete-stream")
         defer { harness.appState.cancelStageBTask() }
         harness.client.incompleteStageAForNeedle = "engineering team"
@@ -575,9 +567,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(trace.contains("\"event_type\":\"partialAnswerRejectedIncomplete\""))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("stage-b-watchdog")))
     func completedStageBCancelsFullCardWatchdog() async throws {
-        guard Self.shouldRun("stage-b-watchdog") else { return }
         let harness = try makeHarness(suite: "stage-b-watchdog")
         harness.appState.generationFullCardWatchdogNanoseconds = 5_000_000_000
 
@@ -598,9 +589,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(!trace.contains("\"event_type\":\"generationTimedOut\""))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("long-interview")))
     func longInterviewSuiteKeepsSevenCumulativeQuestionsDistinctAndCurrent() async throws {
-        guard Self.shouldRun("long-interview") else { return }
         let harness = try makeHarness(suite: "long-interview")
         let questions = [
             "Could you briefly introduce yourself and your robotics background?",
@@ -661,9 +651,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(!trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("apple-speech-cross-task-replay")))
     func appleSpeechCumulativeReplaySuiteRejectsOldCallbacksAndKeepsNewestCard() async throws {
-        guard Self.shouldRun("apple-speech-cross-task-replay") else { return }
         let harness = try makeHarness(suite: "apple-speech-cross-task-replay")
         harness.client.stageAStreamDelayByNeedle["LeoRover project"] = 5_000_000_000
         let slowDelay = MockDelayProvider()
@@ -705,9 +694,8 @@ struct RuntimeSmokeHarnessTests {
         #expect(trace.contains("\"event_type\":\"cancelledGenerationPersistenceRejected\""))
     }
 
-    @Test
+    @Test(.enabled(if: Self.shouldRun("seven-question-real-order")))
     func realLongInterviewOrderingSuiteNeverRegressesToOldCumulativeQuestion() async throws {
-        guard Self.shouldRun("seven-question-real-order") else { return }
         let harness = try makeHarness(suite: "seven-question-real-order")
         let questions = [
             "Could you briefly introduce yourself and your robotics background?",
@@ -759,7 +747,7 @@ struct RuntimeSmokeHarnessTests {
         #expect(!trace.contains("\"event_type\":\"duplicatePersistenceRejected\""))
     }
 
-    private static func shouldRun(_ suite: String) -> Bool {
+    nonisolated private static func shouldRun(_ suite: String) -> Bool {
         // Runtime smoke is a separate release gate. Running every long-lived
         // harness concurrently with the ordinary unit suite creates resource
         // contention that does not represent product behavior.

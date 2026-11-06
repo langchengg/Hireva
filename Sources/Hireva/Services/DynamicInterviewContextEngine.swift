@@ -52,13 +52,14 @@ struct AnswerClaimValidator {
     private func isPersonalClaim(_ sentence: String) -> Bool {
         let lower = " " + sentence.lowercased().components(separatedBy: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "'’"))).joined(separator: " ") + " "
         let request = sentence.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let hypotheticalAssetState = ["if ", "unless ", "suppose ", "assuming ", "imagine ", "如果", "假如", "假设"].contains(where: request.hasPrefix)
         let asksForInput = ["could you ", "can you ", "would you ", "please provide ", "please share ", "请提供", "请补充"].contains(where: request.hasPrefix)
         if asksForInput, request.range(of: #"\b(i|we|my|our)\b|我|我们"#, options: .regularExpression) == nil,
            !request.contains(";"), !request.contains("；") { return false }
         if sentence.contains("我") || sentence.contains("我们") {
             let planned = ["我会", "我将", "我计划", "我们将", "我建议", "我们会", "我可以", "我们可以", "我需要", "我们需要", "我们建议"].contains(where: sentence.contains)
             let past = ["曾", "已经", "完成了", "负责过", "提升了", "降低了", "开发了", "实现了"].contains(where: sentence.contains)
-            if past || (!planned && ["我的项目", "我的经验", "我负责", "我们实现"].contains(where: sentence.contains)) { return true }
+            if past || (!planned && !hypotheticalAssetState && ["我的项目", "我的经验", "我的原型", "我们的原型", "我负责", "我们实现"].contains(where: sentence.contains)) { return true }
             // Chinese completion/aspect and academic ownership do not require
             // an English verb or an Arabic-number metric to be a personal claim.
             let completedAction = sentence.range(of: #"(?:我|我们|我的|我们的)[^。！？；]*[了过]"#, options: .regularExpression) != nil
@@ -71,9 +72,39 @@ struct AnswerClaimValidator {
         if ["我毕业", "我拥有", "我具有", "我希望", "我期望", "我偏好", "我能入职", "我可以入职", "我的薪", "我的签证", "我的学历"].contains(where: sentence.contains) { return true }
         if lower.range(of: #"\b(i am|i'm|i’m|you are|you're|the candidate is)\s+(a |an |experienced|qualified|certified|available|employed|based|fluent)"#, options: .regularExpression) != nil || ["我是一名", "我具有", "您曾", "你曾"].contains(where: sentence.contains) { return true }
         let personalSubject = [" i ", " my ", " you ", " your ", " i'm ", " i’m "].contains(where: lower.contains) || ["我", "你", "您", "候选人"].contains(where: sentence.contains)
-        let personalCondition = ["salary", "sponsorship", "visa", "notice period", "available to start", "start work", "relocat", "qualification", "graduated", "degree", "薪资", "签证", "入职", "搬迁", "学历", "毕业"].contains(where: lower.contains)
+        let personalConditions = ["salary", "sponsorship", "visa", "notice period", "available to start", "start work", "relocat", "qualification", "graduated", "degree", "work authorization", "authorized to work", "work permit", "薪资", "签证", "入职", "搬迁", "学历", "毕业", "工作许可"]
+        let personalCondition = personalConditions.contains(where: lower.contains)
         let merelyClarifying = ["clarify", "ask about", "confirm", "澄清", "询问", "确认"].contains(where: lower.contains)
-        if personalSubject && personalCondition && !merelyClarifying { return true }
+        if personalSubject && personalCondition {
+            // An inquiry cannot exempt an independent candidate condition in the same sentence.
+            let boundary = #"(?:[,，]\s*|\b(?:and|but|yet|because|since|then)\s+|(?:但是|但|不过|而且|并且|因为|然后)\s*)(?=(?:i\b|we\b|my\b|our\b|you\b|your\b|我|你|您))"#
+            if let range = request.range(of: boundary, options: .regularExpression) {
+                let clause = String(request[range.upperBound...])
+                if clause.count < request.count, isPersonalClaim(clause) { return true }
+            }
+            let coordination = #"\b(?:and|but|yet|then|or|because|since)\s+|但是|不过|而且|并且|然后|但|并|或"#
+            let qualificationTopics = ["qualification", "graduated", "degree", "学历", "毕业"]
+            var ambiguousQualification = false
+            var remainder = request[...]
+            while let range = remainder.range(of: coordination, options: .regularExpression) {
+                let tail = remainder[range.upperBound...]
+                let clause = tail[..<(tail.range(of: coordination, options: .regularExpression)?.lowerBound ?? tail.endIndex)]
+                let inquiryClause = clause.range(of: #"^(?:what|which|whether)\b|^(?:ask|inquire|enquire)\s+(?:about|what|which|whether|if)\b|^(?:clarify|confirm)\s+(?:what|which|whether)\b|^(?:询问|澄清|确认)(?:是否|什么|哪些|雇主|招聘方|招聘经理|面试官|岗位|职位)"#, options: .regularExpression) != nil
+                if personalConditions.contains(where: clause.contains) && !inquiryClause {
+                    if personalConditions.contains(where: { !qualificationTopics.contains($0) && clause.contains($0) }) { return true }
+                    ambiguousQualification = true
+                }
+                remainder = tail
+            }
+            let inquiry = #"^i(?:['’](?:d|ll)|\s+(?:would|will))\s+ask\s+(?:the\s+)?(?:hiring manager|employer|recruiter|interviewer|hr)\s+(?:(?:whether|which|what|if)\b|to\s+(?:specify|explain|clarify|describe|state)\s+(?:(?:whether|which|what|if)\b|the\s+(?:[a-z]+\s+){0,3}(?:requirement|requirements|policy|policies)\b))|^(?:我|我们)(?:会|将)(?:先)?(?:向(?:雇主|招聘方|招聘经理|面试官|hr)(?:了解|询问|澄清)(?:是否|哪些|什么|岗位|职位)|请(?:雇主|招聘方|招聘经理|面试官|hr)(?:说明|澄清)(?:是否|哪些|什么|岗位|职位))"#
+            let inquiryRange = request.range(of: inquiry, options: .regularExpression)
+            // shortcut: inquiries with another personal subject retain source checks; extend with paired claim regressions.
+            let pureFutureInquiry = inquiryRange.map {
+                let remainder = request[$0.upperBound...]
+                return !ambiguousQualification && remainder.range(of: #"\b(?:i|we|my|our|you|your)\b|我|你|您"#, options: .regularExpression) == nil
+            } ?? false
+            if !merelyClarifying && !pureFutureInquiry { return true }
+        }
         let prospectivePlan = [
             " i would ", " i'd ", " i’d ", " i will ", " i'll ", " i’ll ",
             " we would ", " we'd ", " we’d ", " we will ", " we'll ", " we’ll ",
@@ -84,7 +115,21 @@ struct AnswerClaimValidator {
             " i've ", " i’ve ", " i have ", " i had ", " we've ", " we’ve ", " we have ", " we had ",
             " previously ", " in my previous ", " in our previous "
         ].contains { lower.contains($0) }
-        let completedExperienceVerb = [
+        // A past participle modifying a future plan's object is not a claim
+        // that the candidate already performed the confirmation.
+        let completedConfirmation = pastConfirmationPredicate(sentence) != nil
+        let completedFocus = !hypotheticalAssetState && lower.range(of: #"\b(?:i|we|you|(?:my|our) team|the candidate)(?:['’]ve)?\s+(?:(?:have|has|had|not|never|already|previously|personally|also|just|[a-z]+ly)\s+)*focused\b"#, options: .regularExpression) != nil
+        let auxiliaryObservation = pastObservationPredicate(sentence)?.usesAuxiliaryForm == true
+        let personalAssets = [" project ", " prototype ", " prototype's ", " prototype’s ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model ", " thesis ", " paper ", " papers ", " patent ", " patents ", " award ", " awards "]
+        let personalAsset = personalAssets.contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
+        let causalOwnedDefinition = [" because ", " since ", " but "].contains { separator in
+            guard let boundary = lower.range(of: separator) else { return false }
+            let clause = String(lower[boundary.upperBound...])
+            return personalAssets.contains { clause.contains(" my" + $0) || clause.contains(" our" + $0) }
+                && definitionPredicate(clause) != nil
+        }
+        let completedDefinition = definitionPredicate(sentence, personalActionOnly: true) != nil
+        let completedExperienceVerb = completedConfirmation || completedFocus || completedDefinition || pastObservationPredicate(sentence) != nil || causalOwnedDefinition || [
             " built ", " developed ", " implemented ", " led ", " owned ", " managed ",
             " worked ", " used ", " designed ", " delivered ", " improved ", " reduced ",
             " completed ", " published ", " studied ", " controlled ", " operated ", " trained ",
@@ -95,41 +140,110 @@ struct AnswerClaimValidator {
         if prospectivePlan && !referencesPastExperience && !completedExperienceVerb {
             return false
         }
-        let firstPerson = [" i ", " i've ", " i’ve ", " my ", " we ", " our ", " you ", " your ", " the candidate "].contains { lower.contains($0) }
+        let firstPerson = auxiliaryObservation || [" i ", " i've ", " i’ve ", " my ", " we ", " our ", " you ", " your ", " the candidate "].contains { lower.contains($0) }
         let claimVerb = completedExperienceVerb || [" background ", " experience ", " evidence "]
             .contains { lower.contains($0) }
-        let personalAsset = [" project ", " platform ", " degree ", " publication ", " pipeline ", " system ", " model ", " thesis ", " paper ", " papers ", " patent ", " patents ", " award ", " awards "]
-            .contains { lower.contains(" my" + $0) || lower.contains(" our" + $0) }
-        return firstPerson && (claimVerb || personalAsset)
+        return firstPerson && (claimVerb || (personalAsset && !hypotheticalAssetState))
+    }
+
+    /// Missing records do not establish whether the candidate observed an event.
+    /// Keep polarity local to the observation predicate, not an unrelated clause.
+    private func pastObservationPredicate(_ text: String, allowImplicitSubject: Bool = false) -> (affirmed: Bool, usesAuxiliaryForm: Bool)? {
+        let text = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if ["if ", "unless ", "suppose ", "assuming ", "imagine ", "如果", "假如", "假设"].contains(where: text.hasPrefix) {
+            return nil
+        }
+        let subject = (allowImplicitSubject ? #"(?:^|"# : "(?:") + #"\b(?:i|we|you|(?:my|our) team|the candidate)(?:['’]ve)?\s+)"#
+        let auxiliary = #"(?:(?:did\s+(?:(?:not|never)\s+)?|didn['’]t\s+)(?:observe|notice|note|see))"#
+        let inflected = #"(?:(?:(?:have|has|had|haven['’]t|hasn['’]t|hadn['’]t|already|previously|personally|also|just|since|then)\s+)*(?:(?:not|never)\s+)?(?:observed|noticed|noted|saw))"#
+        var remaining = text.startIndex..<text.endIndex
+        while let range = text.range(of: subject + "(?:" + auxiliary + "|" + inflected + #")\b(?:\s+no\b)?"#, options: .regularExpression, range: remaining) {
+            remaining = range.upperBound..<text.endIndex
+            if uncertainPastEventPrefix(text[..<range.lowerBound]) { continue }
+            let predicate = String(text[range])
+            let denied = predicate.range(of: #"\b(?:not|never|no|didn['’]t|haven['’]t|hasn['’]t|hadn['’]t)\b"#, options: .regularExpression) != nil
+            return (!denied, predicate.range(of: #"\bdid\b|\bdidn['’]t\b"#, options: .regularExpression) != nil)
+        }
+        if let range = text.range(of: #"(?:我|我们|你|您|候选人)(?:曾经|已经)?(?:没有|没|未曾|未|不曾)?(?:观察到|看到|注意到)"#, options: .regularExpression) {
+            guard !uncertainPastEventPrefix(text[..<range.lowerBound]) else { return nil }
+            let predicate = String(text[range])
+            let denied = ["没有", "没", "未", "不曾"].contains(where: predicate.contains)
+            return (!denied, denied)
+        }
+        return nil
+    }
+
+    private func uncertainPastEventPrefix(_ prefix: Substring) -> Bool {
+        let clause = String(prefix).components(separatedBy: " but ").last?
+            .components(separatedBy: CharacterSet(charactersIn: ";；.。,，")).last ?? ""
+        return clause.range(of: #"\b(?:if|unless|whether|suppose|assuming|imagine)\b|(?:\b(?:unknown|unclear)|\bno (?:records?|evidence|information)|\bnot (?:recorded|documented|known))(?:\s+that)?\s*$|是否|如果|假如|假设|(?:没有记录|未记录|未说明|不清楚)\s*$"#, options: .regularExpression) != nil
+    }
+
+    private func pastConfirmationPredicate(_ text: String, allowImplicitSubject: Bool = false) -> (affirmed: Bool, usesAuxiliaryForm: Bool)? {
+        let text = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if ["if ", "unless ", "suppose ", "assuming ", "imagine ", "如果", "假如", "假设"].contains(where: text.hasPrefix) { return nil }
+        let subject = (allowImplicitSubject ? #"(?:^|"# : "(?:") + #"\b(?:i|we|you|(?:my|our) team|the candidate)(?:['’]ve)?\s+)"#
+        let action = #"(?:(?:did\s+(?:(?:not|never)\s+)?|didn['’]t\s+)(?:confirm|verify|find)|(?:(?:have|has|had|haven['’]t|hasn['’]t|hadn['’]t|not|never|already|previously|personally|also|just|since|then|[a-z]+ly)\s+)*(?:confirmed|verified|found))\b(?:\s+no\b)?"#
+        var remaining = text.startIndex..<text.endIndex
+        while let range = text.range(of: subject + action, options: .regularExpression, range: remaining) {
+            remaining = range.upperBound..<text.endIndex
+            if uncertainPastEventPrefix(text[..<range.lowerBound]) { continue }
+            let predicate = String(text[range])
+            let denied = predicate.range(of: #"\b(?:not|never|no|didn['’]t|haven['’]t|hasn['’]t|hadn['’]t)\b"#, options: .regularExpression) != nil
+            return (!denied, predicate.range(of: #"\bdid\b|\bdidn['’]t\b"#, options: .regularExpression) != nil)
+        }
+        return nil
     }
 
     private func personalExperienceEventIsSupported(claim: String, evidence: String) -> Bool {
         let claim = " " + claim.lowercased() + " "
         let evidence = " " + evidence.lowercased() + " "
-        let future = ["plan to", "will ", "would ", "计划", "打算", "将要"]
+        let future = ["plan to", "will ", "would ", "计划", "打算", "将要", "我会", "我们会", "我将", "我们将"]
         // A future or negated source cannot support a positive factual claim
         // merely because its topic and numbers overlap. Prefer a narrower source
         // span when a source mixes completed work with plans/negative statements.
         if future.contains(where: evidence.contains) && !future.contains(where: claim.contains) { return false }
         func negated(_ text: String) -> Bool {
-            text.range(of: #"\b(?:not|never|no|didn't|haven't|hasn't|wasn't|weren't)\b|未|没有|不曾|并非"#, options: .regularExpression) != nil
+            text.range(of: #"\b(?:not|never|no|didn['’]t|haven['’]t|hasn['’]t|wasn['’]t|weren['’]t)\b|未|没有|不曾|并非"#, options: .regularExpression) != nil
         }
-        if negated(evidence) != negated(claim) { return false }
+        let confirmation = pastConfirmationPredicate(claim)
+        if let confirmation {
+            if pastConfirmationPredicate(evidence, allowImplicitSubject: true)?.affirmed != confirmation.affirmed { return false }
+        } else if let observation = pastObservationPredicate(claim) {
+            if pastObservationPredicate(evidence, allowImplicitSubject: true)?.affirmed != observation.affirmed { return false }
+        } else if let definition = definitionPredicate(claim) {
+            if definitionPredicate(evidence) != definition { return false }
+        } else if negated(evidence) != negated(claim) { return false }
         let simulation = ["simulation", "simulated", "仿真"].contains(where: evidence.contains)
         let realTerms = ["production", "real robot", "hardware", "实机", "生产部署"]
         if simulation && !realTerms.contains(where: evidence.contains) && realTerms.contains(where: claim.contains) { return false }
         if ["team", "团队"].contains(where: evidence.contains), ["independently", "solely", "独立", "独自"].contains(where: claim.contains),
            !["independently", "solely", "独立", "独自"].contains(where: evidence.contains) { return false }
         let eventGroups = [
-            [" observed ", " saw ", " noticed "],
-            [" encountered ", " experienced ", " faced "]
+            [" observed ", " saw ", " noticed ", " noted "],
+            [" encountered ", " experienced ", " faced "],
+            // Performing a test does not establish that its result was confirmed.
+            [" confirmed ", " verified ", " found ", "确认", "验证", "发现"]
         ]
         for group in eventGroups where group.contains(where: claim.contains) {
+            if confirmation != nil && group.contains(" confirmed ") { continue }
             if !group.contains(where: evidence.contains) {
                 return false
             }
         }
         return true
+    }
+
+    private func definitionPredicate(_ text: String, personalActionOnly: Bool = false) -> Bool? {
+        let text = text.lowercased()
+        let passive = #"\b(?:(?:was|were|is|are|has been|have been|had been)\s+(?:(?:not|never)\s+)?|(?:wasn['’]t|weren['’]t|isn['’]t|aren['’]t)\s+)(?:defined|specified)\b"#
+        let active = #"\b(?:i|we|you|the candidate)\s+(?:(?:did\s+(?:(?:not|never)\s+)?|didn['’]t\s+)(?:define|specify)|(?:(?:have|had|not|never|already|previously)\s+)*(?:defined|specified))\b"#
+        let chinese = #"(?:没有|并未|未曾|未|已经|已)(?:定义|规定)|(?:定义|规定)了"#
+        guard let range = text.range(of: personalActionOnly ? active : passive + "|" + active + "|" + chinese, options: .regularExpression) else { return nil }
+        // shortcut: mixed source spans need narrower statements; uncertainty is not a definition event.
+        let prefix = String(text[..<range.lowerBound])
+        guard prefix.range(of: #"\b(?:if|unless|whether|suppose|assuming|imagine|unknown|unclear)\b|\b(?:no (?:records?|evidence|information)|not (?:recorded|documented|known))\b|是否|如果|假如|假设|没有记录|未记录|未说明|不清楚"#, options: .regularExpression) == nil else { return nil }
+        return String(text[range]).range(of: #"\b(?:not|never|didn['’]t|wasn['’]t|weren['’]t|isn['’]t|aren['’]t)\b|没有|并未|未曾|未"#, options: .regularExpression) == nil
     }
 
     private func meaningfulTokens(_ text: String) -> Set<String> {

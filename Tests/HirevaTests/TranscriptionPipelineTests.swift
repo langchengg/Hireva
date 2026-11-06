@@ -34,43 +34,21 @@ struct TranscriptionPipelineTests {
     }
 
     @Test
+    @MainActor
     func echoLeakageProtectionSuppressesDuplicateDetections() {
-        // Setup sliding window simulation:
-        var recentSystemAudioRecords: [String] = []
-
-        // Simulate receiving a system audio interviewer segment:
-        recentSystemAudioRecords.append("Walk me through your resume and describe your robotics perception project.")
-
-        // Helper word-overlap Jaccard similarity checker matching AppState's logic
-        func isEchoLeakage(micText: String, recentRecords: [String]) -> Bool {
-            let micWords = Set(micText.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
-            if micWords.isEmpty { return false }
-
-            for record in recentRecords {
-                let systemWords = Set(record.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
-                let intersection = micWords.intersection(systemWords)
-                let union = micWords.union(systemWords)
-                if !union.isEmpty {
-                    let similarity = Double(intersection.count) / Double(union.count)
-                    if similarity >= 0.5 { // 50% Jaccard word overlap indicates echo leakage
-                        return true
-                    }
-                }
-            }
-            return false
-        }
-
-        // Test Case 1: Exact leakage (Microphone hears the same question leaking from speakers)
+        let owner = LiveInterviewFeature()
+        let began = Date(timeIntervalSince1970: 1_000)
+        owner.recordSystemAudioForEcho("Walk me through your resume and describe your robotics perception project.", now: began)
         let exactLeak = "Walk me through your resume and describe your robotics perception project."
-        #expect(isEchoLeakage(micText: exactLeak, recentRecords: recentSystemAudioRecords))
-
-        // Test Case 2: Highly similar leakage (minor transcription noise or differences)
+        #expect(owner.microphoneEchoMatch(exactLeak, now: began)?.similarity == 1)
         let highLeak = "walk me through your resume and describe your robotics perception"
-        #expect(isEchoLeakage(micText: highLeak, recentRecords: recentSystemAudioRecords))
-
-        // Test Case 3: Completely distinct microphone candidate response (should not trigger leakage protection)
+        #expect(owner.microphoneEchoMatch(highLeak, now: began) != nil)
         let candidateSpeech = "Sure, I would be happy to describe my experience with robotics simulation and grasp candidate generation."
-        #expect(!isEchoLeakage(micText: candidateSpeech, recentRecords: recentSystemAudioRecords))
+        #expect(owner.microphoneEchoMatch(candidateSpeech, now: began) == nil)
+        #expect(owner.microphoneEchoMatch("", now: began) == nil)
+        #expect(owner.microphoneEchoMatch(exactLeak, now: began.addingTimeInterval(5)) != nil)
+        #expect(owner.microphoneEchoMatch(exactLeak, now: began.addingTimeInterval(5.001)) == nil)
+        // Synthetic strings only. This is not a microphone capture or GUI test.
     }
 
     @Test

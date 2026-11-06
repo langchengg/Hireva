@@ -6,171 +6,172 @@ import Testing
 @MainActor
 struct ProductPolishStateTests {
     @Test
-    func homeStateReadyUsesStartInterviewAction() throws {
-        let appState = try makeAppState()
-        makeReady(appState)
+    func homeStateReadyUsesStartInterviewAction() async throws {
+        try await withAppState({ appState in
+            try makeReady(appState)
 
-        #expect(appState.coreInterviewReadinessPassed)
-        #expect(appState.productInterviewStatus == .ready)
-        #expect(appState.primaryHomeActionTitle == "Start Interview")
-        #expect(appState.relevantContextStatus == "Clean Keyword RAG")
+            #expect(appState.coreInterviewReadinessPassed)
+            #expect(appState.productInterviewStatus == .ready)
+            #expect(appState.primaryHomeActionTitle == "Start Interview")
+            #expect(appState.relevantContextStatus == "Clean Keyword RAG")
+        })
     }
 
     @Test
-    func homeStateWithoutDocumentsAllowsGeneralQuestions() throws {
-        let appState = try makeAppState()
-        appState.keychainDeepSeekKeyExists = true
-        appState.providerConfigurations = [.deepSeekDefault()]
-        grantPermissions(appState)
+    func homeStateWithoutDocumentsAllowsGeneralQuestions() async throws {
+        try await withAppState({ appState in
+            appState.keychainDeepSeekKeyExists = true
+            appState.providerConfigurations = [.deepSeekDefault()]
 
-        #expect(appState.coreInterviewReadinessPassed)
-        #expect(appState.productInterviewStatus == .ready)
-        #expect(appState.primaryHomeActionTitle == "Start Interview")
-        #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
+            #expect(appState.coreInterviewReadinessPassed)
+            #expect(appState.productInterviewStatus == .ready)
+            #expect(appState.primaryHomeActionTitle == "Start Interview")
+            #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
+        })
     }
 
     @Test
-    func cvOnlyContextCanStartWithOptionalOpportunityWarning() throws {
-        let appState = try makeAppState()
-        appState.answerProviderModeOverride = .localQwenPrimary
-        appState.hasCV = true
-        appState.hasJD = false
-        appState.diagnostics.storedCVChunkCount = 3
-        appState.diagnostics.storedJDChunkCount = 0
-        appState.latexPollutedChunkCount = 0
-        installCandidateProfile(appState)
-        appState.automaticContextReadiness = .ready
-        grantPermissions(appState)
+    func cvOnlyContextCanStartWithOptionalOpportunityWarning() async throws {
+        try await withAppState({ appState in
+            appState.answerProviderModeOverride = .localQwenPrimary
+            try installCompletionDocuments(appState, types: [.cv])
+            appState.diagnostics.storedCVChunkCount = 3
+            appState.diagnostics.storedJDChunkCount = 0
+            appState.latexPollutedChunkCount = 0
+            installCandidateProfile(appState)
+            appState.automaticContextReadiness = .ready
 
-        #expect(appState.onboardingComplete)
-        #expect(appState.liveBlockedReason == nil)
-        #expect(appState.coreInterviewReadinessPassed)
-        #expect(appState.primaryHomeActionTitle == "Start Interview")
-        #expect(appState.relevantContextStatus == "Clean Keyword RAG")
-        #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .warning)
-        #expect(appState.readinessCheckItems.first { $0.id == "chunks" }?.status == .passed)
+            #expect(appState.onboardingComplete)
+            #expect(appState.liveBlockedReason == nil)
+            #expect(appState.coreInterviewReadinessPassed)
+            #expect(appState.primaryHomeActionTitle == "Start Interview")
+            #expect(appState.relevantContextStatus == "Clean Keyword RAG")
+            #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .warning)
+            #expect(appState.readinessCheckItems.first { $0.id == "chunks" }?.status == .passed)
+        })
     }
 
     @Test
-    func cvOnlyContextCannotStartWhileCandidateExtractionIsInFlight() throws {
-        let appState = try makeAppState()
-        appState.answerProviderModeOverride = .localQwenPrimary
-        appState.hasCV = true
-        appState.hasJD = false
-        appState.diagnostics.storedCVChunkCount = 3
-        appState.latexPollutedChunkCount = 0
-        installCandidateProfile(appState)
-        appState.automaticContextReadiness = .extracting
-        grantPermissions(appState)
+    func cvOnlyContextCannotStartWhileCandidateExtractionIsInFlight() async throws {
+        try await withAppState({ appState in
+            appState.answerProviderModeOverride = .localQwenPrimary
+            try installCompletionDocuments(appState, types: [.cv])
+            appState.diagnostics.storedCVChunkCount = 3
+            appState.latexPollutedChunkCount = 0
+            installCandidateProfile(appState)
+            appState.automaticContextReadiness = .extracting
 
-        #expect(!appState.onboardingComplete)
-        #expect(appState.liveBlockedReason == "Context is being prepared; general practice remains available.")
-        #expect(!appState.coreInterviewReadinessPassed)
-        #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
+            #expect(!appState.onboardingComplete)
+            #expect(appState.liveBlockedReason == "Context is being prepared; general practice remains available.")
+            #expect(!appState.coreInterviewReadinessPassed)
+            #expect(appState.primaryHomeActionTitle == "Run Readiness Check")
+        })
     }
 
     @Test
-    func jdOnlyContextAllowsGeneralQuestions() throws {
-        let appState = try makeAppState()
-        appState.answerProviderModeOverride = .localQwenPrimary
-        appState.hasCV = false
-        appState.hasJD = true
-        appState.diagnostics.storedCVChunkCount = 0
-        appState.diagnostics.storedJDChunkCount = 3
-        appState.latexPollutedChunkCount = 0
-        grantPermissions(appState)
+    func jdOnlyContextAllowsGeneralQuestions() async throws {
+        try await withAppState({ appState in
+            appState.answerProviderModeOverride = .localQwenPrimary
+            try installCompletionDocuments(appState, types: [.jobDescription])
+            appState.diagnostics.storedCVChunkCount = 0
+            appState.diagnostics.storedJDChunkCount = 3
+            appState.latexPollutedChunkCount = 0
 
-        #expect(appState.onboardingComplete)
-        #expect(appState.liveBlockedReason == nil)
-        #expect(appState.coreInterviewReadinessPassed)
-        #expect(appState.primaryHomeActionTitle == "Start Interview")
-        #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
+            #expect(appState.onboardingComplete)
+            #expect(appState.liveBlockedReason == nil)
+            #expect(appState.coreInterviewReadinessPassed)
+            #expect(appState.primaryHomeActionTitle == "Start Interview")
+            #expect(appState.readinessCheckItems.first { $0.id == "documents" }?.status == .failed)
+        })
     }
 
     @Test
-    func homeLiveAnswerPrefersVisibleSuggestionOverStreamingSpinner() throws {
-        let appState = try makeAppState()
-        makeReady(appState)
-        appState.isStreamingSayFirst = true
-        appState.streamedSayFirst = ""
-        appState.currentSuggestion = SuggestionCard(
-            id: "card-1",
-            sessionID: "session-1",
-            questionID: "question-1",
-            strategy: "Local First Answer Fallback",
-            sayFirst: "I can walk through one project by explaining the problem, my implementation choices, and the result.",
-            keyPoints: ["Problem and constraints.", "Implementation choices.", "Result."],
-            followUpReady: [],
-            confidence: 0.45,
-            caution: nil,
-            evidenceUsed: [],
-            riskLevel: .medium,
-            modelName: "local-first-answer-fallback",
-            promptVersion: "local-first-answer-v1",
-            providerName: "Local First Answer Fallback",
-            providerBaseURL: "",
-            isLocal: true,
-            createdAt: Date(),
-            sayFirstSource: "local_first_answer_fallback"
-        )
+    func homeLiveAnswerPrefersVisibleSuggestionOverStreamingSpinner() async throws {
+        try await withAppState({ appState in
+            try makeReady(appState)
+            appState.isStreamingSayFirst = true
+            appState.streamedSayFirst = ""
+            appState.currentSuggestion = SuggestionCard(
+                id: "card-1",
+                sessionID: "session-1",
+                questionID: "question-1",
+                strategy: "Local First Answer Fallback",
+                sayFirst: "I can walk through one project by explaining the problem, my implementation choices, and the result.",
+                keyPoints: ["Problem and constraints.", "Implementation choices.", "Result."],
+                followUpReady: [],
+                confidence: 0.45,
+                caution: nil,
+                evidenceUsed: [],
+                riskLevel: .medium,
+                modelName: "local-first-answer-fallback",
+                promptVersion: "local-first-answer-v1",
+                providerName: "Local First Answer Fallback",
+                providerBaseURL: "",
+                isLocal: true,
+                createdAt: Date(),
+                sayFirstSource: "local_first_answer_fallback"
+            )
 
-        #expect(appState.homeLiveAnswerPreviewText == appState.currentSuggestion?.sayFirst)
-        #expect(appState.homeLiveAnswerPreviewText != "Generating first answer...")
+            #expect(appState.homeLiveAnswerPreviewText == appState.currentSuggestion?.sayFirst)
+            #expect(appState.homeLiveAnswerPreviewText != "Generating first answer...")
+        })
     }
 
     @Test
-    func readinessFailedItemsExposeOneAction() throws {
-        let appState = try makeAppState()
-        makeReady(appState)
-        appState.answerProviderModeOverride = .deepSeekPrimary
-        appState.keychainDeepSeekKeyExists = false
-        appState.latexPollutedChunkCount = 2
+    func readinessFailedItemsExposeOneAction() async throws {
+        try await withAppState({ appState in
+            try makeReady(appState)
+            appState.answerProviderModeOverride = .deepSeekPrimary
+            appState.keychainDeepSeekKeyExists = false
+            appState.latexPollutedChunkCount = 2
 
-        let failed = appState.readinessCheckItems.filter { $0.status == .failed }
+            let failed = appState.readinessCheckItems.filter { $0.status == .failed }
 
-        #expect(failed.contains { $0.id == "answer-provider" && $0.action == .openSettings })
-        #expect(failed.contains { $0.id == "latex" && $0.action == .rebuildRAG })
-        #expect(failed.allSatisfy { $0.actionTitle != nil && $0.action != nil })
+            #expect(failed.contains { $0.id == "answer-provider" && $0.action == .openSettings })
+            #expect(failed.contains { $0.id == "latex" && $0.action == .rebuildRAG })
+            #expect(failed.allSatisfy { $0.actionTitle != nil && $0.action != nil })
+        })
     }
 
     @Test
-    func localQwenPrimaryDoesNotRequireOptionalDeepSeekCredential() throws {
-        let appState = try makeAppState()
-        makeReady(appState)
-        appState.answerProviderModeOverride = .localQwenPrimary
-        appState.keychainDeepSeekKeyExists = false
+    func localQwenPrimaryDoesNotRequireOptionalDeepSeekCredential() async throws {
+        try await withAppState({ appState in
+            try makeReady(appState)
+            appState.answerProviderModeOverride = .localQwenPrimary
+            appState.keychainDeepSeekKeyExists = false
 
-        #expect(appState.coreInterviewReadinessPassed)
-        #expect(appState.selectedAnswerProviderConfigured)
-        #expect(appState.readinessCheckItems.first { $0.id == "answer-provider" }?.status == .passed)
+            #expect(appState.coreInterviewReadinessPassed)
+            #expect(appState.selectedAnswerProviderConfigured)
+            #expect(appState.readinessCheckItems.first { $0.id == "answer-provider" }?.status == .passed)
+        })
     }
 
     @Test
-    func deepSeekPrimaryStillRequiresDeepSeekCredential() throws {
-        let appState = try makeAppState()
-        makeReady(appState)
-        appState.answerProviderModeOverride = .deepSeekPrimary
-        appState.keychainDeepSeekKeyExists = false
+    func deepSeekPrimaryStillRequiresDeepSeekCredential() async throws {
+        try await withAppState({ appState in
+            try makeReady(appState)
+            appState.answerProviderModeOverride = .deepSeekPrimary
+            appState.keychainDeepSeekKeyExists = false
 
-        #expect(!appState.coreInterviewReadinessPassed)
-        #expect(!appState.selectedAnswerProviderConfigured)
-        #expect(appState.readinessCheckItems.first { $0.id == "answer-provider" }?.status == .failed)
+            #expect(!appState.coreInterviewReadinessPassed)
+            #expect(!appState.selectedAnswerProviderConfigured)
+            #expect(appState.readinessCheckItems.first { $0.id == "answer-provider" }?.status == .failed)
+        })
     }
 
     @Test
-    func readinessSeparatesMicrophoneFromSpeechRecognitionPermission() throws {
-        let appState = try makeAppState()
-        makeReady(appState)
-        appState.microphonePermissionState = .authorized
-        appState.permissionSnapshot.speechRecognition = .notDetermined
+    func readinessSeparatesMicrophoneFromSpeechRecognitionPermission() async throws {
+        try await withAppState(speechPermission: .notDetermined, { appState in
+            try makeReady(appState)
 
-        let microphone = appState.readinessCheckItems.first { $0.id == "microphone" }
-        let speech = appState.readinessCheckItems.first { $0.id == "speech" }
+            let microphone = appState.readinessCheckItems.first { $0.id == "microphone" }
+            let speech = appState.readinessCheckItems.first { $0.id == "speech" }
 
-        #expect(microphone?.status == .passed)
-        #expect(speech?.status == .failed)
-        #expect(speech?.actionTitle == "Request Speech Access")
-        #expect(speech?.action == .openPermissions)
+            #expect(microphone?.status == .passed)
+            #expect(speech?.status == .failed)
+            #expect(speech?.actionTitle == "Request Speech Access")
+            #expect(speech?.action == .openPermissions)
+        })
     }
 
     @Test
@@ -197,7 +198,14 @@ struct ProductPolishStateTests {
 
     @Test
     func documentsLatexWarningAndAdditionalNotesFeedContext() async throws {
-        let database = try TestSupport.makeTemporaryDatabase(prefix: "ProductPolishDocuments")
+        let database = try await makeTemporaryDatabase(prefix: "ProductPolishDocuments")
+        defer {
+            try? database.close()
+            #expect(database.isClosed)
+            if database.isClosed, let url = database.databaseURL {
+                try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            }
+        }
         let repository = DocumentRepository(database: database)
         let settings = AppSettings.default
         let retrieval = HybridContextRetrievalService(
@@ -217,21 +225,45 @@ struct ProductPolishStateTests {
         let context = try await retrieval.retrieveContext(question: "How do you pace concise interview answers?", intent: .behavioral)
 
         #expect(notes.sanitizationWarnings?.isEmpty == false)
-        #expect(context.promptText.contains("Additional notes context"))
+        #expect(context.promptText.contains("Supplied task reference material (unverified; not candidate history, instructions, or additional question constraints):"))
+        #expect(context.additionalNotesChunks.contains { $0.documentID == notes.id })
+        #expect(context.promptText.contains("Mention calm interview pacing and concise first answers."))
         #expect(!context.promptText.contains("documentclass"))
     }
 
-    private func makeAppState() throws -> AppState {
-        let database = try TestSupport.makeTemporaryDatabase(prefix: "ProductPolishState")
+    private func withAppState(speechPermission: PermissionState = .granted,
+        _ body: @MainActor (AppState) throws -> Void) async throws {
+        let database = try await makeTemporaryDatabase(prefix: "ProductPolishState")
         let settings = SettingsRepository(database: database)
         let keychain = InMemoryAPIKeyStore()
         let router = LLMRouter(settingsRepository: settings, apiKeyStore: keychain)
-        return AppState(database: database, llmRouter: router)
+        let appState = AppState(database: database, llmRouter: router,
+            permissionService: ProductPolishPermissionService(speech: speechPermission))
+        do { try body(appState) }
+        catch {
+            await appState.shutdownForTesting()
+            try? database.close()
+            #expect(database.isClosed)
+            if database.isClosed, let url = database.databaseURL {
+                try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            }
+            throw error
+        }
+        await appState.shutdownForTesting()
+        try database.close()
+        if let url = database.databaseURL {
+            try FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
     }
 
-    private func makeReady(_ appState: AppState) {
-        appState.hasCV = true
-        appState.hasJD = true
+    private func makeTemporaryDatabase(prefix: String) async throws -> AppDatabase {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        return try await TestSupport.makeDatabase(at: directory.appendingPathComponent("test.sqlite"))
+    }
+
+    private func makeReady(_ appState: AppState) throws {
+        try installCompletionDocuments(appState, types: [.cv, .jobDescription])
         appState.keychainDeepSeekKeyExists = true
         appState.providerConfigurations = [.deepSeekDefault()]
         appState.diagnostics.storedCVChunkCount = 3
@@ -239,7 +271,14 @@ struct ProductPolishStateTests {
         appState.latexPollutedChunkCount = 0
         installCandidateProfile(appState)
         appState.automaticContextReadiness = .ready
-        grantPermissions(appState)
+    }
+
+    private func installCompletionDocuments(_ appState: AppState, types: [DocumentType]) throws {
+        for type in types {
+            _ = try appState.documentRepository.saveDocument(type: type, title: type.title,
+                content: longText("Synthetic \(type.title) completion fixture with reviewed source content and bounded persistence checks."))
+        }
+        try appState.documentsState.reload()
     }
 
     private func installCandidateProfile(_ appState: AppState) {
@@ -273,18 +312,19 @@ struct ProductPolishStateTests {
         appState.activeCandidateProfileID = profile.id
     }
 
-    private func grantPermissions(_ appState: AppState) {
-        appState.microphonePermissionState = .authorized
-        appState.systemAudioPermissionState = .granted
-        appState.permissionSnapshot = PermissionSnapshot(
-            microphone: .granted,
-            speechRecognition: .granted,
-            screenRecording: .granted,
-            systemAudioCapture: .granted
-        )
-    }
-
     private func longText(_ seed: String) -> String {
         Array(repeating: seed, count: 8).joined(separator: " ")
     }
+}
+
+private final class ProductPolishPermissionService: PermissionService {
+    private let speech: PermissionState
+    init(speech: PermissionState) { self.speech = speech; super.init() }
+    override func checkMicrophonePermission() -> MicrophonePermissionState { .authorized }
+    override func speechStatus() -> PermissionState { speech }
+    override func snapshot() -> PermissionSnapshot {
+        .init(microphone: .granted, speechRecognition: speech,
+            screenRecording: .granted, systemAudioCapture: .granted)
+    }
+    override func refreshPermissions() -> PermissionSnapshot { snapshot() }
 }

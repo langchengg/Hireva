@@ -3,8 +3,8 @@ import Darwin
 import CryptoKit
 import SwiftSoup
 
-struct PublicRoleBrief: Codable {
-    struct Excerpt: Codable { var location: String; var text: String }
+struct PublicRoleBrief: Codable, Sendable {
+    struct Excerpt: Codable, Sendable { var location: String; var text: String }
     var url: String
     var fetchedAt: Date
     var sha256: String

@@ -6,6 +6,19 @@ import GRDB
 @Suite @MainActor
 struct PermissionProbeTests {
 
+    @Test
+    func unavailableStreamWithNoNativeErrorDoesNotInventTimeout() {
+        let result = ScreenSystemAudioPermissionProbeResult(
+            preflightGranted: true,
+            shareableContentProbeSucceeded: true,
+            streamAudioProbeSucceeded: false,
+            errorDescription: nil,
+            likelyIdentityMismatch: false
+        )
+        #expect(SystemAudioPermissionController.state(for: result) ==
+            .streamAudioProbeFailed("Audio stream unavailable; no native error was reported."))
+    }
+
     private func makeTemporaryDatabase() throws -> AppDatabase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HirevaPermissionTests-\(UUID().uuidString)", isDirectory: true)

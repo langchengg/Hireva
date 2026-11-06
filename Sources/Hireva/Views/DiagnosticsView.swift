@@ -3,9 +3,20 @@ import SwiftUI
 
 struct DiagnosticsView: View {
     @ObservedObject var appState: AppState
-    @StateObject private var localModels = LocalModelsSetupViewModel()
+    @ObservedObject private var diagnosticsState: DiagnosticsState
+    @ObservedObject var live: LiveInterviewFeature
+    @ObservedObject var localModels: LocalModelsSetupViewModel
+    @ObservedObject private var settingsState: SettingsState
     @State private var mockQuestion = ""
     @State private var parakeetRuntimeDiagnostics = ParakeetRuntimeDiagnostics.unavailable()
+
+    init(appState: AppState) {
+        self.appState = appState
+        diagnosticsState = appState.diagnosticsState
+        live = appState.liveInterview
+        localModels = appState.localModelsSetupState
+        settingsState = appState.settingsState
+    }
 
     var body: some View {
         TabView {
@@ -69,7 +80,8 @@ struct DiagnosticsView: View {
         }
         .navigationTitle("Diagnostics")
         .task {
-            await localModels.refresh(qwenModel: appState.selectedQwenModelName)
+            await localModels.refresh(qwenModel: settingsState.selectedQwenModelName)
+            guard !Task.isCancelled else { return }
             parakeetRuntimeDiagnostics = await ParakeetSidecarRuntimeClient().runtimeDiagnostics()
         }
     }
@@ -89,11 +101,11 @@ struct DiagnosticsView: View {
     private var providerTab: some View {
         VStack(alignment: .leading, spacing: 14) {
             card("Active Provider", icon: "brain") {
-                diagnosticRow("Realtime", appState.activeRealtimeProviderBadge)
-                diagnosticRow("Recap", appState.activeRecapProvider.map { "\($0.name): \($0.model)" } ?? "None")
-                diagnosticRow("Last provider", appState.diagnostics.lastProviderName ?? "None")
-                diagnosticRow("Last model", appState.diagnostics.lastProviderModel ?? "None")
-                diagnosticRow("Last error", appState.diagnostics.lastError ?? "None")
+                diagnosticRow("Realtime", settingsState.activeRealtimeProviderBadge)
+                diagnosticRow("Recap", settingsState.activeRecapProvider.map { "\($0.name): \($0.model)" } ?? "None")
+                diagnosticRow("Last provider", diagnosticsState.developer.lastProviderName ?? "None")
+                diagnosticRow("Last model", diagnosticsState.developer.lastProviderModel ?? "None")
+                diagnosticRow("Last error", diagnosticsState.developer.lastError ?? "None")
                 ActionButton(
                     appState: appState,
                     actionID: ActionID.testDeepSeek,
@@ -102,12 +114,12 @@ struct DiagnosticsView: View {
                     successTitle: "Connected",
                     systemImage: "network",
                     isProminent: true,
-                    disabled: appState.isTestingConnection
+                    disabled: settingsState.isTestingConnection
                 ) {
-                    appState.testDeepSeekConnection()
+                    settingsState.testDeepSeekConnection()
                 }
                 InlineStatusBanner(appState.latestActionFeedback(for: ActionID.testDeepSeek))
-                if let result = appState.connectionResult {
+                if let result = settingsState.connectionResult {
                     Text(result)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -116,8 +128,8 @@ struct DiagnosticsView: View {
             }
 
             card("AI Router Diagnostics", icon: "point.3.connected.trianglepath.dotted") {
-                diagnosticRow("Last switched at", appState.lastProviderSwitchTimestamp.map { DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .medium) } ?? "Never")
-                diagnosticRow("Last switch error", appState.lastProviderSwitchError ?? "None")
+                diagnosticRow("Last switched at", settingsState.lastProviderSwitchTimestamp.map { DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .medium) } ?? "Never")
+                diagnosticRow("Last switch error", settingsState.lastProviderSwitchError ?? "None")
                 diagnosticRow("Question detection provider", appState.lastQuestionDetectionProvider ?? "None")
                 diagnosticRow("Question detection model", appState.lastQuestionDetectionModel ?? "None")
                 diagnosticRow("Suggestion provider", appState.lastSuggestionGenerationProvider ?? "None")
@@ -130,12 +142,12 @@ struct DiagnosticsView: View {
         VStack(alignment: .leading, spacing: 14) {
             card("Local Model Readiness", icon: "square.stack.3d.up") {
                 diagnosticRow("Local setup page", "Setup & Local Models")
-                diagnosticRow("selectedQwenModel", appState.selectedQwenModelName)
+                diagnosticRow("selectedQwenModel", settingsState.selectedQwenModelName)
                 diagnosticRow("ollamaRunning", localModels.qwenHealth.ollamaRunning ? "true" : "false")
                 diagnosticRow("qwenModelInstalled", localModels.qwenHealth.modelInstalled ? "true" : "false")
                 diagnosticRow("localQwenReady", localModels.qwenHealth.isReady ? "true" : "false")
                 diagnosticRow("selectedAnswerProvider", appState.selectedAnswerProviderMode.rawValue)
-                diagnosticRow("activeAnswerProvider", appState.activeRealtimeProviderBadge)
+                diagnosticRow("activeAnswerProvider", settingsState.activeRealtimeProviderBadge)
                 diagnosticRow(
                     "activeLLMSource",
                     appState.finalVisibleSource
@@ -144,7 +156,7 @@ struct DiagnosticsView: View {
                 )
                 diagnosticRow("defaultAnswerProvider", AnswerProviderMode.localQwenPrimary.rawValue)
                 diagnosticRow("lastOllamaError", localModels.qwenHealth.lastError ?? "None")
-                diagnosticRow("selectedASRProvider", appState.selectedASRProviderID.rawValue)
+                diagnosticRow("selectedASRProvider", settingsState.selectedASRProviderID.rawValue)
                 diagnosticRow("activeASRProvider", appState.activeASRProviderID?.rawValue ?? "None")
                 diagnosticRow("defaultASRSelection", ASRProviderID.appleSpeech.rawValue)
                 diagnosticRow("asrModelStatus", localModels.transcriptionStatus.displayName)
@@ -217,7 +229,7 @@ struct DiagnosticsView: View {
                 diagnosticRow("activeTriggerPath", appState.activeTriggerPath?.rawValue ?? "None")
                 diagnosticRow("activeGenerationStartedAt", diagnosticTime(appState.activeGenerationStartedAt))
                 diagnosticRow("activeGenerationElapsedMs", appState.activeGenerationElapsedMs.map { "\($0)" } ?? "None")
-                diagnosticRow("lastGenerationStateChangeAt", diagnosticTime(appState.lastGenerationStateChangeAt))
+                diagnosticRow("lastGenerationStateChangeAt", diagnosticTime(live.lastGenerationStateChangeAt))
                 diagnosticRow("activeTaskSummary", appState.activeTaskSummary)
                 diagnosticRow("previousGenerationID", appState.previousGenerationID ?? "None")
                 diagnosticRow("questionID", appState.currentGenerationTelemetry.questionID ?? "None")
@@ -339,15 +351,15 @@ struct DiagnosticsView: View {
                 diagnosticRow("ragChunkIntents", appState.currentRAGChunkIntents.isEmpty ? "None" : appState.currentRAGChunkIntents.map(\.rawValue).joined(separator: ", "))
                 diagnosticRow("generationBlockedReason", appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason.isEmpty ? "None" : appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason)
                 diagnosticRow("selectedSessionMode", appState.interviewSessionMode.rawValue)
-                diagnosticRow("resolvedSessionMode", appState.resolvedInterviewSessionPhase.rawValue)
-                diagnosticRow("detectedSpeakerRole", appState.detectedDialogueSpeakerRole.rawValue)
-                diagnosticRow("detectedTurnType", appState.detectedDialogueTurnType.rawValue)
-                diagnosticRow("sourceChannel", appState.lastDialogueSourceChannel.isEmpty ? "None" : appState.lastDialogueSourceChannel)
+                diagnosticRow("resolvedSessionMode", live.resolvedInterviewSessionPhase.rawValue)
+                diagnosticRow("detectedSpeakerRole", live.detectedDialogueSpeakerRole.rawValue)
+                diagnosticRow("detectedTurnType", live.detectedDialogueTurnType.rawValue)
+                diagnosticRow("sourceChannel", live.lastDialogueSourceChannel.isEmpty ? "None" : live.lastDialogueSourceChannel)
                 diagnosticRow("triggerDecision", appState.lastTriggerDecision.isEmpty ? "None" : appState.lastTriggerDecision)
                 diagnosticRow("triggerReason", appState.lastTriggerReason.isEmpty ? "None" : appState.lastTriggerReason)
                 diagnosticRow("suppressionReason", appState.lastSuppressionReason.isEmpty ? "None" : appState.lastSuppressionReason)
-                diagnosticRow("lastModeTransition", appState.lastModeTransition.isEmpty ? "None" : appState.lastModeTransition)
-                diagnosticRow("modeTransitionReason", appState.lastModeTransitionReason.isEmpty ? "None" : appState.lastModeTransitionReason)
+                diagnosticRow("lastModeTransition", live.lastModeTransition.isEmpty ? "None" : live.lastModeTransition)
+                diagnosticRow("modeTransitionReason", live.lastModeTransitionReason.isEmpty ? "None" : live.lastModeTransitionReason)
                 diagnosticRow("candidateQuestionsToPanelCount", "\(appState.candidateQuestionsToPanelCount)")
                 diagnosticRow("interviewContextMode", appState.interviewContextMode.rawValue)
                 diagnosticRow("answerPanelQuestions", appState.answerPanelQuestionsEnabled ? "true" : "false")
@@ -411,9 +423,9 @@ struct DiagnosticsView: View {
         VStack(alignment: .leading, spacing: 14) {
             card("Capture State", icon: "waveform.path.ecg") {
                 diagnosticRow("captureMode", appState.captureMode.rawValue)
-                diagnosticRow("currentCaptureRuntimeState", appState.currentCaptureRuntimeState.displayName)
+                diagnosticRow("currentCaptureRuntimeState", live.currentCaptureRuntimeState.displayName)
                 diagnosticRow("liveState", appState.liveState.displayName)
-                diagnosticRow("stopReason", appState.stopReason?.rawValue ?? "None")
+                diagnosticRow("stopReason", live.stopReason?.rawValue ?? "None")
                 diagnosticRow("streamNotRunningReason", appState.streamNotRunningReason ?? "None")
             }
 
@@ -435,7 +447,7 @@ struct DiagnosticsView: View {
             }
 
             card("Runtime Transcript Chain", icon: "point.3.connected.trianglepath.dotted") {
-                let runtime = appState.transcriptRuntimeDiagnostics
+                let runtime = diagnosticsState.runtime
                 diagnosticRow("chainStatus", appState.runtimeTranscriptChainStatus)
                 diagnosticRow("audio_session_id", runtime.audioSessionID.isEmpty ? "None" : runtime.audioSessionID)
                 diagnosticRow("audio_is_running", runtime.audioIsRunning ? "true" : "false")
@@ -456,7 +468,14 @@ struct DiagnosticsView: View {
                 diagnosticRow("displayTranscriptText", appState.displayTranscriptText.isEmpty ? "None" : appState.displayTranscriptText)
                 diagnosticRow("lastAcceptedQuestionText", appState.lastAcceptedQuestionText.isEmpty ? "None" : appState.lastAcceptedQuestionText)
                 diagnosticRow("traceMode", appState.settings.effectiveDiagnosticTraceMode.displayName)
-                diagnosticRow("traceLogPath", appState.runtimeTranscriptTraceLogURL.path)
+                diagnosticRow("traceLogPath", diagnosticsState.traceLogURL.path)
+                let traceWrites = diagnosticsState.traceWriteSnapshot
+                diagnosticRow("tracePendingWrites", "\(traceWrites.pendingWriteCount)")
+                diagnosticRow("tracePendingBytes", "\(traceWrites.pendingByteCount)")
+                diagnosticRow("traceOverflowRejected", "\(traceWrites.overflowRejectedCount)")
+                diagnosticRow("traceSealedRejected", "\(traceWrites.sealedRejectedCount)")
+                diagnosticRow("traceFailedWrites", "\(traceWrites.failedWriteCount)")
+                diagnosticRow("traceWriteAdmissionClosed", traceWrites.isSealed ? "true" : "false")
                 ActionButton(
                     appState: appState,
                     actionID: ActionID.diagnosticsCopy,
@@ -468,10 +487,10 @@ struct DiagnosticsView: View {
                     copyRuntimeTranscriptTrace()
                 }
                 InlineStatusBanner(appState.latestActionFeedback(for: ActionID.diagnosticsCopy))
-                if appState.recentTranscriptRuntimeEvents.isEmpty {
+                if diagnosticsState.recentEvents.isEmpty {
                     diagnosticRow("recentEvents", "None")
                 } else {
-                    ForEach(Array(appState.recentTranscriptRuntimeEvents.suffix(8).reversed())) { event in
+                    ForEach(Array(diagnosticsState.recentEvents.suffix(8).reversed())) { event in
                         VStack(alignment: .leading, spacing: 4) {
                             diagnosticRow(event.name, event.text.isEmpty ? (event.reason.isEmpty ? "event" : event.reason) : event.text)
                             if let frameCount = event.frameCount {
@@ -497,11 +516,11 @@ struct DiagnosticsView: View {
     private var captureEventsTab: some View {
         VStack(alignment: .leading, spacing: 14) {
             card("recent20CaptureEvents", icon: "list.bullet.rectangle") {
-                if appState.recent20CaptureEvents.isEmpty {
+                if live.recent20CaptureEvents.isEmpty {
                     Text("No capture events logged yet.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(Array(appState.recent20CaptureEvents.reversed())) { event in
+                    ForEach(Array(live.recent20CaptureEvents.reversed())) { event in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(event.timestamp, style: .time)
@@ -538,28 +557,28 @@ struct DiagnosticsView: View {
             }
 
             card("Last 10 Suggestions", icon: "chart.bar.xaxis") {
-                diagnosticRow("Overall count", "\(appState.latencyAveragesOverall.count)")
-                diagnosticRow("Overall P50 first visible", appState.latencyAveragesOverall.p50FirstVisibleMS.map { "\($0) ms" } ?? "None")
-                diagnosticRow("Overall P90 first visible", appState.latencyAveragesOverall.p90FirstVisibleMS.map { "\($0) ms" } ?? "None")
-                diagnosticRow("DeepSeek count", "\(appState.latencyAveragesDeepSeek.count)")
-                diagnosticRow("DeepSeek P50 full card", appState.latencyAveragesDeepSeek.p50FullCardMS.map { "\($0) ms" } ?? "None")
-                diagnosticRow("DeepSeek P90 full card", appState.latencyAveragesDeepSeek.p90FullCardMS.map { "\($0) ms" } ?? "None")
+                diagnosticRow("Overall count", "\(diagnosticsState.latencyAveragesOverall.count)")
+                diagnosticRow("Overall P50 first visible", diagnosticsState.latencyAveragesOverall.p50FirstVisibleMS.map { "\($0) ms" } ?? "None")
+                diagnosticRow("Overall P90 first visible", diagnosticsState.latencyAveragesOverall.p90FirstVisibleMS.map { "\($0) ms" } ?? "None")
+                diagnosticRow("DeepSeek count", "\(diagnosticsState.latencyAveragesDeepSeek.count)")
+                diagnosticRow("DeepSeek P50 full card", diagnosticsState.latencyAveragesDeepSeek.p50FullCardMS.map { "\($0) ms" } ?? "None")
+                diagnosticRow("DeepSeek P90 full card", diagnosticsState.latencyAveragesDeepSeek.p90FullCardMS.map { "\($0) ms" } ?? "None")
             }
         }
     }
 
     private var keychainTab: some View {
         card("Keychain Masked Status", icon: "key.fill") {
-            diagnosticRow("keychainServiceName", appState.keychainServiceName)
-            diagnosticRow("keychainDeepSeekAccount", appState.keychainDeepSeekAccount)
-            diagnosticRow("keychainDeepSeekKeyExists", appState.keychainDeepSeekKeyExists ? "true" : "false")
-            diagnosticRow("keychainMaskedKey", appState.keychainMaskedKey)
-            diagnosticRow("keychainLastReadStatus", appState.keychainLastReadStatus)
-            diagnosticRow("keychainLastWriteStatus", appState.keychainLastWriteStatus)
-            diagnosticRow("keychainMigrationPerformed", appState.keychainMigrationPerformed ? "true" : "false")
-            diagnosticRow("keychainLegacyItemFound", appState.keychainLegacyItemFound ? "true" : "false")
-            diagnosticRow("keychainLegacyItemCount", "\(appState.keychainLegacyItemCount)")
-            diagnosticRow("keychainMismatchStatus", appState.keychainMismatchStatus)
+            diagnosticRow("keychainServiceName", settingsState.keychainServiceName)
+            diagnosticRow("keychainDeepSeekAccount", settingsState.keychainDeepSeekAccount)
+            diagnosticRow("keychainDeepSeekKeyExists", settingsState.keychainDeepSeekKeyExists ? "true" : "false")
+            diagnosticRow("keychainMaskedKey", settingsState.keychainMaskedKey)
+            diagnosticRow("keychainLastReadStatus", settingsState.keychainLastReadStatus)
+            diagnosticRow("keychainLastWriteStatus", settingsState.keychainLastWriteStatus)
+            diagnosticRow("keychainMigrationPerformed", settingsState.keychainMigrationPerformed ? "true" : "false")
+            diagnosticRow("keychainLegacyItemFound", settingsState.keychainLegacyItemFound ? "true" : "false")
+            diagnosticRow("keychainLegacyItemCount", "\(settingsState.keychainLegacyItemCount)")
+            diagnosticRow("keychainMismatchStatus", settingsState.keychainMismatchStatus)
         }
     }
 

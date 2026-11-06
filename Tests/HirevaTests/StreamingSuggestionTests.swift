@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import Hireva
 
 @Suite
@@ -181,28 +182,21 @@ struct StreamingSuggestionTests {
 
     // 5. E2E suggestion pipeline test on real DeepSeek
     @MainActor
-    @Test
+    @Test(.enabled(if: TestSupport.realAppDatabaseTestsEnabled &&
+        ProcessInfo.processInfo.environment["HIREVA_REAL_CLOUD_TESTS"] == "1",
+        "Requires explicit cloud/production-data opt-in; never part of ordinary or local-only validation."))
     func testRealDeepSeekStreamingSuggetionE2E() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping testRealDeepSeekStreamingSuggetionE2E: set REAL_APP_DB_TESTS=1 to allow real app database access.")
-            return
-        }
-
         // Find DeepSeek API Key strictly from Environment (No real Keychain in unit tests)
         let apiKey: String? = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]
         
-        guard let finalKey = apiKey, !finalKey.isEmpty else {
-            print("⚠️ Skipping testRealDeepSeekStreamingSuggetionE2E: DeepSeek API Key not configured in Environment")
-            return
-        }
+        let finalKey = try #require(apiKey, "Explicitly enabled cloud test needs a test credential.")
+        try #require(!finalKey.isEmpty)
         
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dbPath = appSupport.appendingPathComponent("Hireva/hireva.sqlite")
         
-        guard FileManager.default.fileExists(atPath: dbPath.path) else {
-            print("⚠️ Real SQLite database does not exist at: \(dbPath.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: dbPath.path),
+            "Explicitly enabled legacy integration requires its database prerequisite.")
         
         print("\n================================================================================")
         print("🚀 RUNNING E2E REAL DEEPSEEK STREAMING SUGGESTION GENERATION PIPELINE")
@@ -361,19 +355,37 @@ final class MockDelayProvider: DelayProvider, @unchecked Sendable {
 final class StreamingMockLLMClient: LLMClientProtocol {
     let providerKind: LLMProviderKind = .deepSeek
     
-    var streamTokens: [String] = []
-    var streamTokenBatches: [[String]] = []
-    var streamDelayNS: UInt64 = 0
-    private let lock = NSLock()
-    private var streamCallCount = 0
-    private var completedStreamCountStorage = 0
-
-    var completedStreamCount: Int {
-        lock.withLock { completedStreamCountStorage }
+    private struct State: Sendable {
+        var streamTokens: [String] = []
+        var streamTokenBatches: [[String]] = []
+        var streamDelayNS: UInt64 = 0
+        var streamCallCount = 0
+        var completedStreamCount = 0
+        var chatResultContent: String = "{}"
+        var chatResultDelayNS: UInt64 = 0
     }
-    
-    var chatResultContent: String = "{}"
-    var chatResultDelayNS: UInt64 = 0
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    var streamTokens: [String] {
+        get { state.withLock { $0.streamTokens } }
+        set { state.withLock { $0.streamTokens = newValue } }
+    }
+    var streamTokenBatches: [[String]] {
+        get { state.withLock { $0.streamTokenBatches } }
+        set { state.withLock { $0.streamTokenBatches = newValue } }
+    }
+    var streamDelayNS: UInt64 {
+        get { state.withLock { $0.streamDelayNS } }
+        set { state.withLock { $0.streamDelayNS = newValue } }
+    }
+    var chatResultContent: String {
+        get { state.withLock { $0.chatResultContent } }
+        set { state.withLock { $0.chatResultContent = newValue } }
+    }
+    var chatResultDelayNS: UInt64 {
+        get { state.withLock { $0.chatResultDelayNS } }
+        set { state.withLock { $0.chatResultDelayNS = newValue } }
+    }
+    var completedStreamCount: Int { state.withLock { $0.completedStreamCount } }
     
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
         return LLMConnectionTestResult(success: true, message: "Mock OK", latencyMS: 0, models: [])
@@ -417,9 +429,7 @@ final class StreamingMockLLMClient: LLMClientProtocol {
                 for token in tokens {
                     continuation.yield(token)
                 }
-                self.lock.withLock {
-                    self.completedStreamCountStorage += 1
-                }
+                self.state.withLock { $0.completedStreamCount += 1 }
                 continuation.finish()
                 return
             }
@@ -438,9 +448,7 @@ final class StreamingMockLLMClient: LLMClientProtocol {
                     }
                     continuation.yield(token)
                 }
-                self.lock.withLock {
-                    self.completedStreamCountStorage += 1
-                }
+                self.state.withLock { $0.completedStreamCount += 1 }
                 continuation.finish()
             }
             continuation.onTermination = { _ in
@@ -451,8 +459,10 @@ final class StreamingMockLLMClient: LLMClientProtocol {
 
     private func selectTokens(for messages: [LLMChatMessage]) -> [String] {
         let prompt = messages.map(\.content).joined(separator: "\n")
-        return lock.withLock {
-            defer { streamCallCount += 1 }
+        return state.withLock { state in
+            defer { state.streamCallCount += 1 }
+            let streamTokenBatches = state.streamTokenBatches
+            let streamTokens = state.streamTokens
 
             // Stage A and Stage B streams are launched concurrently in
             // production. Tests that need distinct batches must route by prompt
@@ -466,8 +476,8 @@ final class StreamingMockLLMClient: LLMClientProtocol {
                 }
             }
 
-            if streamCallCount < streamTokenBatches.count {
-                return streamTokenBatches[streamCallCount]
+            if state.streamCallCount < streamTokenBatches.count {
+                return streamTokenBatches[state.streamCallCount]
             }
             return streamTokens
         }
@@ -554,6 +564,7 @@ struct StreamingSoftFallbackTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         let session = try makeContextBoundSession(appState, suffix: "stage-b-success")
+        appState.currentSession = session
         defer { appState.cancelActiveGenerationForContextChange() }
         
         let question = DetectedQuestion(
@@ -668,6 +679,7 @@ struct StreamingSoftFallbackTests {
         appState.generationFullCardWatchdogNanoseconds = 60_000_000_000
 
         let session = try makeContextBoundSession(appState, suffix: "fast-provider")
+        appState.currentSession = session
         defer { appState.cancelActiveGenerationForContextChange() }
         
         let question = DetectedQuestion(
@@ -695,102 +707,157 @@ struct StreamingSoftFallbackTests {
     }
     
     @MainActor
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testConservativeLateReplacementPreservesFallbackWhenInteractedOrGeneric() async throws {
+        // Each case owns fresh resources. The un-interacted control uses the
+        // same eligible answer as the interacted case, proving interaction is
+        // what preserves the opener rather than an unrelated alignment reject.
+        for scenario in ControlledLateReplacementScenario.allCases {
+            try await exerciseControlledLateReplacement(scenario)
+        }
+    }
+
+    private enum ControlledLateReplacementScenario: CaseIterable {
+        case generic, interacted, eligibleControl
+    }
+
+    @MainActor
+    private func exerciseControlledLateReplacement(_ scenario: ControlledLateReplacementScenario) async throws {
         let database = try makeTemporaryDatabase()
         let settings = SettingsRepository(database: database)
         try settings.ensureDefaultProviderConfigurations()
-        
-        let mockClient = StreamingMockLLMClient()
-        // Generic answer that fails specificity check
-        mockClient.streamTokens = ["Based ", "on ", "my ", "experience ", "as ", "a ", "software ", "engineer."]
-        mockClient.streamDelayNS = 20_000_000 // 20ms delay per token
-        
-        let router = LLMRouter(settingsRepository: settings, clients: [
-            .deepSeek: mockClient
-        ])
-        
-        if let deepseek = try settings.providerConfigurations().first(where: { $0.kind == .deepSeek }) {
-            var updated = deepseek
-            updated.isDefaultForRealtime = true
-            try settings.saveProviderConfiguration(updated)
-            try settings.setActiveRealtimeProvider(id: updated.id)
-        }
-        
-        let appState = AppState(database: database, questionRoutingProvider: HermeticQuestionRoutingProvider(), llmRouter: router)
-        appState.answerProviderModeOverride = .deepSeekPrimary
-        
-        let mockDelay = MockDelayProvider()
-        mockDelay.sleepDuration = 60_000_000_000
-        mockDelay.setSleepDuration(5_000_000, forRequestedNanoseconds: 1_500_000_000)
-        appState.delayProvider = mockDelay
+        let suiteName = "Hireva.StreamingLateReplacement." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let client = ControlledLateReplacementLLMClient()
+        let router = LLMRouter(settingsRepository: settings, clients: [.deepSeek: client])
+        let app = AppState(database: database, questionRoutingProvider: HermeticQuestionRoutingProvider(),
+            llmRouter: router, keychainService: KeychainService(store: InMemoryMockKeychainStore()),
+            dialogueDefaults: defaults)
+        app.answerProviderModeOverride = .deepSeekPrimary
+        let softClock = ControlledGenerationWatchdogClock(trace: TestEventWaitTrace(label: "controlledFallback.softClock"))
+        let controlClock = ControlledGenerationWatchdogClock()
+        app.delayProvider = softClock
+        app.generationWatchdogDelayProvider = controlClock
+        let eligibleAnswer = "My LeoRover project used ROS2 and YOLOv8 to connect perception, navigation, localisation, and manipulation for autonomous object retrieval on a real robot. The result was a complete perception-to-action pipeline; I learned that localisation and handoff timing determined reliability."
+        let genericAnswer = "Based on my experience as a software engineer."
+        var root: Task<Void, Error>?
+        var stageA: Task<String, Error>?
+        var stageB: Task<Void, Never>?
+        do {
+            let session = try makeContextBoundSession(app, suffix: "controlled-late-\(scenario)")
+            // Creation saves a snapshot; the actual live entry separately selects
+            // the current session used by publication admission.
+            app.currentSession = session
+            let question = DetectedQuestion(id: UUID().uuidString, sessionID: session.id,
+                transcriptSegmentID: nil, questionText: "Could you walk me through your LeoRover project?",
+                intent: .technical, answerStrategy: .wait, confidence: 0.95, reason: "Synthetic controlled late replacement",
+                shouldTrigger: true, questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date())
+            try SuggestionRepository(database: database).saveDetectedQuestion(question)
+            let generation = Task { @MainActor in
+                try await app.generateSuggestion(for: question, session: session,
+                    transcript: question.questionText, autoGenerated: false)
+            }
+            root = generation
+            try await client.waitForFirstStream()
+            let requiredFirstAnswerWorker: Task<String, Error> = try #require(app.generationCoordinator.stageATask)
+            stageA = requiredFirstAnswerWorker
+            let requiredExpansionWorker: Task<Void, Never> = try #require(app.generationCoordinator.stageBTask)
+            stageB = requiredExpansionWorker
+            let softDeadline = try #require(app.generationCoordinator.fallbackWatchdogTask)
+            try await softClock.waitUntilPending(nanoseconds: 1_500_000_000)
+            #expect(softClock.pendingNanoseconds.contains(1_500_000_000))
+            #expect(!softDeadline.isCancelled)
+            softClock.advance(by: 1_500_000_000)
+            await softDeadline.value
+            #expect(!softDeadline.isCancelled)
+            #expect(app.softFallbackUsed, "The owned fallback deadline must reach its selected branch")
+            let initial = try #require(app.currentSuggestion, "fallback_source=\(app.finalVisibleSource ?? "nil"); decision=\(String(describing: app.lastDetectedQuestion?.taskDescriptor?.decision)); ui=\(app.generationUIState)")
+            let acceptedQuestion = try #require(app.lastDetectedQuestion)
+            #expect(initial.softFallbackUsed == true)
+            #expect(initial.alignmentVerdict == .aligned)
+            #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(initial).accepted)
+            #expect(initial.questionID == question.id)
+            #expect(initial.generationID == app.currentGenerationID)
+            #expect(initial.sayFirst != eligibleAnswer)
+            #expect(initial.sayFirst != genericAnswer)
+            #expect(!app.generationUIState.isTerminal)
+            // Eligibility is checked with the real rule and frozen decision;
+            // no validation or evidence policy is copied into this fixture.
+            let eligibleAlignment = QuestionAnswerAlignmentEvaluator.evaluate(
+                questionText: question.questionText, answerText: eligibleAnswer,
+                sayFirst: eligibleAnswer, stageBCompleted: true,
+                decision: acceptedQuestion.taskDescriptor?.decision)
+            #expect(eligibleAlignment.verdict == .aligned)
+            #expect(app.isSpecificAnswer(eligibleAnswer))
+            #expect(!app.isSpecificAnswer(genericAnswer))
 
-        let session = try makeContextBoundSession(appState, suffix: "late-provider")
-        defer { appState.cancelActiveGenerationForContextChange() }
-        
-        let question = DetectedQuestion(
-            id: "q-3", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: "Could you walk me through your LeoRover project?", intent: .technical,
-            answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
-            questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
-        )
-        
-        let suggestionRepo = SuggestionRepository(database: database)
-        try suggestionRepo.saveDetectedQuestion(question)
-        
-        // Run with generic answer
-        try await appState.generateSuggestion(for: question, session: session, transcript: question.questionText, autoGenerated: false)
+            // Stage B's real 500 ms trigger deadline is advanced explicitly.
+            // Both actual provider streams stay held until test release.
+            while !controlClock.requestedNanoseconds.contains(500_000_000) {
+                try await controlClock.waitUntilScheduled(minimumCount: controlClock.requestedNanoseconds.count + 1)
+            }
+            controlClock.advance(by: 500_000_000)
+            try await client.waitForFullStream()
+            if scenario == .interacted { app.userInteractedWithCard = true }
+            let providerAnswer = scenario == .generic ? genericAnswer : eligibleAnswer
+            client.releaseFirst(answer: providerAnswer)
+            try await generation.value
+            let afterFirst = try #require(app.currentSuggestion)
+            if scenario == .eligibleControl {
+                #expect(afterFirst.sayFirst == eligibleAnswer)
+                #expect(afterFirst.sayFirstSource == "deepseek_stream")
+                #expect(afterFirst.finalVisibleSource == "deepseek_stream")
+                #expect(afterFirst.softFallbackUsed == false)
+            } else {
+                assertPreservedOpener(afterFirst, initial: initial)
+            }
+            client.releaseFull(answer: providerAnswer)
+            await stageB?.value
+            let final = try #require(app.currentSuggestion)
+            if scenario == .eligibleControl {
+                #expect(final.sayFirst == eligibleAnswer)
+                #expect(final.sayFirstSource == "deepseek_stream")
+                #expect(final.finalVisibleSource == "deepseek_stream")
+                #expect(final.softFallbackUsed == false)
+            } else {
+                assertPreservedOpener(final, initial: initial)
+            }
+            #expect(final.alignmentVerdict == .aligned)
+            #expect(QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(final).accepted)
+            client.finishAll()
+            softClock.cancelAll(); controlClock.cancelAll()
+            await app.shutdownForTesting()
+            #expect(app.generationCoordinator.pendingCleanupTaskCount == 0)
+            #expect(client.pendingStreamCount == 0)
+            try database.close()
+        } catch {
+            // Open all stream/clock gates before any joins, including failures.
+            client.finishAll()
+            softClock.cancelAll(); controlClock.cancelAll()
+            root?.cancel()
+            app.cancelActiveGenerationForContextChange()
+            _ = await root?.result
+            _ = await stageA?.result
+            await stageB?.value
+            await app.shutdownForTesting()
+            try? database.close()
+            throw error
+        }
+    }
 
-        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
-            appState.currentSuggestion?.softFallbackUsed == true &&
-                mockClient.completedStreamCount >= 2
-        }
-        
-        let cardGeneric = appState.currentSuggestion!
-        #expect(appState.softFallbackUsed == true)
-        #expect(cardGeneric.softFallbackUsed == true)
-        // Preserved because "Based on my experience as a software engineer." contains "based on my experience" and "as a software engineer", failing isSpecificAnswer check
-        #expect(cardGeneric.sayFirstSource == "rag_template_soft_fallback")
-        #expect(cardGeneric.finalVisibleSource == "rag_template_soft_fallback")
-        
-        // Reset and test user interaction path
-        mockClient.streamTokens = ["Highly ", "specific ", "robotics ", "engineering ", "neural ", "network ", "answer ", "about ", "autonomous ", "navigation."] // highly specific
-        let interactedQuestion = DetectedQuestion(
-            id: "q-3-interacted", sessionID: session.id, transcriptSegmentID: nil,
-            questionText: question.questionText, intent: .technical,
-            answerStrategy: .wait, confidence: 0.95, reason: "Test", shouldTrigger: true,
-            questionComplete: true, modelName: "mock", promptVersion: "1.0", createdAt: Date()
-        )
-        try suggestionRepo.saveDetectedQuestion(interactedQuestion)
-        
-        // Execute again
-        let completedStreamsBeforeSecondRun = mockClient.completedStreamCount
-        let secondGenerationTask = Task { @MainActor in
-            try await appState.generateSuggestion(
-                for: interactedQuestion,
-                session: session,
-                transcript: interactedQuestion.questionText,
-                autoGenerated: false
-            )
-        }
-        defer { secondGenerationTask.cancel() }
-
-        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
-            appState.softFallbackUsed == true &&
-                appState.currentSuggestion?.sayFirstSource == "rag_template_soft_fallback"
-        }
-        appState.userInteractedWithCard = true
-        try await secondGenerationTask.value
-        try await waitUntil(timeout: 5.0, appState: appState, mockClient: mockClient) {
-            mockClient.completedStreamCount >= completedStreamsBeforeSecondRun + 2
-        }
-        
-        let cardInteracted = appState.currentSuggestion!
-        #expect(appState.softFallbackUsed == true)
-        #expect(cardInteracted.softFallbackUsed == true)
-        // Preserved because user interacted with card before completion
-        #expect(cardInteracted.sayFirstSource == "rag_template_soft_fallback")
-        #expect(cardInteracted.finalVisibleSource == "rag_template_soft_fallback")
+    @MainActor
+    private func assertPreservedOpener(_ card: SuggestionCard, initial: SuggestionCard) {
+        #expect(card.id == initial.id)
+        #expect(card.sessionID == initial.sessionID)
+        #expect(card.questionID == initial.questionID)
+        #expect(card.generationID == initial.generationID)
+        #expect(card.contextSnapshotID == initial.contextSnapshotID)
+        #expect(card.candidateProfileVersion == initial.candidateProfileVersion)
+        #expect(card.sayFirst == initial.sayFirst)
+        #expect(card.sayFirstSource == initial.sayFirstSource)
+        #expect(card.finalVisibleSource == initial.finalVisibleSource)
+        #expect(card.softFallbackUsed == true)
     }
 
     private func waitUntil(
@@ -908,5 +975,85 @@ private final class SlowStreamingContextRetrievalService: ContextRetrievalServic
             zeroScoreFallbackUsed: false
         )
         return (RetrievedContext(cvChunks: [], jobDescriptionChunks: []), trace)
+    }
+}
+
+/// Per-test transport latch. It only recognizes the existing service's two
+/// prompt formats and holds their continuations; all answer acceptance,
+/// replacement policy and lifecycle behavior runs in production functions.
+private final class ControlledLateReplacementLLMClient: LLMClientProtocol {
+    let providerKind: LLMProviderKind = .deepSeek
+    private enum Kind: Hashable, Sendable { case first, full }
+    private struct Round: Sendable {
+        let id: UUID
+        let continuation: AsyncThrowingStream<String, Error>.Continuation
+    }
+    private struct State: Sendable {
+        var rounds: [Kind: Round] = [:]
+        var closed = false
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let firstStarts = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    private let fullStarts = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    var pendingStreamCount: Int { state.withLock { $0.rounds.count } }
+    func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult { throw CancellationError() }
+    func listModels(configuration: LLMProviderConfiguration) async throws -> [LLMModelInfo] { [] }
+    func chatCompletion(configuration: LLMProviderConfiguration, messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?, options: LLMRequestOptions) async throws -> LLMChatResult {
+        Issue.record("Controlled late-replacement streams unexpectedly used JSON fallback")
+        throw CancellationError()
+    }
+    func chatCompletionStream(configuration: LLMProviderConfiguration, messages: [LLMChatMessage],
+        responseFormat: LLMResponseFormat?, options: LLMRequestOptions) -> AsyncThrowingStream<String, Error> {
+        let prompt = messages.map(\.content).joined(separator: "\n")
+        let kind: Kind
+        if prompt.contains("Generate the single opening answer now:") { kind = .first }
+        else if prompt.contains("Stream the section response now.") { kind = .full }
+        else {
+            Issue.record("Controlled late-replacement stream had an unexpected service prompt")
+            return AsyncThrowingStream { $0.finish(throwing: CancellationError()) }
+        }
+        return AsyncThrowingStream { continuation in
+            let id = UUID()
+            let oldOrClosed = state.withLock { state -> (Round?, Bool) in
+                guard !state.closed else { return (nil, true) }
+                return (state.rounds.updateValue(.init(id: id, continuation: continuation), forKey: kind), false)
+            }
+            oldOrClosed.0?.continuation.finish(throwing: CancellationError())
+            if oldOrClosed.1 { continuation.finish(throwing: CancellationError()); return }
+            continuation.onTermination = { [weak self] _ in
+                self?.state.withLock { state in
+                    if state.rounds[kind]?.id == id { state.rounds.removeValue(forKey: kind) }
+                }
+            }
+            (kind == .first ? firstStarts.continuation : fullStarts.continuation).yield(())
+        }
+    }
+    func waitForFirstStream() async throws {
+        _ = try await TestEventWaitTrace(label: "lateReplacement.first")
+            .nextEvent(in: firstStarts.stream, event: "stream-created")
+    }
+    func waitForFullStream() async throws {
+        _ = try await TestEventWaitTrace(label: "lateReplacement.full")
+            .nextEvent(in: fullStarts.stream, event: "stream-created")
+    }
+    func releaseFirst(answer: String) { release(.first, text: answer) }
+    func releaseFull(answer: String) {
+        release(.full, text: "STRATEGY: Project walkthrough\nSAY_FIRST: \(answer)\nKEY_POINTS:\nFOLLOW_UP_READY:\nCAUTION:\n")
+    }
+    private func release(_ kind: Kind, text: String) {
+        let round = state.withLock { $0.rounds.removeValue(forKey: kind) }
+        round?.continuation.yield(text)
+        round?.continuation.finish()
+    }
+    func finishAll() {
+        let rounds = state.withLock { state in
+            state.closed = true
+            let owned = Array(state.rounds.values)
+            state.rounds.removeAll()
+            return owned
+        }
+        rounds.forEach { $0.continuation.finish(throwing: CancellationError()) }
+        firstStarts.continuation.finish(); fullStarts.continuation.finish()
     }
 }

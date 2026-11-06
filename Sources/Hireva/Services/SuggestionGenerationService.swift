@@ -7,9 +7,10 @@ import Foundation
 
 /// Thin service for LLM suggestion calls and response parsing.
 ///
-/// AppState owns when a generation starts and whether its result is still
-/// current. This service should remain unaware of live UI state.
-final class SuggestionGenerationService {
+/// GenerationCoordinator owns the active generation identity and registered
+/// task lifetimes. Callers retain display and persistence-boundary validation;
+/// this service remains unaware of live UI state.
+final class SuggestionGenerationService: Sendable {
     private let llmRouter: LLMRouter
 
     init(llmRouter: LLMRouter) {
@@ -114,7 +115,7 @@ final class SuggestionGenerationService {
         customProviderConfig: LLMProviderConfiguration? = nil
     ) async throws -> AsyncThrowingStream<String, Error> {
         let systemPrompt = """
-        You are a real-time interview helper. Based ONLY on the provided local evidence, generate a natural first-person spoken opening response (1 to 3 concise sentences) that the candidate can say directly out loud.
+        You are a real-time interview helper. Generate a natural spoken opening response (1 to 3 concise sentences). Personal facts require candidate evidence; general tasks may use domain knowledge and separately labeled, unverified task references, which are never candidate history.
         
         Strict Constraints:
         - Output ONLY the first-person spoken answer.
@@ -155,7 +156,7 @@ final class SuggestionGenerationService {
         timeoutInterval: TimeInterval? = nil
     ) async throws -> (card: SuggestionCard, response: LLMChatResult) {
         let systemPrompt = """
-        You are an AI interview copilot. Generate concise, truthful, glanceable suggestion cards grounded only in the provided CV/JD context. Do not fabricate. Return valid JSON only.
+        You are an AI interview copilot. Generate concise, truthful, glanceable suggestion cards. Personal facts require candidate evidence; general tasks may use domain knowledge and separately labeled, unverified task references. Do not fabricate. Return valid JSON only.
 
         Truthfulness constraints:
         - Do not invent projects, employers, metrics, publications, degrees, work experience, technologies, results, or claims not supported by the provided CV/JD context.
@@ -256,7 +257,7 @@ final class SuggestionGenerationService {
         customProviderConfig: LLMProviderConfiguration? = nil
     ) async throws -> AsyncThrowingStream<String, Error> {
         let systemPrompt = """
-        You are an AI interview copilot. Generate concise, truthful, glanceable suggestion card sections grounded only in the provided CV/JD context. Do not fabricate.
+        You are an AI interview copilot. Generate concise, truthful, glanceable suggestion card sections. Personal facts require candidate evidence; general tasks may use domain knowledge and separately labeled, unverified task references. Do not fabricate.
 
         Return plain text sections only, using this exact format:
         STRATEGY:

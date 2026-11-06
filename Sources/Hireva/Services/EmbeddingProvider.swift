@@ -1,6 +1,6 @@
 import Foundation
 
-protocol EmbeddingProvider {
+protocol EmbeddingProvider: Sendable {
     var providerID: String { get }
     var modelName: String { get }
     var dimension: Int { get async throws }
@@ -38,14 +38,14 @@ enum EmbeddingProviderError: LocalizedError, Equatable {
     }
 }
 
-enum EmbeddingRequestFormatType: String, Codable, Hashable {
+enum EmbeddingRequestFormatType: String, Codable, Hashable, Sendable {
     case openAICompatible
     case custom
 }
 
-class ControlledMockEmbeddingProvider: EmbeddingProvider {
-    var providerID: String = "controlled-mock"
-    var modelName: String = "controlled-mock-model"
+final class ControlledMockEmbeddingProvider: EmbeddingProvider {
+    let providerID: String = "controlled-mock"
+    let modelName: String = "controlled-mock-model"
     var dimension: Int { get async throws { 384 } }
     
     func embed(text: String) async throws -> [Float] {

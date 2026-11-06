@@ -4,6 +4,27 @@ import Testing
 
 @Suite
 struct HybridRetrievalTests {
+    @MainActor
+    @Test(arguments: [false, true])
+    func notesRetrievalBudgetMarksOmittedSourceBlocks(hybrid: Bool) async throws {
+        let database = try makeTemporaryDatabase()
+        let documents = DocumentRepository(database: database)
+        let blocks = (1...4).map { number in
+            "[source-\(number)] Database " + Array(repeating: "qualification", count: 136).joined(separator: " ") + " only. https://example.invalid/\(number)"
+        }
+        _ = try documents.saveDocument(type: .additionalNotes, title: "Conditional source blocks", content: blocks.joined(separator: "\n\n"))
+        var settings = AppSettings.default
+        settings.enableVectorRAG = false
+        let service: any ContextRetrievalService = hybrid
+            ? HybridContextRetrievalService(documentRepository: documents, settingsProvider: { [settings] in settings }, embeddingProviderResolver: { nil })
+            : SimpleContextRetrievalService(documentRepository: documents)
+        let context = try await service.retrieveContext(question: "Database qualification", intent: .technical, maxCVWords: 100, maxJDWords: 100)
+        #expect(context.additionalNotesChunks.count == 4)
+        #expect(context.additionalNotesChunks.map { $0.content.split(whereSeparator: \.isWhitespace).count }.reduce(0, +) <= 500)
+        #expect(context.additionalNotesChunks.last?.content.contains("conditions may be omitted") == true)
+        #expect(context.additionalNotesChunks.last?.content.contains("[source-4]") == false)
+        #expect(context.additionalNotesChunks.prefix(3).map(\.content) == Array(blocks.prefix(3)))
+    }
     
     // --- 1. Vector Store Embeddings Serialization ---
     @Test
@@ -87,7 +108,7 @@ struct HybridRetrievalTests {
         
         let service = HybridContextRetrievalService(
             documentRepository: documents,
-            settingsProvider: { settings },
+            settingsProvider: { [settings] in settings },
             embeddingProviderResolver: { provider }
         )
         
@@ -116,6 +137,7 @@ struct HybridRetrievalTests {
     }
     
     // --- 4. 80% Coverage Check Fallbacks ---
+    @MainActor
     @Test
     func testCoverageCheckFallbacks() async throws {
         let database = try makeTemporaryDatabase()
@@ -168,9 +190,10 @@ struct HybridRetrievalTests {
         settings.hybridSemanticWeight = 0.7
         settings.hybridKeywordWeight = 0.3
         
+        let settingsOwner = HybridRetrievalSettingsOwner(settings)
         let service = HybridContextRetrievalService(
             documentRepository: documents,
-            settingsProvider: { settings },
+            settingsProvider: { settingsOwner.settings },
             embeddingProviderResolver: { provider }
         )
         
@@ -186,7 +209,7 @@ struct HybridRetrievalTests {
         #expect(traceLowCov.fallbackReason?.contains("Low Coverage") == true)
         
         // Now force hybrid RAG -> should succeed despite coverage
-        settings.forceHybridRAG = true
+        settingsOwner.settings.forceHybridRAG = true
         let (_, traceForced) = try await service.retrieveContextWithTrace(
             question: "Robotics",
             intent: .technical,
@@ -217,7 +240,7 @@ struct HybridRetrievalTests {
         // Passing nil for the embedding provider resolver should not require any local runtime.
         let service = HybridContextRetrievalService(
             documentRepository: documents,
-            settingsProvider: { settings },
+            settingsProvider: { [settings] in settings },
             embeddingProviderResolver: { nil }
         )
         
@@ -233,10 +256,81 @@ struct HybridRetrievalTests {
         #expect(trace.queryEmbeddingGenerated == false)
     }
     
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["HIREVA_RUN_NOTE_PARAGRAPH_DIAGNOSTIC"] == "1"), .timeLimit(.minutes(1)))
+    @MainActor
+    func noteParagraphSelectionDiagnosticUsesActualImportAndFrozenPrompt() async throws {
+        let input = try #require(ProcessInfo.processInfo.environment["HIREVA_DIAGNOSTIC_TECHNICAL_NOTES_PATH"])
+        let output = try #require(ProcessInfo.processInfo.environment["HIREVA_NOTE_PARAGRAPH_DIAGNOSTIC_OUTPUT"])
+        try #require(input.hasPrefix("/") && output.hasPrefix("/") && !FileManager.default.fileExists(atPath: output))
+        let raw = try String(contentsOfFile: input, encoding: .utf8)
+        let lines = raw.split(separator: "\n").map(String.init)
+        try #require(lines.count == 4 && raw.utf8.count <= 4000)
+        struct Observation: Encodable {
+            let layout, variant, inputPath, inputContent, prompt: String
+            let question: DetectedQuestion
+            let importedChunks, retrievedNotes, frozenNotes: [DocumentChunk]
+            let frozenCitations: [RetrievedChunk]
+            let trace: RetrievalTrace
+        }
+        let questions = [
+            ("original", "Explain database transaction atomicity and what happens when an operation fails before commit"),
+            ("statement", "What does transaction atomicity guarantee, and does a failed statement necessarily cancel every earlier statement in that transaction?"),
+            ("wrapper", "An application explicitly catches every failed statement and rolls back its current database transaction. What remains after one operation fails before commit?"),
+            ("fallback", "Explain database transaction atomicity and what happens when an operation fails before commit")
+        ]
+        var observations: [Observation] = []
+        for (layout, separator) in [("single-newline", "\n"), ("double-newline", "\n\n")] {
+            let database = try AppDatabase(inMemory: true)
+            do {
+                let content = lines.joined(separator: separator)
+                let documents = DocumentRepository(database: database)
+                _ = try documents.saveDocument(type: .additionalNotes, title: "SQLite transactions", content: content)
+                let chunks = try documents.chunks(type: .additionalNotes)
+                var settings = AppSettings.default
+                settings.enableVectorRAG = false
+                settings.embeddingProviderKind = .disabled
+                let owner = HybridRetrievalSettingsOwner(settings)
+                let service = HybridContextRetrievalService(documentRepository: documents, settingsProvider: { owner.settings }, embeddingProviderResolver: { nil })
+                for (variant, text) in questions {
+                    var question = DetectedQuestion(id: "notes-\(layout)-\(variant)", sessionID: "notes-diagnostic", questionText: text,
+                        intent: .technical, answerStrategy: .projectWalkthrough, confidence: 1, shouldTrigger: true, questionComplete: true,
+                        modelName: "not-run", promptVersion: "notes-diagnostic", createdAt: Date())
+                    var task = InterviewTaskDescriptor(question: text, kind: .generalKnowledge, language: "en")
+                    let fallback = variant == "fallback" // Copies M35's fixture decision; no observed provider timeout.
+                    task.apply(.init(task: fallback ? .unknown : .generalKnowledge, personalEvidence: fallback ? .uncertain : .notRequired,
+                        basis: fallback ? .unknown : .generalKnowledge, relation: .independent, parentQuestionID: nil, parentQuestionText: nil,
+                        parentAnswerText: nil, source: fallback ? "safeFallback" : "diagnostic-frozen-decision", routerVersion: InterviewQuestionRouter.version,
+                        language: "en", clarification: fallback ? "Please clarify the reference or missing constraints." : "", questionID: question.id,
+                        questionRevision: 0, contextSnapshotID: nil, artifactRevision: 0, model: "not-run", failure: fallback ? "timeout" : nil, latencyMS: fallback ? 8050 : 0))
+                    question.taskDescriptor = task
+                    let (retrieved, trace) = try await service.retrieveContextWithTrace(question: text, intent: question.intent, maxCVWords: 100, maxJDWords: 100, strategy: question.answerStrategy)
+                    #expect(trace.retrievalMode == "keywordOnly" && !trace.queryEmbeddingGenerated)
+                    let budgeted = RealtimePromptBudgeter.trim(retrieved, question: text, intent: question.intent, strategy: question.answerStrategy)
+                    let realtime = AnswerRelevancePolicy.filterContext(budgeted, intent: AnswerRelevancePolicy.intent(for: text))
+                    let frozen = PromptContextBuilder.promptSnapshot(question: question, context: realtime, transcriptContext: "", cvSummary: "", jdSummary: "", stage: .firstAnswer)
+                    observations.append(.init(layout: layout, variant: variant, inputPath: input, inputContent: content, prompt: frozen.prompt, question: question,
+                        importedChunks: chunks, retrievedNotes: retrieved.additionalNotesChunks, frozenNotes: frozen.ragContextSnapshot.additionalNotesChunks,
+                        frozenCitations: frozen.ragContextSnapshot.frozenPromptCitations, trace: trace))
+                }
+                try database.close()
+            } catch {
+                do { try database.close() } catch { Issue.record(error) }
+                throw error
+            }
+        }
+        try JSONEncoder().encode(observations).write(to: URL(fileURLWithPath: output), options: .withoutOverwriting)
+    }
+
     private func makeTemporaryDatabase() throws -> AppDatabase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HirevaHybridTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try AppDatabase(path: directory.appendingPathComponent("test.sqlite"))
     }
+}
+
+@MainActor
+private final class HybridRetrievalSettingsOwner {
+    var settings: AppSettings
+    init(_ settings: AppSettings) { self.settings = settings }
 }

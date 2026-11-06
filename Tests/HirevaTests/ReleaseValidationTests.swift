@@ -5,19 +5,14 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ReleaseValidationTests {
-    @Test
+    @Test(.enabled(if: TestSupport.realAppDatabaseTestsEnabled &&
+        ProcessInfo.processInfo.environment["HIREVA_REAL_CLOUD_TESTS"] == "1",
+        "Requires explicit cloud/production-data opt-in; never part of ordinary or local-only validation."))
     func realDeepSeekSequentialAnswerQualityPersistsFiveQuestions() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping realDeepSeekSequentialAnswerQualityPersistsFiveQuestions: set REAL_APP_DB_TESTS=1 to allow real provider/keychain access.")
-            return
-        }
-
         let keychain = KeychainService()
-        guard let apiKey = try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount),
-              !apiKey.isEmpty else {
-            print("Skipping realDeepSeekSequentialAnswerQualityPersistsFiveQuestions: DeepSeek API key is not configured in Keychain.")
-            return
-        }
+        let apiKey = try #require(try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount),
+            "Explicitly enabled cloud test needs a configured credential.")
+        try #require(!apiKey.isEmpty)
 
         let traceURL = URL(fileURLWithPath: "/tmp/Hireva_release_answer_quality_trace.jsonl")
         try? FileManager.default.removeItem(at: traceURL)
@@ -189,19 +184,14 @@ struct ReleaseValidationTests {
         }
     }
 
-    @Test
+    @Test(.enabled(if: TestSupport.realAppDatabaseTestsEnabled &&
+        ProcessInfo.processInfo.environment["HIREVA_REAL_CLOUD_TESTS"] == "1",
+        "Requires explicit cloud/production-data opt-in; never part of ordinary or local-only validation."))
     func realDeepSeekSystemAudioStreamingLatestQuestionOwnsUI() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping realDeepSeekSystemAudioStreamingLatestQuestionOwnsUI: set REAL_APP_DB_TESTS=1 to allow real provider/keychain access.")
-            return
-        }
-
         let keychain = KeychainService()
-        guard let apiKey = try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount),
-              !apiKey.isEmpty else {
-            print("Skipping realDeepSeekSystemAudioStreamingLatestQuestionOwnsUI: DeepSeek API key is not configured in Keychain.")
-            return
-        }
+        let apiKey = try #require(try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount),
+            "Explicitly enabled cloud test needs a configured credential.")
+        try #require(!apiKey.isEmpty)
 
         let traceURL = URL(fileURLWithPath: "/tmp/Hireva_release_real_streaming_trace.jsonl")
         try? FileManager.default.removeItem(at: traceURL)

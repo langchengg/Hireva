@@ -60,13 +60,13 @@ struct RootView: View {
     private var detailView: some View {
         switch appState.selectedSection {
         case .home:
-            HomeView(appState: appState)
+            HomeApplicationHost(appState: appState)
         case .preparation:
             PreparationView(appState: appState)
         case .practice:
             PracticeView(appState: appState)
         case .documents:
-            DocumentsView(appState: appState)
+            DocumentsApplicationHost(appState: appState)
         case .sessions:
             SessionsView(appState: appState)
         case .readinessCheck:

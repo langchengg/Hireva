@@ -1,6 +1,6 @@
 import Foundation
 
-final class LLMRouter {
+final class LLMRouter: Sendable {
     private let settingsRepository: SettingsRepository
     private let clients: [LLMProviderKind: any LLMClientProtocol]
 

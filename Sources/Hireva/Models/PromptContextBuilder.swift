@@ -23,7 +23,8 @@ enum PromptContextBuilder {
         cvSummary: String,
         jdSummary: String,
         stage: AnswerPromptStage,
-        interviewContextSnapshot: InterviewContextSnapshot? = nil
+        interviewContextSnapshot: InterviewContextSnapshot? = nil,
+        scopedLocalAnswer: Bool = false
     ) -> AnswerPromptSnapshot {
         let questionTextSnapshot = question.questionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let taskDescriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: questionTextSnapshot)
@@ -34,7 +35,8 @@ enum PromptContextBuilder {
         let filteredContext = RetrievedContext(
             cvChunks: usesProfile ? selectedContext.cvChunks : [],
             jobDescriptionChunks: usesOpportunity ? selectedContext.jobDescriptionChunks : [],
-            additionalNotesChunks: taskDescriptor.decision == nil && usesProfile ? selectedContext.additionalNotesChunks : []
+            additionalNotesChunks: QuestionIntentPromptPolicy.relevantNotes(context.additionalNotesChunks,
+                question: questionTextSnapshot)
         )
         let legacyBackground = backgroundTranscript(
             from: transcriptContext,
@@ -56,7 +58,8 @@ enum PromptContextBuilder {
             cvSummary: usesProfile ? (taskDescriptor.decision == nil ? cvSummary : filteredContext.cvChunks.map(\.content).joined(separator: "\n")) : "Not relevant to this general task.",
             jdSummary: usesOpportunity ? jdSummary : "Not relevant to this general task.",
             stage: stage,
-            taskDescriptor: taskDescriptor
+            taskDescriptor: taskDescriptor,
+            scopedLocalAnswer: scopedLocalAnswer
         )
         let chunkIntents = chunkIntents(from: filteredContext)
         let includedChunkIDs = Set(chunkIDs(from: filteredContext))
@@ -140,7 +143,7 @@ enum PromptContextBuilder {
     static func usesProfileContext(_ task: InterviewTaskDescriptor) -> Bool {
         if let decision = task.decision { return decision.usesCandidateEvidence }
         if task.requiresPersonalEvidence { return true }
-        if [.coding, .systemDesign, .data].contains(task.kind) { return false }
+        if [.coding, .systemDesign, .data, .generalKnowledge].contains(task.kind) { return false }
         // Unknown is not permission to attach a biography. Preserve recognized
         // project/role intents whose evidence dependency predates task routing.
         return task.kind != .unknown || QuestionIntentPromptPolicy.intent(for: task.question) != .generic
@@ -162,12 +165,14 @@ enum PromptContextBuilder {
         cvSummary: String,
         jdSummary: String,
         stage: AnswerPromptStage,
-        taskDescriptor: InterviewTaskDescriptor
+        taskDescriptor: InterviewTaskDescriptor,
+        scopedLocalAnswer: Bool
     ) -> String {
         let outputInstructions: String
         switch stage {
         case .firstAnswer:
-            outputInstructions = "Output only one natural first-person spoken answer, 1 to 3 concise sentences."
+            outputInstructions = scopedLocalAnswer ? LocalQwenAnswerParser.scopedOutputInstructions
+                : "Output only one natural first-person spoken answer, 1 to 3 concise sentences."
         case .sectionStream:
             outputInstructions = """
             Return plain text sections only:
@@ -184,7 +189,7 @@ enum PromptContextBuilder {
         }
 
         let selectedEvidence = filteredContext.promptText.isEmpty
-            ? "No matching local evidence is included. For general tasks, explain a proposed solution using the question and clearly stated assumptions. Do not fabricate personal experience or import constraints from unrelated materials."
+            ? "No matching local evidence is included. Follow the task requested by the question: explain concepts and reasoning for explanations; propose solutions for design or problem-solving tasks. State relevant assumptions and limitations. Do not fabricate personal experience or import constraints from unrelated materials."
             : filteredContext.promptText
 
         return """
@@ -201,13 +206,13 @@ enum PromptContextBuilder {
         Do not summarize the CV unless relevant to the question.
 
         FROZEN TASK POLICY:
-        \(taskDescriptor.promptPolicy)
+        \(taskDescriptor.answerPromptPolicy)
 
         QUESTION INTENT:
         \(taskDescriptor.decision == nil ? intent.rawValue : taskDescriptor.kind.rawValue)
 
         ANSWER SHAPE:
-        \(taskDescriptor.decision == nil ? QuestionIntentPromptPolicy.answerShape(for: intent) : taskDescriptor.criteria.joined(separator: " -> "))
+        \(taskDescriptor.decision == nil ? QuestionIntentPromptPolicy.answerShape(for: intent) : "Answer the requested parts directly; do not add unrequested experiences or outcomes.")
 
         OUTPUT FORMAT:
         \(outputInstructions)
@@ -323,7 +328,7 @@ enum PromptContextBuilder {
             .joined(separator: "\n")
     }
 
-    private static func redactSecrets(_ text: String) -> String {
+    static func redactSecrets(_ text: String) -> String {
         let replacements: [(pattern: String, template: String)] = [
             (#"sk-[A-Za-z0-9_\-]{16,}"#, "[REDACTED_API_KEY]"),
             (#"(?i)((?:api|deepseek)[_\-\s]?key\s*[:=]\s*)[A-Za-z0-9_\-]{12,}"#, "$1[REDACTED_API_KEY]")

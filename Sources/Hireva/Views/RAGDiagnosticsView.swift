@@ -2,7 +2,15 @@ import SwiftUI
 
 struct RAGDiagnosticsView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var diagnosticsState: DiagnosticsState
+    @ObservedObject private var embeddingState: DocumentEmbeddingState
     @State private var expandedChunkIDs: Set<String> = []
+
+    init(appState: AppState) {
+        self.appState = appState
+        diagnosticsState = appState.diagnosticsState
+        embeddingState = appState.documentsState.embeddings
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -14,11 +22,11 @@ struct RAGDiagnosticsView: View {
 
             // Chunk Inventory Summary
             HStack(spacing: 15) {
-                inventoryCard(title: "CV / Resume Chunks", count: appState.diagnostics.storedCVChunkCount, icon: "doc.text.fill", color: .blue)
-                inventoryCard(title: "Job Description Chunks", count: appState.diagnostics.storedJDChunkCount, icon: "briefcase.fill", color: .purple)
+                inventoryCard(title: "CV / Resume Chunks", count: diagnosticsState.developer.storedCVChunkCount, icon: "doc.text.fill", color: .blue)
+                inventoryCard(title: "Job Description Chunks", count: diagnosticsState.developer.storedJDChunkCount, icon: "briefcase.fill", color: .purple)
             }
 
-            if let trace = appState.lastRetrievalTrace {
+            if let trace = diagnosticsState.developer.lastRetrievalTrace {
                 traceTelemetryCard(trace: trace)
                 
                 // CV Chunks List
@@ -57,15 +65,15 @@ struct RAGDiagnosticsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 
-                if appState.isRebuildingEmbeddings {
+                if embeddingState.isRebuilding {
                     VStack(alignment: .leading, spacing: 6) {
-                        ProgressView(value: appState.rebuildProgress, total: 1.0)
+                        ProgressView(value: embeddingState.progress, total: 1.0)
                         HStack {
-                            Text("Rebuilding Index: \(Int(appState.rebuildProgress * 100))% complete")
+                            Text("Rebuilding Index: \(Int(embeddingState.progress * 100))% complete")
                                 .font(.caption)
                             Spacer()
                             Button("Cancel") {
-                                appState.cancelEmbeddingRebuild()
+                                embeddingState.cancelRebuild()
                             }
                             .buttonStyle(.bordered)
                         }
@@ -130,7 +138,7 @@ struct RAGDiagnosticsView: View {
                 if let coverage = trace.embeddingCoveragePercent {
                     row("Embedding Coverage", String(format: "%.1f%%", coverage))
                 }
-                if let stale = appState.embeddingCoverage?.staleChunksCount {
+                if let stale = embeddingState.coverage?.staleChunksCount {
                     row("Stale Chunks", "\(stale) chunks")
                 }
                 if let qLatency = trace.queryEmbeddingLatencyMS {

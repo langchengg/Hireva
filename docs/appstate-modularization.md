@@ -1,16 +1,17 @@
 # AppState Modularization Architecture
 
-This document records the current extension-level modularization of `AppState`.
-The refactor is behavior-preserving: prompt construction, Keychain behavior, DB
-schema, and System Audio capture rules are intentionally unchanged.
+This document records the current ownership boundaries and remaining AppState
+compatibility surface. Ownership moves preserve the product identity, database
+schema and capture-mode policy. Defect fixes and Practice repair instructions are
+separate changes; test results belong in workflow-acceptance.md.
 
 ## Extracted File List
 
 - `Sources/Hireva/AppState.swift`
   - Root `@MainActor` observable object.
-  - Published state storage, dependency construction, initialization, app active
-    observer setup, test mock injection, and the main `generateSuggestion()`
-    pipeline.
+  - Remaining live/document/settings state, dependency construction, initialization,
+    app active observer setup and the main `generateSuggestion()` pipeline.
+    History, Diagnostics and generation fields are compatibility projections.
 - `Sources/Hireva/AppState+Actions.swift`
   - Action feedback, loading states, and user-facing action notifications.
 - `Sources/Hireva/AppState+Audio.swift`
@@ -47,58 +48,53 @@ schema, and System Audio capture rules are intentionally unchanged.
   - Transcript ingestion, transcript persistence, source attribution, and RAG
     precompute scheduling.
 
-## Remaining AppState Responsibilities
+## State, task and resource owners
 
-`AppState.swift` remains the storage and orchestration root. Swift extensions
-cannot hold stored properties, so published state, task references, repositories,
-services, and injected dependencies stay in the root type.
+| Owner | Authoritative state / work | Remaining application boundary |
+| --- | --- | --- |
+| `HistoryState` | Session list, selection, loaded transcript/cards/recap/chunks | Delete, correction and recap action policy in AppState |
+| `DiagnosticsState` | Aggregate, sampled ring, trace export/storage | AppState supplies immutable display context and live counters |
+| `PracticeController` | Practice run, revision-bound evaluation, consent ticket and audio cleanup | Focused dependencies assembled by `AppComposition` |
+| `GenerationCoordinator` | Root request identity/task, generation identity, frozen provider config, five child roles and terminal fence | Request pipeline, UI/DB validation, retries/fallback decisions remain in AppState |
+| ASR providers | Per-round startup, bridge, continuation and retained teardown | Live/Manual/Practice coordination remains application policy |
+| `ParakeetSidecarRuntimeClient` | Exact helper process, pipes, PCM admission and retained exit/drain cleanup | Health/model probe cancellation remains to be reviewed |
 
-The main method intentionally left in root is:
+History and generation compatibility properties forward to their owner and have
+no parallel stored copy. History views observe `HistoryState`; diagnostic views
+observe `DiagnosticsState`. AppState still relays History/coordinator observations
+for unmigrated consumers. Remove a compatibility property after its last real
+consumer observes or calls the appropriate feature directly.
 
-- `generateSuggestion(...)`
-  - Current size: roughly 900 lines.
-  - Reason: it coordinates question binding, capture state, prompt snapshot,
-    RAG cache use, provider streaming, Stage A/Stage B tasks, watchdogs,
-    fallback behavior, alignment, UI state, and persistence. Moving it safely
-    should be a Phase 2 coordinator extraction rather than a file move.
+PracticeController does not retain AppState. Its dependency bundle contains only
+used repositories, frozen context/evaluation configuration and audio/policy
+closures. AppComposition contains weak application callbacks; it is a focused
+Practice assembly entry, not the completed application composition root.
 
-Other root responsibilities:
+`generateSuggestion(...)`, `refreshAll()`, dependency construction, notification
+subscriptions, document/settings state and live output orchestration remain in
+AppState. Detached retrieval and summary tasks are not an awaitable resource
+retirement mechanism. Guards reject stale results, but guard coverage does not
+prove resource exit.
 
-- `refreshAll()`
-- `submitMockQuestion(_:)`
-- `injectVerificationMockData()`
-- Stored properties and nested stored-state value types.
-- Initialization, notification observer registration, and dependency wiring.
+## Compatibility and publication boundaries
 
-## Private To Internal Promotions
+The generation task properties exposed by AppState are read-only coordinator
+projections. Provider/embedding connection checks use a separate task; they are
+not registered as answer generation. A new request invalidates previous request
+and generation identities before cancelling their tasks. The answer-mode setter
+retains its explicit cancel/consent policy; provider configuration and local model
+edits leave an already-frozen active request unchanged.
 
-The following members were promoted only so `AppState` extension files can access
-the same behavior after extraction. Each promotion is marked in source with:
-`// internal for AppState extension access only`.
+UI publication and DB persistence keep their own identity/evidence checks. A
+usable first answer survives an expansion timeout. Provisional expansion is not
+persisted as a terminal card; final/history writes retain their original consent
+ticket and business-key deduplication.
 
-- Generation state setters: `activeGenerationID`, `activeQuestionID`,
-  `activeTriggerPath`, `activeGenerationStartedAt`, `previousGenerationID`,
-  `cancelledGenerationCount`, `staleCallbackDiscardCount`,
-  `staleAnswerDiscardCount`, `answerQuestionMismatchCount`,
-  `lastAlignmentError`, `recentSuggestionAlignments`,
-  `currentAnswerQuestionIntent`, prompt binding fields, RAG binding fields,
-  answer-intent fields, `fallbackWatchdogActive`, `stageBTaskActive`,
-  `providerStreamActive`.
-- Generation storage and types: `ActiveGenerationController`,
-  `activeGenerationController`, `stageBTask`, `softFallbackTask`,
-  `fullCardWatchdogTask`, `suggestionGenerationService`.
-- Audio storage: `appleSpeechService`, `activeTranscriptionProvider`,
-  `ownsSystemAudioCaptureRuntime`, `lastAutoQuestionText`,
-  `recentQuestionsFingerprints`, `audioSignalMonitoringTimer`.
-- RAG storage: `activeEmbeddingRebuildTask`.
-- Detection storage already shared by the question detection extension:
-  `pendingIgnoredSystemAudioFallback`, `detectionDebounceTask`,
-  `activeDetectionTask`, `lastDetectionAt`, `lastAutoSuggestionAt`,
-  `recentQuestionTimestamps`, `autoSuggestionCooldownSeconds`,
-  `possibleQuestionConfidenceRange`.
-- Cross-extension helpers including generation guards, watchdog registration,
-  fallback display, RAG cache keying, realtime context trimming, compact
-  summaries, duplicate suppression, and embedding provider ID resolution.
+A full streaming snapshot does not commit the successful terminal state. The
+Stage B application first finishes its awaited validation and persistence
+admission, then commits terminal state; otherwise a queued next question can
+replace its identity before the first card is admitted. Watchdog callbacks check
+their frozen identity and terminal/cancellation fence before any side effect.
 
 ## Remaining Large Methods
 
@@ -112,25 +108,17 @@ the same behavior after extraction. Each promotion is marked in source with:
 These methods are large because they currently coordinate multiple side effects.
 They were not rewritten in this pass to avoid changing runtime behavior.
 
-## Phase 2 Recommendation
+## Remaining migration work
 
-Create coordinator types after runtime acceptance is stable:
+Continue one protected ownership boundary at a time. Documents, Settings and Live
+still have stored state in AppState; feature-owned dependency construction and
+startup subscriptions are incomplete. Generation output application and
+retry/fallback sequencing still use AppState, and low-level capture stop/callback
+ownership is not consolidated. No new parallel coordinator or generic container
+is required to finish these moves.
 
-1. `GenerationCoordinator`
-   - Own active generation controller, task cancellation, watchdog registration,
-     stale callback accounting, and generation UI state transitions.
-2. `SuggestionDisplayCoordinator`
-   - Own `displaySuggestionIfAligned`, semantic fallback, answer relevance
-     checks, and suggestion-card binding diagnostics.
-3. `PromptContextCoordinator`
-   - Own prompt snapshot assembly, current/previous question binding, RAG chunk
-     binding, and context bleed risk calculation.
-4. `ManualCaptureCoordinator`
-   - Own manual capture provider request and persistence flow after the manual
-     UI state machine has separate tests.
-5. `AudioCaptureCoordinator`
-   - Own live capture start/stop orchestration and device/session lifetime once
-     real System Audio smoke tests are passing reliably.
-
-Phase 2 should be test-driven and should not start until full tests and manual
-runtime smoke tests pass against the rebuilt `dist/Hireva.app`.
+Before moving another boundary, read its real callers and preserve request,
+context/revision, consent and late-callback tests. Run the ordinary suite and
+canonical isolated bundle validation; real audio, model quality and comparable
+performance remain separate acceptance evidence. Historical stage notes do not
+prevent a tested ownership migration.

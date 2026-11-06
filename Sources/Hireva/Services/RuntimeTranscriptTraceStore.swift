@@ -1,6 +1,7 @@
 import Foundation
+import os
 
-final class RuntimeTranscriptTraceStore: @unchecked Sendable {
+final class RuntimeTranscriptTraceStore: Sendable {
     static let shared = RuntimeTranscriptTraceStore()
     static let maxTraceFileSize = 25 * 1_024 * 1_024
     static let maxTraceFiles = 5
@@ -9,27 +10,199 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
         label: "com.langcheng.Hireva.runtime-transcript-trace",
         qos: .utility
     )
-    private var preparedModes = [String: DiagnosticTraceMode]()
+    // File-family IO remains serial. Only copied privacy-mode metadata enters
+    // this checked lock, never a FileHandle, IO callback or suspended operation.
+    private let preparedModes = OSAllocatedUnfairLock(initialState: [String: DiagnosticTraceMode]())
+    static let maxPendingWriteCount = 256
+    static let maxPendingWriteBytes = 1_024 * 1_024
+    private let pendingWriteLimit: Int
+    private let pendingByteLimit: Int
+    private let compatibilityAdmission: WriteAdmission
+    #if DEBUG
+    private let beforeAppendForTesting: (@Sendable (URL) -> Void)?
+    // Observational checkpoint used only when the later owned drain suspends.
+    private let ownedDrainWaitingForTesting: (@Sendable () -> Void)?
 
-    func append(line: String, to url: URL) {
-        append(line: line, to: url, mode: .fullText)
+    init(maxPendingWriteCount: Int = RuntimeTranscriptTraceStore.maxPendingWriteCount,
+         maxPendingWriteBytes: Int = RuntimeTranscriptTraceStore.maxPendingWriteBytes,
+         beforeAppendForTesting: (@Sendable (URL) -> Void)? = nil,
+         ownedDrainWaitingForTesting: (@Sendable () -> Void)? = nil) {
+        precondition(maxPendingWriteCount > 0 && maxPendingWriteBytes > 0)
+        pendingWriteLimit = maxPendingWriteCount
+        pendingByteLimit = maxPendingWriteBytes
+        compatibilityAdmission = WriteAdmission(countLimit: maxPendingWriteCount, byteLimit: maxPendingWriteBytes)
+        self.beforeAppendForTesting = beforeAppendForTesting
+        self.ownedDrainWaitingForTesting = ownedDrainWaitingForTesting
     }
 
-    func append(line: String?, to url: URL, mode: DiagnosticTraceMode) {
-        guard mode != .off, let line else { return }
-        guard let data = (line + "\n").data(using: .utf8) else { return }
+    // The RED fixture's store is private. This asynchronous barrier joins its
+    // real queued file operations on success, failure and owning cancellation.
+    func finishPendingOperationsForTesting() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
+    }
+    #else
+    init(maxPendingWriteCount: Int = RuntimeTranscriptTraceStore.maxPendingWriteCount,
+         maxPendingWriteBytes: Int = RuntimeTranscriptTraceStore.maxPendingWriteBytes) {
+        precondition(maxPendingWriteCount > 0 && maxPendingWriteBytes > 0)
+        pendingWriteLimit = maxPendingWriteCount
+        pendingByteLimit = maxPendingWriteBytes
+        compatibilityAdmission = WriteAdmission(countLimit: maxPendingWriteCount, byteLimit: maxPendingWriteBytes)
+    }
+    #endif
+
+    enum AppendDisposition: Equatable, Sendable {
+        case admitted, disabled, overflow, sealed
+    }
+
+    struct WriteSnapshot: Equatable, Sendable {
+        var pendingWriteCount = 0
+        var pendingByteCount = 0
+        var peakPendingWriteCount = 0
+        var peakPendingByteCount = 0
+        var completedWriteCount = 0
+        var failedWriteCount = 0
+        var overflowRejectedCount = 0
+        var sealedRejectedCount = 0
+        var isSealed = false
+    }
+
+    /// A Diagnostics instance owns this concrete admission/drain capability.
+    /// Mutable URL selection is frozen per append, not consulted by the worker.
+    /// Sealing this capability does not close any other writer or the shared IO.
+    final class Writer: Sendable {
+        private let store: RuntimeTranscriptTraceStore
+        private let admission: WriteAdmission
+        fileprivate init(store: RuntimeTranscriptTraceStore, admission: WriteAdmission) {
+            self.store = store
+            self.admission = admission
+        }
+        var snapshot: WriteSnapshot { admission.snapshot }
+        @discardableResult
+        func append(line: String?, to url: URL, mode: DiagnosticTraceMode) -> AppendDisposition {
+            store.enqueue(line: line, to: url, mode: mode, admission: admission)
+        }
+        func seal() { admission.seal() }
+        func drain() async {
+            #if DEBUG
+            await admission.drain(onWaiting: store.ownedDrainWaitingForTesting)
+            #else
+            await admission.drain()
+            #endif
+        }
+        func sealAndDrain() async {
+            seal() // Revoke admission synchronously before the first await.
+            await drain()
+        }
+    }
+
+    func makeWriter() -> Writer {
+        Writer(store: self, admission: WriteAdmission(countLimit: pendingWriteLimit, byteLimit: pendingByteLimit))
+    }
+
+    // Direct legacy callers share one bounded compatibility admission, then use
+    // exactly the same IO implementation as each owned Diagnostics writer.
+    var compatibilityWriteSnapshot: WriteSnapshot { compatibilityAdmission.snapshot }
+    @discardableResult
+    func append(line: String, to url: URL) -> AppendDisposition {
+        append(line: line, to: url, mode: .fullText)
+    }
+    @discardableResult
+    func append(line: String?, to url: URL, mode: DiagnosticTraceMode) -> AppendDisposition {
+        enqueue(line: line, to: url, mode: mode, admission: compatibilityAdmission)
+    }
+
+    private func enqueue(line: String?, to url: URL, mode: DiagnosticTraceMode,
+                         admission: WriteAdmission) -> AppendDisposition {
+        guard mode != .off, let line else { return .disabled }
+        let (bytes, overflow) = line.utf8.count.addingReportingOverflow(1)
+        let disposition = admission.reserve(byteCount: overflow ? nil : bytes)
+        guard disposition == .admitted else { return disposition }
+        // Reserve the full UTF-8 payload before allocating retained Data. Bounds
+        // include the admitted in-flight write until its FileHandle has exited.
+        var encoded = Data(line.utf8)
+        encoded.append(0x0A)
+        let data = encoded
         queue.async {
+            #if DEBUG
+            self.beforeAppendForTesting?(url)
+            #endif
+            var failed = false
             do {
                 try self.append(data: data, to: url)
             } catch {
+                failed = true
                 print("[RuntimeTranscriptTraceStore] Write failed: code=\((error as NSError).code)")
+            }
+            admission.finish(byteCount: bytes, failed: failed)
+        }
+        return .admitted
+    }
+
+    fileprivate final class WriteAdmission: Sendable {
+        private struct State: Sendable {
+            var snapshot = WriteSnapshot()
+            var drainWaiters: [CheckedContinuation<Void, Never>] = []
+        }
+        private let state = OSAllocatedUnfairLock(initialState: State())
+        private let countLimit: Int
+        private let byteLimit: Int
+        init(countLimit: Int, byteLimit: Int) {
+            self.countLimit = countLimit
+            self.byteLimit = byteLimit
+        }
+        var snapshot: WriteSnapshot { state.withLock { $0.snapshot } }
+        func reserve(byteCount: Int?) -> AppendDisposition {
+            state.withLock {
+                if $0.snapshot.isSealed {
+                    $0.snapshot.sealedRejectedCount += 1
+                    return .sealed
+                }
+                guard let byteCount, byteCount <= byteLimit,
+                      $0.snapshot.pendingWriteCount < countLimit,
+                      byteCount <= byteLimit - $0.snapshot.pendingByteCount else {
+                    $0.snapshot.overflowRejectedCount += 1
+                    return .overflow
+                }
+                $0.snapshot.pendingWriteCount += 1
+                $0.snapshot.pendingByteCount += byteCount
+                $0.snapshot.peakPendingWriteCount = max($0.snapshot.peakPendingWriteCount, $0.snapshot.pendingWriteCount)
+                $0.snapshot.peakPendingByteCount = max($0.snapshot.peakPendingByteCount, $0.snapshot.pendingByteCount)
+                return .admitted
+            }
+        }
+        func finish(byteCount: Int, failed: Bool) {
+            let waiters = state.withLock {
+                $0.snapshot.pendingWriteCount -= 1
+                $0.snapshot.pendingByteCount -= byteCount
+                $0.snapshot.completedWriteCount += 1
+                if failed { $0.snapshot.failedWriteCount += 1 }
+                guard $0.snapshot.pendingWriteCount == 0 else { return [CheckedContinuation<Void, Never>]() }
+                let captured = $0.drainWaiters
+                $0.drainWaiters.removeAll()
+                return captured
+            }
+            waiters.forEach { $0.resume() }
+        }
+        func seal() { state.withLock { $0.snapshot.isSealed = true } }
+        func drain(onWaiting: (@Sendable () -> Void)? = nil) async {
+            await withCheckedContinuation { continuation in
+                let waiting = state.withLock {
+                    guard $0.snapshot.pendingWriteCount > 0 else { return false }
+                    $0.drainWaiters.append(continuation)
+                    return true
+                }
+                // No ordinary lock spans await or arbitrary callbacks.
+                if waiting { onWaiting?() }
+                else { continuation.resume() }
             }
         }
     }
 
     func prepareForMode(_ mode: DiagnosticTraceMode, at url: URL) {
         queue.sync {
-            let previousMode = preparedModes[url.path]
+            let previousMode = preparedModes.withLock { $0[url.path] }
             if mode != .fullText, previousMode == nil || previousMode != mode {
                 do {
                     try clearTraceFilesImmediately(at: url)
@@ -37,14 +210,14 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
                     print("[RuntimeTranscriptTraceStore] Cleanup failed: code=\((error as NSError).code)")
                 }
             }
-            preparedModes[url.path] = mode
+            preparedModes.withLock { $0[url.path] = mode }
         }
     }
 
     func clearTraceFiles(at url: URL) throws {
         try queue.sync {
             try clearTraceFilesImmediately(at: url)
-            preparedModes[url.path] = .off
+            preparedModes.withLock { $0[url.path] = .off }
         }
     }
 
@@ -60,8 +233,9 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
         )
 
         let fileExists = fileManager.fileExists(atPath: url.path)
+        // URL resource values can retain a stale size across background appends.
         let currentSize = fileExists
-            ? (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+            ? ((try fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0)
             : 0
         if currentSize > 0,
            currentSize + data.count > Self.maxTraceFileSize {
@@ -70,9 +244,14 @@ final class RuntimeTranscriptTraceStore: @unchecked Sendable {
 
         if fileManager.fileExists(atPath: url.path) {
             let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: data)
+            do {
+                try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+            } catch {
+                try? handle.close()
+                throw error
+            }
+            try handle.close()
         } else {
             try data.write(to: url, options: .atomic)
         }

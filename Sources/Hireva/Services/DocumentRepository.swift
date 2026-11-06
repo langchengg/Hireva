@@ -22,12 +22,12 @@ struct DocumentIngestionError: LocalizedError, Equatable {
     }
 }
 
-final class DocumentRepository {
-    private let database: AppDatabase
+final class DocumentRepository: Sendable {
+    private let databaseQueue: DatabaseQueue
     private let meaningfulMinimumCharacters = 80
 
     init(database: AppDatabase) {
-        self.database = database
+        self.databaseQueue = database.dbQueue
     }
 
     func saveDocument(type: DocumentType, title: String, content: String, material: ExtractedMaterial? = nil, originalData: Data? = nil) throws -> DocumentRecord {
@@ -62,7 +62,7 @@ final class DocumentRepository {
         )
         let chunks = TextChunker.chunks(from: sanitizedText)
 
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO documents (
@@ -135,28 +135,28 @@ final class DocumentRepository {
     }
 
     func source(documentID: String) throws -> (material: ExtractedMaterial, data: Data)? {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM document_sources WHERE document_id = ?", arguments: [documentID]) else { return nil }
             return (try JSONDecoder().decode(ExtractedMaterial.self, from: row["metadata_json"] as Data), row["original_data"])
         }
     }
 
     func document(type: DocumentType) throws -> DocumentRecord? {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             let row = try Row.fetchOne(db, sql: "SELECT * FROM documents WHERE type = ? ORDER BY updated_at DESC LIMIT 1", arguments: [type.rawValue])
             return row.map(Self.makeDocument)
         }
     }
 
     func documents() throws -> [DocumentRecord] {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM documents ORDER BY updated_at DESC")
                 .map(Self.makeDocument)
         }
     }
 
     func chunks(type: DocumentType) throws -> [DocumentChunk] {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: """
@@ -172,7 +172,7 @@ final class DocumentRepository {
     }
 
     func chunks(documentID: String) throws -> [DocumentChunk] {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM document_chunks WHERE document_id = ? ORDER BY chunk_index ASC",
@@ -182,7 +182,7 @@ final class DocumentRepository {
     }
 
     func deleteDocument(id: String) throws {
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try Self.eraseEvidenceCopies(documentID: id, db: db)
             try db.execute(sql: "DELETE FROM documents WHERE id = ?", arguments: [id])
         }
@@ -277,7 +277,7 @@ final class DocumentRepository {
     }
 
     func deleteAllDocuments() throws {
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(sql: "DELETE FROM interview_context_snapshots")
             try db.execute(sql: "DELETE FROM candidate_profiles")
             try db.execute(sql: "DELETE FROM opportunity_contexts")
@@ -287,7 +287,7 @@ final class DocumentRepository {
     }
 
     func latexPollutedChunkCount() throws -> Int {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             let contents = try String.fetchAll(
                 db,
                 sql: """
@@ -305,7 +305,7 @@ final class DocumentRepository {
         let now = Date()
         var chunksRebuilt = 0
 
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             for document in storedDocuments {
                 let rawContent = document.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 let sanitized = DocumentTextSanitizer.sanitize(rawContent)
@@ -421,7 +421,7 @@ final class DocumentRepository {
     // MARK: - Embedding Repository Extensions
 
     func chunksWithEmbeddings(type: DocumentType) throws -> [DocumentChunk] {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: """
@@ -436,35 +436,76 @@ final class DocumentRepository {
         }
     }
 
-    func updateChunkEmbedding(
-        chunkID: String,
-        embedding: [Float],
-        model: String,
-        provider: String,
-        dimension: Int,
-        contentHash: String
-    ) throws {
-        let data = VectorStore.encodeEmbedding(embedding)
-        let now = DateCoding.string(from: Date())
-        try database.dbQueue.write { db in
-            try db.execute(
-                sql: """
-                UPDATE document_chunks
-                SET embedding = ?,
-                    embedding_model = ?,
-                    embedding_provider = ?,
-                    embedding_dimension = ?,
-                    embedding_content_hash = ?,
-                    embedding_created_at = ?
-                WHERE id = ?
-                """,
-                arguments: [data, model, provider, dimension, contentHash, now, chunkID]
-            )
+    struct EmbeddingSource {
+        let chunk: DocumentChunk
+        // Keep the exact stored representation, avoiding Date round-trip loss.
+        let documentRevision: String
+    }
+
+    func embeddingSources(type: DocumentType? = nil) throws -> [EmbeddingSource] {
+        try databaseQueue.read { db in
+            let sql = """
+            SELECT document_chunks.*, documents.type AS resolved_document_type,
+                   documents.updated_at AS expected_document_revision
+            FROM document_chunks
+            JOIN documents ON documents.id = document_chunks.document_id
+            """
+            let rows: [Row]
+            if let type {
+                rows = try Row.fetchAll(db, sql: sql + " WHERE documents.type = ? ORDER BY chunk_index ASC", arguments: [type.rawValue])
+            } else {
+                rows = try Row.fetchAll(db, sql: sql + " ORDER BY chunk_index ASC")
+            }
+            return rows.map { EmbeddingSource(chunk: Self.makeChunk(row: $0), documentRevision: $0["expected_document_revision"]) }
         }
     }
 
+    private static let unchangedEmbeddingSource = """
+        document_chunks.id = ? AND document_chunks.document_id = ?
+        AND document_chunks.content = ? AND document_chunks.section_title IS ?
+        AND EXISTS (SELECT 1 FROM documents
+                    WHERE documents.id = document_chunks.document_id AND documents.updated_at = ? AND documents.type = ?)
+        """
+
+    func embeddingSourceIsCurrent(_ source: EmbeddingSource) throws -> Bool {
+        try databaseQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT 1 FROM document_chunks WHERE " + Self.unchangedEmbeddingSource,
+                arguments: [source.chunk.id, source.chunk.documentID, source.chunk.content, source.chunk.sectionTitle, source.documentRevision, source.chunk.documentType.rawValue]) != nil
+        }
+    }
+
+    /// Identity/content admission and vector writing are one SQLite transaction.
+    /// A missing or replaced source is a rejection, never an INSERT or success.
+    @discardableResult
+    func updateChunkEmbeddingIfUnchanged(source: EmbeddingSource, embedding: [Float], model: String,
+                                         provider: String, dimension: Int, contentHash: String) throws -> Bool {
+        let data = VectorStore.encodeEmbedding(embedding)
+        let now = DateCoding.string(from: Date())
+        return try databaseQueue.write { db in
+            try db.execute(sql: """
+                UPDATE document_chunks
+                SET embedding = ?, embedding_model = ?, embedding_provider = ?,
+                    embedding_dimension = ?, embedding_content_hash = ?, embedding_created_at = ?
+                WHERE
+                """ + " " + Self.unchangedEmbeddingSource,
+                arguments: [data, model, provider, dimension, contentHash, now,
+                    source.chunk.id, source.chunk.documentID, source.chunk.content, source.chunk.sectionTitle, source.documentRevision, source.chunk.documentType.rawValue])
+            return db.changesCount == 1
+        }
+    }
+
+    // Compatibility for synchronous explicit vector seeding. Async production
+    // callers freeze an EmbeddingSource before their provider await and use the
+    // conditional operation above; this entry no longer owns another SQL writer.
+    func updateChunkEmbedding(chunkID: String, embedding: [Float], model: String,
+                              provider: String, dimension: Int, contentHash: String) throws {
+        guard let source = try embeddingSources().first(where: { $0.chunk.id == chunkID }) else { return }
+        try updateChunkEmbeddingIfUnchanged(source: source, embedding: embedding, model: model,
+            provider: provider, dimension: dimension, contentHash: contentHash)
+    }
+
     func allChunks() throws -> [DocumentChunk] {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: """

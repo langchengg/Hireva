@@ -3,7 +3,7 @@ set -uo pipefail
 
 DEFAULT_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="${RELEASE_STATUS_ROOT_DIR:-$DEFAULT_ROOT_DIR}"
-APP_BUNDLE="${RELEASE_STATUS_APP_BUNDLE:-$ROOT_DIR/dist/Hireva.app}"
+APP_BUNDLE="${RELEASE_STATUS_APP_BUNDLE:-$(python3 "${DEFAULT_ROOT_DIR:-$ROOT_DIR}/script/artifact_lifecycle.py" paths)}"
 APP_BINARY="${RELEASE_STATUS_APP_BINARY:-$APP_BUNDLE/Contents/MacOS/Hireva}"
 INFO_PLIST="${RELEASE_STATUS_INFO_PLIST:-$APP_BUNDLE/Contents/Info.plist}"
 DB_PATH="${RELEASE_STATUS_DB_PATH:-$HOME/Library/Application Support/Hireva/hireva.sqlite}"

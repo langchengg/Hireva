@@ -24,7 +24,11 @@ else
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
+if [[ "$VALIDATE_ONLY" == false && "$EVIDENCE_ONLY" == false && -z "${HIREVA_ARTIFACT_LOCK_FD:-}" ]]; then
+    export HIREVA_VERIFICATION_BUNDLE=1
+    exec python3 "$ROOT_DIR/script/artifact_lifecycle.py" exec -- "$0" "$@"
+fi
+APP_BUNDLE="${HIREVA_APP_BUNDLE:-$(HIREVA_VERIFICATION_BUNDLE=1 python3 "$ROOT_DIR/script/artifact_lifecycle.py" paths)}"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/Hireva"
 
 [[ -f "$SCENARIO_PATH" ]] || { echo "scenario not found: $SCENARIO_PATH" >&2; exit 2; }
@@ -205,11 +209,13 @@ wait_for_matching_suggestion() {
     return 1
 }
 
-osascript -e 'tell application id "com.langcheng.Hireva" to quit' >/dev/null 2>&1 || true
-for _ in {1..20}; do
-    pgrep -f "$APP_BINARY" >/dev/null || break
-    sleep 0.25
-done
+# Never terminate a user's session or launch an ordinary data-writing bundle here.
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :HirevaVerificationOnly' "$APP_BUNDLE/Contents/Info.plist")" == "true" ]] || {
+    echo "verification requires a managed verification-only bundle" >&2; exit 2;
+}
+if pgrep -x Hireva >/dev/null; then
+    echo "Hireva is already running; no application was stopped" >&2; exit 2
+fi
 
 /usr/bin/open -n \
     --env "HIREVA_VERIFICATION_MODE=1" \
@@ -218,6 +224,20 @@ done
     --env "HIREVA_VERIFICATION_APP_SUPPORT_DIR=$APP_SUPPORT_ROOT" \
     --env "HIREVA_VERIFICATION_MODEL_ROOT=$MODEL_ROOT" \
     "$APP_BUNDLE"
+
+python3 - "$ROOT_DIR" "$APP_BUNDLE" <<'CHECK_PROCESS'
+import sys, time
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1] + '/script')
+from pathlib import Path
+from artifact_lifecycle import active
+for _ in range(20):
+    if active(Path(sys.argv[2])):
+        break
+    time.sleep(.5)
+else:
+    raise SystemExit('verification app did not launch from its exact managed path')
+CHECK_PROCESS
 
 wait_for_count "bootstrap.ready" 0 60 || {
     echo "app did not become verification-ready" >&2

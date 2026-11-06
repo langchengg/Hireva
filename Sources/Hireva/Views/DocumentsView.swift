@@ -2,11 +2,21 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DocumentsView: View {
-    @ObservedObject var appState: AppState
-    @State private var cvText = ""
-    @State private var jdText = ""
-    @State private var notesText = ""
-    @State private var previewedTypes: Set<DocumentType> = []
+    @ObservedObject var documents: DocumentsState
+    @ObservedObject var context: InterviewContextState
+    let storySettings: SettingsState
+    let storyRepository: PreparationRepository
+    let contextIndexStatus: String
+    let feedbacks: [ActionFeedback]
+    let loadingStates: [String: Bool]
+    let save: (DocumentType, String) -> Void
+    let clear: (DocumentRecord) -> Void
+    let rebuildIndex: () -> Void
+    let previewFeedback: (DocumentType, Bool) -> Void
+    let clearDraftFeedback: (DocumentType) -> Void
+    let importDocument: (URL, DocumentType) -> Void
+    let showError: (String) -> Void
+    let startInterview: () -> Void
     @State private var newProfileName = ""
     @State private var newOpportunityName = ""
     @State private var newDeclaredGap = ""
@@ -20,20 +30,19 @@ struct DocumentsView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 contextSetup
-                if !appState.materialImportStatus.isEmpty {
-                    Text(appState.materialImportStatus).font(.callout).textSelection(.enabled)
-                    Button("Cancel Import") { appState.cancelMaterialImport() }
-                }
+                DocumentsImportStatusView(documents: documents)
                 if showEvidenceReview {
                     evidenceReview
-                    if let profile = appState.activeCandidateProfile { StoryCardsView(appState: appState, profile: profile).id(profile.id) }
+                    if let profile = context.activeCandidateProfile { StoryCardsView(settings: storySettings, repository: storyRepository, profile: profile).id(profile.id) }
                 }
 
-                documentCard(type: .cv, text: $cvText)
-                documentCard(type: .jobDescription, text: $jdText)
-                documentCard(type: .additionalNotes, text: $notesText)
+                DocumentsEditorView(documents: documents,
+                    contextIndexStatus: contextIndexStatus, feedbacks: feedbacks,
+                    loadingStates: loadingStates, save: save, clear: clear,
+                    rebuildIndex: rebuildIndex, previewFeedback: previewFeedback,
+                    clearDraftFeedback: clearDraftFeedback)
 
-                if appState.documents.isEmpty {
+                if documents.documents.isEmpty {
                     emptyDocumentsState
                 }
             }
@@ -41,8 +50,6 @@ struct DocumentsView: View {
             .frame(maxWidth: 1_000, alignment: .leading)
         }
         .navigationTitle("Documents")
-        .onAppear(perform: hydrateEditors)
-        .onChange(of: appState.documents) { _, _ in hydrateEditors() }
         .fileImporter(
             isPresented: $isImporterPresented,
             allowedContentTypes: [.plainText, .pdf, .image, UTType(filenameExtension: "docx")!, UTType(filenameExtension: "md")!],
@@ -51,9 +58,9 @@ struct DocumentsView: View {
             guard let type = importType else { return }
             switch result {
             case .success(let urls):
-                if let url = urls.first { appState.importPlainTextDocument(from: url, as: type) }
+                if let url = urls.first { importDocument(url, type) }
             case .failure(let error):
-                appState.showError("Could not open the document: \(error.localizedDescription)")
+                showError("Could not open the document: \(error.localizedDescription)")
             }
             importType = nil
         }
@@ -72,7 +79,7 @@ struct DocumentsView: View {
                 )
             }
 
-            if appState.documents.isEmpty {
+            if documents.documents.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("No context generated yet")
                         .font(.headline)
@@ -88,34 +95,30 @@ struct DocumentsView: View {
                 contextAction("Add Opportunity", "briefcase.badge.plus", type: .jobDescription)
                 contextAction("Add Notes", "note.text.badge.plus", type: .additionalNotes)
                 Button {
-                    Task { await appState.rebuildAutomaticInterviewContext() }
+                    context.requestRebuild()
                 } label: {
                     Label("Regenerate Context", systemImage: "arrow.triangle.2.circlepath")
                         .frame(maxWidth: .infinity)
                 }
-                .disabled(appState.documents.isEmpty || appState.automaticContextReadiness == .extracting)
+                .disabled(documents.documents.isEmpty || context.automaticContextReadiness == .extracting)
                 Button {
                     showEvidenceReview.toggle()
                 } label: {
                     Label(showEvidenceReview ? "Hide Review" : "Review Extracted Facts", systemImage: "checklist")
                         .frame(maxWidth: .infinity)
                 }
-                .disabled(appState.activeCandidateProfile == nil && appState.activeOpportunityContext == nil)
+                .disabled(context.activeCandidateProfile == nil && context.activeOpportunityContext == nil)
                 Button {
-                    if appState.coreInterviewReadinessPassed {
-                        appState.startListening(mode: .microphone)
-                    } else {
-                        appState.selectSection(.readinessCheck)
-                    }
+                    startInterview()
                 } label: {
                     Label("Start Interview", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(appState.automaticContextReadiness == .extracting )
+                .disabled(context.automaticContextReadiness == .extracting )
             }
 
-            if let warnings = appState.automaticContextBuildResult?.warnings, !warnings.isEmpty {
+            if let warnings = context.automaticContextBuildResult?.warnings, !warnings.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(warnings) { warning in
                         Label(warning.message, systemImage: "exclamationmark.triangle")
@@ -140,23 +143,23 @@ struct DocumentsView: View {
         VStack(alignment: .leading, spacing: 12) {
             contextSummaryRow(
                 title: "Candidate",
-                value: appState.activeCandidateProfile?.displayName ?? "No candidate profile yet",
+                value: context.activeCandidateProfile?.displayName ?? "No candidate profile yet",
                 detail: candidateSourceDetail,
-                metric: "\(appState.contextReadiness.candidateFactCount) facts",
+                metric: "\(context.contextReadiness.candidateFactCount) facts",
                 icon: "person.text.rectangle"
             )
             Divider()
             contextSummaryRow(
                 title: "Target Opportunity",
-                value: appState.activeOpportunityContext?.title ?? "No target opportunity provided",
+                value: context.activeOpportunityContext?.title ?? "No target opportunity provided",
                 detail: opportunitySourceDetail,
-                metric: "\(appState.contextReadiness.opportunityRequirementCount) requirements",
+                metric: "\(context.contextReadiness.opportunityRequirementCount) requirements",
                 icon: "briefcase"
             )
             Divider()
             contextSummaryRow(
                 title: "Interview Domain",
-                value: appState.automaticContextBuildResult?.inferredDomain.displayName ?? appState.activeInterviewDomainID.displayName,
+                value: context.automaticContextBuildResult?.inferredDomain.displayName ?? context.activeInterviewDomainID.displayName,
                 detail: "Automatically inferred",
                 metric: domainConfidence,
                 icon: "scope"
@@ -171,18 +174,18 @@ struct DocumentsView: View {
             Text("Normally these values are inferred automatically from your documents.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("Configuration source: \(appState.contextConfigurationOrigin?.rawValue ?? "not_configured")")
+            Text("Configuration source: \(context.contextConfigurationOrigin?.rawValue ?? "not_configured")")
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
                 GridRow {
                     Text("Candidate Profile").foregroundStyle(.secondary)
                     Picker("Candidate Profile override", selection: Binding(
-                        get: { appState.activeCandidateProfileID },
-                        set: appState.selectCandidateProfile
+                        get: { context.activeCandidateProfileID },
+                        set: { @MainActor value in context.selectCandidateProfile(value) }
                     )) {
                         Text("None").tag(String?.none)
-                        ForEach(appState.productionCandidateProfiles) { profile in
+                        ForEach(context.productionCandidateProfiles) { profile in
                             Text(profile.displayName ?? "Candidate Profile").tag(Optional(profile.id))
                         }
                     }
@@ -191,11 +194,11 @@ struct DocumentsView: View {
                 GridRow {
                     Text("Target Opportunity").foregroundStyle(.secondary)
                     Picker("Target Opportunity override", selection: Binding(
-                        get: { appState.activeOpportunityContextID },
-                        set: appState.selectOpportunityContext
+                        get: { context.activeOpportunityContextID },
+                        set: { @MainActor value in context.selectOpportunityContext(value) }
                     )) {
                         Text("General / None").tag(String?.none)
-                        ForEach(appState.productionOpportunityContexts) { opportunity in
+                        ForEach(context.productionOpportunityContexts) { opportunity in
                             Text(opportunity.title ?? "Target Opportunity").tag(Optional(opportunity.id))
                         }
                     }
@@ -204,8 +207,8 @@ struct DocumentsView: View {
                 GridRow {
                     Text("Interview Domain").foregroundStyle(.secondary)
                     Picker("Interview Domain override", selection: Binding(
-                        get: { appState.activeInterviewDomainID },
-                        set: appState.selectInterviewDomain
+                        get: { context.activeInterviewDomainID },
+                        set: { @MainActor value in context.selectInterviewDomain(value) }
                     )) {
                         ForEach(InterviewDomainID.allCases) { domain in
                             Text(domain.displayName).tag(domain)
@@ -217,18 +220,18 @@ struct DocumentsView: View {
             HStack(spacing: 8) {
                 TextField("New profile name", text: $newProfileName)
                 Button {
-                    appState.createCandidateProfile(named: newProfileName)
+                    context.createCandidateProfile(named: newProfileName)
                     newProfileName = ""
                 } label: { Image(systemName: "person.badge.plus") }
                 .help("Create candidate profile override")
                 TextField("New opportunity name", text: $newOpportunityName)
                 Button {
-                    appState.createOpportunityContext(named: newOpportunityName)
+                    context.createOpportunityContext(named: newOpportunityName)
                     newOpportunityName = ""
                 } label: { Image(systemName: "briefcase.badge.plus") }
                 .help("Create target opportunity override")
             }
-            if let snapshot = appState.activeContextSnapshot {
+            if let snapshot = context.activeContextSnapshot {
                 Text("Snapshot: \(snapshot.id)")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -239,7 +242,7 @@ struct DocumentsView: View {
 
     @ViewBuilder
     private var evidenceReview: some View {
-        if let profile = appState.activeCandidateProfile {
+        if let profile = context.activeCandidateProfile {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Candidate Profile Review", systemImage: "checklist")
@@ -251,14 +254,14 @@ struct DocumentsView: View {
                 }
 
                 ForEach(profile.reviewEvidence) { evidence in
-                    ProfileEvidenceReviewRow(appState: appState, evidence: evidence)
+                    ProfileEvidenceReviewRow(context: context, evidence: evidence, scope: InterviewContextSelection(candidateProfileID: profile.id, opportunityContextID: nil, domainProfileID: context.activeInterviewDomainID))
                     Divider()
                 }
 
                 HStack {
                     TextField("Add a declared skill or experience gap", text: $newDeclaredGap)
                     Button {
-                        appState.addDeclaredGap(newDeclaredGap)
+                        context.addDeclaredGap(newDeclaredGap)
                         newDeclaredGap = ""
                     } label: {
                         Image(systemName: "plus.circle")
@@ -269,7 +272,7 @@ struct DocumentsView: View {
             }
             .padding(.vertical, 4)
         }
-        if let opportunity = appState.activeOpportunityContext {
+        if let opportunity = context.activeOpportunityContext {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Opportunity Review", systemImage: "briefcase")
@@ -280,7 +283,7 @@ struct DocumentsView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(opportunity.reviewEvidence) { evidence in
-                    ProfileEvidenceReviewRow(appState: appState, evidence: evidence)
+                    ProfileEvidenceReviewRow(context: context, evidence: evidence, scope: InterviewContextSelection(candidateProfileID: nil, opportunityContextID: opportunity.id, domainProfileID: context.activeInterviewDomainID))
                     Divider()
                 }
             }
@@ -289,7 +292,7 @@ struct DocumentsView: View {
     }
 
     private var contextStatusTitle: String {
-        switch appState.automaticContextReadiness {
+        switch context.automaticContextReadiness {
         case .noDocuments: return "Not generated"
         case .extracting: return "Building"
         case .needsReview: return "Needs Review"
@@ -299,7 +302,7 @@ struct DocumentsView: View {
     }
 
     private var contextStatusIcon: String {
-        switch appState.automaticContextReadiness {
+        switch context.automaticContextReadiness {
         case .noDocuments: return "circle"
         case .extracting: return "arrow.triangle.2.circlepath"
         case .needsReview: return "exclamationmark.circle"
@@ -309,7 +312,7 @@ struct DocumentsView: View {
     }
 
     private var contextStatusTint: Color {
-        switch appState.automaticContextReadiness {
+        switch context.automaticContextReadiness {
         case .ready: return .green
         case .extracting: return .blue
         case .needsReview: return .orange
@@ -319,19 +322,19 @@ struct DocumentsView: View {
     }
 
     private var candidateSourceDetail: String {
-        let titles = appState.automaticContextBuildResult?.evidenceSummary.candidateSourceTitles ?? []
+        let titles = context.automaticContextBuildResult?.evidenceSummary.candidateSourceTitles ?? []
         if let first = titles.first { return "Auto-generated from: \(first)" }
         return "Upload a CV to personalise answers"
     }
 
     private var opportunitySourceDetail: String {
-        let titles = appState.automaticContextBuildResult?.evidenceSummary.opportunitySourceTitles ?? []
+        let titles = context.automaticContextBuildResult?.evidenceSummary.opportunitySourceTitles ?? []
         if let first = titles.first { return "Auto-generated from: \(first)" }
         return "Add a job or PhD description for role-specific answers"
     }
 
     private var domainConfidence: String {
-        guard let domain = appState.automaticContextBuildResult?.inferredDomain else { return "Not inferred" }
+        guard let domain = context.automaticContextBuildResult?.inferredDomain else { return "Not inferred" }
         return "\(domain.confidenceLabel) heuristic match"
     }
 
@@ -402,226 +405,20 @@ struct DocumentsView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func documentCard(type: DocumentType, text: Binding<String>) -> some View {
-        let document = appState.documents.first { $0.type == type }
-        let trimmed = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sanitized = DocumentTextSanitizer.sanitize(trimmed)
-        let hasLatexWarning = sanitized.wasSanitized || !(document?.sanitizationWarnings?.isEmpty ?? true)
-        let chunks = chunkCount(for: type)
-        let saved = document != nil
-        let previewExpanded = previewedTypes.contains(type)
 
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                Label(type.title, systemImage: type.systemImage)
-                    .font(.title3.weight(.semibold))
-                Spacer()
-                StatusPill(
-                    title: saved ? "Saved" : "Not saved",
-                    systemImage: saved ? "checkmark.circle.fill" : "circle",
-                    tint: saved ? .green : .orange
-                )
-            }
-
-            if let document, let source = try? appState.documentRepository.source(documentID: document.id) {
-                Text("Source: \(source.material.filename) · \(source.material.sections.count) locations · \(Array(Set(source.material.sections.map(\.method))).joined(separator: ", "))")
-                    .font(.caption).textSelection(.enabled)
-                Text(source.material.warnings.joined(separator: " ")).font(.caption).foregroundStyle(.secondary)
-                if let image = NSImage(data: source.data) {
-                    Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 240)
-                }
-                Button("Reprocess Saved Original") { appState.reprocessDocument(document) }
-            }
-            TextEditor(text: text)
-                .font(.body)
-                .frame(minHeight: type == .additionalNotes ? 130 : 190)
-                .padding(8)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-
-            if hasLatexWarning {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("LaTeX formatting was detected. The app will preserve your original document but use a cleaned plain-text version for relevant context.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            }
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], alignment: .leading, spacing: 10) {
-                summaryMetric("Sanitized", sanitized.wasSanitized || saved ? "Ready" : "No text", "wand.and.stars")
-                summaryMetric("Chunks", "\(chunks)", "square.stack.3d.up")
-                summaryMetric("Context index", chunks > 0 ? appState.userFacingRelevantContextStatus : "Needs rebuild", "doc.text.magnifyingglass")
-                summaryMetric("Last rebuilt", document.map { DateFormatter.localizedString(from: $0.updatedAt, dateStyle: .medium, timeStyle: .short) } ?? "Never", "clock")
-            }
-
-            HStack(spacing: 10) {
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.saveDocument(type),
-                    title: "Save Document",
-                    loadingTitle: "Saving...",
-                    successTitle: "Saved",
-                    systemImage: "square.and.arrow.down",
-                    isProminent: true,
-                    disabled: trimmed.count < 80
-                ) {
-                    appState.saveDocument(type: type, title: type.title, content: text.wrappedValue)
-                }
-
-                ProgressButton(
-                    appState: appState,
-                    actionID: ActionID.rebuildCleanRAG,
-                    title: "Rebuild Clean RAG Index",
-                    loadingTitle: "Rebuilding...",
-                    systemImage: "arrow.triangle.2.circlepath",
-                    progress: nil,
-                    disabled: appState.isActionLoading(ActionID.rebuildCleanRAG)
-                ) {
-                    appState.rebuildCleanRAGIndex()
-                }
-
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.previewDocument(type),
-                    title: previewExpanded ? "Hide Clean Text" : "Preview Clean Text",
-                    loadingTitle: "Opening preview...",
-                    successTitle: previewExpanded ? "Preview hidden" : "Preview shown",
-                    systemImage: previewExpanded ? "eye.slash" : "eye",
-                    disabled: trimmed.isEmpty && document?.sanitizedContent?.isEmpty != false
-                ) {
-                    let actionID = ActionID.previewDocument(type)
-                    appState.beginAction(actionID, title: previewExpanded ? "Hiding preview" : "Opening clean preview", message: "Showing the text used for relevant context.")
-                    if previewExpanded {
-                        previewedTypes.remove(type)
-                        appState.completeAction(actionID, title: "Preview hidden", message: "\(type.title) clean text preview is collapsed.")
-                    } else {
-                        previewedTypes.insert(type)
-                        appState.completeAction(actionID, title: "Clean preview shown", message: "This is the plain-text version used for relevant context.")
-                    }
-                }
-
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.clearDocument(type),
-                    title: "Clear Document",
-                    loadingTitle: "Clearing...",
-                    successTitle: "Cleared",
-                    systemImage: "trash",
-                    role: .destructive,
-                    disabled: !saved && trimmed.isEmpty
-                ) {
-                    if let document {
-                        appState.deleteDocument(document)
-                    } else {
-                        appState.completeAction(ActionID.clearDocument(type), title: "Editor cleared", message: "\(type.title) draft text was cleared.")
-                    }
-                    clearEditor(type)
-                }
-            }
-
-            InlineStatusBanner(documentFeedback(for: type))
-
-            if trimmed.count < 80 {
-                Text("Paste at least 80 characters before saving.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if previewExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Clean text preview")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ScrollView {
-                        Text(cleanPreview(for: document, fallback: sanitized))
-                            .font(.callout)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(10)
-                    }
-                    .frame(maxHeight: 180)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                }
-            }
-        }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func summaryMetric(_ title: String, _ value: String, _ icon: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func chunkCount(for type: DocumentType) -> Int {
-        (try? appState.documentRepository.chunks(type: type).count) ?? 0
-    }
-
-    private func documentFeedback(for type: DocumentType) -> ActionFeedback? {
-        appState.latestActionFeedback(matching: [
-            ActionID.saveDocument(type),
-            ActionID.previewDocument(type),
-            ActionID.clearDocument(type),
-            ActionID.rebuildCleanRAG,
-            ActionID.rebuildEmbeddings
-        ])
-    }
-
-    private func cleanPreview(for document: DocumentRecord?, fallback: DocumentTextSanitizer.Result) -> String {
-        let saved = document?.sanitizedContent?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let saved, !saved.isEmpty {
-            return saved
-        }
-        return fallback.sanitizedContent
-    }
-
-    private func hydrateEditors() {
-        cvText = appState.documents.first(where: { $0.type == .cv })?.content ?? ""
-        jdText = appState.documents.first(where: { $0.type == .jobDescription })?.content ?? ""
-        notesText = appState.documents.first(where: { $0.type == .additionalNotes })?.content ?? ""
-    }
-
-    private func clearEditor(_ type: DocumentType) {
-        switch type {
-        case .cv:
-            cvText = ""
-        case .jobDescription:
-            jdText = ""
-        case .additionalNotes:
-            notesText = ""
-        }
-    }
 }
 
 private struct ProfileEvidenceReviewRow: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var context: InterviewContextState
     let evidence: ProfileEvidence
+    let scope: InterviewContextSelection
     @State private var draft: String
     @State private var facts: FactConfirmation
 
-    init(appState: AppState, evidence: ProfileEvidence) {
-        self.appState = appState
+    init(context: InterviewContextState, evidence: ProfileEvidence, scope: InterviewContextSelection) {
+        self.context = context
         self.evidence = evidence
+        self.scope = scope
         _draft = State(initialValue: evidence.statement)
         _facts = State(initialValue: evidence.confirmation ?? FactConfirmation())
     }
@@ -634,20 +431,20 @@ private struct ProfileEvidenceReviewRow: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 105, alignment: .leading)
                 TextField("Evidence", text: $draft)
-                    .onSubmit { appState.editProfileEvidence(evidence.id, statement: draft) }
+                    .onSubmit { context.editProfileEvidence(evidence.id, statement: draft, scope: scope) }
                 Text(reviewStatus)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(reviewTint)
                 Button {
-                    if draft != evidence.statement { appState.editProfileEvidence(evidence.id, statement: draft) }
-                    if facts != evidence.confirmation ?? FactConfirmation() { appState.editFactConfirmation(evidence.id, value: facts) }
-                    appState.confirmProfileEvidence(evidence.id)
+                    if draft != evidence.statement { context.editProfileEvidence(evidence.id, statement: draft, scope: scope) }
+                    if facts != evidence.confirmation ?? FactConfirmation() { context.editFactConfirmation(evidence.id, value: facts, scope: scope) }
+                    context.confirmProfileEvidence(evidence.id, scope: scope)
                 } label: {
                     Image(systemName: "checkmark.circle")
                 }
                 .help("Confirm evidence")
                 Button {
-                    appState.rejectProfileEvidence(evidence.id)
+                    context.rejectProfileEvidence(evidence.id, scope: scope)
                 } label: {
                     Image(systemName: "xmark.circle")
                 }
@@ -663,7 +460,7 @@ private struct ProfileEvidenceReviewRow: View {
                 TextField("Sample, conditions and range (optional)", text: $facts.conditions)
                 Text("Edits are unconfirmed until you press Confirm evidence. Source support and your confirmation are not independent verification. If a correction contradicts the source, retain that distinction.").font(.caption)
                 if evidence.sourceSpan != nil && evidence.sourceSpan != draft { Text("Edited statement differs from the original source; review the difference before confirming.").foregroundStyle(.orange).font(.caption) }
-                Button("Save Boundary Draft") { appState.editFactConfirmation(evidence.id, value: facts) }
+                Button("Save Boundary Draft") { context.editFactConfirmation(evidence.id, value: facts, scope: scope) }
             }
             if let source = evidence.sourceSpan, !source.isEmpty {
                 Text("Source: \(source)")

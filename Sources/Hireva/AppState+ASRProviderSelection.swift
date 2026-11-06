@@ -8,24 +8,15 @@ extension AppState {
     private static var appleSpeechASRDefaultMigrationKey: String { HirevaPreferenceKeys.appleSpeechASRDefaultMigration }
     private var preferenceDefaults: UserDefaults { dialogueDefaults ?? .standard }
 
-    var selectedASRProviderID: ASRProviderID {
-        ASRProviderID(rawValue: preferenceDefaults.string(forKey: Self.selectedASRProviderKey) ?? "") ?? .appleSpeech
-    }
+    var selectedASRProviderID: ASRProviderID { settingsState.selectedASRProviderID }
 
     var selectedTranscriptionProviderMode: TranscriptionProviderMode {
         TranscriptionProviderMode(providerID: selectedASRProviderID)
     }
 
-    var selectedQwenModelName: String {
-        let stored = preferenceDefaults.string(forKey: Self.selectedQwenModelKey)
-        return (stored?.isEmpty == false) ? stored! : LocalModelDescriptor.defaultQwenLocalLLM.id
-    }
-
+    var selectedQwenModelName: String { settingsState.selectedQwenModelName }
     var selectedAnswerProviderMode: AnswerProviderMode {
-        if let answerProviderModeOverride {
-            return answerProviderModeOverride
-        }
-        return AnswerProviderMode(storedValue: preferenceDefaults.string(forKey: Self.answerProviderModeKey))
+        answerProviderModeOverride ?? settingsState.selectedAnswerProviderMode
     }
 
     var activeASRProviderID: ASRProviderID? {
@@ -40,27 +31,11 @@ extension AppState {
         transcriptSegments.reversed().first { $0.speaker != .system }?.asrSource?.rawValue ?? "None"
     }
 
-    func setSelectedASRProvider(_ provider: ASRProviderID) {
-        preferenceDefaults.set(provider.rawValue, forKey: Self.selectedASRProviderKey)
-        objectWillChange.send()
-    }
-
+    func setSelectedASRProvider(_ provider: ASRProviderID) { settingsState.setSelectedASRProvider(provider) }
     func setSelectedAnswerProviderMode(_ mode: AnswerProviderMode) {
-        if mode != selectedAnswerProviderMode {
-            persistenceConsent.invalidate()
-            cancelActiveGenerationForContextChange()
-            practiceController.pause()
-            recapTask?.cancel(); recapTask = nil; recapSessionID = nil; isGeneratingRecap = false
-            clearActionFeedback(ActionID.sessionRecap)
-        }
-        preferenceDefaults.set(mode.rawValue, forKey: Self.answerProviderModeKey)
-        objectWillChange.send()
+        settingsState.setSelectedAnswerProviderMode(mode, currentMode: selectedAnswerProviderMode)
     }
-
-    func setSelectedQwenModelName(_ modelName: String) {
-        preferenceDefaults.set(modelName, forKey: Self.selectedQwenModelKey)
-        objectWillChange.send()
-    }
+    func setSelectedQwenModelName(_ modelName: String) { settingsState.setSelectedQwenModelName(modelName) }
 
     func markActiveASRProvider(_ provider: ASRProviderID?) {
         if let provider {
@@ -92,28 +67,14 @@ extension AppState {
     }
 
     func migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: Bool) {
-        guard qwenReady else { return }
-        let rawValue = preferenceDefaults.string(forKey: Self.answerProviderModeKey)
-        let isUnset = rawValue == nil || rawValue == ""
-        let isLegacyDeepSeek = rawValue == "deepSeek" || rawValue == AnswerProviderMode.deepSeekPrimary.rawValue
-        guard isUnset || isLegacyDeepSeek else { return }
-        setSelectedAnswerProviderMode(.localQwenPrimary)
+        settingsState.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: qwenReady)
     }
 
-    func runLaunchLocalQwenDefaultMigrationIfNeeded() {
-        guard !isRunningUnderTestOrAutomation() else { return }
-        let rawValue = preferenceDefaults.string(forKey: Self.answerProviderModeKey)
-        let shouldProbe = rawValue == nil ||
-            rawValue == "" ||
-            rawValue == "deepSeek" ||
-            rawValue == AnswerProviderMode.deepSeekPrimary.rawValue
-        guard shouldProbe else { return }
-        let modelName = selectedQwenModelName
-        Task { [weak self] in
-            let health = await OllamaQwenProvider().healthCheck(modelName: modelName)
-            await MainActor.run {
-                self?.migrateStoredAnswerProviderToLocalQwenIfReady(qwenReady: health.isReady)
-            }
-        }
+    @discardableResult
+    func runLaunchLocalQwenDefaultMigrationIfNeeded(
+        healthCheck: (@MainActor (String) async -> LocalLLMHealth)? = nil
+    ) -> Task<Void, Never>? {
+        guard healthCheck != nil || !isRunningUnderTestOrAutomation() else { return nil }
+        return settingsState.runLaunchLocalQwenDefaultMigrationIfNeeded(healthCheck: healthCheck)
     }
 }

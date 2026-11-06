@@ -13,15 +13,35 @@ struct ActionButton: View {
     var disabled: Bool = false
     var action: () -> Void
 
-    private var isLoading: Bool {
-        appState.isActionLoading(actionID)
+    var body: some View {
+        ActionButtonContent(isLoading: appState.isActionLoading(actionID),
+            feedback: appState.latestActionFeedback(for: actionID),
+            title: title, loadingTitle: loadingTitle, successTitle: successTitle,
+            systemImage: systemImage, role: role, isProminent: isProminent,
+            controlSize: controlSize, disabled: disabled, action: action)
     }
+}
+
+/// A value-driven rendering boundary for feature views. Global feedback
+/// remains owned by the caller; this view introduces no mutable copy.
+struct ActionButtonContent: View {
+    var isLoading: Bool
+    var feedback: ActionFeedback?
+    var title: String
+    var loadingTitle: String
+    var successTitle: String? = nil
+    var systemImage: String
+    var role: ButtonRole? = nil
+    var isProminent: Bool = false
+    var controlSize: ControlSize = .regular
+    var disabled: Bool = false
+    var action: () -> Void
 
     private var displayTitle: String {
         if isLoading {
             return loadingTitle
         }
-        if let feedback = appState.latestActionFeedback(for: actionID),
+        if let feedback,
            feedback.kind == .success {
             return successTitle ?? feedback.title
         }
@@ -63,7 +83,7 @@ struct ActionButton: View {
     }
 
     private var buttonIcon: String {
-        guard let feedback = appState.latestActionFeedback(for: actionID) else {
+        guard let feedback else {
             return systemImage
         }
         switch feedback.kind {
@@ -75,6 +95,28 @@ struct ActionButton: View {
             return "exclamationmark.circle.fill"
         case .info, .loading:
             return systemImage
+        }
+    }
+}
+
+struct ProgressButtonContent: View {
+    var isLoading: Bool
+    var feedback: ActionFeedback?
+    var title: String
+    var loadingTitle: String
+    var systemImage: String
+    var progress: Double?
+    var disabled: Bool = false
+    var action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ActionButtonContent(isLoading: isLoading, feedback: feedback,
+                title: title, loadingTitle: loadingTitle, systemImage: systemImage,
+                isProminent: true, disabled: disabled, action: action)
+            if isLoading, let progress {
+                ProgressView(value: progress, total: 1.0).frame(maxWidth: 260)
+            }
         }
     }
 }

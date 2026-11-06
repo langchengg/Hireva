@@ -118,6 +118,17 @@ struct InterviewTaskDescriptor: Codable, Hashable {
         if let decision { return decision.evidencePolicy + " Task: \(kind.rawValue). Answer language: \(language). Rubric: \(criteria.joined(separator: "; "))." }
         return "Task: \(kind.rawValue); answer language: \(language). Rubric: \(criteria.joined(separator: "; ")). Personal evidence required: \(requiresPersonalEvidence). Never convert requirements, notes, plans, or generated drafts into past personal accomplishments. Ask only for genuinely missing constraints. An unknown task category does not mean the spoken question is incomplete; answer general knowledge without inventing personal facts. Tools require explicit application authorization."
     }
+
+    var answerPromptPolicy: String {
+        let accuracyPolicy = [.generalKnowledge, .coding, .systemDesign, .data, .research, .unknown].contains(kind)
+            ? " Technical accuracy: State the assumptions, operation boundary and failure conditions for any guarantee. A local mechanism's property does not establish the whole operation's outcome. Distinguish definitions from implementation choices; a category name does not establish every implementation's behavior. Keep each property attached to its actual subject, and qualify conditions absent from the question. Distinguish a component failure from whole-operation failure: do not infer automatic abort or recovery of the whole operation from one failed step. If error handling is unspecified, state that its scope and required recovery depend on the implementation."
+            : ""
+        // Practice category rubrics must not manufacture extra demands in a live question.
+        let questionPolicy = promptPolicy.replacingOccurrences(
+            of: "Rubric: \(criteria.joined(separator: "; ")).",
+            with: "Answer only the parts requested in the current question.")
+        return questionPolicy + accuracyPolicy
+    }
 }
 
 /// Frozen at ingress, before a queued question can observe a different card.

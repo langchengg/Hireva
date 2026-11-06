@@ -544,6 +544,11 @@ final class AppDatabase {
                 t.primaryKey(["session_id", "input_key"])
             }
         }
+        migrator.registerMigration("v22_frozen_card_decision") { db in
+            try db.alter(table: "suggestion_cards") { table in
+                table.add(column: "question_decision_json", .blob)
+            }
+        }
         return migrator
     }
 }

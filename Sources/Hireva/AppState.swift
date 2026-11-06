@@ -1,6 +1,7 @@
-// Central MainActor state container for the macOS interview workflow.
-// AppState owns UI-observable state and coordinates repositories/services, but
-// feature-specific behavior should live in focused AppState extensions.
+// MainActor compatibility entry for the macOS interview workflow.
+// History and diagnostics own their feature state; Practice receives narrow
+// dependencies. GenerationCoordinator owns request/generation identities and
+// task handles; live UI publication and persistence still pass through here.
 // Invariants: UI mutation stays on MainActor, capture/generation IDs bind async
 // callbacks to the current question, and technical diagnostics must not become
 // the default product flow.
@@ -11,109 +12,220 @@ import Combine
 import Foundation
 import SwiftUI
 
-/// MainActor source of truth for live interview UI, capture state, detected
-/// questions, generation state, provider settings, and diagnostics.
-///
-/// AppState deliberately keeps observable UI mutation centralized while the
-/// modular extensions own domain-specific workflows. Async callbacks must check
-/// the active generation/question identity before changing visible answer state.
+/// Transitional owner of live UI, capture policy and provider settings.
+/// Feature compatibility properties forward to their sole state owners.
+/// Async callbacks must validate identity at UI and persistence boundaries.
 @MainActor
 final class AppState: ObservableObject {
     @Published var selectedSection: AppSection = .home
-    let persistenceConsent = PersistenceConsent()
-    @Published var settings: AppSettings = .default {
-        didSet {
-            persistenceConsent.update(enabled: settings.saveTranscriptsLocally)
-            if oldValue.saveTranscriptsLocally && !settings.saveTranscriptsLocally {
-                practiceController.revokePersistence()
-                recapTask?.cancel()
-                recapTask = nil
-                recapSessionID = nil
-                isGeneratingRecap = false
-            }
-        }
+    let persistenceConsent: PersistenceConsent
+    lazy var settingsState = AppComposition.makeSettingsState(app: self)
+    private var localModelsOwner: LocalModelsSetupViewModel?
+    private let localModelsSetupFactory: (@MainActor () -> LocalModelsSetupViewModel)?
+    var localModelsSetupState: LocalModelsSetupViewModel {
+        if let localModelsOwner { return localModelsOwner }
+        let owner = localModelsSetupFactory?() ?? AppComposition.makeLocalModelsSetupState()
+        owner.selectedQwenModelDidChange(to: selectedQwenModelName)
+        if isShuttingDown { owner.closeAdmission() }
+        localModelsOwner = owner
+        return owner
     }
-    @Published var documents: [DocumentRecord] = []
-    @Published var candidateProfiles: [CandidateProfile] = []
-    @Published var opportunityContexts: [OpportunityContext] = []
-    @Published var activeCandidateProfileID: String?
-    @Published var activeOpportunityContextID: String?
-    @Published var activeInterviewDomainID: InterviewDomainID = .general
-    @Published var activeContextSnapshot: InterviewContextSnapshot?
-    @Published var automaticContextBuildResult: InterviewContextBuildResult?
-    @Published var automaticContextReadiness: AutomaticContextReadiness = .noDocuments
-    @Published var contextConfigurationOrigin: ContextConfigurationOrigin?
-    @Published var sessions: [InterviewSession] = []
-    @Published var providerConfigurations: [LLMProviderConfiguration] = []
-    @Published var activeRealtimeProvider: LLMProviderConfiguration?
-    @Published var activeRecapProvider: LLMProviderConfiguration?
-    @Published var providerConnectionResults: [UUID: String] = [:]
-    @Published var selectedSessionID: String?
-    @Published var selectedSessionTranscript: [TranscriptSegment] = []
-    @Published var selectedSessionSuggestions: [SuggestionCard] = []
-    @Published var selectedSessionRecap: RecapReport?
-    @Published var hasCV = false
-    @Published var hasJD = false
-    @Published var hasAPIKey = false
-    @Published var liveState: LiveInterviewState = .idle {
-        didSet { updateDiagnostics { $0.liveState = liveState } }
+    var settings: AppSettings {
+        get { settingsState.settings }
+        set { settingsState.settings = newValue }
     }
-    @Published var currentSession: InterviewSession?
-    @Published var transcriptSegments: [TranscriptSegment] = []
-    @Published var currentSuggestion: SuggestionCard?
-    @Published var liveSuggestionHistory: [SuggestionCard] = []
-    @Published var lastDetectedQuestion: DetectedQuestion?
-    @Published var possibleQuestion: DetectedQuestion?
-    @Published var lastTranscriptSnippet: String = ""
-    @Published var rawTranscriptText: String = ""
-    @Published var partialTranscriptText: String = ""
-    @Published var finalTranscriptText: String = ""
-    @Published var displayTranscriptText: String = ""
-    @Published var lastAcceptedQuestionText: String = ""
+    lazy var documentsState = AppComposition.makeDocumentsState(app: self)
+    var documents: [DocumentRecord] { documentsState.documents }
+    lazy var interviewContextState = AppComposition.makeInterviewContextState(app: self)
+    var candidateProfiles: [CandidateProfile] {
+        get { interviewContextState.candidateProfiles }
+        set { interviewContextState.candidateProfiles = newValue }
+    }
+    var opportunityContexts: [OpportunityContext] {
+        get { interviewContextState.opportunityContexts }
+        set { interviewContextState.opportunityContexts = newValue }
+    }
+    var activeCandidateProfileID: String? {
+        get { interviewContextState.activeCandidateProfileID }
+        set { interviewContextState.activeCandidateProfileID = newValue }
+    }
+    var activeOpportunityContextID: String? {
+        get { interviewContextState.activeOpportunityContextID }
+        set { interviewContextState.activeOpportunityContextID = newValue }
+    }
+    var activeInterviewDomainID: InterviewDomainID {
+        get { interviewContextState.activeInterviewDomainID }
+        set { interviewContextState.activeInterviewDomainID = newValue }
+    }
+    var activeContextSnapshot: InterviewContextSnapshot? {
+        get { interviewContextState.activeContextSnapshot }
+        set { interviewContextState.activeContextSnapshot = newValue }
+    }
+    var automaticContextBuildResult: InterviewContextBuildResult? {
+        get { interviewContextState.automaticContextBuildResult }
+        set { interviewContextState.automaticContextBuildResult = newValue }
+    }
+    var automaticContextReadiness: AutomaticContextReadiness {
+        get { interviewContextState.automaticContextReadiness }
+        set { interviewContextState.automaticContextReadiness = newValue }
+    }
+    var contextConfigurationOrigin: ContextConfigurationOrigin? {
+        get { interviewContextState.contextConfigurationOrigin }
+        set { interviewContextState.contextConfigurationOrigin = newValue }
+    }
+    let historyState: HistoryState
+    var sessions: [InterviewSession] {
+        get { historyState.sessions }
+        set { historyState.sessions = newValue }
+    }
+    var providerConfigurations: [LLMProviderConfiguration] {
+        get { settingsState.providerConfigurations }
+        set { settingsState.providerConfigurations = newValue }
+    }
+    var activeRealtimeProvider: LLMProviderConfiguration? {
+        get { settingsState.activeRealtimeProvider }
+        set { settingsState.activeRealtimeProvider = newValue }
+    }
+    var activeRecapProvider: LLMProviderConfiguration? {
+        get { settingsState.activeRecapProvider }
+        set { settingsState.activeRecapProvider = newValue }
+    }
+    var providerConnectionResults: [UUID: String] { settingsState.providerConnectionResults }
+    var selectedSessionID: String? {
+        get { historyState.selectedSessionID }
+        set { historyState.selectedSessionID = newValue }
+    }
+    var selectedSessionTranscript: [TranscriptSegment] {
+        get { historyState.selectedSessionTranscript }
+        set { historyState.selectedSessionTranscript = newValue }
+    }
+    var selectedSessionSuggestions: [SuggestionCard] {
+        get { historyState.selectedSessionSuggestions }
+        set { historyState.selectedSessionSuggestions = newValue }
+    }
+    var selectedSessionRecap: RecapReport? {
+        get { historyState.selectedSessionRecap }
+        set { historyState.selectedSessionRecap = newValue }
+    }
+    var hasCV: Bool { documentsState.hasCV }
+    var hasJD: Bool { documentsState.hasJD }
+    var hasAPIKey: Bool { settingsState.hasAPIKey }
+    let liveInterview = LiveInterviewFeature()
+    var liveState: LiveInterviewState {
+        get { liveInterview.liveState }
+        set { liveInterview.liveState = newValue }
+    }
+    var currentSession: InterviewSession? {
+        get { liveInterview.currentSession }
+        set { liveInterview.currentSession = newValue }
+    }
+    var transcriptSegments: [TranscriptSegment] {
+        get { liveInterview.transcriptSegments }
+        set { liveInterview.transcriptSegments = newValue }
+    }
+    var currentSuggestion: SuggestionCard? {
+        get { liveInterview.currentSuggestion }
+        set { liveInterview.currentSuggestion = newValue }
+    }
+    var liveSuggestionHistory: [SuggestionCard] {
+        get { liveInterview.liveSuggestionHistory }
+        set { liveInterview.liveSuggestionHistory = newValue }
+    }
+    var lastDetectedQuestion: DetectedQuestion? {
+        get { liveInterview.lastDetectedQuestion }
+        set { liveInterview.lastDetectedQuestion = newValue }
+    }
+    var possibleQuestion: DetectedQuestion? {
+        get { liveInterview.possibleQuestion }
+        set { liveInterview.possibleQuestion = newValue }
+    }
+    var lastTranscriptSnippet: String {
+        get { liveInterview.lastTranscriptSnippet }
+        set { liveInterview.lastTranscriptSnippet = newValue }
+    }
+    var rawTranscriptText: String {
+        get { liveInterview.rawTranscriptText }
+        set { liveInterview.rawTranscriptText = newValue }
+    }
+    var partialTranscriptText: String {
+        get { liveInterview.partialTranscriptText }
+        set { liveInterview.partialTranscriptText = newValue }
+    }
+    var finalTranscriptText: String {
+        get { liveInterview.finalTranscriptText }
+        set { liveInterview.finalTranscriptText = newValue }
+    }
+    var displayTranscriptText: String {
+        get { liveInterview.displayTranscriptText }
+        set { liveInterview.displayTranscriptText = newValue }
+    }
+    var lastAcceptedQuestionText: String {
+        get { liveInterview.lastAcceptedQuestionText }
+        set { liveInterview.lastAcceptedQuestionText = newValue }
+    }
     // Audio-buffer callbacks update this diagnostic on every PCM buffer. Keep
     // the counter in memory without invalidating every AppState-observing view.
-    var transcriptRuntimeDiagnostics: TranscriptRuntimeDiagnostics = .empty
-    @Published var recentTranscriptRuntimeEvents: [TranscriptRuntimeEventRecord] = []
-    var runtimeTranscriptTraceLogURL: URL = AppPaths.runtimeTranscriptTraceURL
-    var persistedHighFrequencyRuntimeEventAt: [String: Date] = [:]
+    let diagnosticsState: DiagnosticsState
+    var transcriptRuntimeDiagnostics: TranscriptRuntimeDiagnostics {
+        get { diagnosticsState.runtime }
+        set { diagnosticsState.runtime = newValue }
+    }
+    var recentTranscriptRuntimeEvents: [TranscriptRuntimeEventRecord] { diagnosticsState.recentEvents }
+    var runtimeTranscriptTraceLogURL: URL {
+        get { diagnosticsState.traceLogURL }
+        set { diagnosticsState.traceLogURL = newValue }
+    }
     @Published var isFloatingAssistantVisible = false
     @Published var errorMessage: String?
-    @Published var activeActionFeedbacks: [ActionFeedback] = []
-    @Published var actionLoadingStates: [String: Bool] = [:]
+    private let activeActionFeedbacksSource = CurrentValueSubject<[ActionFeedback], Never>([])
+    var activeActionFeedbacks: [ActionFeedback] {
+        get { activeActionFeedbacksSource.value }
+        set { activeActionFeedbacksSource.send(newValue); objectWillChange.send() }
+    }
+    var activeActionFeedbacksUpdates: AnyPublisher<[ActionFeedback], Never> {
+        activeActionFeedbacksSource.eraseToAnyPublisher()
+    }
+    private let actionLoadingStatesSource = CurrentValueSubject<[String: Bool], Never>([:])
+    var actionLoadingStates: [String: Bool] {
+        get { actionLoadingStatesSource.value }
+        set { actionLoadingStatesSource.send(newValue); objectWillChange.send() }
+    }
+    var actionLoadingStatesUpdates: AnyPublisher<[String: Bool], Never> {
+        actionLoadingStatesSource.eraseToAnyPublisher()
+    }
     
     @Published var lastQuestionDetectionProvider: String? = nil
     @Published var lastQuestionDetectionModel: String? = nil
     @Published var lastSuggestionGenerationProvider: String? = nil
     @Published var lastSuggestionGenerationModel: String? = nil
-    @Published var lastProviderSwitchTimestamp: Date? = nil
-    @Published var lastProviderSwitchError: String? = nil
+    var lastProviderSwitchTimestamp: Date? { settingsState.lastProviderSwitchTimestamp }
+    var lastProviderSwitchError: String? { settingsState.lastProviderSwitchError }
     @Published var cloudWarningAcceptedThisSession: Bool = false
     
-    public enum FailedAITaskType: String, Codable {
-        case questionDetection
-        case suggestionGeneration
-    }
-    @Published public var lastFailedTaskType: FailedAITaskType? = nil
-    @Published public var lastFailedQuestion: DetectedQuestion? = nil
-    @Published public var lastFailedTranscriptContext: String = ""
-    @Published public var lastFailedCVJDContext: RetrievedContext? = nil
-    @Published public var lastFailedProviderConfig: LLMProviderConfiguration? = nil
 
-    @Published var connectionResult: String?
-    @Published var isTestingConnection = false
-    @Published var isGeneratingRecap = false
-    @Published var permissionSnapshot = PermissionSnapshot(
-        microphone: .unknown,
-        speechRecognition: .unknown,
-        screenRecording: .unknown,
-        systemAudioCapture: .notDetermined
-    )
-    @Published var microphonePermissionState: MicrophonePermissionState = .unknown
-    @Published public var systemAudioPermissionState: ScreenSystemAudioPermissionState = .permissionMissing
-    @Published public var systemAudioProbeResult: ScreenSystemAudioPermissionProbeResult? = nil
-    @Published var diagnostics = DeveloperDiagnostics.empty
-    @Published var lastRetrievalTrace: RetrievalTrace?
-    @Published var currentSuggestionRetrievedChunks: [RetrievedChunk] = []
+    var connectionResult: String? {
+        get { settingsState.connectionResult }
+        set { settingsState.setConnectionResult(newValue) }
+    }
+    var isTestingConnection: Bool { settingsState.isTestingConnection }
+    var isGeneratingRecap: Bool { historyState.isGeneratingRecap }
+    let systemAudioPermissions: SystemAudioPermissionController
+    var permissionSnapshot: PermissionSnapshot { systemAudioPermissions.permissionSnapshot }
+    var microphonePermissionState: MicrophonePermissionState { systemAudioPermissions.microphonePermissionState }
+    public var systemAudioPermissionState: ScreenSystemAudioPermissionState { systemAudioPermissions.systemAudioPermissionState }
+    public var systemAudioProbeResult: ScreenSystemAudioPermissionProbeResult? { systemAudioPermissions.probeResult }
+    var diagnostics: DeveloperDiagnostics {
+        get { diagnosticsState.developer }
+        set { diagnosticsState.developer = newValue }
+    }
+    var lastRetrievalTrace: RetrievalTrace? {
+        get { diagnosticsState.developer.lastRetrievalTrace }
+        set { diagnosticsState.setRetrievalTrace(newValue) }
+    }
+    var currentSuggestionRetrievedChunks: [RetrievedChunk] {
+        get { liveInterview.currentSuggestionRetrievedChunks }
+        set { liveInterview.currentSuggestionRetrievedChunks = newValue }
+    }
     @Published var latexPollutedChunkCount: Int = 0
     @Published var buildIdentity = BuildIdentity.current()
 
@@ -156,16 +268,29 @@ final class AppState: ObservableObject {
     }
     
     // RAG Phase 3 Embedding properties
-    @Published var embeddingCoverage: EmbeddingCoverage? = nil
-    @Published var rebuildProgress: Double = 0.0
-    @Published var isRebuildingEmbeddings: Bool = false
-    @Published var lastEmbeddingTestStatus: String = "Not tested"
-    @Published var lastEmbeddingError: String?
+    var embeddingCoverage: EmbeddingCoverage? { documentsState.embeddings.coverage }
+    var rebuildProgress: Double { documentsState.embeddings.progress }
+    var isRebuildingEmbeddings: Bool { documentsState.embeddings.isRebuilding }
+    var lastEmbeddingTestStatus: String {
+        get { settingsState.lastEmbeddingTestStatus }
+        set { settingsState.setEmbeddingTestStatus(newValue) }
+    }
+    var lastEmbeddingError: String? {
+        get { settingsState.lastEmbeddingError }
+        set { settingsState.setEmbeddingError(newValue) }
+    }
     // internal for AppState extension access only
-    var activeEmbeddingRebuildTask: Task<Void, Never>? = nil
+    var activeEmbeddingRebuildTask: Task<Void, Never>? { documentsState.embeddings.rebuildTask }
+    let embeddingProviderResolverOverride: ((AppSettings) -> (any EmbeddingProvider)?)?
     // internal for AppState extension access only
     var actionFeedbackDismissTasks: [String: Task<Void, Never>] = [:]
-    @Published var historicalSuggestionChunks: [String: [RetrievedChunk]] = [:]
+    // The action owner retains live launches separately from current roles.
+    // Replaced/cancelled workers retire themselves after their real exit.
+    var actionFeedbackDismissalTasksToDrain: [UUID: Task<Void, Never>] = [:]
+    var historicalSuggestionChunks: [String: [RetrievedChunk]] {
+        get { historyState.historicalSuggestionChunks }
+        set { historyState.historicalSuggestionChunks = newValue }
+    }
 
     // MARK: - Manual Capture Push-to-Ask state
     @Published public var hirevaMode: HirevaMode = .autoDetect {
@@ -175,24 +300,45 @@ final class AppState: ObservableObject {
             }
         }
     }
-    @Published public var manualCaptureState: ManualCaptureState = .idle
-    @Published public var manualCaptureTranscript: String = ""
-    @Published public var manualCaptureSuggestion: SuggestionCard? = nil
-    @Published public var manualCaptureDuration: Double = 0.0
-    @Published public var manualCaptureLevel: Double = 0.0
-    @Published public var manualCaptureError: String? = nil
-    @Published public var manualCaptureBufferCount: Int = 0
-    var manualCaptureRevision = 0
-    @Published public var manualCaptureLastBufferTimestamp: Date? = nil
-    @Published public var manualCaptureSource: String = ""
+    let manualCaptureCapabilities: ManualCaptureCapabilities
+    lazy var manualCaptureController: ManualCaptureController = {
+        let owner = AppComposition.makeManualCaptureController(app: self)
+        // Remaining global action/readiness policies use forwarding properties;
+        // Home, Manual workspace and floating card observe this owner directly.
+        owner.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        if isShuttingDown { owner.closeAdmission() }
+        return owner
+    }()
+    public var manualCaptureState: ManualCaptureState {
+        get { manualCaptureController.state }
+        set { manualCaptureController.state = newValue }
+    }
+    public var manualCaptureTranscript: String {
+        get { manualCaptureController.transcript }
+        set { manualCaptureController.transcript = newValue }
+    }
+    public var manualCaptureSuggestion: SuggestionCard? {
+        get { manualCaptureController.suggestion }
+        set { manualCaptureController.suggestion = newValue }
+    }
+    public var manualCaptureDuration: Double { manualCaptureController.duration }
+    public var manualCaptureLevel: Double { manualCaptureController.level }
+    public var manualCaptureError: String? { manualCaptureController.error }
+    public var manualCaptureBufferCount: Int { manualCaptureController.bufferCount }
+    var manualCaptureRevision: Int { manualCaptureController.revision }
+    public var manualCaptureLastBufferTimestamp: Date? { manualCaptureController.lastBufferTimestamp }
+    public var manualCaptureSource: String { manualCaptureController.source }
 
-    @Published var currentInputDeviceName: String = "Default Input"
+    // Route facts remain in the exact monitor; compatibility reads never mirror them.
+    var currentInputDeviceName: String { audioDeviceRouteMonitor?.currentInputDeviceName ?? "Default Input" }
     @Published var selectedMockSpeaker: SpeakerRole = .interviewer {
         didSet {
             mockTranscriptionService.selectedMockSpeaker = selectedMockSpeaker
         }
     }
-    @Published var isRecoveringAudioRoute: Bool = false
+    var isRecoveringAudioRoute: Bool { audioDeviceRouteMonitor?.isRecoveringAudioRoute ?? false }
     @Published var audioRouteError: String?
     var lastAudioBufferAt: Date?
     @Published var noAudioWarningVisible: Bool = false
@@ -217,41 +363,55 @@ final class AppState: ObservableObject {
     @Published public var ignoredSystemAudioAnswerLikeCount: Int = 0
     @Published public var detectedQuestionsInSessionCount: Int = 0
     @Published public var lastTranscriptQuestionGenerationTrace: TranscriptQuestionGenerationTrace = .empty
-    @Published public var interviewContextMode: InterviewContextMode = .general {
-        didSet { persistDialogueSetting(interviewContextMode.rawValue, key: DialogueSettingsStore.contextModeKey) }
+    var interviewContextMode: InterviewContextMode {
+        get { settingsState.interviewContextMode }
+        set { settingsState.interviewContextMode = newValue }
     }
-    @Published public var interviewSessionMode: InterviewSessionMode = .auto {
-        didSet { interviewSessionModeSelectionDidChange(from: oldValue) }
+    var interviewSessionMode: InterviewSessionMode {
+        get { settingsState.interviewSessionMode }
+        set { settingsState.interviewSessionMode = newValue }
     }
-    @Published public var resolvedInterviewSessionPhase: DialogueSessionPhase = .auto
+    public var resolvedInterviewSessionPhase: DialogueSessionPhase {
+        get { liveInterview.resolvedInterviewSessionPhase }
+        set { liveInterview.resolvedInterviewSessionPhase = newValue }
+    }
     @Published public var interviewListeningMode: InterviewListeningMode = .panelQuestionsOnly
-    @Published public var candidatePresentationMode: CandidateSpeechMode = .suppressAnswers {
-        didSet {
-            persistDialogueSetting(
-                candidatePresentationMode == .suppressAnswers,
-                key: DialogueSettingsStore.suppressPresentationKey
-            )
-        }
+    var candidatePresentationMode: CandidateSpeechMode {
+        get { settingsState.candidatePresentationMode }
+        set { settingsState.candidatePresentationMode = newValue }
     }
-    @Published public var candidateAsksPanelMode: CandidateSpeechMode = .suppressAnswers {
-        didSet {
-            persistDialogueSetting(
-                candidateAsksPanelMode == .suppressAnswers,
-                key: DialogueSettingsStore.suppressCandidateQuestionsKey
-            )
-        }
+    var candidateAsksPanelMode: CandidateSpeechMode {
+        get { settingsState.candidateAsksPanelMode }
+        set { settingsState.candidateAsksPanelMode = newValue }
     }
-    @Published public var answerPanelQuestionsEnabled: Bool = true {
-        didSet { persistDialogueSetting(answerPanelQuestionsEnabled, key: DialogueSettingsStore.answerPanelQuestionsKey) }
+    var answerPanelQuestionsEnabled: Bool {
+        get { settingsState.answerPanelQuestionsEnabled }
+        set { settingsState.answerPanelQuestionsEnabled = newValue }
     }
-    @Published public var interviewPhase: InterviewPhase = .unknown {
-        didSet { applyLegacyInterviewPhaseBridge(interviewPhase) }
+    public var interviewPhase: InterviewPhase {
+        get { liveInterview.interviewPhase }
+        set { liveInterview.interviewPhase = newValue }
     }
-    @Published public var detectedDialogueSpeakerRole: DialogueTurnRole = .ambiguous
-    @Published public var detectedDialogueTurnType: DialogueTurnType = .unknown
-    @Published public var lastDialogueSourceChannel: String = ""
-    @Published public var lastModeTransition: String = ""
-    @Published public var lastModeTransitionReason: String = ""
+    public var detectedDialogueSpeakerRole: DialogueTurnRole {
+        get { liveInterview.detectedDialogueSpeakerRole }
+        set { liveInterview.detectedDialogueSpeakerRole = newValue }
+    }
+    public var detectedDialogueTurnType: DialogueTurnType {
+        get { liveInterview.detectedDialogueTurnType }
+        set { liveInterview.detectedDialogueTurnType = newValue }
+    }
+    public var lastDialogueSourceChannel: String {
+        get { liveInterview.lastDialogueSourceChannel }
+        set { liveInterview.lastDialogueSourceChannel = newValue }
+    }
+    public var lastModeTransition: String {
+        get { liveInterview.lastModeTransition }
+        set { liveInterview.lastModeTransition = newValue }
+    }
+    public var lastModeTransitionReason: String {
+        get { liveInterview.lastModeTransitionReason }
+        set { liveInterview.lastModeTransitionReason = newValue }
+    }
     @Published public var lastSpeakerRole: String = SpeakerRole.unknown.rawValue
     @Published public var lastTriggerDecision: String = ""
     @Published public var lastTriggerReason: String = ""
@@ -260,14 +420,23 @@ final class AppState: ObservableObject {
 
     // --- System Audio ASR Diagnostics ---
     @Published public var systemASRTaskRunning: Bool = false
-    public var totalSystemAudioASRBuffersAppended: Int = 0
+    public var totalSystemAudioASRBuffersAppended: Int { diagnosticsState.systemAudioASRBufferCount }
     @Published public var lastSystemAudioASRPartialTranscript: String = ""
     @Published public var lastSystemAudioASRFinalTranscript: String = ""
     @Published public var lastSystemTranscript: String = ""
     @Published public var recognitionRequestActive: Bool = false
     @Published public var recognitionTaskActive: Bool = false
     // internal for AppState extension access only
-    var partialUtteranceFinalizationTasks: [String: Task<Void, Never>] = [:]
+    var partialUtteranceFinalizationTasks: [String: Task<Void, Never>] {
+        liveInterview.partialUtteranceFinalizationTasks
+    }
+#if DEBUG
+    // Nil in ordinary debug runs, absent in release. Freeze per submission.
+    var partialFinalizationDelayForTesting: (@MainActor (UInt64) async throws -> Void)?
+    var partialFinalizationBeforeSnapshotForTesting: (@MainActor (String) async -> Void)?
+    // Observes each original ancillary handle immediately before the real join.
+    var ancillaryTaskWillAwaitForTesting: (@MainActor (Task<Void, Never>) -> Void)?
+#endif
     var partialStabilityWindowMS: Int = 1_200
     var minimumQuestionTokenCount: Int = 4
     var maxUtteranceGapMS: Int = 2_500
@@ -287,8 +456,18 @@ final class AppState: ObservableObject {
     }
     var isAudioEngineRunning: Bool { AudioEngineManager.shared.isEngineRunning }
     var isMicPipelineActive: Bool { appleSpeechService?.microphoneSession != nil }
-    var isMicASRTaskActive: Bool { appleSpeechService?.microphoneSession?.isRecognitionActive == true }
-    var isSystemAudioASRActive: Bool { appleSpeechService?.systemAudioSession?.isRecognitionActive == true }
+    var isMicASRTaskActive: Bool {
+        if let local = activeASRProviderRuntime as? LocalParakeetASRProvider {
+            return local.isTranscriptionActive(source: .microphone, sessionID: currentSession?.id)
+        }
+        return appleSpeechService?.microphoneSession?.isRecognitionActive == true
+    }
+    var isSystemAudioASRActive: Bool {
+        if let local = activeASRProviderRuntime as? LocalParakeetASRProvider {
+            return local.isTranscriptionActive(source: .systemAudio, sessionID: currentSession?.id)
+        }
+        return appleSpeechService?.systemAudioSession?.isRecognitionActive == true
+    }
 
     // --- Dual Stream Diagnostics ---
     var micCaptureRunning: Bool {
@@ -301,7 +480,10 @@ final class AppState: ObservableObject {
     var micASRTaskActive: Bool { isMicASRTaskActive }
     var micLastPartialTranscript: String { appleSpeechService?.microphoneSession?.partialTranscriptBuffer ?? "" }
     var micLastFinalTranscript: Date? { appleSpeechService?.microphoneSession?.lastFinalTranscriptTimestamp }
-    var micLastError: String? { appleSpeechService?.microphoneSession?.lastError?.localizedDescription }
+    var micLastError: String? {
+        (activeASRProviderRuntime as? LocalParakeetASRProvider)?.captureSourceFailures[.microphone]?.localizedDescription
+            ?? appleSpeechService?.microphoneSession?.lastError?.localizedDescription
+    }
     var micSessionID: String { appleSpeechService?.microphoneSession?.sessionID.source.rawValue ?? "None" }
     
     // ASR quality diagnostics for Microphone
@@ -311,30 +493,32 @@ final class AppState: ObservableObject {
     var micFinalizationReason: String { appleSpeechService?.microphoneSession?.finalizationReason ?? "" }
 
     // --- Capture Runtime State Lifecycle ---
-    @Published public var currentCaptureRuntimeState: CaptureRuntimeState = .idle
-    @Published public var stopReason: StopReason? = nil
-    @Published public var lastCaptureStartedAt: Date? = nil
-    @Published public var lastCaptureStoppedAt: Date? = nil
+    public var currentCaptureRuntimeState: CaptureRuntimeState {
+        get { liveInterview.currentCaptureRuntimeState }
+        set { liveInterview.currentCaptureRuntimeState = newValue }
+    }
+    public var stopReason: StopReason? {
+        get { liveInterview.stopReason }
+        set { liveInterview.stopReason = newValue }
+    }
+    public var lastCaptureStartedAt: Date? {
+        get { liveInterview.lastCaptureStartedAt }
+        set { liveInterview.lastCaptureStartedAt = newValue }
+    }
+    public var lastCaptureStoppedAt: Date? {
+        get { liveInterview.lastCaptureStoppedAt }
+        set { liveInterview.lastCaptureStoppedAt = newValue }
+    }
     
     public var lastSystemAudioBufferAt: Date? { systemAudioCaptureService.lastBufferReceivedAt }
     public var lastSystemAudioError: String? { systemAudioCaptureService.lastError }
     
-    public struct CaptureEvent: Identifiable, Codable, Hashable {
-        public let id: String
-        public let timestamp: Date
-        public let eventName: String
-        public let stateBefore: String
-        public let stateAfter: String
-        public let reason: String
-        public let file: String
-        public let function: String
-        public let line: Int
-        public let systemCaptureRunning: Bool
-        public let micCaptureRunning: Bool
-        public let lastSystemAudioBufferAt: Date?
+    public typealias CaptureEvent = LiveCaptureEvent
+
+    public var recent20CaptureEvents: [CaptureEvent] {
+        get { liveInterview.recent20CaptureEvents }
+        set { liveInterview.recent20CaptureEvents = newValue }
     }
-    
-    @Published public var recent20CaptureEvents: [CaptureEvent] = []
     
     public var systemRecentBufferAlive: Bool {
         guard let last = lastSystemAudioBufferAt else { return false }
@@ -349,7 +533,7 @@ final class AppState: ObservableObject {
     public var anyCaptureRunning: Bool { systemCaptureRunning || micCaptureRunning }
     
     public var canStopCapture: Bool {
-        anyCaptureRunning || currentCaptureRuntimeState == .starting || currentCaptureRuntimeState == .listening || currentCaptureRuntimeState == .generating
+        captureLifecycle.hasFailedTeardown || anyCaptureRunning || currentCaptureRuntimeState == .starting || currentCaptureRuntimeState == .listening || currentCaptureRuntimeState == .generating
     }
 
     public var systemCaptureRunning: Bool { systemAudioCaptureService.isCapturing }
@@ -357,7 +541,12 @@ final class AppState: ObservableObject {
     var systemLastBufferTimestamp: Date? { appleSpeechService?.systemAudioSession?.lastBufferReceivedAt }
     var systemLevelDBFS: Double { systemAudioCaptureService.decibels }
     var systemASRRequestActive: Bool { appleSpeechService?.systemAudioSession?.request != nil }
-    var systemASRTaskActive: Bool { appleSpeechService?.systemAudioSession?.recognitionTask != nil }
+    var systemASRTaskActive: Bool {
+        if let local = activeASRProviderRuntime as? LocalParakeetASRProvider {
+            return local.isTranscriptionActive(source: .systemAudio, sessionID: currentSession?.id)
+        }
+        return appleSpeechService?.systemAudioSession?.recognitionTask != nil
+    }
     var systemLastPartialTranscript: String { appleSpeechService?.systemAudioSession?.partialTranscriptBuffer ?? "" }
     var systemLastFinalTranscript: Date? { appleSpeechService?.systemAudioSession?.lastFinalTranscriptTimestamp }
     var systemLastError: String? { appleSpeechService?.systemAudioSession?.lastError?.localizedDescription }
@@ -380,21 +569,79 @@ final class AppState: ObservableObject {
     var twoSessionsActive: Bool {
         micASRTaskActive && isSystemAudioASRActive
     }
+    var audioStreamDiagnostics: [AudioStreamDiagnosticSnapshot] {
+        let provider = appleSpeechService != nil ? ASRProviderID.appleSpeech
+            : (activeASRProviderRuntime?.id ?? activeASRProviderID ?? selectedASRProviderID)
+        let requirements = ASRPermissionRequirements(provider: provider, captureMode: captureMode)
+        let speechPermissionFailure = requirements.speechRecognition && permissionSnapshot.speechRecognition != .granted
+            ? "Speech Recognition permission required for Apple Speech" : nil
+        let microphoneSession = appleSpeechService?.microphoneSession
+        let systemSession = appleSpeechService?.systemAudioSession
+        let parakeetActive = activeASRProviderRuntime?.id == .localParakeet
+
+        func currentEpochBuffer(_ timestamp: Date?) -> Date? {
+            guard let timestamp else { return nil }
+            guard let startedAt = lastCaptureStartedAt else { return timestamp }
+            return timestamp >= startedAt ? timestamp : nil
+        }
+        func hasTranscript(source: AudioSourceType) -> Bool {
+            guard let sessionID = currentSession?.id else { return false }
+            return transcriptSegments.contains {
+                $0.sessionID == sessionID && $0.source == source && !$0.text.isEmpty
+            }
+        }
+        // The global capture error may have come from another source. Retain a
+        // startup error only when no source-specific error explains it.
+        let startupState: CaptureRuntimeState = {
+            if case .error = currentCaptureRuntimeState,
+               lastSystemAudioError != nil || micLastError != nil {
+                return .idle
+            }
+            return currentCaptureRuntimeState
+        }()
+
+        return [
+            AudioStreamDiagnosticSnapshot(
+                source: .microphone,
+                selected: microphoneRequired,
+                permissionFailure: microphonePermissionState == .authorized
+                    ? speechPermissionFailure : "Permission denied",
+                runtimeState: startupState,
+                captureRunning: micCaptureRunning || (parakeetActive && isAudioEngineRunning),
+                lastCapturedBufferAt: currentEpochBuffer(microphoneSession?.lastBufferReceivedAt
+                    ?? (parakeetActive ? AudioEngineManager.shared.lastAudioBufferAt : nil)),
+                asrBufferCount: microphoneSession?.totalBuffersAppended,
+                recognitionActive: microphoneSession?.isRecognitionActive,
+                hasTranscript: !(microphoneSession?.partialTranscriptBuffer ?? "").isEmpty
+                    || microphoneSession?.lastFinalTranscriptTimestamp != nil
+                    || hasTranscript(source: .microphone),
+                sourceError: micLastError
+            ),
+            AudioStreamDiagnosticSnapshot(
+                source: .systemAudio,
+                selected: systemAudioRequired,
+                permissionFailure: systemAudioPermissionState == .granted
+                    ? speechPermissionFailure : "Permission denied",
+                runtimeState: startupState,
+                captureRunning: systemCaptureRunning,
+                lastCapturedBufferAt: currentEpochBuffer(lastSystemAudioBufferAt
+                    ?? systemSession?.lastBufferReceivedAt),
+                asrBufferCount: systemSession?.totalBuffersAppended,
+                recognitionActive: systemSession?.isRecognitionActive,
+                hasTranscript: !(systemSession?.partialTranscriptBuffer ?? "").isEmpty
+                    || systemSession?.lastFinalTranscriptTimestamp != nil
+                    || hasTranscript(source: .systemAudio),
+                sourceError: lastSystemAudioError ?? systemLastError
+            )
+        ]
+    }
+
     var streamNotRunningReason: String? {
-        let captureMode = settings.audioCaptureMode
-        if captureMode == .microphoneOnly && systemAudioRequired {
-            return "System audio not running: Capture Mode is Microphone Only"
-        }
-        if captureMode == .systemAudioOnly && microphoneRequired {
-            return "Microphone not running: Capture Mode is System Audio Only"
-        }
-        if microphoneRequired && microphonePermissionState != .authorized {
-            return "Microphone not running: Permission denied"
-        }
-        if systemAudioRequired && systemAudioPermissionState != .granted {
-            return "System audio not running: Permission denied"
-        }
-        return nil
+        AudioStreamDiagnosticSnapshot.streamNotRunningReason(audioStreamDiagnostics)
+    }
+
+    var parakeetAudioWriterSnapshot: ParakeetAudioWriterDiagnostics? {
+        (activeASRProviderRuntime as? LocalParakeetASRProvider)?.audioWriterSnapshot
     }
 
 
@@ -429,18 +676,39 @@ final class AppState: ObservableObject {
     @Published public var lastDetectionAnswerStrategy: String = ""
 
     // --- Suggestion Diagnostics ---
-    @Published public var suggestionGenerationStarted: Bool = false
+    public var suggestionGenerationStarted: Bool {
+        get { liveInterview.suggestionGenerationStarted }
+        set { liveInterview.suggestionGenerationStarted = newValue }
+    }
     @Published public var suggestionProviderModel: String = ""
     @Published public var lastSuggestionCardJSON: String = ""
     @Published public var floatingPanelUpdated: Bool = false
-    @Published public var generationUIState: GenerationUIState = .idle
-    @Published public var currentGenerationTelemetry: GenerationTelemetry = .idle
+    public var generationUIState: GenerationUIState {
+        get { liveInterview.generationUIState }
+        set { liveInterview.generationUIState = newValue }
+    }
+    public var currentGenerationTelemetry: GenerationTelemetry {
+        get { liveInterview.currentGenerationTelemetry }
+        set { liveInterview.currentGenerationTelemetry = newValue }
+    }
+    public var generationTelemetryUpdates: AnyPublisher<GenerationTelemetry, Never> {
+        liveInterview.generationTelemetryUpdates
+    }
     // Heartbeat diagnostics update twice per second. They remain queryable by
     // Diagnostics without invalidating every AppState-observing product view.
     public var mainThreadHeartbeatAt: Date? = nil
     public var mainThreadHeartbeatDelayMs: Int = 0
-    @Published public var lastGenerationStateChangeAt: Date? = nil
-    @Published public var activeTaskSummary: String = "Idle"
+    public var lastGenerationStateChangeAt: Date? {
+        get { liveInterview.lastGenerationStateChangeAt }
+        set { liveInterview.lastGenerationStateChangeAt = newValue }
+    }
+    public var activeTaskSummary: String {
+        get { diagnosticsState.activeTaskSummary }
+        set { diagnosticsState.activeTaskSummary = newValue }
+    }
+    public var activeTaskSummaryUpdates: AnyPublisher<String, Never> {
+        diagnosticsState.activeTaskSummaryUpdates
+    }
     @Published public var lastLongOperationName: String = "None"
     @Published public var lastLongOperationStartedAt: Date? = nil
     @Published public var lastSQLiteOperation: String = "None"
@@ -456,55 +724,155 @@ final class AppState: ObservableObject {
     @Published public var asrBestSelectedMS: Int? = nil
     
     // Floating render timestamps (lightweight, no SwiftUI render measurement)
-    @Published public var firstVisibleStateSetAt: Date? = nil
-    @Published public var currentSuggestionSetAt: Date? = nil
-    @Published public var streamedSayFirstSetAt: Date? = nil
+    private let firstVisibleStateSetAtSource = CurrentValueSubject<Date?, Never>(nil)
+    public var firstVisibleStateSetAt: Date? {
+        get { firstVisibleStateSetAtSource.value }
+        set { firstVisibleStateSetAtSource.send(newValue); objectWillChange.send() }
+    }
+    public var firstVisibleStateSetAtUpdates: AnyPublisher<Date?, Never> {
+        firstVisibleStateSetAtSource.eraseToAnyPublisher()
+    }
+    public var currentSuggestionSetAt: Date? {
+        get { liveInterview.currentSuggestionSetAt }
+        set { liveInterview.currentSuggestionSetAt = newValue }
+    }
+    public var currentSuggestionSetAtUpdates: AnyPublisher<Date?, Never> {
+        liveInterview.currentSuggestionSetAtUpdates
+    }
+    private let streamedSayFirstSetAtSource = CurrentValueSubject<Date?, Never>(nil)
+    public var streamedSayFirstSetAt: Date? {
+        get { streamedSayFirstSetAtSource.value }
+        set { streamedSayFirstSetAtSource.send(newValue); objectWillChange.send() }
+    }
+    public var streamedSayFirstSetAtUpdates: AnyPublisher<Date?, Never> {
+        streamedSayFirstSetAtSource.eraseToAnyPublisher()
+    }
 
     // Historical latency averages (cached, refreshed after each suggestion)
-    @Published public var latencyAveragesOverall: LatencyAverages = .empty
-    @Published public var latencyAveragesDeepSeek: LatencyAverages = .empty
+    var latencyQueryOverride: DiagnosticsState.LatencyQuery? {
+        get { diagnosticsState.latencyQueryOverride }
+        set { diagnosticsState.latencyQueryOverride = newValue }
+    }
+    public var latencyAveragesOverall: LatencyAverages { diagnosticsState.latencyAveragesOverall }
+    public var latencyAveragesDeepSeek: LatencyAverages { diagnosticsState.latencyAveragesDeepSeek }
 
 
     // --- Streaming & Provenance ---
-    @Published public var isStreamingSayFirst: Bool = false
-    @Published public var streamedSayFirst: String = ""
-    @Published public var isExpandingSuggestionCard: Bool = false
+    public var isStreamingSayFirst: Bool {
+        get { liveInterview.isStreamingSayFirst }
+        set { liveInterview.isStreamingSayFirst = newValue }
+    }
+    public var streamedSayFirst: String {
+        get { liveInterview.streamedSayFirst }
+        set { liveInterview.streamedSayFirst = newValue }
+    }
+    public var isExpandingSuggestionCard: Bool {
+        get { liveInterview.isExpandingSuggestionCard }
+        set { liveInterview.isExpandingSuggestionCard = newValue }
+    }
     
     @Published public var streamRequestStartAt: Date? = nil
-    @Published public var streamFirstTokenAt: Date? = nil
-    @Published public var streamFirstVisibleTextAt: Date? = nil
-    @Published public var streamFirstSentenceAt: Date? = nil
-    @Published public var streamFullResponseAt: Date? = nil
+    private let streamFirstTokenAtSource = CurrentValueSubject<Date?, Never>(nil)
+    public var streamFirstTokenAt: Date? {
+        get { streamFirstTokenAtSource.value }
+        set { streamFirstTokenAtSource.send(newValue); objectWillChange.send() }
+    }
+    public var streamFirstTokenAtUpdates: AnyPublisher<Date?, Never> {
+        streamFirstTokenAtSource.eraseToAnyPublisher()
+    }
+    private let streamFirstVisibleTextAtSource = CurrentValueSubject<Date?, Never>(nil)
+    public var streamFirstVisibleTextAt: Date? {
+        get { streamFirstVisibleTextAtSource.value }
+        set { streamFirstVisibleTextAtSource.send(newValue); objectWillChange.send() }
+    }
+    public var streamFirstVisibleTextAtUpdates: AnyPublisher<Date?, Never> {
+        streamFirstVisibleTextAtSource.eraseToAnyPublisher()
+    }
+    private let streamFirstSentenceAtSource = CurrentValueSubject<Date?, Never>(nil)
+    public var streamFirstSentenceAt: Date? {
+        get { streamFirstSentenceAtSource.value }
+        set { streamFirstSentenceAtSource.send(newValue); objectWillChange.send() }
+    }
+    public var streamFirstSentenceAtUpdates: AnyPublisher<Date?, Never> {
+        streamFirstSentenceAtSource.eraseToAnyPublisher()
+    }
+    private let streamFullResponseAtSource = CurrentValueSubject<Date?, Never>(nil)
+    public var streamFullResponseAt: Date? {
+        get { streamFullResponseAtSource.value }
+        set { streamFullResponseAtSource.send(newValue); objectWillChange.send() }
+    }
+    public var streamFullResponseAtUpdates: AnyPublisher<Date?, Never> {
+        streamFullResponseAtSource.eraseToAnyPublisher()
+    }
     @Published public var streamJSONParsedAt: Date? = nil
     @Published public var streamPersistedAt: Date? = nil
     
     // Delay Provider for mock time unit testing
     public var delayProvider: DelayProvider = RealDelayProvider()
+    // Provider deadlines and the full-card watchdog share a clock separate
+    // from debounce/fallback delays. Tests of answer content can hold this
+    // clock without changing product deadlines.
+    var generationWatchdogDelayProvider: any DelayProvider = RealDelayProvider()
     public var generationFullCardWatchdogNanoseconds: UInt64 = 8_000_000_000
     var stageATimeoutSeconds: TimeInterval = 6.0
     var lateDeepSeekReplacementWindowSeconds: TimeInterval = 6.0
 
     // Soft Fallback & Advanced Provenance
-    @Published public var softFallbackUsed: Bool = false
-    @Published public var softFallbackLatencyMS: Int? = nil
-    @Published public var softFallbackShownAt: Date? = nil
-    @Published public var deepseekFirstTokenMS: Int? = nil
-    @Published public var deepseekFirstVisibleMS: Int? = nil
-    @Published public var finalVisibleSource: String? = nil
+    public var softFallbackUsed: Bool {
+        get { liveInterview.softFallbackUsed }
+        set { liveInterview.softFallbackUsed = newValue }
+    }
+    public var softFallbackUsedUpdates: AnyPublisher<Bool, Never> {
+        liveInterview.softFallbackUsedUpdates
+    }
+    public var softFallbackLatencyMS: Int? {
+        get { liveInterview.softFallbackLatencyMS }
+        set { liveInterview.softFallbackLatencyMS = newValue }
+    }
+    public var softFallbackLatencyMSUpdates: AnyPublisher<Int?, Never> {
+        liveInterview.softFallbackLatencyMSUpdates
+    }
+    public var softFallbackShownAt: Date? {
+        get { liveInterview.softFallbackShownAt }
+        set { liveInterview.softFallbackShownAt = newValue }
+    }
+    public var softFallbackShownAtUpdates: AnyPublisher<Date?, Never> {
+        liveInterview.softFallbackShownAtUpdates
+    }
+    private let deepseekFirstTokenMSSource = CurrentValueSubject<Int?, Never>(nil)
+    public var deepseekFirstTokenMS: Int? {
+        get { deepseekFirstTokenMSSource.value }
+        set { deepseekFirstTokenMSSource.send(newValue); objectWillChange.send() }
+    }
+    public var deepseekFirstTokenMSUpdates: AnyPublisher<Int?, Never> {
+        deepseekFirstTokenMSSource.eraseToAnyPublisher()
+    }
+    private let deepseekFirstVisibleMSSource = CurrentValueSubject<Int?, Never>(nil)
+    public var deepseekFirstVisibleMS: Int? {
+        get { deepseekFirstVisibleMSSource.value }
+        set { deepseekFirstVisibleMSSource.send(newValue); objectWillChange.send() }
+    }
+    public var deepseekFirstVisibleMSUpdates: AnyPublisher<Int?, Never> {
+        deepseekFirstVisibleMSSource.eraseToAnyPublisher()
+    }
+    public var finalVisibleSource: String? {
+        get { liveInterview.finalVisibleSource }
+        set { liveInterview.finalVisibleSource = newValue }
+    }
+    public var finalVisibleSourceUpdates: AnyPublisher<String?, Never> {
+        liveInterview.finalVisibleSourceUpdates
+    }
     @Published public var lastRegenerateQuestionID: String? = nil
     @Published public var lastRegenerateSourceTextKind: String = ""
     @Published public var lastRegenerateOldGenerationID: String? = nil
     @Published public var lastRegenerateNewGenerationID: String? = nil
     @Published public var lastRegenerateRejectionReason: String = ""
-    @Published public var currentGenerationID: String? = nil
-    // internal for AppState extension access only
-    @Published public internal(set) var activeGenerationID: String? = nil
-    // internal for AppState extension access only
-    @Published public internal(set) var activeQuestionID: String? = nil
-    // internal for AppState extension access only
-    @Published public internal(set) var activeTriggerPath: GenerationTriggerPath? = nil
-    // internal for AppState extension access only
-    @Published public internal(set) var activeGenerationStartedAt: Date? = nil
+    // Read-only compatibility projections. The coordinator owns identity changes.
+    public var currentGenerationID: String? { generationCoordinator.activeGeneration?.generationID }
+    public var activeGenerationID: String? { currentGenerationID }
+    public var activeQuestionID: String? { generationCoordinator.activeGeneration?.questionID }
+    public var activeTriggerPath: GenerationTriggerPath? { generationCoordinator.activeGeneration?.triggerPath }
+    public var activeGenerationStartedAt: Date? { generationCoordinator.activeGeneration?.startedAt }
     // internal for AppState extension access only
     @Published public internal(set) var previousGenerationID: String? = nil
     // internal for AppState extension access only
@@ -552,119 +920,84 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     @Published public internal(set) var duplicateSuppressionCount: Int = 0
     // internal for AppState extension access only
-    @Published public internal(set) var fallbackWatchdogActive: Bool = false
+    public var fallbackWatchdogActive: Bool { generationCoordinator.fallbackWatchdogTask != nil }
+    // Current-generation registration is owned by the coordinator. A terminal
+    // UI or cancellation request does not certify task exit; retired cleanup
+    // is separately visible through the coordinator's pending-cleanup counts.
+    public var stageBTaskActive: Bool { generationCoordinator.stageBTask != nil }
     // internal for AppState extension access only
-    @Published public internal(set) var stageBTaskActive: Bool = false
-    // internal for AppState extension access only
-    @Published public internal(set) var providerStreamActive: Bool = false
+    public internal(set) var providerStreamActive: Bool {
+        get { liveInterview.providerStreamActive }
+        set { liveInterview.providerStreamActive = newValue }
+    }
+    public var providerStreamActiveUpdates: AnyPublisher<Bool, Never> {
+        liveInterview.providerStreamActiveUpdates
+    }
     @Published public var userInteractedWithCard: Bool = false
     
     // Keychain Diagnostics properties
-    @Published public var keychainServiceName: String = KeychainConstants.service
-    @Published public var keychainDeepSeekAccount: String = KeychainConstants.deepSeekAccount
-    @Published public var keychainDeepSeekKeyExists: Bool = false
-    @Published public var keychainDeepSeekKeyLengthCategory: String = "unknown"
-    @Published public var keychainMaskedKey: String = "None"
-    @Published public var keychainLastReadStatus: String = "Not Checked"
-    @Published public var keychainLastWriteStatus: String = "Not Checked"
-    @Published public var keychainMigrationPerformed: Bool = false
-    @Published public var keychainLegacyItemFound: Bool = false
-    @Published public var keychainLegacyItemCount: Int = 0
-    @Published public var keychainMismatchStatus: String = "No key found"
-    @Published public var keychainAuthorizationWarning: String? = nil
+    var keychainServiceName: String { settingsState.keychainServiceName }
+    var keychainDeepSeekAccount: String { settingsState.keychainDeepSeekAccount }
+    var keychainDeepSeekKeyExists: Bool {
+        get { settingsState.keychainDeepSeekKeyExists }
+        set { settingsState.keychainDeepSeekKeyExists = newValue }
+    }
+    var keychainDeepSeekKeyLengthCategory: String { settingsState.keychainDeepSeekKeyLengthCategory }
+    var keychainMaskedKey: String { settingsState.keychainMaskedKey }
+    var keychainLastReadStatus: String { settingsState.keychainLastReadStatus }
+    var keychainLastWriteStatus: String { settingsState.keychainLastWriteStatus }
+    var keychainMigrationPerformed: Bool { settingsState.keychainMigrationPerformed }
+    var keychainLegacyItemFound: Bool { settingsState.keychainLegacyItemFound }
+    var keychainLegacyItemCount: Int { settingsState.keychainLegacyItemCount }
+    var keychainMismatchStatus: String { settingsState.keychainMismatchStatus }
+    var keychainAuthorizationWarning: String? { settingsState.keychainAuthorizationWarning }
     
-    // Stage B lifecycle task reference for cost control / cancellation
-    // internal for AppState extension access only
-    var stageBTask: Task<Void, Never>? = nil
-    // internal for AppState extension access only
-    var softFallbackTask: Task<Void, Never>? = nil
-    // internal for AppState extension access only
-    var fullCardWatchdogTask: Task<Void, Never>? = nil
+    // Read-only task projections retained for diagnostics and existing test waits.
+    var stageBTask: Task<Void, Never>? { generationCoordinator.stageBTask }
+    var softFallbackTask: Task<Void, Never>? { generationCoordinator.fallbackWatchdogTask }
+    var fullCardWatchdogTask: Task<Void, Never>? { generationCoordinator.fullCardWatchdogTask }
     public var simulateSuggestionPersistenceFailure: Bool = false
     public var simulatedSuggestionPersistenceDelayNanoseconds: UInt64 = 0
 
-    // internal for AppState extension access only
-    /// Tracks the single generation attempt that is allowed to control the
-    /// current answer UI.
-    ///
-    /// When a newer interviewer question is accepted, all tasks in this
-    /// controller are cancelled and late callbacks must be treated as stale.
-    struct ActiveGenerationController {
-        var persistenceTicket: Int = -1
-        let identity: GenerationIdentity
-        let generationID: String
-        let questionID: String?
-        let questionTextSnapshot: String
-        let questionIntent: AnswerRelevanceIntent
-        let triggerPath: GenerationTriggerPath
-        let startedAt: Date
-        var stageATask: Task<String, Error>?
-        var stageATimeoutTask: Task<Void, Never>?
-        var stageBTask: Task<Void, Never>?
-        var fallbackWatchdogTask: Task<Void, Never>?
-        var fullCardWatchdogTask: Task<Void, Never>?
-
-        mutating func cancelAll() {
-            stageATask?.cancel()
-            stageATask = nil
-            stageATimeoutTask?.cancel()
-            stageATimeoutTask = nil
-            stageBTask?.cancel()
-            stageBTask = nil
-            fallbackWatchdogTask?.cancel()
-            fallbackWatchdogTask = nil
-            fullCardWatchdogTask?.cancel()
-            fullCardWatchdogTask = nil
-        }
-    }
-
-    // internal for AppState extension access only
-    var activeGenerationController: ActiveGenerationController?
+    typealias ActiveGenerationController = GenerationCoordinator.ActiveGeneration
+    var activeGenerationController: ActiveGenerationController? { generationCoordinator.activeGeneration }
     // internal for AppState extension access only
     var pendingIgnoredSystemAudioFallback: (questionID: String, reason: String)?
-    // internal for AppState extension access only
-    struct PendingAcceptedQuestion {
-        let question: DetectedQuestion
-        let session: InterviewSession
-        let transcript: String
-        let canonicalQuestion: String
-        let intent: AnswerRelevanceIntent
-        let promptPrimaryQuestion: String
-        let duplicateKey: String
-        let queuedAt: Date
+    // Existing mixed replay fixtures keep their type and write boundary; Live
+    // owns the only queue value and commits before notifying its observers.
+    typealias PendingAcceptedQuestion = LiveInterviewFeature.PendingAcceptedQuestion
+    var pendingAcceptedQuestions: [PendingAcceptedQuestion] {
+        get { liveInterview.pendingAcceptedQuestions }
+        set { liveInterview.replaceAcceptedQuestions(newValue) }
     }
     // internal for AppState extension access only
-    var pendingAcceptedQuestions: [PendingAcceptedQuestion] = []
+    var queuedQuestionHandoffTask: Task<Void, Never>? { generationCoordinator.queuedQuestionHandoffTask }
+#if DEBUG
+    var queuedQuestionHandoffDelayProviderForTesting: (any DelayProvider)?
+#endif
     // internal for AppState extension access only
-    var queuedQuestionHandoffTask: Task<Void, Never>?
-    // internal for AppState extension access only
-    var autoSuggestionLaunchPending: Bool = false
-    // internal for AppState extension access only
-    var autoSuggestionLaunchID: String?
+    var autoSuggestionLaunchPending: Bool { generationCoordinator.autoLaunchPending }
     // internal for AppState extension access only
     var mainThreadHeartbeatTask: Task<Void, Never>?
     // internal for AppState extension access only
     var lastHeartbeatTickAt: Date?
     
-    // Background RAG precompute cache and debounce
-    // internal for AppState extension access only
-    struct RAGPrecomputeCacheItem {
-        let context: RetrievedContext
-        let trace: RetrievalTrace
-        let rawText: String
-        let normalizedQuestionText: String
-        let questionIntent: AnswerRelevanceIntent
-    }
-    // internal for AppState extension access only
-    var precomputedRAGCache: [String: RAGPrecomputeCacheItem] = [:]
-    // internal for AppState extension access only
-    var precomputeDebounceTask: Task<Void, Never>? = nil
+    // Read-only compatibility; prefetch work and cache have one Live owner.
+    let liveRAGPrefetch = LiveRAGPrefetch()
+    var precomputeDebounceTask: Task<Void, Never>? { liveRAGPrefetch.currentTask }
+    var precomputedRAGCache: [String: LiveRAGPrefetch.CacheItem] { liveRAGPrefetch.cachedItems }
 
-    @Published var materialImportStatus = ""
-    var materialImportTask: Task<Void, Never>?
-    var materialImportID = UUID()
+    var materialImportStatus: String { documentsState.importStatus }
+    var materialImportTask: Task<Void, Never>? { documentsState.importTask }
+    var materialImportID: UUID { documentsState.importID }
+    typealias MaterialURLExtraction = DocumentsState.URLExtraction
+    typealias MaterialDataExtraction = DocumentsState.DataExtraction
+    let materialURLExtraction: MaterialURLExtraction
+    let materialDataExtraction: MaterialDataExtraction
+    var pendingMaterialImportTaskCount: Int { documentsState.pendingImportTaskCount }
 
-    lazy var practiceController = PracticeController(app: self)
+    lazy var preparationState = AppComposition.makePreparationState(app: self)
+    lazy var practiceController = AppComposition.makePracticeController(app: self)
     let database: AppDatabase
     let documentRepository: DocumentRepository
     let interviewContextRepository: InterviewContextRepository
@@ -674,6 +1007,7 @@ final class AppState: ObservableObject {
     let recapRepository: RecapRepository
     let settingsRepository: SettingsRepository
     let keychainService: KeychainService
+    let audioDeviceRouteMonitor: AudioDeviceRouteMonitor?
     let permissionService: PermissionService
     let systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService
     let microphoneDiagnostics: MicrophoneDiagnosticsService
@@ -692,83 +1026,145 @@ final class AppState: ObservableObject {
     // internal for AppState extension access only
     let generationCoordinator: GenerationCoordinator
     // internal for AppState extension access only
-    let recapGenerationService: RecapGenerationService
-    // internal for AppState extension access only
     var appleSpeechService: AppleSpeechTranscriptionService?
     // internal for AppState extension access only
     var activeTranscriptionProvider: TranscriptionProvider?
     // Retains local ASR providers whose audio delegates are weakly held by the
     // capture services.
     var activeASRProviderRuntime: (any ASRProvider)?
-    // Serializes asynchronous capture startup and teardown so a stopped run
-    // cannot become active after a newer user action.
-    var captureStartupTask: Task<Void, Never>?
-    var captureStartupID: UUID?
-    var captureTeardownTask: Task<Void, Never>?
+    // One owner schedules, invalidates, retires and joins Live capture controls.
+    // Compatibility consumers observe exact handles without writing a second list.
+    let captureLifecycle = LiveCaptureLifecycle()
+    var captureStartupTask: Task<Void, Never>? { captureLifecycle.startupTask }
+    var captureStartupID: UUID? { captureLifecycle.startupID }
+    var captureTeardownTask: Task<Void, Never>? { captureLifecycle.teardownTask }
+    var captureTeardownID: UUID? { captureLifecycle.teardownID }
     // internal for AppState extension access only
     var ownsSystemAudioCaptureRuntime = false
-    // internal for AppState extension access only
-    var transcriptionTask: Task<Void, Never>?
-    
-    // internal for AppState extension access only
-    struct RecentSystemAudioRecord {
-        let text: String
-        let timestamp: Date
+    // Concrete Live owners expose their existing receipt. This derived view
+    // does not adopt a foreign native capture because a legacy Boolean is true.
+    var ownsCurrentSystemAudioCaptureRuntime: Bool {
+        if let provider = activeASRProviderRuntime as? LocalParakeetASRProvider {
+            return provider.ownsCurrentSystemAudioCapture(systemAudioCaptureService)
+        }
+        if let provider = activeASRProviderRuntime as? AppleSpeechASRProvider {
+            return provider.ownsCurrentSystemAudioCapture(systemAudioCaptureService)
+        }
+        let speech = appleSpeechService ?? (activeTranscriptionProvider as? AppleSpeechTranscriptionService)
+        return speech?.ownsCurrentSystemAudioCapture(systemAudioCaptureService) == true
+    }
+    // Terminal delivery may follow exact native release. This projection
+    // never grants active/native/PCM authority or adopts another owner's epoch.
+    var hasMostRecentSystemAudioCaptureReceipt: Bool {
+        if let provider = activeASRProviderRuntime as? LocalParakeetASRProvider {
+            return provider.hasMostRecentSystemAudioCaptureReceipt(systemAudioCaptureService)
+        }
+        if let provider = activeASRProviderRuntime as? AppleSpeechASRProvider {
+            return provider.hasMostRecentSystemAudioCaptureReceipt(systemAudioCaptureService)
+        }
+        let speech = appleSpeechService ?? (activeTranscriptionProvider as? AppleSpeechTranscriptionService)
+        return speech?.hasMostRecentSystemAudioCaptureReceipt(systemAudioCaptureService) == true
     }
     // internal for AppState extension access only
-    var recentSystemAudioRecords: [RecentSystemAudioRecord] = []
-    var transcriptSegmentIngestedAt = [String: Date]()
-    var transcriptSegmentHadVisibleAnswerAtIngestion = [String: Bool]()
+    var transcriptionTask: Task<Void, Never>? { captureLifecycle.transcriptionTask }
+    
     // internal for AppState extension access only
-    var detectionDebounceTask: Task<Void, Never>?
+    var detectionDebounceTask: Task<Void, Never>? { liveInterview.detectionDebounceTask }
     // internal for AppState extension access only
-    var activeDetectionTask: Task<Void, Never>?
+    var activeDetectionTask: Task<Void, Never>? { liveInterview.activeDetectionTask }
     // internal for AppState extension access only
-    var activeAITask: Task<Void, Never>?
-    var recapTask: Task<Void, Never>?
-    var recapSessionID: String?
+    var activeAITask: Task<Void, Never>? { generationCoordinator.requestTask }
+    var providerTestTask: Task<Void, Never>? { settingsState.providerTestTask }
+    var recapTask: Task<Void, Never>? { historyState.recapTask }
+    var recapSessionID: String? { historyState.recapSessionID }
     var answerProviderModeOverride: AnswerProviderMode?
     var localLLMProviderOverride: (any LocalLLMProvider)?
     let questionRoutingProvider: (any LocalLLMProvider)?
-    var automaticContextBuildTask: Task<Void, Never>?
-    var automaticContextBuildID = UUID()
-    var automaticContextBuilderOverride: (any InterviewContextBuilding)?
+    var automaticContextBuildTask: Task<Void, Never>? { interviewContextState.worker }
+    var automaticContextBuildID: UUID { interviewContextState.buildID }
+    var automaticContextBuilderOverride: (any InterviewContextBuilding)? {
+        get { interviewContextState.builderOverride }
+        set { interviewContextState.builderOverride = newValue }
+    }
     // internal for AppState extension access only
     var lastDetectionAt: Date?
     // internal for AppState extension access only
-    var lastAutoSuggestionAt: Date?
-    // internal for AppState extension access only
-    var lastAutoQuestionText: String?
-    // internal for AppState extension access only
-    var recentQuestionTimestamps = [String: Date]()
-    // Keeps accepted question origins for the full live session. Apple Speech
-    // can emit one cumulative segment for several minutes, so time-based
-    // duplicate expiry alone must not make an old question fresh again.
-    var acceptedQuestionSegmentIDs = [String: String]()
-    var consumedQuestionOccurrenceKeys = Set<String>()
-    var consumedQuestionSourceSpanKeys = Set<String>()
-    var consumedQuestionOccurrences = [String: TranscriptQuestionIngressIdentity]()
-    var consumedQuestionSourceSpans = [String: TranscriptQuestionIngressIdentity]()
-    var consumedQuestionAbsoluteSourceSpans = [String: TranscriptQuestionIngressIdentity]()
-    var acceptedNormalizedQuestionKeys = Set<String>()
-    var intentionalRepeatQuestionIDs = Set<String>()
-    var transcriptReconciler = TranscriptReconciler()
+    var intentionalRepeatQuestionIDs: Set<String> { liveInterview.intentionalRepeatQuestionIDs }
+#if DEBUG
+    // Compatibility for existing synthetic replay fixtures. These setters
+    // forward to the sole Live owner; no application-level copy is stored.
+    var recentQuestionTimestamps: [String: Date] {
+        get { liveInterview.recentQuestionTimestampsForTesting }
+        set { liveInterview.recentQuestionTimestampsForTesting = newValue }
+    }
+    var transcriptReconciler: TranscriptReconciler {
+        get { liveInterview.transcriptReconcilerForTesting }
+        set { liveInterview.transcriptReconcilerForTesting = newValue }
+    }
+#endif
     var cancelledPersistenceGenerationIDs = Set<String>()
-    var terminalGenerationIDs = Set<String>()
+    var terminalGenerationIDs: Set<String> { generationCoordinator.terminalGenerationIDs }
     struct SuggestionPersistenceClaim {
         let cardID: String
         let identity: GenerationIdentity
     }
     var suggestionPersistenceClaims = [String: SuggestionPersistenceClaim]()
     var successfulSuggestionPersistenceOwners = Set<String>()
-    // internal for AppState extension access only
-    let autoQuestionDuplicateCooldownSeconds: TimeInterval = 60
 
-    private var activeObserverToken: NSObjectProtocol?
-    private var terminationObserverToken: NSObjectProtocol?
-    var liveSystemAudioDiagnosticObserverToken: NSObjectProtocol?
-    private var keychainStatusRefreshInFlight = false
-    private var didShutdownForTesting = false
+    private var activeObserverToken: AnyCancellable?
+    private var terminationObserverToken: AnyCancellable?
+    var liveSystemAudioDiagnosticObserverToken: AnyCancellable?
+    private var resourceShutdownTask: (id: UUID, task: Task<Bool, Never>)?
+    private lazy var ownedVerificationCoordinator = HirevaVerificationCoordinator()
+    var verificationCoordinator: HirevaVerificationCoordinator {
+#if DEBUG
+        if let verificationCoordinatorOverrideForTesting { return verificationCoordinatorOverrideForTesting }
+#endif
+        return ownedVerificationCoordinator
+    }
+    // Admission stays closed between failed cleanup attempts. The frozen
+    // operation retains the original owners after active capture fields clear.
+    private var resourceShutdownOperation: (@MainActor () async -> Bool)?
+    private var resourceShutdownSucceeded = false
+#if DEBUG
+    // Controlled scheduler seam; nil in ordinary debug runs and absent in release.
+    var shutdownResultDidAwaitForTesting: (@MainActor () async -> Void)?
+    // Mixed-path test seam before any Speech object or floating panel is created.
+    var liveSystemAudioDiagnosticWillCreateServiceForTesting: (@MainActor () async throws -> Void)?
+    // Counts exact captured prefetch handles; no scheduling or I/O override.
+    var ragPrefetchShutdownSnapshotForTesting: (@MainActor (Int) -> Void)?
+    // Observe the actual generation drain entry. Counts describe ownership;
+    // they do not certify that an underlying resource has stopped.
+    var generationShutdownWillDrainForTesting: (@MainActor (Int, Int) -> Void)?
+    // Test-owned instance, never the production verification singleton.
+    var verificationCoordinatorOverrideForTesting: HirevaVerificationCoordinator?
+    // Read-only actual App entry observation, never a cleanup override.
+    var verificationShutdownScopeDidObserveForTesting: (@MainActor (Bool) -> Void)?
+    // Read-only receipt observation: nil in ordinary debug runs, absent in release.
+    var speechPermissionTaskDidRegisterForTesting: (@MainActor (Task<Void, Never>) -> Void)?
+#endif
+    var isShuttingDown: Bool { resourceShutdownOperation != nil || resourceShutdownSucceeded }
+
+    private enum ResourceShutdownStep: CaseIterable {
+        case verification, signalMonitor, manual, routeMonitor, practice, documents, context, diagnostics
+        case preparation, generation, history, settings, localModels, signing
+        case systemPermissions, captureControls, provider, speech, ancillary
+    }
+    @MainActor
+    private final class ResourceShutdownProgress {
+        private var completed = Set<ResourceShutdownStep>()
+        var isComplete: Bool { completed.count == ResourceShutdownStep.allCases.count }
+        // This bounded application receipt set owns no task or service. A
+        // successful stop/save boundary is never invoked again on quit retry.
+        func run(_ step: ResourceShutdownStep,
+            operation: @MainActor () async -> Bool) async {
+            guard !completed.contains(step) else { return }
+            if await operation() { completed.insert(step) }
+        }
+    }
+    // Tests can stop at the actual backend dispatch before opening any device.
+    var liveASRWillStart: (@MainActor (ASRProviderID, AudioCaptureMode) throws -> Void)?
+    var systemAudioErrorDidObserve: (@MainActor (String?) -> Void)?
     private let verificationMocksEnabledOverride: Bool?
     private let defaultAppSectionOverride: AppSection?
     private let ownedPreferenceDefaultsSuiteName: String?
@@ -777,37 +1173,21 @@ final class AppState: ObservableObject {
     var recentQuestionsFingerprints = [String]()
     private var cancellables = Set<AnyCancellable>()
     // internal for AppState extension access only
-    var audioSignalMonitoringTimer: Timer?
+    lazy var audioSignalMonitor = AudioSignalMonitor { [weak self] in
+        guard let self, !self.isShuttingDown else { return }
+        self.monitorAudioSignal()
+    }
+    // Read-only compatibility for existing diagnostics and native Timer tests.
+    var audioSignalMonitoringTimer: Timer? { audioSignalMonitor.currentTimer }
 
     var detectionDebounceSeconds: TimeInterval = 2
-    // internal for AppState extension access only
-    let autoSuggestionCooldownSeconds: TimeInterval = 5
     // internal for AppState extension access only
     let autoSuggestionConfidenceThreshold = 0.75
     // internal for AppState extension access only
     let possibleQuestionConfidenceRange = 0.55..<0.75
 
     static func bootstrap() -> AppState {
-        let dialogueDefaults = HirevaVerificationConfiguration.current.flatMap {
-            UserDefaults(suiteName: $0.userDefaultsSuiteName)
-        } ?? .standard
-        do {
-            let database = try AppDatabase()
-            let state = AppState(database: database, dialogueDefaults: dialogueDefaults)
-            state.startMainThreadHeartbeat()
-            return state
-        } catch {
-            let fallbackURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("Hireva-\(UUID().uuidString).sqlite")
-            let fallback = (try? AppDatabase(path: fallbackURL)) ?? (try? AppDatabase(inMemory: true))
-            guard let fallback else {
-                preconditionFailure("Unable to initialize SQLite or in-memory database.")
-            }
-            let state = AppState(database: fallback, dialogueDefaults: dialogueDefaults)
-            state.startMainThreadHeartbeat()
-            state.showError("Could not open the application database at the normal path. Using a temporary database for this run. \(error.localizedDescription)")
-            return state
-        }
+        AppComposition.bootstrap()
     }
 
     init(
@@ -815,258 +1195,174 @@ final class AppState: ObservableObject {
         questionRoutingProvider: (any LocalLLMProvider)? = nil,
         llmRouter: LLMRouter? = nil,
         permissionService: PermissionService? = nil,
+        audioDeviceRouteMonitor: AudioDeviceRouteMonitor? = nil,
+        systemAudioPermissions: SystemAudioPermissionController? = nil,
         keychainService: KeychainService? = nil,
         contextRetrievalService: ContextRetrievalService? = nil,
         systemAudioCaptureService: ScreenCaptureKitSystemAudioCaptureService? = nil,
         verificationMocksEnabled: Bool? = nil,
         defaultAppSection: AppSection? = nil,
-        dialogueDefaults: UserDefaults? = nil
+        dialogueDefaults: UserDefaults? = nil,
+        materialURLExtraction: MaterialURLExtraction? = nil,
+        materialDataExtraction: MaterialDataExtraction? = nil,
+        localModelsSetupFactory: (@MainActor () -> LocalModelsSetupViewModel)? = nil,
+        manualCaptureCapabilities: ManualCaptureCapabilities? = nil,
+        embeddingProviderResolverOverride: ((AppSettings) -> (any EmbeddingProvider)?)? = nil,
+        diagnosticsTraceStore: RuntimeTranscriptTraceStore = .shared
     ) {
+        self.localModelsSetupFactory = localModelsSetupFactory
+        self.embeddingProviderResolverOverride = embeddingProviderResolverOverride
         self.questionRoutingProvider = questionRoutingProvider
         let testProcess = isRunningUnderTestOrAutomation()
-        let resolvedDialogueDefaults: UserDefaults
-        let ownedPreferenceDefaultsSuiteName: String?
-        if let dialogueDefaults {
-            resolvedDialogueDefaults = dialogueDefaults
-            ownedPreferenceDefaultsSuiteName = nil
-        } else if testProcess {
-            let suiteName = "com.langcheng.Hireva.tests.app-state.\(UUID().uuidString)"
-            resolvedDialogueDefaults = UserDefaults(suiteName: suiteName) ?? .standard
-            ownedPreferenceDefaultsSuiteName = suiteName
-        } else {
-            resolvedDialogueDefaults = .standard
-            ownedPreferenceDefaultsSuiteName = nil
-        }
-        let dialogueMigration = DialogueSettingsStore.loadAndMigrate(defaults: resolvedDialogueDefaults)
-        let documents = DocumentRepository(database: database)
-        let interviewContexts = InterviewContextRepository(database: database)
-        let sessions = SessionRepository(database: database)
-        let transcripts = TranscriptRepository(database: database)
-        let suggestions = SuggestionRepository(database: database)
-        let recaps = RecapRepository(database: database)
-        let settings = SettingsRepository(database: database)
-        let keychain = keychainService ?? KeychainService(
-            store: testProcess ? InMemoryMockKeychainStore() : RealKeychainStore()
-        )
-        if keychain.store is RealKeychainStore {
-            keychain.lastReadStatus = "Deferred"
-        } else {
-            keychain.performMigrationIfNeeded()
-        }
-        let router = llmRouter ?? LLMRouter(settingsRepository: settings, apiKeyStore: keychain)
+        let routeMonitor = audioDeviceRouteMonitor ?? AppComposition.makeAudioRouteMonitor(isTestProcess: testProcess)
+        self.audioDeviceRouteMonitor = routeMonitor
+        let dialogue = AppComposition.resolveDialoguePreferences(override: dialogueDefaults, isTestProcess: testProcess)
+        let resolvedDialogueDefaults = dialogue.defaults
+        let ownedPreferenceDefaultsSuiteName = dialogue.ownedSuiteName
+        let dialogueMigration = dialogue.migration
+        let repositories = AppComposition.Repositories(database: database)
+        let documents = repositories.documents
+        let interviewContexts = repositories.interviewContexts
+        let sessions = repositories.sessions
+        let transcripts = repositories.transcripts
+        let suggestions = repositories.suggestions
+        let recaps = repositories.recaps
+        let settings = repositories.settings
+        let keychain = AppComposition.makeKeychain(override: keychainService, isTestProcess: testProcess)
+        let language = AppComposition.LanguageServices(settings: settings, keychain: keychain, routerOverride: llmRouter)
+        let consent = PersistenceConsent()
 
 
         self.database = database
-        self.runtimeTranscriptTraceLogURL = AppPaths.runtimeTranscriptTraceURL(for: database.databaseURL)
+        self.persistenceConsent = consent
+        self.materialURLExtraction = materialURLExtraction ?? { try await MaterialExtractionService.extractCancellable(url: $0) }
+        self.materialDataExtraction = materialDataExtraction ?? { try await MaterialExtractionService.extractCancellable(data: $0, filename: $1) }
+        self.diagnosticsState = DiagnosticsState(traceLogURL: AppPaths.runtimeTranscriptTraceURL(for: database.databaseURL), traceStore: diagnosticsTraceStore, latencyQuery: suggestions.makeLatencyQuery())
         self.documentRepository = documents
         self.interviewContextRepository = interviewContexts
         self.sessionRepository = sessions
+        self.historyState = AppComposition.makeHistoryState(database: database, repositories: repositories,
+            recapService: language.recaps, consent: consent)
         self.transcriptRepository = transcripts
         self.suggestionRepository = suggestions
         self.recapRepository = recaps
         self.settingsRepository = settings
         self.keychainService = keychain
-        self.permissionService = permissionService ?? PermissionService()
-        self.systemAudioCaptureService = systemAudioCaptureService ?? (
+        let permissions = permissionService ?? PermissionService()
+        self.permissionService = permissions
+        self.manualCaptureCapabilities = manualCaptureCapabilities ?? .existingAdapter()
+        let resolvedSystemAudioCapture = systemAudioCaptureService ?? (
             testProcess ? ScreenCaptureKitSystemAudioCaptureService() : .shared
         )
+        self.systemAudioCaptureService = resolvedSystemAudioCapture
+        self.systemAudioPermissions = systemAudioPermissions ?? AppComposition.makeSystemAudioPermissions(
+            permissions: permissions, isTestProcess: testProcess,
+            diagnosticCaptureService: resolvedSystemAudioCapture)
         self.verificationMocksEnabledOverride = verificationMocksEnabled
         self.defaultAppSectionOverride = defaultAppSection
         self.ownedPreferenceDefaultsSuiteName = ownedPreferenceDefaultsSuiteName
         self.dialogueDefaults = resolvedDialogueDefaults
-        self.microphoneDiagnostics = MicrophoneDiagnosticsService()
+        self.microphoneDiagnostics = MicrophoneDiagnosticsService(inputDeviceName: { [weak routeMonitor] in
+            routeMonitor?.currentInputDeviceName ?? "Default Input"
+        })
         self.mockTranscriptionService = MockTranscriptionService()
-        self.localDataService = LocalDataService(
-            documents: documents,
-            sessions: sessions,
-            transcripts: transcripts,
-            suggestions: suggestions,
-            recaps: recaps,
-            settings: settings,
-            keychainService: keychain
-        )
-        self.llmRouter = router
-        let suggestionService = SuggestionGenerationService(llmRouter: router)
-        self.questionDetectionService = QuestionDetectionService(llmRouter: router)
-        self.suggestionGenerationService = suggestionService
-        self.generationCoordinator = GenerationCoordinator(
-            dependencies: GenerationCoordinator.Dependencies(
-                suggestionGenerationService: suggestionService
-            )
-        )
-        self.recapGenerationService = RecapGenerationService(llmRouter: router)
-        self.interviewContextMode = dialogueMigration.contextMode
-        self.interviewSessionMode = dialogueMigration.selectedMode
+        self.localDataService = AppComposition.makeLocalDataService(repositories: repositories, keychain: keychain)
+        self.llmRouter = language.router
+        self.questionDetectionService = language.questions
+        self.suggestionGenerationService = language.suggestions
+        self.generationCoordinator = language.generations
         self.resolvedInterviewSessionPhase = dialogueMigration.resolvedPhase
         self.detectedDialogueTurnType = dialogueMigration.legacyTurnType ?? .unknown
-        self.answerPanelQuestionsEnabled = dialogueMigration.answerPanelQuestions
-        self.candidatePresentationMode = dialogueMigration.suppressPresentation ? .suppressAnswers : .normal
-        self.candidateAsksPanelMode = dialogueMigration.suppressCandidateQuestions ? .suppressAnswers : .normal
         
-        self.contextRetrievalService = contextRetrievalService ?? HybridContextRetrievalService(
-            documentRepository: documents,
-            settingsProvider: { [weak self] in self?.settings ?? AppSettings.default },
-            embeddingProviderResolver: { [weak self] in self?.resolveEmbeddingProvider() }
+        self.contextRetrievalService = AppComposition.makeContextRetrievalService(
+            repository: documents, override: contextRetrievalService,
+            configuration: { [weak self] in
+                guard let self else { return (AppSettings.default, nil) }
+                let snapshot = self.settings
+                return (snapshot, self.resolveEmbeddingProvider(settings: snapshot))
+            }
         )
         
-        // Initialize notifications and refresh permissions on startup and when application didBecomeActive
-        refreshAll(loadKeychain: !(keychain.store is RealKeychainStore))
-        clearStaleActiveASRProviderOnLaunch()
-        runLaunchASRProviderDefaultMigrationIfNeeded()
-        runLaunchLocalQwenDefaultMigrationIfNeeded()
-        scheduleAutomaticContextRebuild()
-        if !testProcess {
-            installLiveSystemAudioDiagnosticNotificationObserver()
-            runLaunchLiveSystemAudioDiagnosticIfRequested()
-        }
+        cancellables.formUnion(AppComposition.connectFeatureObservations(app: self))
 
-        if !testProcess {
-            let audioDeviceRouteMonitor = AudioDeviceRouteMonitor.shared
-            self.currentInputDeviceName = audioDeviceRouteMonitor.currentInputDeviceName
-            self.isRecoveringAudioRoute = audioDeviceRouteMonitor.isRecoveringAudioRoute
-            if self.isRecoveringAudioRoute {
-                self.audioRouteError = "Audio device changed. Reconnecting..."
+        AppComposition.startInitialRuntimeWork(app: self,
+            loadKeychain: !(keychain.store is RealKeychainStore), isTestProcess: testProcess)
+        cancellables.formUnion(AppComposition.connectRuntimeObservations(app: self))
+        let applicationObservers = AppComposition.connectApplicationNotifications(
+            app: self, isTestProcess: testProcess)
+        activeObserverToken = applicationObservers.active
+        terminationObserverToken = applicationObservers.termination
+    }
+
+    // Runtime observations enter existing application policy synchronously on MainActor.
+    // The composition root owns no capture or presentation fact.
+    func initializeAudioRouteRecoveryPresentation() {
+        if self.isRecoveringAudioRoute {
+            self.audioRouteError = "Audio device changed. Reconnecting..."
+            self.noAudioWarningVisible = true
+            self.microphoneDiagnostics.markAsRecovering()
+        }
+    }
+
+    func audioRouteRecoveryDidUpdate(_ isRecovering: Bool, monitor audioDeviceRouteMonitor: AudioDeviceRouteMonitor) {
+        self.objectWillChange.send()
+        if isRecovering {
+            self.audioRouteError = "Audio device changed. Reconnecting..."
+            self.noAudioWarningVisible = true
+            self.microphoneDiagnostics.markAsRecovering()
+        } else {
+            let state = audioDeviceRouteMonitor.engineRecoveryState
+            if state == "Active" {
+                self.audioRouteError = "Audio input restored."
+                self.noAudioWarningVisible = false
+            } else if state == "Failed" {
+                self.audioRouteError = "Could not restore audio input. Try Stop Listening and Start Listening again."
                 self.noAudioWarningVisible = true
-                self.microphoneDiagnostics.markAsRecovering()
-            }
-
-            audioDeviceRouteMonitor.$currentInputDeviceName
-                .dropFirst()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] name in
-                    self?.currentInputDeviceName = name
-                }
-                .store(in: &cancellables)
-
-            audioDeviceRouteMonitor.$isRecoveringAudioRoute
-                .dropFirst()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] isRecovering in
-                    guard let self else { return }
-                    self.isRecoveringAudioRoute = isRecovering
-                    if isRecovering {
-                        self.audioRouteError = "Audio device changed. Reconnecting..."
-                        self.noAudioWarningVisible = true
-                        self.microphoneDiagnostics.markAsRecovering()
-                    } else {
-                        let state = AudioEngineManager.shared.audioRecoveryState
-                        if state == "Active" {
-                            self.audioRouteError = "Audio input restored."
-                            self.noAudioWarningVisible = false
-                        } else if state == "Failed" {
-                            self.audioRouteError = "Could not restore audio input. Try Stop Listening and Start Listening again."
-                            self.noAudioWarningVisible = true
-                        }
-                    }
-                }
-                .store(in: &cancellables)
-        }
-
-        self.systemAudioCaptureService.$isCapturing
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] capturing in
-                guard let self = self else { return }
-                self.objectWillChange.send()
-                // Propagate capture stream end only for the AppState that actually
-                // started the shared ScreenCaptureKit system-audio runtime.
-                let ownsActiveCapture = self.ownsSystemAudioCaptureRuntime
-                let wasActivelyCapturingOrStoppedWithoutReason =
-                    self.currentCaptureRuntimeState == .listening ||
-                    self.currentCaptureRuntimeState == .generating ||
-                    self.currentCaptureRuntimeState == .stopped(reason: nil)
-                if !capturing,
-                   ownsActiveCapture,
-                   wasActivelyCapturingOrStoppedWithoutReason {
-                    if self.stopReason == nil {
-                        self.stopListening(reason: .screenCaptureStreamEnded)
-                    }
-                }
-            }
-            .store(in: &cancellables)
-
-        self.systemAudioCaptureService.$lastBufferReceivedAt
-            .dropFirst()
-            .throttle(for: .seconds(1), scheduler: DispatchQueue.main, latest: true)
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
-
-        self.systemAudioCaptureService.$lastError
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] err in
-                guard let self = self else { return }
-                self.objectWillChange.send()
-                if let err = err {
-                    self.currentCaptureRuntimeState = .error(reason: err)
-                }
-            }
-            .store(in: &cancellables)
-
-        let manualQuestionCaptureService = ManualQuestionCaptureService.shared
-        self.manualCaptureDuration = manualQuestionCaptureService.recordingDuration
-        self.manualCaptureLevel = min(max((manualQuestionCaptureService.decibels + 60) / 60, 0), 1)
-        self.manualCaptureBufferCount = manualQuestionCaptureService.capturedBufferCount
-        self.manualCaptureLastBufferTimestamp = manualQuestionCaptureService.lastBufferTimestamp
-
-        manualQuestionCaptureService.$recordingDuration
-            .dropFirst()
-            .filter { [weak self] _ in self?.manualCaptureState == .recording }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] duration in
-                self?.manualCaptureDuration = duration
-            }
-            .store(in: &cancellables)
-
-        manualQuestionCaptureService.$decibels
-            .dropFirst()
-            .filter { [weak self] _ in self?.manualCaptureState == .recording }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] db in
-                self?.manualCaptureLevel = min(max((db + 60) / 60, 0), 1)
-            }
-            .store(in: &cancellables)
-
-        manualQuestionCaptureService.$capturedBufferCount
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in
-                if self?.manualCaptureState == .recording {
-                    self?.manualCaptureBufferCount = count
-                }
-            }
-            .store(in: &cancellables)
-
-        manualQuestionCaptureService.$lastBufferTimestamp
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] timestamp in
-                if self?.manualCaptureState == .recording {
-                    self?.manualCaptureLastBufferTimestamp = timestamp
-                }
-            }
-            .store(in: &cancellables)
-
-        if !testProcess {
-            self.activeObserverToken = NotificationCenter.default.addObserver(
-                forName: NSApplication.didBecomeActiveNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.refreshPermissions()
-                }
-            }
-            self.terminationObserverToken = NotificationCenter.default.addObserver(
-                forName: NSApplication.willTerminateNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.handleApplicationWillTerminate()
-                }
             }
         }
+    }
+
+    func systemAudioCaptureStateDidUpdate(_ capturing: Bool) {
+        self.objectWillChange.send()
+        // Propagate capture stream end only for the AppState that actually
+        // started the shared ScreenCaptureKit system-audio runtime.
+        let ownsTerminalCapture = self.hasMostRecentSystemAudioCaptureReceipt
+        let wasActivelyCapturingOrStoppedWithoutReason =
+            self.currentCaptureRuntimeState == .listening ||
+            self.currentCaptureRuntimeState == .generating ||
+            self.currentCaptureRuntimeState == .stopped(reason: nil)
+        if !capturing,
+           ownsTerminalCapture,
+           wasActivelyCapturingOrStoppedWithoutReason,
+           !self.systemAudioCaptureService.isCapturing,
+           !self.hasHealthyParakeetAfterSystemFailure {
+            if self.stopReason == nil {
+                self.stopListening(reason: .screenCaptureStreamEnded)
+            }
+        }
+    }
+
+    func systemAudioCaptureErrorDidUpdate(_ err: String?) {
+        self.objectWillChange.send()
+        if self.hasMostRecentSystemAudioCaptureReceipt {
+            if self.hasHealthyParakeetAfterSystemFailure,
+               let sourceError = (self.activeASRProviderRuntime as? LocalParakeetASRProvider)?.captureSourceFailures[.systemAudio] {
+                self.reportParakeetSourceFailure(source: .systemAudio, error: sourceError)
+            } else if let currentError = self.systemAudioCaptureService.lastError {
+                // A queued signal reads only the current exact owner's
+                // committed diagnostic; foreign capture remains separate.
+                self.currentCaptureRuntimeState = .error(reason: currentError)
+            }
+        }
+        self.systemAudioErrorDidObserve?(err)
+    }
+
+    // ARC can invoke this closure away from MainActor. It owns only the exact
+    // Foundation token and its center, and never reads UI or AppState.
+    nonisolated static func makeNotificationCancellation(
+        observer: NSObjectProtocol, center: NotificationCenter
+    ) -> AnyCancellable {
+        AnyCancellable { center.removeObserver(observer) }
     }
 
     func markSystemAudioCaptureRuntimeOwnedForTesting(_ owned: Bool) {
@@ -1074,119 +1370,261 @@ final class AppState: ObservableObject {
     }
 
     deinit {
-        recapTask?.cancel()
-        materialImportTask?.cancel()
-        activeEmbeddingRebuildTask?.cancel()
-        automaticContextBuildTask?.cancel()
-        precomputeDebounceTask?.cancel()
-        detectionDebounceTask?.cancel()
-        activeDetectionTask?.cancel()
-        activeAITask?.cancel()
-        transcriptionTask?.cancel()
-        captureStartupTask?.cancel()
-        stageBTask?.cancel()
-        softFallbackTask?.cancel()
-        fullCardWatchdogTask?.cancel()
-        activeGenerationController?.stageATask?.cancel()
-        activeGenerationController?.stageATimeoutTask?.cancel()
-        activeGenerationController?.stageBTask?.cancel()
-        activeGenerationController?.fallbackWatchdogTask?.cancel()
-        activeGenerationController?.fullCardWatchdogTask?.cancel()
-        partialUtteranceFinalizationTasks.values.forEach { $0.cancel() }
-        actionFeedbackDismissTasks.values.forEach { $0.cancel() }
+        actionFeedbackDismissalTasksToDrain.values.forEach { $0.cancel() }
         mainThreadHeartbeatTask?.cancel()
-        audioSignalMonitoringTimer?.invalidate()
-        cancellables.forEach { $0.cancel() }
-        if let token = activeObserverToken {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = terminationObserverToken {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = liveSystemAudioDiagnosticObserverToken {
-            DistributedNotificationCenter.default().removeObserver(token)
-        }
         if let ownedPreferenceDefaultsSuiteName {
-            dialogueDefaults?.removePersistentDomain(forName: ownedPreferenceDefaultsSuiteName)
+            // Only the UUID suite created by this instance is owned here.
+            // Reopen by immutable identity rather than access mutable actor state.
+            UserDefaults(suiteName: ownedPreferenceDefaultsSuiteName)?
+                .removePersistentDomain(forName: ownedPreferenceDefaultsSuiteName)
         }
     }
 
-    /// Cancels process-wide observers and every task owned directly by this
-    /// state container. Tests call this before closing their temporary GRDB
-    /// queue. It deliberately does not close `database`, because the fixture
-    /// owns that resource and controls when its directory is removed.
-    func shutdownForTesting() async {
-        guard !didShutdownForTesting else { return }
-        didShutdownForTesting = true
-        let captureStartupTask = captureStartupTask
-        let captureTeardownTask = captureTeardownTask
-        let asrProviderRuntime = activeASRProviderRuntime
-        cancelOwnedWorkForShutdown()
-        await captureStartupTask?.value
-        await captureTeardownTask?.value
-        await asrProviderRuntime?.stopTranscription()
-        await Task.yield()
-        await Task.yield()
+    /// Application termination and test fixtures share one cleanup operation.
+    /// Admission closes synchronously; the retained task finishes only after
+    /// the feature owners and captured runtime handles have actually exited.
+    /// The caller owns any UI deadline; cancellation cannot force a resource out.
+    @discardableResult
+    func shutdownResources() async -> Bool {
+        // Check before borrowing an existing shutdown task: an external drain
+        // can already be waiting for this detector or its inherited child.
+        guard liveInterview.canDrainAutomaticDetectionFromCurrentTask else { return false }
+#if DEBUG
+        verificationShutdownScopeDidObserveForTesting?(verificationCoordinator.canDrainFromCurrentTask)
+#endif
+        guard verificationCoordinator.canDrainFromCurrentTask else { return false }
+        // A dismissal worker or its inherited child cannot borrow a drain
+        // which already waits for that exact still-live launch.
+        guard canDrainActionFeedbackDismissalsFromCurrentTask else { return false }
+        guard generationCoordinator.canDrainFromCurrentTask else { return false }
+        if let owned = resourceShutdownTask { return await owned.task.value }
+        if resourceShutdownSucceeded { return true }
+        let firstAttempt = resourceShutdownOperation == nil
+        let operation = resourceShutdownOperation ?? makeResourceShutdownOperation()
+        resourceShutdownOperation = operation
+        let id = UUID()
+        let cleanup = Task { @MainActor in
+            let released = await operation()
+            // The exact owner retires before any waiter can observe its Bool.
+            // Retry admission cannot depend on which waiter resumes first.
+            if self.resourceShutdownTask?.id == id {
+                self.resourceShutdownTask = nil
+                if released {
+                    self.resourceShutdownSucceeded = true
+                    self.resourceShutdownOperation = nil
+                }
+            }
+            return released
+        }
+        resourceShutdownTask = (id, cleanup)
+        if firstAttempt { cancelOwnedWorkForShutdown() }
+        let released = await cleanup.value
+#if DEBUG
+        await shutdownResultDidAwaitForTesting?()
+#endif
+        return released
     }
+
+    private func makeResourceShutdownOperation() -> @MainActor () async -> Bool {
+        let endingSession = currentSession.map { (id: $0.id, endedAt: $0.endedAt ?? Date()) }
+        let sessions = sessionRepository
+        let verification = verificationCoordinator
+        let capture = captureLifecycle
+        let provider = activeASRProviderRuntime
+        let speech = appleSpeechService ?? activeTranscriptionProvider as? AppleSpeechTranscriptionService
+        let practice = practiceController
+        let documents = documentsState
+        let preparation = preparationState
+        let context = interviewContextState
+        let generation = generationCoordinator
+#if DEBUG
+        let generationWillDrain = generationShutdownWillDrainForTesting
+#endif
+        let history = historyState
+        let settingsOwner = settingsState
+        let localModels = localModelsOwner
+        let permissionOwner = systemAudioPermissions
+        let permissionDiagnostics = permissionService
+        let manual = manualCaptureController
+        let routeMonitor = audioDeviceRouteMonitor
+        let diagnostics = diagnosticsState
+        let microphoneMetering = microphoneDiagnostics
+        let signalMonitor = audioSignalMonitor
+        let prefetch = liveRAGPrefetch
+        let live = liveInterview
+        let prefetchTasks = prefetch.tasksToDrain
+#if DEBUG
+        ragPrefetchShutdownSnapshotForTesting?(prefetchTasks.count)
+#endif
+        let ancillary = [
+            mainThreadHeartbeatTask].compactMap { $0 } +
+            Array(actionFeedbackDismissalTasksToDrain.values)
+#if DEBUG
+        let ancillaryWillAwait = ancillaryTaskWillAwaitForTesting
+#endif
+        let progress = ResourceShutdownProgress()
+        return { [weak self] in
+            await progress.run(.verification) {
+                await verification.shutdown()
+            }
+            await progress.run(.signalMonitor) {
+                await signalMonitor.shutdown()
+                return !signalMonitor.hasPendingWork
+            }
+            await progress.run(.manual) {
+                do { try await manual.shutdown() }
+                catch { return false }
+                return !manual.hasUnreleasedResources
+            }
+            await progress.run(.routeMonitor) {
+                await routeMonitor?.shutdown()
+                return !(routeMonitor?.hasOwnedRecoveryWork ?? false)
+            }
+            await progress.run(.practice) {
+                await practice.shutdown()
+                return true
+            }
+            await progress.run(.documents) {
+                await documents.shutdown()
+                return documents.pendingImportTaskCount == 0 && documents.embeddings.pendingTaskCount == 0
+            }
+            await progress.run(.context) {
+                await context.shutdown()
+                return context.pendingTaskCount == 0
+            }
+            await progress.run(.diagnostics) {
+                await diagnostics.shutdown()
+                await microphoneMetering.shutdown()
+                return diagnostics.pendingLatencyTaskCount == 0 &&
+                    diagnostics.pendingSystemAudioDiagnosticTaskCount == 0 &&
+                    !microphoneMetering.hasOwnedCallbackWork
+            }
+            await progress.run(.preparation) {
+                await preparation.shutdown()
+                return preparation.pendingTaskCount == 0
+            }
+            await progress.run(.generation) {
+#if DEBUG
+                generationWillDrain?(generation.pendingCleanupTaskCount, generation.retiringTaskCount)
+#endif
+                await generation.drainRetiredTasks()
+                return generation.pendingCleanupTaskCount == 0
+            }
+            await progress.run(.history) {
+                let stopped = await history.shutdownAndDrain()
+                return stopped && history.pendingRecapTaskCount == 0
+            }
+            await progress.run(.settings) {
+                await settingsOwner.shutdown()
+                return settingsOwner.pendingTaskCount == 0
+            }
+            await progress.run(.localModels) {
+                let stopped = await localModels?.shutdown() ?? true
+                return stopped && (localModels?.pendingOperationTaskCount ?? 0) == 0
+            }
+            await progress.run(.signing) {
+                await permissionDiagnostics.shutdownCodeSigningDiagnostics()
+            }
+            await progress.run(.systemPermissions) {
+                do { try await permissionOwner.shutdown() }
+                catch { return false }
+                return !permissionOwner.hasUnreleasedResources
+            }
+            await progress.run(.captureControls) {
+                // This explicit shutdown attempt may retry captured failed
+                // operations. Drain alone never authorizes native retry.
+                await capture.retryFailedTeardowns()
+                await capture.drain()
+                return capture.pendingTaskCount == 0 && !capture.hasFailedTeardown
+            }
+            await progress.run(.provider) {
+                await provider?.stopTranscription()
+                return (provider as? LocalParakeetASRProvider)?.captureCleanupFailure == nil &&
+                    (provider as? AppleSpeechASRProvider)?.captureCleanupFailure == nil
+            }
+            await progress.run(.speech) {
+                if let speech, (provider as? AppleSpeechASRProvider)?.ownsSpeechService(speech) != true {
+                    speech.retryStoppingAudioInput()
+                }
+                await speech?.finishStoppingAudioInput()
+                return speech?.hasUnreleasedAudioInput != true
+            }
+            await progress.run(.ancillary) {
+                await prefetch.shutdown()
+                let detectionReleased = await live.drainAutomaticDetection()
+                for task in ancillary {
+#if DEBUG
+                    ancillaryWillAwait?(task)
+#endif
+                    await task.value
+                }
+                return detectionReleased && live.pendingAutomaticDetectionTaskCount == 0 &&
+                    live.pendingPartialFinalizationTaskCount == 0
+            }
+            guard progress.isComplete else { return false }
+            // Keep the original session/time through quit retries; all admitted
+            // content writers have drained before this metadata-only finalization.
+            if let endingSession {
+                do {
+                    let endedAt = try sessions.endSession(id: endingSession.id, at: endingSession.endedAt)
+                    if let endedAt, self?.currentSession?.id == endingSession.id {
+                        self?.currentSession?.endedAt = endedAt
+                    }
+                } catch { return false }
+            }
+            // The earlier Diagnostics step cannot seal later legitimate native,
+            // Generation or History cleanup audit. Finish only this App's writer
+            // after all producers have exited; the shared store remains usable.
+            await diagnostics.finalizeTraceWritesForShutdown()
+            return true
+        }
+    }
+
+    /// Fixtures own their database; cleanup never closes or removes it.
+    func shutdownForTesting() async { _ = await shutdownResources() }
 
     private func cancelOwnedWorkForShutdown() {
-        activeEmbeddingRebuildTask?.cancel()
-        activeEmbeddingRebuildTask = nil
-        automaticContextBuildTask?.cancel()
-        automaticContextBuildTask = nil
-        precomputeDebounceTask?.cancel()
-        precomputeDebounceTask = nil
-        detectionDebounceTask?.cancel()
-        detectionDebounceTask = nil
-        activeDetectionTask?.cancel()
-        activeDetectionTask = nil
-        activeAITask?.cancel()
-        activeAITask = nil
-        recapTask?.cancel()
-        recapTask = nil
-        recapSessionID = nil
-        captureStartupID = nil
-        captureStartupTask?.cancel()
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
-        stageBTask?.cancel()
-        stageBTask = nil
-        softFallbackTask?.cancel()
-        softFallbackTask = nil
-        fullCardWatchdogTask?.cancel()
-        fullCardWatchdogTask = nil
+        verificationCoordinator.closeAdmission()
+        audioDeviceRouteMonitor?.closeAdmission()
+        diagnosticsState.closeAdmission()
+        manualCaptureController.closeAdmission()
+        preparationState.closeAdmission()
+        documentsState.closeAdmission()
+        interviewContextState.closeAdmission()
+        liveRAGPrefetch.closeAdmission()
+        liveInterview.closeAutomaticDetectionAdmission()
+        settingsState.closeAdmission()
+        localModelsOwner?.closeAdmission()
+        systemAudioPermissions.closeAdmission()
+        historyState.closeAdmission()
+        captureLifecycle.closeAdmission()
         cancelActiveGenerationForStop()
+        generationCoordinator.closeAdmission()
 
-        partialUtteranceFinalizationTasks.values.forEach { $0.cancel() }
-        partialUtteranceFinalizationTasks.removeAll()
-        actionFeedbackDismissTasks.values.forEach { $0.cancel() }
+        actionFeedbackDismissalTasksToDrain.values.forEach { $0.cancel() }
         actionFeedbackDismissTasks.removeAll()
         mainThreadHeartbeatTask?.cancel()
         mainThreadHeartbeatTask = nil
-        audioSignalMonitoringTimer?.invalidate()
-        audioSignalMonitoringTimer = nil
+        audioSignalMonitor.closeAdmission()
 
-        activeTranscriptionProvider?.stop()
+        // Failed Apple capture is retried once by its awaited owner step, not
+        // also by synchronous admission closure and each legacy alias.
+        if let speech = activeTranscriptionProvider as? AppleSpeechTranscriptionService {
+            if speech.captureCleanupFailure == nil { speech.stop() }
+        } else { activeTranscriptionProvider?.stop() }
         activeTranscriptionProvider = nil
         activeASRProviderRuntime = nil
-        appleSpeechService?.stop()
+        if appleSpeechService?.captureCleanupFailure == nil { appleSpeechService?.stop() }
         appleSpeechService = nil
         ownsSystemAudioCaptureRuntime = false
-        AudioEngineManager.shared.unregister(microphoneDiagnostics)
-        microphoneDiagnostics.stopMicTest()
+        microphoneDiagnostics.closeAdmission()
 
-        if let token = activeObserverToken {
-            NotificationCenter.default.removeObserver(token)
-            activeObserverToken = nil
-        }
-        if let token = terminationObserverToken {
-            NotificationCenter.default.removeObserver(token)
-            terminationObserverToken = nil
-        }
-        if let token = liveSystemAudioDiagnosticObserverToken {
-            DistributedNotificationCenter.default().removeObserver(token)
-            liveSystemAudioDiagnosticObserverToken = nil
-        }
+        activeObserverToken?.cancel()
+        activeObserverToken = nil
+        terminationObserverToken?.cancel()
+        terminationObserverToken = nil
+        liveSystemAudioDiagnosticObserverToken?.cancel()
+        liveSystemAudioDiagnosticObserverToken = nil
         cancellables.removeAll()
         if let ownedPreferenceDefaultsSuiteName {
             dialogueDefaults?.removePersistentDomain(forName: ownedPreferenceDefaultsSuiteName)
@@ -1208,17 +1646,8 @@ final class AppState: ObservableObject {
         return nil
     }
 
-    var activeRealtimeProviderBadge: String {
-        guard let provider = activeRealtimeProvider else { return "No realtime provider" }
-        return "\(provider.name): \(provider.model)"
-    }
-
-    var activeRealtimeProviderPrivacyNote: String {
-        guard let provider = activeRealtimeProvider else {
-            return "No AI provider is selected."
-        }
-        return "Cloud mode: selected transcript and CV/JD snippets are sent to \(provider.name)."
-    }
+    var activeRealtimeProviderBadge: String { settingsState.activeRealtimeProviderBadge }
+    var activeRealtimeProviderPrivacyNote: String { settingsState.activeRealtimeProviderPrivacyNote }
 
     var manualVerificationRAGMode: String {
         if let mode = lastRetrievalTrace?.retrievalMode, !mode.isEmpty {
@@ -1236,181 +1665,17 @@ final class AppState: ObservableObject {
         return "keywordOnly (\(Int(coverage.coveragePercent))% embedding coverage)"
     }
 
-    private struct KeychainStatusSnapshot {
-        var hasAnyAPIKey: Bool
-        var deepSeekKeyExists: Bool
-        var deepSeekKeyLengthCategory: String
-        var maskedKey: String
-        var lastReadStatus: String
-        var lastWriteStatus: String
-        var migrationPerformed: Bool
-        var legacyItemFound: Bool
-        var legacyItemCount: Int
-        var authorizationWarning: String?
-        var mismatchStatus: String
-    }
-
-    private func loadKeychainStatusSnapshot() -> KeychainStatusSnapshot {
-        Self.loadKeychainStatusSnapshot(
-            keychainService: keychainService,
-            accounts: Set(providerConfigurations.compactMap(\.apiKeyAccount))
-        )
-    }
-
-    nonisolated private static func loadKeychainStatusSnapshot(
-        keychainService: KeychainService,
-        accounts: Set<String>
-    ) -> KeychainStatusSnapshot {
-        var keychainStates: [String: KeychainAPIKeyAccessState] = [:]
-        for account in accounts {
-            keychainStates[account] = keychainService.apiKeyAccessState(account: account)
-        }
-        let deepSeekState = keychainStates[KeychainConstants.deepSeekAccount] ??
-            keychainService.apiKeyAccessState(account: KeychainConstants.deepSeekAccount)
-        keychainStates[KeychainConstants.deepSeekAccount] = deepSeekState
-
-        let authorizationWarning: String?
-        if case .authorizationRequired(let message) = deepSeekState {
-            authorizationWarning = message
-        } else {
-            authorizationWarning = nil
-        }
-
-        let mismatchStatus: String
-        if deepSeekState.hasReadableKey {
-            mismatchStatus = "✅ DeepSeek API Key loaded successfully"
-        } else if let authorizationWarning {
-            mismatchStatus = "⚠️ \(authorizationWarning)"
-        } else if keychainService.legacyItemFound || keychainService.legacyItemCount > 0 {
-            let count = keychainService.legacyItemCount
-            mismatchStatus = count > 1
-                ? "⚠️ Legacy keys found (\(count) items), migration available"
-                : "⚠️ Legacy key found, migration available"
-        } else {
-            mismatchStatus = "❌ No DeepSeek API key found in Keychain"
-        }
-
-        return KeychainStatusSnapshot(
-            hasAnyAPIKey: keychainStates.values.contains { $0.hasReadableKey },
-            deepSeekKeyExists: deepSeekState.hasReadableKey,
-            deepSeekKeyLengthCategory: deepSeekState.keyLengthCategory,
-            maskedKey: deepSeekState.maskedDisplay,
-            lastReadStatus: keychainService.lastReadStatus,
-            lastWriteStatus: keychainService.lastWriteStatus,
-            migrationPerformed: keychainService.migrationPerformed,
-            legacyItemFound: keychainService.legacyItemFound,
-            legacyItemCount: keychainService.legacyItemCount,
-            authorizationWarning: authorizationWarning,
-            mismatchStatus: mismatchStatus
-        )
-    }
-
-    private func applyKeychainStatusSnapshot(_ snapshot: KeychainStatusSnapshot) {
-        hasAPIKey = snapshot.hasAnyAPIKey
-        keychainDeepSeekKeyExists = snapshot.deepSeekKeyExists
-        keychainDeepSeekKeyLengthCategory = snapshot.deepSeekKeyLengthCategory
-        keychainMaskedKey = snapshot.maskedKey
-        keychainLastReadStatus = snapshot.lastReadStatus
-        keychainLastWriteStatus = snapshot.lastWriteStatus
-        keychainMigrationPerformed = snapshot.migrationPerformed
-        keychainLegacyItemFound = snapshot.legacyItemFound
-        keychainLegacyItemCount = snapshot.legacyItemCount
-        keychainAuthorizationWarning = snapshot.authorizationWarning
-        keychainMismatchStatus = snapshot.mismatchStatus
-    }
-
-    private func refreshKeychainStatusInBackground() {
-        guard keychainService.store is RealKeychainStore else {
-            applyKeychainStatusSnapshot(loadKeychainStatusSnapshot())
-            return
-        }
-        guard !keychainStatusRefreshInFlight else { return }
-        keychainStatusRefreshInFlight = true
-
-        let keychain = keychainService
-        let accounts = Set(providerConfigurations.compactMap(\.apiKeyAccount))
-        Task.detached(priority: .utility) {
-            keychain.performMigrationIfNeeded(accounts: accounts)
-            let snapshot = AppState.loadKeychainStatusSnapshot(
-                keychainService: keychain,
-                accounts: accounts
-            )
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.applyKeychainStatusSnapshot(snapshot)
-                self.keychainStatusRefreshInFlight = false
-            }
-        }
-    }
-
     func refreshAll(loadKeychain: Bool? = nil) {
         do {
-            settings = try settingsRepository.loadSettings()
-            RuntimeTranscriptTraceStore.shared.prepareForMode(
-                settings.effectiveDiagnosticTraceMode,
-                at: runtimeTranscriptTraceLogURL
-            )
-            providerConfigurations = try settingsRepository.ensureDefaultProviderConfigurations()
-            activeRealtimeProvider = try settingsRepository.activeRealtimeProvider()
-            activeRecapProvider = try settingsRepository.activeRecapProvider()
-            documents = try documentRepository.documents()
-            candidateProfiles = try interviewContextRepository.candidateProfiles()
-            opportunityContexts = try interviewContextRepository.opportunityContexts()
-            var selection = try interviewContextRepository.loadSelection()
-            var configurationOrigin = try interviewContextRepository.loadConfigurationOrigin()
-            if configurationOrigin == nil,
-               selection.candidateProfileID != nil || selection.opportunityContextID != nil {
-                configurationOrigin = .legacyManualContext
-                try interviewContextRepository.saveConfigurationOrigin(.legacyManualContext)
-            }
-            let selectableCandidates = candidateProfiles.filter { !ProductionContextPolicy.isSyntheticProfile($0) }
-            let selectableOpportunities = opportunityContexts.filter { !ProductionContextPolicy.isSyntheticOpportunity($0) }
-            let currentDocumentIDs = Set(documents.map(\.id))
-            let linkedCandidates = selectableCandidates.filter { !Set($0.sourceDocumentIDs).isDisjoint(with: currentDocumentIDs) }
-            let linkedOpportunities = selectableOpportunities.filter { !Set($0.sourceDocumentIDs).isDisjoint(with: currentDocumentIDs) }
-            if !ProductionContextPolicy.isTestProcess,
-               let selected = selection.candidateProfileID,
-               candidateProfiles.first(where: { $0.id == selected }).map(ProductionContextPolicy.isSyntheticProfile) == true {
-                selection.candidateProfileID = nil
-            }
-            if !ProductionContextPolicy.isTestProcess,
-               let selected = selection.opportunityContextID,
-               opportunityContexts.first(where: { $0.id == selected }).map(ProductionContextPolicy.isSyntheticOpportunity) == true {
-                selection.opportunityContextID = nil
-            }
-            if selection.candidateProfileID == nil, linkedCandidates.count == 1, !documents.isEmpty {
-                selection.candidateProfileID = linkedCandidates[0].id
-            }
-            if selection.opportunityContextID == nil, linkedOpportunities.count == 1, !documents.isEmpty {
-                selection.opportunityContextID = linkedOpportunities[0].id
-            }
-            activeCandidateProfileID = selection.candidateProfileID
-            activeOpportunityContextID = selection.opportunityContextID
-            activeInterviewDomainID = selection.domainProfileID
-            contextConfigurationOrigin = configurationOrigin
-            try interviewContextRepository.saveSelection(selection)
-            if let snapshotID = currentSession?.contextSnapshotID {
-                activeContextSnapshot = try interviewContextRepository.snapshot(id: snapshotID)
-            }
-            sessions = try sessionRepository.listSessions()
-            let completion = try documentRepository.onboardingCompletion()
-            hasCV = completion.hasCV
-            hasJD = completion.hasJD
-            let shouldLoadKeychain = loadKeychain ?? !(keychainService.store is RealKeychainStore)
-            if shouldLoadKeychain {
-                applyKeychainStatusSnapshot(loadKeychainStatusSnapshot())
-            } else if isRunningUnderTestOrAutomation() {
-                self.keychainLastReadStatus = "Disabled for test process"
-                self.keychainMismatchStatus = "Keychain access disabled for test process"
-            } else {
-                self.keychainLastReadStatus = "Deferred"
-                if self.keychainMismatchStatus == "Not Checked" || self.keychainMismatchStatus.isEmpty {
-                    self.keychainMismatchStatus = "Keychain check deferred"
-                }
-                if selectedAnswerProviderMode != .localQwenPrimary {
-                    refreshKeychainStatusInBackground()
-                }
-            }
+            try settingsState.reload()
+            diagnosticsState.prepareForMode(settings.effectiveDiagnosticTraceMode)
+            try documentsState.reload()
+            try interviewContextState.reload(sessionSnapshotID: currentSession?.contextSnapshotID)
+            try historyState.refreshSessions()
+            settingsState.refreshKeychainStatus(
+                loadImmediately: loadKeychain ?? !(keychainService.store is RealKeychainStore),
+                isTestProcess: isRunningUnderTestOrAutomation(),
+                answerMode: selectedAnswerProviderMode)
             let cvCount = (try? documentRepository.chunks(type: .cv).count) ?? 0
             let jdCount = (try? documentRepository.chunks(type: .jobDescription).count) ?? 0
             latexPollutedChunkCount = (try? documentRepository.latexPollutedChunkCount()) ?? 0
@@ -1421,11 +1686,6 @@ final class AppState: ObservableObject {
                 $0.apiCallCount = (try? self.settingsRepository.apiCallCount()) ?? 0
             }
             
-            let currentProvStr = currentEmbeddingProviderID(for: settings)
-            let currentModelStr = settings.embeddingModelName
-            if let cov = try? documentRepository.embeddingCoverage(currentProvider: currentProvStr, currentModel: currentModelStr) {
-                self.embeddingCoverage = cov
-            }
             let verificationMocksEnabled = ProductionContextPolicy.verificationMocksEnabled(
                 explicitOverride: verificationMocksEnabledOverride,
                 environmentValue: ProcessInfo.processInfo.environment["ENABLE_VERIFICATION_MOCKS"]
@@ -1504,11 +1764,10 @@ final class AppState: ObservableObject {
     /// Coordinates one suggestion-generation attempt from accepted question to
     /// visible first answer, Stage B expansion, persistence, and diagnostics.
     ///
-    /// This method still owns the task lifecycle in Phase 2D. It assumes the
-    /// caller has already accepted exactly one clean question. All async paths
-    /// must guard `generationID` against the active generation before mutating
-    /// current UI state, because older Stage A/Stage B/provider callbacks may
-    /// finish after a newer interviewer question starts.
+    /// The caller has accepted one clean question. GenerationCoordinator owns
+    /// the root and provider children; this application boundary applies frozen
+    /// evidence, UI and persistence policy. Async returns must validate the full
+    /// generation identity before publishing to the current question.
     ///
     /// Stage B timeout is not automatically a product failure: an aligned,
     /// complete first answer or local fallback may remain the correct visible
@@ -1520,14 +1779,71 @@ final class AppState: ObservableObject {
         autoGenerated: Bool,
         triggerPath explicitTriggerPath: GenerationTriggerPath? = nil,
         source explicitSource: AudioSourceType? = nil,
-        speaker explicitSpeaker: SpeakerRole? = nil
+        speaker explicitSpeaker: SpeakerRole? = nil,
+        requestID owningRequestID: String? = nil,
+        localProvider frozenLocalProvider: (any LocalLLMProvider)? = nil,
+        localModelName frozenLocalModelName: String? = nil,
+        answerMode frozenAnswerMode: AnswerProviderMode? = nil,
+        providerConfiguration frozenProviderConfiguration: LLMProviderConfiguration? = nil,
+        retrievalService submittedRetrievalService: (any ContextRetrievalService)? = nil,
+        prefetchAdmission submittedPrefetchAdmission: LiveRAGPrefetch.CacheAdmission? = nil,
+        consentTicket submittedTicket: Int? = nil
     ) async throws {
-        var question = question
-        let routingTicket = persistenceConsent.ticket()
-        freezeConversationContext(for: &question)
-        let routingParent = question.taskDescriptor?.conversationContext
+        try Task.checkCancellation()
         let triggerPath = explicitTriggerPath ?? (autoGenerated ? .autoDetect : .manualGenerate)
+        let requestID: String
+        if let owningRequestID {
+            guard generationCoordinator.isCurrentRequest(owningRequestID) else { return }
+            requestID = owningRequestID
+        } else {
+            requestID = beginGenerationRequest(triggerPath: triggerPath)
+        }
+        // Preliminary invalidation can synchronously submit a newer request.
+        // An obsolete entry must stop before writing question/UI diagnostics.
+        guard generationCoordinator.isCurrentRequest(requestID) else { return }
+        defer {
+            if owningRequestID == nil { generationCoordinator.finishRequest(requestID: requestID) }
+        }
+        // Configuration edits apply to the next request. The existing public
+        // answer-mode setter instead cancels work and revokes its consent.
+        let answerProviderMode = frozenAnswerMode ?? selectedAnswerProviderMode
+        // A submitted mode also marks an explicitly captured configuration,
+        // including absence. Do not revive a missing provider from later settings.
+        let answerProviderConfiguration = frozenAnswerMode != nil
+            ? frozenProviderConfiguration
+            : activeRealtimeProvider ?? (try? llmRouter.realtimeConfiguration())
+        guard answerProviderMode == .localQwenPrimary || answerProviderConfiguration != nil else {
+            throw LLMProviderError.notConfigured("Realtime LLM provider")
+        }
+        let localModelName = frozenLocalModelName ?? selectedQwenModelName
+        let localAnswerProvider = frozenLocalProvider ?? localLLMProviderOverride ?? OllamaQwenProvider()
+        let routingProvider = questionRoutingProvider ?? localAnswerProvider
+        // Settings/provider edits apply to the next RAG request, including
+        // changes during routing before the retriever itself starts.
+        let prefetchAdmission = submittedPrefetchAdmission ?? (
+            frozenAnswerMode == nil && submittedRetrievalService == nil
+                ? liveRAGPrefetch.cacheAdmission : nil)
+        let retrievalService = frozenAnswerMode != nil
+            ? submittedRetrievalService
+            : submittedRetrievalService ?? contextRetrievalService?.freezeConfiguration()
+        var question = question
+        let routingTicket = submittedTicket ?? persistenceConsent.ticket()
+        // Submitted manual actions already captured their parent and mode.
+        // Current UI mode changes apply to the next request; session/context
+        // revocation remains guarded by the request and generation owners.
+        if frozenAnswerMode == nil || question.taskDescriptor?.conversationContextCaptured != true {
+            freezeConversationContext(for: &question)
+        }
+        let routingParent = question.taskDescriptor?.conversationContext
+        #if DEBUG
+        let guardBeganNS = DispatchTime.now().uptimeNanoseconds
+        #endif
         let preGenerationGuard = QuestionRuntimeAcceptanceGuard.validateDetectedQuestionForGeneration(question)
+        #if DEBUG
+        diagnosticsState.onPipelineTimingForTesting?("generation.pre_guard_sync",
+            session.id, question.id, nil, guardBeganNS,
+            DispatchTime.now().uptimeNanoseconds, question.questionText.utf16.count)
+        #endif
         guard preGenerationGuard.accepted else {
             let reason = preGenerationGuard.reason ?? .pipelineRejected
             if lastRegenerateQuestionID == question.id {
@@ -1555,17 +1871,35 @@ final class AppState: ObservableObject {
             currentCaptureRuntimeState = anyCaptureRunning ? .listening : .stopped(reason: stopReason)
             throw RuntimeQuestionRejectedError(reason: reason, diagnostic: preGenerationGuard.diagnostic)
         }
+        #if DEBUG
+        let contextBindBeganNS = DispatchTime.now().uptimeNanoseconds
+        #endif
         let generationSession = try ensureContextSnapshot(for: session)
+        #if DEBUG
+        diagnosticsState.onPipelineTimingForTesting?("generation.context_bind_sync",
+            session.id, question.id, nil, contextBindBeganNS,
+            DispatchTime.now().uptimeNanoseconds, question.questionText.utf16.count)
+        let contextReadBeganNS = DispatchTime.now().uptimeNanoseconds
+        #endif
         let generationSnapshot = generationSession.contextSnapshotID.flatMap { try? interviewContextRepository.snapshot(id: $0) }
+        #if DEBUG
+        diagnosticsState.onPipelineTimingForTesting?("generation.context_read_sync",
+            session.id, question.id, nil, contextReadBeganNS,
+            DispatchTime.now().uptimeNanoseconds, question.questionText.utf16.count)
+        #endif
         let attributedSegment = question.transcriptSegmentID.flatMap { segmentID in
             transcriptSegments.first(where: { $0.id == segmentID })
         }
         let telemetrySource = explicitSource ?? attributedSegment?.source
         let telemetrySpeaker = explicitSpeaker ?? attributedSegment?.speaker
         lastDetectedQuestion = question
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         lastDetectedQuestionText = question.questionText
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         lastDetectedQuestionSource = telemetrySource?.rawValue ?? lastDetectedQuestionSource
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         lastDetectedQuestionSpeaker = telemetrySpeaker?.rawValue ?? lastDetectedQuestionSpeaker
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         if !isActionLoading(ActionID.generateAnswer) {
             beginAction(
                 ActionID.generateAnswer,
@@ -1574,12 +1908,18 @@ final class AppState: ObservableObject {
             )
         }
 
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         liveState = .generatingSuggestion
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         let stateBefore = currentCaptureRuntimeState.displayName
         currentCaptureRuntimeState = .generating
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         addCaptureEvent(name: "suggestionGenerationStarted", stateBefore: stateBefore, stateAfter: "generating", reason: "questionDetected")
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         self.suggestionGenerationStarted = true
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         self.floatingPanelUpdated = false
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
 
         let requestStart = Date()
         let isAcceptedQuestionRegenerate = lastRegenerateQuestionID == question.id &&
@@ -1587,9 +1927,11 @@ final class AppState: ObservableObject {
         let cardID = isAcceptedQuestionRegenerate ? (currentSuggestion?.id ?? UUID().uuidString) : UUID().uuidString
         let generationID = UUID().uuidString
         if isAcceptedQuestionRegenerate {
-            intentionalRepeatQuestionIDs.insert(question.id)
+            liveInterview.markIntentionalQuestionRepeat(question.id)
             lastRegenerateNewGenerationID = generationID
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastRegenerateRejectionReason = ""
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             recordLifecycleTrace(
                 "regenerate.generation.started",
                 sessionID: session.id,
@@ -1613,56 +1955,111 @@ final class AppState: ObservableObject {
             generationID: generationID,
             text: question.questionText
         )
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         let traceSegmentID = lastTranscriptQuestionGenerationTrace.transcriptSegmentID
         if !traceSegmentID.isEmpty,
            question.transcriptSegmentID == traceSegmentID {
             lastTriggerDecision = InterviewTriggerDecision.triggerAnswer.rawValue
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTriggerReason = "accepted substantive interviewer question"
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastSuppressionReason = ""
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.generationTriggered = true
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.generationID = generationID
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.providerStatus = activeRealtimeProviderBadge
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.triggerDecision = InterviewTriggerDecision.triggerAnswer.rawValue
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.triggerReason = "accepted substantive interviewer question"
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
             lastTranscriptQuestionGenerationTrace.suppressionReason = ""
+            guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         }
+        guard generationCoordinator.isCurrentRequest(requestID), !Task.isCancelled else { return }
         activateGeneration(
             question: question,
             generationID: generationID,
             triggerPath: triggerPath,
             requestStart: requestStart,
             source: telemetrySource,
-            speaker: telemetrySpeaker
+            speaker: telemetrySpeaker,
+            requestID: requestID,
+            providerConfiguration: answerProviderConfiguration,
+            answerProviderMode: answerProviderMode,
+            persistenceTicket: routingTicket
         )
-        autoSuggestionLaunchPending = false
-        setGenerationUIState(.generatingFirstAnswer(questionID: question.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-        let useFirstAnswerFallbackWatchdogs = shouldUseFirstAnswerFallbackWatchdogsForCurrentProvider
+        guard let generationIdentity = activeGenerationController?.identity,
+              generationIdentity.generationID == generationID,
+              generationCoordinator.isCurrentRequest(requestID) else { return }
+        @MainActor func acceptsInitialPresentation() -> Bool {
+            !Task.isCancelled && generationCoordinator.isCurrentRequest(requestID) &&
+                generationCoordinator.canPublish(generationIdentity)
+        }
+        guard acceptsInitialPresentation() else { return }
+        setGenerationUIState(.generatingFirstAnswer(questionID: question.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID, whileCurrent: acceptsInitialPresentation)
+        guard acceptsInitialPresentation() else { return }
+        let useFirstAnswerFallbackWatchdogs = answerProviderMode != .localQwenPrimary
 
 
         self.streamRequestStartAt = requestStart
+        guard acceptsInitialPresentation() else { return }
         self.streamFirstTokenAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.streamFirstVisibleTextAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.streamFirstSentenceAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.streamFullResponseAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.streamJSONParsedAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.streamPersistedAt = nil
+        guard acceptsInitialPresentation() else { return }
 
         self.isStreamingSayFirst = true
+        guard acceptsInitialPresentation() else { return }
         self.streamedSayFirst = ""
+        guard acceptsInitialPresentation() else { return }
         self.isExpandingSuggestionCard = false
+        guard acceptsInitialPresentation() else { return }
 
         self.softFallbackUsed = false
+        guard acceptsInitialPresentation() else { return }
         self.softFallbackLatencyMS = nil
+        guard acceptsInitialPresentation() else { return }
         self.softFallbackShownAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.deepseekFirstTokenMS = nil
+        guard acceptsInitialPresentation() else { return }
         self.deepseekFirstVisibleMS = nil
+        guard acceptsInitialPresentation() else { return }
         self.finalVisibleSource = nil
+        guard acceptsInitialPresentation() else { return }
         self.userInteractedWithCard = false
+        guard acceptsInitialPresentation() else { return }
         self.ragRetrievalLatencyMS = nil
+        guard acceptsInitialPresentation() else { return }
         self.firstVisibleStateSetAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.currentSuggestionSetAt = nil
+        guard acceptsInitialPresentation() else { return }
         self.streamedSayFirstSetAt = nil
+        guard acceptsInitialPresentation() else { return }
+
+        recordVerificationBoundary("verification.generation_snapshot_frozen",
+            at: VerificationTiming.hostTicks(), sessionID: generationIdentity.sessionID,
+            segmentID: question.transcriptSegmentID, questionID: generationIdentity.acceptedQuestionID,
+            generationID: generationIdentity.generationID, contextSnapshotID: generationIdentity.contextSnapshotID)
+
+        if answerProviderMode == .localQwenPrimary {
+            startFullCardWatchdog(generationID: generationID, cardID: cardID,
+                question: question, session: session, requestStart: requestStart, triggerPath: triggerPath)
+        }
 
         let routingInput = InterviewRoutingInput(
             question: question.questionText, questionID: question.id,
@@ -1672,9 +2069,16 @@ final class AppState: ObservableObject {
             previousAnswer: routingParent?.answerText
         )
         var descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
-        if descriptor.decision == nil || descriptor.question != question.questionText || descriptor.decision?.contextSnapshotID != generationSnapshot?.id || descriptor.decision?.model != selectedQwenModelName || descriptor.decision?.routerVersion != InterviewQuestionRouter.version {
-            let decision = try await InterviewQuestionRouter.resolve(routingInput, provider: questionRoutingProvider ?? localLLMProviderOverride ?? OllamaQwenProvider(), model: selectedQwenModelName)
+        if descriptor.decision == nil || descriptor.question != question.questionText || descriptor.decision?.contextSnapshotID != generationSnapshot?.id || descriptor.decision?.model != localModelName || descriptor.decision?.routerVersion != InterviewQuestionRouter.version {
+            let decision = try await generationCoordinator.routeQuestion(identity: generationIdentity,
+                input: routingInput, provider: routingProvider, model: localModelName)
             guard !Task.isCancelled, isActiveGeneration(generationID, questionID: question.id) else { return }
+            recordVerificationBoundary("verification.route_producer_completed",
+                at: decision.verificationCompletedHostTicks, sessionID: generationIdentity.sessionID,
+                segmentID: question.transcriptSegmentID, questionID: decision.questionID,
+                generationID: generationIdentity.generationID, contextSnapshotID: decision.contextSnapshotID,
+                questionRevision: decision.questionRevision, artifactRevision: decision.artifactRevision,
+                producerFailure: decision.failure != nil)
             descriptor.question = question.questionText
             descriptor.apply(decision)
             question.taskDescriptor = descriptor
@@ -1702,137 +2106,175 @@ final class AppState: ObservableObject {
         // This watchdog covers the remote answer pipeline, including RAG
         // retrieval. Local Qwen primary must either produce ollama_qwen or fail;
         // it must not publish template fallback as the default local path.
-        if useFirstAnswerFallbackWatchdogs {
-            let initialFallbackTask = Task { [weak self] in
-                guard let self = self else { return }
-                do {
-                    try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
-                } catch {
-                    return
-                }
-                guard self.currentGenerationID == generationID else { return }
-                guard self.currentSuggestion == nil, self.streamFirstVisibleTextAt == nil else { return }
-                let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
-                self.softFallbackUsed = true
-                self.softFallbackLatencyMS = elapsed
-                self.softFallbackShownAt = Date()
-                self.finalVisibleSource = "local_first_answer_fallback"
-                var fallbackCard = self.makeInitialFirstAnswerFallbackCard(
-                    cardID: cardID,
-                    question: localQuestion,
-                    session: localSession,
-                    requestStart: requestStart
-                )
-                fallbackCard.firstVisibleAnswerMS = elapsed
-                if !fallbackCard.keyPoints.isEmpty {
-                    fallbackCard.firstKeyPointVisibleMS = elapsed
-                    fallbackCard.allKeyPointsVisibleMS = elapsed
-                }
-                if !fallbackCard.followUpReady.isEmpty {
-                    fallbackCard.followUpVisibleMS = elapsed
-                }
-                guard self.displaySuggestionIfAligned(
-                    fallbackCard,
-                    question: localQuestion,
-                    generationID: generationID,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker
-                ) else { return }
-                self.currentSuggestionSetAt = Date()
-                self.isStreamingSayFirst = false
-                self.isExpandingSuggestionCard = true
-                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
-                self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-                self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Local first answer is visible while the full answer expands.", autoDismissAfter: 3.0)
-                print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
-                if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
-                    generationID: generationID,
-                    question: localQuestion,
-                    session: localSession,
-                    requestStart: requestStart,
-                    triggerPath: triggerPath
-                ) {
-                    return
-                }
+        let initialFallbackTask = generationCoordinator.launchInitialFirstAnswerFallbackDeadline(
+            identity: generationIdentity, startedAt: requestStart, delayProvider: delayProvider,
+            presentation: { [weak self] identity in
+                guard let self, !Task.isCancelled,
+                      self.generationCoordinator.canPublish(identity),
+                      !self.generationUIState.isTerminal,
+                      self.currentSession?.id == identity.sessionID else { return nil }
+                return (self.currentSuggestion, self.streamFirstVisibleTextAt)
             }
-            registerFallbackWatchdogTask(initialFallbackTask, generationID: generationID)
+        ) { [weak self] identity, elapsed in
+            guard let self else { return }
+            let acceptsPublication = {
+                !Task.isCancelled && self.generationCoordinator.canPublish(identity) &&
+                    !self.generationUIState.isTerminal && self.currentSession?.id == identity.sessionID
+            }
+            guard acceptsPublication() else { return }
+            self.softFallbackUsed = true
+            guard acceptsPublication() else { return }
+            self.softFallbackLatencyMS = elapsed
+            guard acceptsPublication() else { return }
+            self.softFallbackShownAt = Date()
+            guard acceptsPublication() else { return }
+            self.finalVisibleSource = "local_first_answer_fallback"
+            guard acceptsPublication() else { return }
+            var fallbackCard = self.makeInitialFirstAnswerFallbackCard(
+                cardID: cardID,
+                question: localQuestion,
+                session: localSession,
+                requestStart: requestStart
+            )
+            fallbackCard.firstVisibleAnswerMS = elapsed
+            if !fallbackCard.keyPoints.isEmpty {
+                fallbackCard.firstKeyPointVisibleMS = elapsed
+                fallbackCard.allKeyPointsVisibleMS = elapsed
+            }
+            if !fallbackCard.followUpReady.isEmpty {
+                fallbackCard.followUpVisibleMS = elapsed
+            }
+            guard self.displaySuggestionIfAligned(
+                fallbackCard,
+                question: localQuestion,
+                generationID: generationID,
+                triggerPath: triggerPath,
+                source: telemetrySource,
+                speaker: telemetrySpeaker,
+                whileCurrent: acceptsPublication
+            ) else { return }
+            guard acceptsPublication() else { return }
+            self.currentSuggestionSetAt = Date()
+            guard acceptsPublication() else { return }
+            self.isStreamingSayFirst = false
+            guard acceptsPublication() else { return }
+            self.isExpandingSuggestionCard = true
+            guard acceptsPublication() else { return }
+            self.markFirstVisibleAnswer(generationID: generationID, fallback: true, whileCurrent: acceptsPublication)
+            guard acceptsPublication() else { return }
+            self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID, whileCurrent: acceptsPublication)
+            guard acceptsPublication() else { return }
+            self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Local first answer is visible while the full answer expands.", autoDismissAfter: 3.0, whileCurrent: acceptsPublication)
+            guard acceptsPublication() else { return }
+            print("[StreamingASR] Initial first-answer fallback triggered at \(elapsed)ms before provider text was visible.")
+            if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
+                generationID: generationID,
+                question: localQuestion,
+                session: localSession,
+                requestStart: requestStart,
+                triggerPath: triggerPath
+            ) {
+                return
+            }
+        }
+        if initialFallbackTask != nil {
+            updateActiveTaskSummary()
         }
         applyPendingIgnoredSystemAudioFallbackIfNeeded(for: question)
         
         var retrievedContext: RetrievedContext? = nil
         var retrievalTrace: RetrievalTrace? = nil
         
-        // 1. Check precomputed RAG Cache
+        // 1. Consume speculative context only for the exact accepted question.
         var hitCache = false
-        if let segmentID = question.transcriptSegmentID {
+        if let segmentID = question.transcriptSegmentID, retrievalService != nil {
             let finalIntent = AnswerRelevancePolicy.intent(for: question.questionText)
-            let normalizedFinal = AnswerRelevancePolicy.normalizedQuestionText(for: question.questionText)
-            let exactCacheKey = ragPrecomputeCacheKey(
-                segmentID: segmentID,
-                questionText: question.questionText,
-                intent: finalIntent
-            )
-            if let cached = precomputedRAGCache[exactCacheKey] {
-                if cached.normalizedQuestionText == normalizedFinal && cached.questionIntent == finalIntent {
-                    retrievedContext = cached.context
-                    retrievalTrace = cached.trace
-                    hitCache = true
-                    lastRAGOperation = "Relevant context cache hit"
-                    print("[PrecomputeRAG] Exact cache hit")
-                } else {
+            let cacheScope = LiveRAGPrefetch.Scope(sessionID: generationSession.id,
+                snapshotID: generationSnapshot?.id,
+                cacheContextID: generationSnapshot?.id ?? generationSession.contextSnapshotID ?? "legacy-context")
+            switch liveRAGPrefetch.consume(scope: cacheScope, admission: prefetchAdmission, segmentID: segmentID,
+                questionText: question.questionText, intent: finalIntent) {
+            case .hit(let cached):
+                retrievedContext = cached.context
+                retrievalTrace = cached.trace
+                hitCache = true
+                lastRAGOperation = "Relevant context cache hit"
+                print("[PrecomputeRAG] Exact cache hit")
+            case .mismatch:
+                lastRAGOperation = "Relevant context cache miss"
+                print("[PrecomputeRAG] Cache miss due to question/intent mismatch. Rerunning retrieval.")
+            case .miss(let staleCount):
+                if staleCount > 0 {
                     lastRAGOperation = "Relevant context cache miss"
-                    print("[PrecomputeRAG] Cache miss due to question/intent mismatch. Rerunning retrieval.")
-                }
-                precomputedRAGCache.removeValue(forKey: exactCacheKey)
-            } else {
-                let staleKeys = precomputedRAGCache.keys.filter { $0.hasPrefix(segmentID + "_") }
-                staleKeys.forEach { precomputedRAGCache.removeValue(forKey: $0) }
-                if !staleKeys.isEmpty {
-                    lastRAGOperation = "Relevant context cache miss"
-                    print("[PrecomputeRAG] Removed \(staleKeys.count) stale cache item(s) for segmentID: \(segmentID).")
+                    print("[PrecomputeRAG] Removed \(staleCount) stale cache item(s) for segmentID: \(segmentID).")
                 }
             }
         }
-        
+
         if !hitCache {
             do {
                 markRAGOperation("Relevant context retrieval started")
-                let retrievalService = contextRetrievalService!
-                let (context, trace) = try await Task.detached(priority: .userInitiated) {
-                    try await retrievalService.retrieveContextWithTrace(
-                        question: question.questionText,
-                        intent: question.intent,
-                        maxCVWords: 300,
-                        maxJDWords: 180,
-                        strategy: question.answerStrategy
-                    )
-                }.value
+                guard let retrievalService else {
+                    throw LLMProviderError.notConfigured("Context retrieval at submission")
+                }
+                let (context, trace) = try await generationCoordinator.retrieveContext(
+                    identity: generationIdentity, service: retrievalService,
+                    question: question.questionText, intent: question.intent,
+                    maxCVWords: 300, maxJDWords: 180, strategy: question.answerStrategy)
+                guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity),
+                      ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else {
+                    recordStaleGenerationDiscard()
+                    return
+                }
                 retrievedContext = context
                 retrievalTrace = trace
                 lastRAGOperation = "Relevant context retrieval completed"
             } catch {
+                guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity),
+                      ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else {
+                    recordStaleGenerationDiscard()
+                    return
+                }
                 lastRAGOperation = "Relevant context retrieval failed: \(error.localizedDescription)"
+                guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity),
+                      ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else { return }
                 markGenerationFailed(
                     generationID: generationID,
                     reason: "Relevant context retrieval failed: \(error.localizedDescription)",
                     providerError: error.localizedDescription
                 )
-                failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context. \(userFacing(error))")
+                guard ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else { return }
+                failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context. \(userFacing(error))",
+                    whileCurrent: { self.ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) })
+                guard ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else { return }
                 throw error
             }
         }
         
         guard let legacyContext = retrievedContext, let trace = retrievalTrace else {
+            guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity),
+                  ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else { return }
             let error = LLMProviderError.invalidResponse("Could not retrieve relevant context.")
             markGenerationFailed(generationID: generationID, reason: error.localizedDescription, providerError: error.localizedDescription)
-            failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context.")
+            guard ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else { return }
+            failAction(ActionID.generateAnswer, title: "Generation failed", message: "Could not prepare relevant context.",
+                whileCurrent: { self.ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) })
+            guard ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else { return }
             throw error
         }
-        guard isActiveGeneration(generationID) else {
+        guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity),
+              ownsCurrentGenerationPresentation(generationIdentity, requestID: requestID) else {
             recordStaleGenerationDiscard()
             return
         }
+        recordVerificationBoundary(hitCache ? "verification.rag_cached_producer_time" : "verification.rag_producer_completed",
+            at: trace.verificationCompletedHostTicks, sessionID: generationIdentity.sessionID,
+            segmentID: question.transcriptSegmentID, questionID: generationIdentity.acceptedQuestionID,
+            generationID: generationIdentity.generationID, contextSnapshotID: generationIdentity.contextSnapshotID)
+        recordVerificationBoundary("verification.rag_result_accepted",
+            at: VerificationTiming.hostTicks(), sessionID: generationIdentity.sessionID,
+            segmentID: question.transcriptSegmentID, questionID: generationIdentity.acceptedQuestionID,
+            generationID: generationIdentity.generationID, contextSnapshotID: generationIdentity.contextSnapshotID)
         self.lastRetrievalTrace = trace
         self.ragRetrievalLatencyMS = Int(trace.retrievalLatencyMS)
 
@@ -1848,25 +2290,40 @@ final class AppState: ObservableObject {
         // 2. Realtime Context Budget Optimization
         let optimizedContext = trimContextForRealtime(context, question: question)
         
-        // Load CV/JD compact summaries for prompt prefix stabilization
-        let documentRepository = self.documentRepository
-        markSQLiteOperation("Loading document summaries in background")
-        let (cvRecord, jdRecord) = await Task.detached(priority: .utility) {
-            (
-                try? documentRepository.document(type: .cv),
-                try? documentRepository.document(type: .jobDescription)
+        // Snapshot summaries already own these inputs. Reading live documents
+        // here would add an awaited dependency whose result is discarded.
+        let summaries: (cv: String, jd: String)
+        if let generationSnapshot {
+            guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity) else {
+                recordStaleGenerationDiscard()
+                return
+            }
+            summaries = SnapshotBoundContextPolicy.summaries(
+                snapshot: generationSnapshot,
+                liveCVSummary: "",
+                liveJDSummary: ""
             )
-        }.value
-        guard isActiveGeneration(generationID) else {
-            recordStaleGenerationDiscard()
-            return
+            lastSQLiteOperation = "Using frozen context summaries"
+        } else {
+            let documentRepository = self.documentRepository
+            markSQLiteOperation("Loading document summaries in background")
+            let (cvRecord, jdRecord) = await Task.detached(priority: .utility) {
+                (
+                    try? documentRepository.document(type: .cv),
+                    try? documentRepository.document(type: .jobDescription)
+                )
+            }.value
+            guard !Task.isCancelled, generationCoordinator.canPublish(generationIdentity) else {
+                recordStaleGenerationDiscard()
+                return
+            }
+            lastSQLiteOperation = "Loaded document summaries"
+            summaries = SnapshotBoundContextPolicy.summaries(
+                snapshot: nil,
+                liveCVSummary: makeCompactSummary(cvRecord),
+                liveJDSummary: makeCompactSummary(jdRecord)
+            )
         }
-        lastSQLiteOperation = "Loaded document summaries"
-        let summaries = SnapshotBoundContextPolicy.summaries(
-            snapshot: generationSnapshot,
-            liveCVSummary: makeCompactSummary(cvRecord),
-            liveJDSummary: makeCompactSummary(jdRecord)
-        )
         let cvSummary = summaries.cv
         let jdSummary = summaries.jd
         // Freeze the prompt inputs after RAG retrieval and before provider
@@ -1878,7 +2335,7 @@ final class AppState: ObservableObject {
             question: localQuestion,
             generationID: generationID,
             triggerPath: triggerPath,
-            provider: activeRealtimeProvider,
+            provider: answerProviderConfiguration,
             retrievedContext: optimizedContext,
             transcriptSnapshot: localTranscript,
             cvSummary: cvSummary,
@@ -1924,12 +2381,13 @@ final class AppState: ObservableObject {
                let visible = currentSuggestion {
                 _ = finishGenerationWithVisibleCard(visible, generationID: generationID, question: localQuestion, session: localSession,
                     requestStart: requestStart, retrievedChunks: [], triggerPath: triggerPath, timedOut: false)
+                guard ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID) else { return }
                 warnAction(ActionID.generateAnswer, title: "Personal facts needed", message: "Add or confirm the relevant facts before generating a personal answer.")
             }
             return
         }
 
-        if selectedAnswerProviderMode == .localQwenPrimary {
+        if answerProviderMode == .localQwenPrimary {
             clearFallbackWatchdogTask(generationID: generationID)
             markProviderOperation("Local Qwen primary generation started")
             do {
@@ -1947,12 +2405,16 @@ final class AppState: ObservableObject {
                     triggerPath: triggerPath,
                     source: telemetrySource,
                     speaker: telemetrySpeaker,
-                    localProvider: localLLMProviderOverride ?? OllamaQwenProvider(),
+                    localProvider: localAnswerProvider,
+                    modelName: localModelName,
                     fallbackReason: nil,
                     interviewContextSnapshot: generationSnapshot
                 )
                 if finished { return }
-                guard isActiveGeneration(generationID, questionID: localQuestion.id) else {
+                guard generationCoordinator.canPublish(generationContext.identity),
+                      ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID),
+                      isActiveGeneration(generationID, questionID: localQuestion.id),
+                      !Task.isCancelled else {
                     return
                 }
                 let category = ollamaDiagnostics.finalErrorCategory ?? .alignmentRejectedNonemptyContent
@@ -1961,7 +2423,9 @@ final class AppState: ObservableObject {
                     diagnostic: lastAlignmentError.isEmpty ? category.rawValue : lastAlignmentError
                 )
             } catch {
-                guard shouldPropagateGenerationFailure(
+                guard generationCoordinator.canPublish(generationContext.identity),
+                      ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID),
+                      shouldPropagateGenerationFailure(
                     generationID: generationID,
                     questionID: localQuestion.id
                 ),
@@ -1974,677 +2438,156 @@ final class AppState: ObservableObject {
                     reason: error.localizedDescription,
                     providerError: error.localizedDescription
                 )
-                failAction(ActionID.generateAnswer, title: "Generation failed", message: "Local Qwen did not produce an answer. \(userFacing(error))")
+                guard ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID) else { return }
+                failAction(ActionID.generateAnswer, title: "Generation failed", message: "Local Qwen did not produce an answer. \(userFacing(error))",
+                    whileCurrent: { self.ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID) })
+                guard ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID) else { return }
                 throw error
             }
         }
 
-        let allowsProfileFallback = PromptContextBuilder.usesProfileContext(
-            promptSnapshot.taskDescriptor ?? InterviewTaskDescriptor(question: localQuestion.questionText)
-        )
         // Also used as a blank card shell for provider text. General tasks must
         // never receive a personal-story template while waiting for that text.
-        func createRAGFallbackCard(isSoft: Bool) -> SuggestionCard {
-            let grounded = allowsProfileFallback ? groundedFallback(
-                for: localQuestion.questionText,
-                contextSnapshotID: generationSnapshot?.id, task: localQuestion.taskDescriptor
-            ) : nil
-            let selectedEvidenceIDs: Set<String> = Set(grounded?.result.candidateEvidenceIDs ?? [])
-            let keyPoints: [String] = grounded?.snapshot.candidateEvidence
-                .filter { selectedEvidenceIDs.contains($0.id) }
-                .map(\.statement) ?? []
-            let intent = AnswerRelevancePolicy.intent(for: localQuestion.questionText)
-            
-            var card = SuggestionCard(
-                id: cardID,
-                sessionID: localSession.id,
-                questionID: localQuestion.id,
-                strategy: isSoft ? "RAG Template Soft Fallback (DeepSeek Delay)" : "RAG Template Fallback (DeepSeek Timeout)",
-                sayFirst: grounded?.result.answer ?? "",
-                keyPoints: keyPoints,
-                followUpReady: ["How does this align with the role requirements?"],
-                confidence: 0.5,
-                caution: isSoft ? "Fast local answer shown; DeepSeek still generating..." : "Fast fallback shown; DeepSeek still expanding...",
-                evidenceUsed: (grounded?.result.candidateEvidenceIDs ?? []) + (grounded?.result.opportunityEvidenceIDs ?? []),
-                riskLevel: .medium,
-                modelName: "rag-fallback",
-                promptVersion: "fallback-v1",
-                providerKind: nil,
-                providerName: "RAG Template Fallback",
-                providerBaseURL: "",
-                latencyMS: Int(Date().timeIntervalSince(requestStart) * 1000),
-                isLocal: true,
-                rawJSON: nil,
-                createdAt: Date(),
-                questionIntent: intent,
-                promptQuestionText: localQuestion.questionText,
-                promptPrimaryQuestion: promptSnapshot.promptPrimaryQuestion,
-                promptContainsPreviousQuestion: promptSnapshot.promptContainsPreviousQuestion,
-                previousQuestionIncluded: promptSnapshot.previousQuestionIncluded,
-                previousQuestionText: promptSnapshot.previousQuestionText,
-                contextBleedRisk: promptSnapshot.contextBleedRisk,
-                ragChunkIDs: promptSnapshot.ragChunkIDs,
-                ragChunkIntents: promptSnapshot.ragChunkIntents,
-                promptTokenEstimate: promptSnapshot.promptTokenEstimate,
-                promptContextPreview: promptSnapshot.ragChunkPreviews.joined(separator: "\n"),
-                sayFirstSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback",
-                stageATimedOut: !isSoft,
-                stageBCompleted: false,
-                stageBStatus: "skipped",
-                latencyFirstTokenMS: deepseekFirstTokenMS,
-                latencyFirstVisibleMS: deepseekFirstVisibleMS,
-                latencyFullCardMS: nil,
-                softFallbackUsed: isSoft,
-                softFallbackLatencyMS: isSoft ? Int(Date().timeIntervalSince(requestStart) * 1000) : nil,
-                deepseekFirstTokenMS: deepseekFirstTokenMS,
-                deepseekFirstVisibleMS: deepseekFirstVisibleMS,
-                finalVisibleSource: isSoft ? "rag_template_soft_fallback" : "rag_template_fallback"
-            )
-            card.contextSnapshotID = generationSnapshot?.id
-            card.candidateProfileID = generationSnapshot?.candidateProfileID
-            card.candidateProfileVersion = generationSnapshot?.candidateProfileVersion
-            card.opportunityContextID = generationSnapshot?.opportunityContextID
-            card.opportunityContextVersion = generationSnapshot?.opportunityContextVersion
-            card.domainProfileID = generationSnapshot?.domainProfileID
-            card.candidateEvidenceIDs = grounded?.result.candidateEvidenceIDs ?? []
-            card.opportunityEvidenceIDs = grounded?.result.opportunityEvidenceIDs ?? []
-            card.groundingDecision = grounded?.result.groundingDecision ?? "context_snapshot_missing"
-            card.unsupportedClaimCount = grounded?.result.unsupportedClaims.count ?? 0
-            card.contextIsolationStatus = grounded == nil ? "missing" : "matched"
-            return card
-        }
+        let trigger = StageBTrigger(delayProvider: generationWatchdogDelayProvider)
         
-        let trigger = StageBTrigger()
-        
-        // Start 1.5s parallel soft fallback timer task
-        let ragFallbackTask = Task { [weak self] in
-            guard let self = self else { return }
-            do {
-                try await self.delayProvider.sleep(nanoseconds: 1_500_000_000)
-                guard self.currentGenerationID == generationID else { return }
-                
-                if allowsProfileFallback && self.streamFirstVisibleTextAt == nil {
-                    let elapsed = Int(Date().timeIntervalSince(requestStart) * 1000)
-                    self.softFallbackUsed = true
-                    self.softFallbackLatencyMS = elapsed
-                    self.finalVisibleSource = "rag_template_soft_fallback"
-                    
-                    let fallbackCard = createRAGFallbackCard(isSoft: true)
-                    var visibleFallback = fallbackCard
-                    visibleFallback.firstVisibleAnswerMS = elapsed
-                    guard self.displaySuggestionIfAligned(
-                        visibleFallback,
-                        question: localQuestion,
-                        generationID: generationID,
-                        triggerPath: triggerPath,
-                        source: telemetrySource,
-                        speaker: telemetrySpeaker
-                    ) else { return }
-                    self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
-                    self.isStreamingSayFirst = false
-                    self.isExpandingSuggestionCard = true
-                    self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
-                    self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-                    self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Fast local answer is visible while DeepSeek continues.", autoDismissAfter: 3.0)
-                    print("[StreamingASR] Soft fallback triggered at \(elapsed)ms because no DeepSeek text was visible yet.")
-                    if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
-                        generationID: generationID,
-                        question: localQuestion,
-                        session: localSession,
-                        requestStart: requestStart,
-                        triggerPath: triggerPath
-                    ) {
-                        return
-                    }
-                }
-            } catch {
-                // Cancelled or sleep error
+        let ragFallbackTask = generationCoordinator.launchRAGFirstAnswerFallbackDeadline(
+            context: generationContext, delayProvider: delayProvider,
+            presentation: { [weak self] identity in
+                guard let self, !Task.isCancelled,
+                      self.generationCoordinator.canPublish(identity),
+                      !self.generationUIState.isTerminal,
+                      self.currentSession?.id == identity.sessionID else { return nil }
+                return (self.currentSuggestion, self.streamFirstVisibleTextAt)
             }
-        }
-        registerFallbackWatchdogTask(ragFallbackTask, generationID: generationID)
-        
-        // Cost Control: Launch Stage B in parallel immediately, but it waits for the trigger!
-        let stageBGenerationTask = Task { [weak self] in
-            guard let self = self else { return }
-            // Wait for Stage B trigger (timeout after 500ms if first visible text doesn't show up sooner)
-            await trigger.wait(timeoutMs: 500)
-            
-            guard self.currentGenerationID == generationID else {
-                self.recordStaleGenerationDiscard()
-                return
-            }
-                guard !Task.isCancelled else {
-                    print("[StageB] Task was cancelled in-flight.")
-                    self.clearStageBTask(generationID: generationID)
-                    return
-                }
-                if self.visibleAnswerExists {
-                    self.setGenerationUIState(.expandingFullAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-                }
-            
-            let activeFallback = self.softFallbackUsed || self.currentSuggestion?.sayFirstSource == "rag_template_fallback" || self.currentSuggestion?.sayFirstSource == "rag_template_soft_fallback"
-            
-            do {
-                let streamStartedMS = self.elapsedMS(since: requestStart)
-                var parser = StreamingSuggestionSectionParser()
-                var throttle = StreamingUpdateThrottle()
-                var latestSections = StreamingSuggestionSections()
-                var sawStreamingSections = false
-
-                self.markProviderOperation("Stage B section stream started")
-                let sectionStream = try await self.suggestionGenerationService.generateFullCardSectionStream(
-                    question: localQuestion,
-                    context: optimizedContext,
-                    transcriptContext: localTranscript,
-                    sessionID: localSession.id,
-                    cvSummary: cvSummary,
-                    jdSummary: jdSummary
-                )
-
-                for try await token in sectionStream {
-                    guard self.currentGenerationID == generationID else {
-                        self.recordStaleGenerationDiscard()
-                        return
-                    }
-                    guard !Task.isCancelled else {
-                        print("[StageB] Task was cancelled in-flight.")
-                        self.clearStageBTask(generationID: generationID)
-                        return
-                    }
-
-                    latestSections = parser.append(token)
-                    guard latestSections.hasVisibleContent else { continue }
-                    sawStreamingSections = true
-
-                    let shouldForce = self.currentSuggestion?.firstKeyPointVisibleMS == nil && !latestSections.keyPoints.isEmpty
-                    if throttle.shouldPublish(characterCount: latestSections.characterCount, force: shouldForce) {
-                        let preserveFallbackSayFirst = self.softFallbackUsed &&
-                            (self.userInteractedWithCard || (!latestSections.sayFirst.isEmpty && !self.isSpecificAnswer(latestSections.sayFirst)))
-                        self.publishStreamingSections(
-                            latestSections,
-                            cardID: cardID,
-                            generationID: generationID,
-                            question: localQuestion,
-                            session: localSession,
-                            requestStart: requestStart,
-                            stageBStreamStartedMS: streamStartedMS,
-                            preserveExistingSayFirst: preserveFallbackSayFirst
-                        )
-                    }
-                }
-
-                guard self.currentGenerationID == generationID else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                guard !Task.isCancelled else {
-                    print("[StageB] Task was cancelled in-flight.")
-                    self.clearStageBTask(generationID: generationID)
-                    return
-                }
-
-                if !sawStreamingSections {
-                    self.markProviderOperation("Stage B full-card fallback started")
-                    let fullAnswerContext = GenerationExecutionContext.make(
-                        session: localSession,
-                        question: localQuestion,
-                        generationID: generationID,
-                        triggerPath: triggerPath,
-                        provider: self.activeRealtimeProvider,
-                        retrievedContext: optimizedContext,
-                        transcriptSnapshot: localTranscript,
-                        cvSummary: cvSummary,
-                        jdSummary: jdSummary,
-                        startedAt: requestStart,
-                        source: telemetrySource,
-                        speaker: telemetrySpeaker,
-                        stage: .fullAnswer,
-                        interviewContextSnapshot: generationSnapshot
-                    )
-                    let fullAnswerProviderRequest = GenerationProviderRequest(
-                        context: fullAnswerContext,
-                        streamingEnabled: false
-                    )
-                    let providerResult = try await self.withTimeout(seconds: 15.0) {
-                        await self.generationCoordinator.executeProviderRequest(
-                            fullAnswerProviderRequest,
-                            question: localQuestion,
-                            context: optimizedContext,
-                            transcriptContext: localTranscript,
-                            sessionID: localSession.id,
-                            cvSummary: cvSummary,
-                            jdSummary: jdSummary
-                        )
-                    }
-                    guard self.isActiveGeneration(generationID), !Task.isCancelled else {
-                        self.recordStaleGenerationDiscard()
-                        return
-                    }
-                    let stageBDecision = self.generationCoordinator.interpretStageBResult(
-                        generationID: generationID,
-                        detectedQuestionID: localQuestion.id,
-                        activeGenerationID: self.currentGenerationID,
-                        questionText: localQuestion.questionText,
-                        providerResult: providerResult,
-                        sections: providerResult.parsedSections,
-                        sawStreamingSections: false,
-                        visibleSayFirst: self.currentSuggestion?.sayFirst,
-                        visibleAnswerExists: self.visibleAnswerExists,
-                        identity: fullAnswerContext.identity,
-                        questionDecision: localQuestion.taskDescriptor?.decision
-                    )
-                    let stageBApplicationPlan = self.generationCoordinator.makeStageBApplicationPlan(
-                        from: stageBDecision,
-                        visibleSuggestion: self.currentSuggestion,
-                        activeGenerationID: self.currentGenerationID,
-                        activeQuestionID: self.activeQuestionID
-                    )
-                    if stageBApplicationPlan.action == .discardStaleResult {
-                        self.recordStaleGenerationDiscard()
-                        return
-                    }
-                    guard providerResult.providerStatus == .completed else {
-                        throw GenerationCoordinator.ProviderExecutionFailure(result: providerResult)
-                    }
-                    if let caution = providerResult.safeDiagnostics["caution"],
-                       caution.localizedCaseInsensitiveContains("non-JSON") ||
-                        caution.localizedCaseInsensitiveContains("JSON") {
-                        self.currentGenerationTelemetry.jsonParseError = caution
-                    }
-                    latestSections = providerResult.parsedSections ?? StreamingSuggestionSections(
-                        strategy: "Direct Answer",
-                        sayFirst: providerResult.sayFirst,
-                        keyPoints: providerResult.keyPoints,
-                        followUpReady: providerResult.followUp,
-                        caution: providerResult.safeDiagnostics["caution"] ?? ""
-                    )
-                }
-
-                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                // Both provider branches have completed here. Passing nil
-                // incorrectly labels the terminal stream as still streaming,
-                // preventing a checked first answer from completing when the
-                // expansion itself is rejected.
-                let completedStageBResult = GenerationProviderResult(
-                    identity: self.activeGenerationController?.identity,
-                    sayFirst: latestSections.sayFirst,
-                    keyPoints: latestSections.keyPoints,
-                    followUp: latestSections.followUpReady,
-                    parsedSections: latestSections,
-                    latencyMS: self.elapsedMS(since: requestStart),
-                    firstTokenMS: self.deepseekFirstTokenMS,
-                    firstVisibleMS: self.deepseekFirstVisibleMS,
-                    providerStatus: .completed,
-                    errorClassification: nil
-                )
-                let finalStageBDecision = self.generationCoordinator.interpretStageBResult(
-                    generationID: generationID,
-                    detectedQuestionID: localQuestion.id,
-                    activeGenerationID: self.currentGenerationID,
-                    questionText: localQuestion.questionText,
-                    providerResult: completedStageBResult,
-                    sections: latestSections,
-                    sawStreamingSections: sawStreamingSections,
-                    visibleSayFirst: self.currentSuggestion?.sayFirst,
-                    visibleAnswerExists: self.visibleAnswerExists,
-                    identity: self.activeGenerationController?.identity,
-                    questionDecision: localQuestion.taskDescriptor?.decision
-                )
-                let finalStageBApplicationPlan = self.generationCoordinator.makeStageBApplicationPlan(
-                    from: finalStageBDecision,
-                    visibleSuggestion: self.currentSuggestion,
-                    activeGenerationID: self.currentGenerationID,
-                    activeQuestionID: self.activeQuestionID
-                )
-                let preserveFallbackSayFirst = self.softFallbackUsed &&
-                    (self.userInteractedWithCard || (!latestSections.sayFirst.isEmpty && !self.isSpecificAnswer(latestSections.sayFirst)))
-                try await self.applyStageBApplicationPlan(
-                    finalStageBApplicationPlan,
-                    sections: latestSections,
-                    cardID: cardID,
-                    generationID: generationID,
-                    question: localQuestion,
-                    session: localSession,
-                    requestStart: requestStart,
-                    stageBStreamStartedMS: streamStartedMS,
-                    retrievedChunks: generationRetrievedChunks,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker,
-                    preserveFallbackSayFirst: preserveFallbackSayFirst
-                )
-            } catch {
-                self.clearStageBTask(generationID: generationID)
-                guard self.currentGenerationID == generationID else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                print("[StreamingASR] Stage B Full SuggestionCard failed or timed out: code=\((error as NSError).code)")
-                let errorMessage = error.localizedDescription
-                let timedOut = errorMessage.lowercased().contains("timed out") || errorMessage.lowercased().contains("timeout")
-                let jsonParseError = errorMessage.lowercased().contains("json") ? errorMessage : nil
-                self.markGenerationFailed(
-                    generationID: generationID,
-                    reason: errorMessage,
-                    providerError: errorMessage,
-                    jsonParseError: jsonParseError,
-                    timeout: timedOut,
-                    cancelled: error is CancellationError
-                )
-                
-                // Only restore .listening if safety conditions are met
-                if self.currentSession?.id == localSession.id &&
-                   self.currentCaptureRuntimeState == .generating &&
-                   self.stopReason == nil &&
-                   self.currentGenerationID == generationID &&
-                   self.anyCaptureRunning {
-                    self.liveState = .listening
-                    self.currentCaptureRuntimeState = .listening
-                    self.addCaptureEvent(name: "listeningRestored", stateBefore: "generating", stateAfter: "listening", reason: "generationFailed")
-                } else {
-                    print("[CaptureState] Bypassed restoring listening on error: sessionID=\(self.currentSession?.id ?? "nil"), state=\(self.currentCaptureRuntimeState), stopReason=\(String(describing: self.stopReason)), generationID=\(String(describing: self.currentGenerationID)), anyCaptureRunning=\(self.anyCaptureRunning)")
-                }
-                
-                if let current = self.currentSuggestion {
-                    guard self.visibleCardMatchesGeneration(
-                        card: current,
-                        generationID: generationID,
-                        detectedQuestionID: localQuestion.id,
-                        promptPrimaryQuestion: localQuestion.questionText
-                    ) else {
-                        self.recordStaleGenerationDiscard()
-                        return
-                    }
-                    if let completed = self.completeSubstantiveProviderFirstAnswerAfterTimeout(
-                        current,
-                        question: localQuestion,
-                        requestStart: requestStart
-                    ) {
-                        self.currentSuggestion = completed
-                        self.persistSuggestionInBackground(
-                            completed,
-                            chunks: self.currentSuggestionRetrievedChunks,
-                            generationID: generationID,
-                            requestStart: requestStart
-                        )
-                        self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "Full answer expansion failed. The DeepSeek answer was kept.")
-                        return
-                    }
-                    if self.replaceIncompleteVisibleAnswerWithFallbackIfNeeded(
-                        card: current,
-                        question: localQuestion,
-                        session: localSession,
-                        generationID: generationID,
-                        requestStart: requestStart,
-                        triggerPath: triggerPath,
-                        source: telemetrySource,
-                        speaker: telemetrySpeaker,
-                        reason: "Stage B failed or timed out"
-                    ) {
-                        if let fallback = self.currentSuggestion {
-                            self.persistSuggestionInBackground(
-                                fallback,
-                                chunks: self.currentSuggestionRetrievedChunks,
-                                generationID: generationID,
-                                requestStart: requestStart
-                            )
-                        }
-                        self.warnAction(ActionID.generateAnswer, title: "Local answer shown", message: "DeepSeek returned an incomplete answer. The fallback answer was kept.")
-                        return
-                    }
-                    var updated = current
-                    updated.stageBCompleted = false
-                    updated.stageBStatus = error is CancellationError ? "cancelled" : "timed_out"
-                    updated.caution = "DeepSeek full card generation failed/timed out. Showing opener only."
-                    if activeFallback {
-                        updated.caution = "Fast fallback is visible. Full answer expansion failed or timed out."
-                    }
-                    self.currentSuggestion = updated
-                    self.persistSuggestionInBackground(
-                        updated,
-                        chunks: self.currentSuggestionRetrievedChunks,
-                        generationID: generationID,
-                        requestStart: requestStart
-                    )
-                    self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "Full answer expansion failed. The visible answer was kept.")
-                } else {
-                    self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(self.userFacing(error))")
-                }
-            }
-        }
-        registerStageBTask(stageBGenerationTask, generationID: generationID)
-        
-        // Stage A streaming task
-        let fastSayFirstTask = Task {
-            do {
-                self.markProviderOperation("Stage A first-answer stream started")
-                let stream = try await self.suggestionGenerationService.generateFastSayFirstStream(
-                    question: localQuestion,
-                    context: optimizedContext,
-                    cvSummary: cvSummary,
-                    jdSummary: jdSummary
-                )
-                
-                var collected = ""
-                var sayFirstThrottle = StreamingUpdateThrottle()
-                for try await token in stream {
-                    guard self.currentGenerationID == generationID else {
-                        self.recordStaleGenerationDiscard()
-                        throw CancellationError()
-                    }
-                    guard !self.terminalGenerationIDs.contains(generationID),
-                          !self.generationUIState.isTerminal else {
-                        self.recordStaleGenerationDiscard()
-                        throw CancellationError()
-                    }
-                    guard !Task.isCancelled else { break }
-                    if self.streamFirstTokenAt == nil {
-                        self.streamFirstTokenAt = Date()
-                        self.currentGenerationTelemetry.firstDeepSeekTokenAt = self.streamFirstTokenAt
-                        self.deepseekFirstTokenMS = Int(Date().timeIntervalSince(requestStart) * 1000)
-                        self.recordLifecycleTrace(
-                            "answer.first_token",
-                            sessionID: localSession.id,
-                            questionID: localQuestion.id,
-                            generationID: generationID,
-                            text: localQuestion.questionText
-                        )
-                    }
-                    collected += token
-                    let cleanedCollected = self.cleanedFirstAnswerStreamText(collected)
-                    
-                    // First visible text detection (at least 3 words or 10 characters)
-                    var forcePublish = false
-                    if self.streamFirstVisibleTextAt == nil {
-                        let wordCount = cleanedCollected.split(whereSeparator: \.isWhitespace).count
-                        if (wordCount >= 3 || cleanedCollected.count >= 10),
-                           self.isAnswerRelevantEnoughForLivePreview(cleanedCollected, question: localQuestion) {
-                            self.streamFirstVisibleTextAt = Date()
-                            self.firstVisibleStateSetAt = Date()
-                            self.deepseekFirstVisibleMS = Int(Date().timeIntervalSince(requestStart) * 1000)
-                            self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
-                            self.setGenerationUIState(.streamingAnswer(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-                            self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "DeepSeek first answer is streaming.", autoDismissAfter: 2.5)
-                            forcePublish = true
-                            trigger.trigger() // Start Stage B early!
-                        }
-                    }
-
-                    if sayFirstThrottle.shouldPublish(characterCount: cleanedCollected.count, force: forcePublish) {
-                        let relevantPreview = self.isAnswerRelevantEnoughForLivePreview(cleanedCollected, question: localQuestion)
-                        self.streamedSayFirst = relevantPreview ? cleanedCollected : ""
-                        if relevantPreview && self.streamedSayFirstSetAt == nil && !cleanedCollected.isEmpty {
-                            self.streamedSayFirstSetAt = Date()
-                        }
-                    }
-                    
-                    // First sentence detection
-                    if self.streamFirstSentenceAt == nil && (token.contains(".") || token.contains("!") || token.contains("?")) {
-                        self.streamFirstSentenceAt = Date()
-                    }
-                }
-                let cleanedFinal = self.cleanedFirstAnswerStreamText(collected)
-                let relevantFinalPreview = self.isAnswerRelevantEnoughForLivePreview(cleanedFinal, question: localQuestion)
-                self.streamedSayFirst = relevantFinalPreview ? cleanedFinal : ""
-                if relevantFinalPreview && self.streamedSayFirstSetAt == nil && !cleanedFinal.isEmpty {
-                    self.streamedSayFirstSetAt = Date()
-                }
-                self.streamFullResponseAt = Date()
-                trigger.trigger() // Ensure Stage B is triggered if Stage A finishes
-                return cleanedFinal
-            } catch {
-                trigger.trigger() // Ensure Stage B is triggered on error too
-                throw error
-            }
-        }
-        registerStageATask(fastSayFirstTask, generationID: generationID)
-
-        let stageATimeoutNanoseconds = UInt64(max(stageATimeoutSeconds, 0) * 1_000_000_000)
-        let stageATimeoutTask = Task { @MainActor [weak self] in
+        ) { [weak self] identity, elapsed in
             guard let self else { return }
-            do {
-                try await self.delayProvider.sleep(nanoseconds: stageATimeoutNanoseconds)
-            } catch {
-                return
+            let acceptsPublication = {
+                !Task.isCancelled && self.generationCoordinator.canPublish(identity) &&
+                    !self.generationUIState.isTerminal && self.currentSession?.id == identity.sessionID
             }
-            guard self.isActiveGeneration(generationID, questionID: localQuestion.id),
-                  !self.generationUIState.isTerminal,
-                  self.activeGenerationController?.stageATask != nil,
-                  self.visibleAnswerExists else {
-                return
-            }
+            guard acceptsPublication() else { return }
+            self.softFallbackUsed = true
+            guard acceptsPublication() else { return }
+            self.softFallbackLatencyMS = elapsed
+            guard acceptsPublication() else { return }
+            self.finalVisibleSource = "rag_template_soft_fallback"
+            guard acceptsPublication() else { return }
 
-            let streamed = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if streamed.isEmpty,
-               var current = self.currentSuggestion,
-               self.visibleCardMatchesGeneration(
-                    card: current,
-                    generationID: generationID,
-                    detectedQuestionID: localQuestion.id,
-                    promptPrimaryQuestion: localQuestion.questionText
-               ) {
-                current.stageATimedOut = true
-                current.stageBCompleted = false
-                current.stageBStatus = "timed_out"
-                current.caution = current.caution ?? "DeepSeek first-answer stream did not finish; the visible answer was saved."
-                current.latencyFirstTokenMS = current.latencyFirstTokenMS ?? self.deepseekFirstTokenMS
-                current.latencyFirstVisibleMS = current.latencyFirstVisibleMS ?? self.deepseekFirstVisibleMS
-                current.deepseekFirstTokenMS = current.deepseekFirstTokenMS ?? self.deepseekFirstTokenMS
-                current.deepseekFirstVisibleMS = current.deepseekFirstVisibleMS ?? self.deepseekFirstVisibleMS
-                current.finalVisibleSource = current.finalVisibleSource ?? "deepseek_stream_timeout"
-                if current.keyPoints.isEmpty {
-                    current.keyPoints = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion).keyPoints
-                }
-                _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
-                    current,
-                    generationID: generationID,
-                    question: localQuestion,
-                    session: localSession,
-                    requestStart: requestStart,
-                    retrievedChunks: self.currentSuggestionRetrievedChunks,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker,
-                    caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
-                    stageATimedOut: true,
-                    fallback: current.isLocal || current.sayFirstSource?.contains("fallback") == true
-                )
-                return
-            }
-
-            guard !streamed.isEmpty else { return }
-
-            var streamCard = createRAGFallbackCard(isSoft: true)
-            streamCard.strategy = "DeepSeek First Answer"
-            streamCard.sayFirst = streamed
-            streamCard.caution = "DeepSeek first-answer stream did not finish; the visible answer was saved."
-            streamCard.modelName = self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model
-            streamCard.providerKind = self.activeRealtimeProvider?.kind
-            streamCard.providerName = self.activeRealtimeProvider?.name ?? "DeepSeek"
-            streamCard.providerBaseURL = self.activeRealtimeProvider?.baseURL ?? "https://api.deepseek.com"
-            streamCard.latencyMS = Int(Date().timeIntervalSince(requestStart) * 1000)
-            streamCard.isLocal = false
-            streamCard.questionText = localQuestion.questionText
-            streamCard.transcriptSegmentID = localQuestion.transcriptSegmentID
-            streamCard.generationID = generationID
-            streamCard.source = telemetrySource?.rawValue
-            streamCard.speaker = telemetrySpeaker?.rawValue
-            streamCard.triggerPath = triggerPath
-            self.markProviderStreamOwnership(&streamCard, source: "deepseek_stream_timeout", modelName: self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model)
-            streamCard.stageATimedOut = true
-            streamCard.stageBCompleted = false
-            streamCard.stageBStatus = "timed_out"
-            streamCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
-            streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
-            streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
-            streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
-            streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
-            if !streamCard.keyPoints.isEmpty {
-                streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS
-                streamCard.allKeyPointsVisibleMS = streamCard.firstVisibleAnswerMS
-            }
-            if !streamCard.followUpReady.isEmpty {
-                streamCard.followUpVisibleMS = streamCard.firstVisibleAnswerMS
-            }
-
-            let validated = await self.validateAndRewriteIfNeeded(streamCard, generationID: generationID)
-            guard self.isActiveGeneration(generationID, questionID: localQuestion.id),
-                  !self.generationUIState.isTerminal else {
-                return
-            }
+            let fallbackCard = self.makeRAGFallbackCard(context: generationContext, cardID: cardID, isSoft: true)
+            var visibleFallback = fallbackCard
+            visibleFallback.firstVisibleAnswerMS = elapsed
             guard self.displaySuggestionIfAligned(
-                validated,
+                visibleFallback,
                 question: localQuestion,
                 generationID: generationID,
                 triggerPath: triggerPath,
                 source: telemetrySource,
-                speaker: telemetrySpeaker
+                speaker: telemetrySpeaker,
+                whileCurrent: acceptsPublication
             ) else { return }
+            guard acceptsPublication() else { return }
             self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
-            self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
-            self.streamedSayFirst = ""
-            self.finalVisibleSource = "deepseek_stream_timeout"
-            let finalCard = self.currentSuggestion ?? validated
-            _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
-                finalCard,
+            guard acceptsPublication() else { return }
+            self.isStreamingSayFirst = false
+            guard acceptsPublication() else { return }
+            self.isExpandingSuggestionCard = true
+            guard acceptsPublication() else { return }
+            self.markFirstVisibleAnswer(generationID: generationID, fallback: true, whileCurrent: acceptsPublication)
+            guard acceptsPublication() else { return }
+            self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID, whileCurrent: acceptsPublication)
+            guard acceptsPublication() else { return }
+            self.infoAction(ActionID.generateAnswer, title: "First answer visible", message: "Fast local answer is visible while DeepSeek continues.", autoDismissAfter: 3.0, whileCurrent: acceptsPublication)
+            guard acceptsPublication() else { return }
+            print("[StreamingASR] Soft fallback triggered at \(elapsed)ms because no DeepSeek text was visible yet.")
+            if self.finishVisibleFirstAnswerForQueuedQuestionIfNeeded(
                 generationID: generationID,
                 question: localQuestion,
                 session: localSession,
                 requestStart: requestStart,
-                retrievedChunks: self.currentSuggestionRetrievedChunks,
-                triggerPath: triggerPath,
-                source: telemetrySource,
-                speaker: telemetrySpeaker,
-                caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
-                stageATimedOut: true,
-                fallback: false
-            )
+                triggerPath: triggerPath
+            ) {
+                return
+            }
         }
-        registerStageATimeoutTask(stageATimeoutTask, generationID: generationID)
+        if ragFallbackTask != nil {
+            updateActiveTaskSummary()
+        }
+
+        // The coordinator owns Stage B creation, its exact trigger and provider workflow.
+        guard let configuredExpansion = launchProviderExpansion(context: generationContext, providerQuestion: localQuestion,
+            providerContext: optimizedContext, cvSummary: cvSummary, jdSummary: jdSummary,
+            providerConfiguration: answerProviderConfiguration, cardID: cardID,
+            retrievedChunks: generationRetrievedChunks, trigger: trigger) else {
+            throw CancellationError()
+        }
+
+        // Provider consumption and its handle are owned by the coordinator.
+        guard launchProviderFirstAnswer(
+            context: generationContext, providerQuestion: localQuestion,
+            providerContext: optimizedContext, cvSummary: cvSummary, jdSummary: jdSummary,
+            providerConfiguration: answerProviderConfiguration, trigger: trigger
+        ) != nil else { throw CancellationError() }
+
+        // The deadline observer and the cooperative transport race can finish
+        // in either order. Publish the deadline outcome once, using answer
+        // eligibility and the still-owned expansion task for source metadata.
+        let stageATimeoutNanoseconds = UInt64(max(stageATimeoutSeconds, 0) * 1_000_000_000)
+        generationCoordinator.launchDeadline(
+            identity: generationContext.identity, role: .stageATimeout,
+            nanoseconds: stageATimeoutNanoseconds, delayProvider: delayProvider
+        ) { [weak self] _, _ in
+            guard let self,
+                  !self.generationUIState.isTerminal,
+                  self.activeGenerationController?.stageATask != nil,
+                  self.visibleAnswerExists else { return }
+            _ = self.preserveStageAAnswerWhileExpansionContinues(
+                    context: generationContext, cardID: cardID,
+                    answerProviderConfiguration: answerProviderConfiguration,
+                    fallbackProviderModel: firstAnswerProviderRequest.model,
+                    generationRetrievedChunks: generationRetrievedChunks
+                )
+        }
         
+        // The owner admits and retires its exact fallback role. This single
+        // application bridge publishes only the original stream presentation.
+        @MainActor func publishStageAExit(failure: Error? = nil) -> Bool {
+            generationCoordinator.applyStageAStreamExit(identity: generationContext.identity) { [weak self] identity in
+                guard let self else { return false }
+                @MainActor func acceptsPublication() -> Bool {
+                    !Task.isCancelled && self.generationCoordinator.canPublish(identity) &&
+                        self.currentSession?.id == localSession.id && !self.generationUIState.isTerminal
+                }
+                guard acceptsPublication() else { return false }
+                self.providerStreamActive = false
+                guard acceptsPublication() else { return false }
+                self.updateActiveTaskSummary()
+                guard acceptsPublication() else { return false }
+                if let failure {
+                    print("[StreamingASR] Stage A Fast Say-First timed out or failed: code=\((failure as NSError).code)")
+                }
+                self.isStreamingSayFirst = false
+                return acceptsPublication()
+            }
+        }
+
         // Race Stage A with 6.0s timeout
         var fastSayFirst = ""
         do {
-            fastSayFirst = try await withTimeout(seconds: stageATimeoutSeconds) {
-                try await fastSayFirstTask.value
+            guard let completed = try await generationCoordinator.awaitStageAFirstAnswer(
+                identity: generationContext.identity, timeoutSeconds: stageATimeoutSeconds,
+                delayProvider: generationWatchdogDelayProvider) else {
+                recordStaleGenerationDiscard(attributedTo: generationContext.identity)
+                return
             }
-            clearStageATask(generationID: generationID)
-            clearStageATimeoutTask(generationID: generationID)
+            fastSayFirst = completed
             guard self.currentGenerationID == generationID else {
-                recordStaleGenerationDiscard()
+                recordStaleGenerationDiscard(attributedTo: generationContext.identity)
                 return
             }
             guard !self.generationUIState.isTerminal else {
                 return
             }
-            self.isStreamingSayFirst = false
-            
-            // Cancel soft fallback task since Stage A completed
-            clearFallbackWatchdogTask(generationID: generationID)
+            guard publishStageAExit() else { return }
             
             let elapsed = Date().timeIntervalSince(requestStart)
             let isSoft = self.softFallbackUsed
@@ -2697,7 +2640,7 @@ final class AppState: ObservableObject {
                         )
                         self.processNextQueuedAutoQuestionIfIdle()
                     } else {
-                        var updated = createRAGFallbackCard(isSoft: true)
+                        var updated = self.makeRAGFallbackCard(context: generationContext, cardID: cardID, isSoft: true)
                         updated.sayFirst = fastSayFirst
                         self.markProviderStreamOwnership(&updated)
                         updated.caution = "DeepSeek answer updated. Expanding details..."
@@ -2821,228 +2764,76 @@ final class AppState: ObservableObject {
                 }
             }
         } catch {
-            clearStageATask(generationID: generationID)
-            clearStageATimeoutTask(generationID: generationID)
-            guard self.currentGenerationID == generationID else {
-                recordStaleGenerationDiscard()
+            guard !Task.isCancelled, self.currentGenerationID == generationID else {
+                recordStaleGenerationDiscard(attributedTo: generationContext.identity)
                 return
             }
             guard !self.generationUIState.isTerminal else {
                 return
             }
-            print("[StreamingASR] Stage A Fast Say-First timed out or failed: code=\((error as NSError).code)")
-            self.isStreamingSayFirst = false
-            clearFallbackWatchdogTask(generationID: generationID)
+            guard publishStageAExit(failure: error) else { return }
 
-            if self.selectedAnswerProviderMode == .deepSeekWithLocalQwenFallback,
-               self.streamFirstTokenAt == nil {
-                self.markProviderOperation("Local Qwen fallback generation started")
-                self.cancelActiveStageBTask(generationID: generationID)
-                do {
-                    let finished = try await self.finishWithLocalQwenAnswer(
-                        question: localQuestion,
-                        session: localSession,
-                        transcript: localTranscript,
-                        context: optimizedContext,
-                        retrievedChunks: generationRetrievedChunks,
-                        cvSummary: cvSummary,
-                        jdSummary: jdSummary,
-                        generationID: generationID,
-                        cardID: cardID,
-                        requestStart: requestStart,
-                        triggerPath: triggerPath,
-                        source: telemetrySource,
-                        speaker: telemetrySpeaker,
-                        localProvider: self.localLLMProviderOverride ?? OllamaQwenProvider(),
+            @MainActor func ownsRecoveryPresentation(_ identity: GenerationIdentity) -> Bool {
+                self.generationCoordinator.isCurrent(identity) &&
+                    self.currentSession?.id == identity.sessionID &&
+                    self.currentSession?.contextSnapshotID == identity.contextSnapshotID
+            }
+            let recoveryHandled = await self.generationCoordinator.recoverConfiguredProviderBeforeFirstToken(
+                context: generationContext, expectedExpansion: configuredExpansion,
+                firstTokenObserved: { [weak self] identity in
+                    guard let self, ownsRecoveryPresentation(identity) else { return nil }
+                    return self.streamFirstTokenAt != nil
+                },
+                onStarted: { [weak self] identity in
+                    guard let self, ownsRecoveryPresentation(identity) else { return false }
+                    self.markProviderOperation("Local Qwen fallback generation started")
+                    return ownsRecoveryPresentation(identity)
+                },
+                recover: { [weak self] identity in
+                    guard let self, ownsRecoveryPresentation(identity) else { return false }
+                    return try await self.finishWithLocalQwenAnswer(
+                        question: localQuestion, session: localSession,
+                        transcript: localTranscript, context: optimizedContext,
+                        retrievedChunks: generationRetrievedChunks, cvSummary: cvSummary, jdSummary: jdSummary,
+                        generationID: generationID, cardID: cardID, requestStart: requestStart,
+                        triggerPath: triggerPath, source: telemetrySource, speaker: telemetrySpeaker,
+                        localProvider: localAnswerProvider, modelName: localModelName,
                         fallbackReason: "deepseek_failed_before_first_token",
-                        interviewContextSnapshot: generationSnapshot
-                    )
-                    if finished {
-                        self.warnAction(
-                            ActionID.generateAnswer,
-                            title: "Local Qwen fallback used",
-                            message: "DeepSeek did not produce a first token. The local Qwen answer is visible."
-                        )
-                        return
-                    }
-                } catch {
-                    self.currentGenerationTelemetry.providerError = error.localizedDescription
-                    print("[LocalQwen] Fallback failed: code=\((error as NSError).code)")
-                }
-            }
+                        interviewContextSnapshot: generationSnapshot)
+                },
+                onRecovered: { [weak self] identity in
+                    guard let self, ownsRecoveryPresentation(identity) else { return }
+                    self.warnAction(ActionID.generateAnswer, title: "Local Qwen fallback used",
+                        message: "DeepSeek did not produce a first token. The local Qwen answer is visible.",
+                        whileCurrent: { ownsRecoveryPresentation(identity) })
+                },
+                onFailure: { [weak self] identity, failure in
+                    guard let self, ownsRecoveryPresentation(identity),
+                          self.generationCoordinator.canPublish(identity), !Task.isCancelled else { return }
+                    self.currentGenerationTelemetry.providerError = failure.localizedDescription
+                    guard ownsRecoveryPresentation(identity) else { return }
+                    print("[LocalQwen] Fallback failed: code=\((failure as NSError).code)")
+                })
+            if recoveryHandled { return }
 
-            let streamedTimeoutText = self.streamedSayFirst.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if streamedTimeoutText.isEmpty,
-               var current = self.currentSuggestion,
-               self.visibleCardMatchesGeneration(
-                    card: current,
-                    generationID: generationID,
-                    detectedQuestionID: localQuestion.id,
-                    promptPrimaryQuestion: localQuestion.questionText
-               ),
-               !current.sayFirst.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                current.stageATimedOut = true
-                current.stageBCompleted = false
-                current.stageBStatus = "timed_out"
-                current.caution = current.caution ?? "DeepSeek first-answer stream did not finish; the visible answer was saved."
-                current.latencyFirstTokenMS = current.latencyFirstTokenMS ?? self.deepseekFirstTokenMS
-                current.latencyFirstVisibleMS = current.latencyFirstVisibleMS ?? self.deepseekFirstVisibleMS
-                current.deepseekFirstTokenMS = current.deepseekFirstTokenMS ?? self.deepseekFirstTokenMS
-                current.deepseekFirstVisibleMS = current.deepseekFirstVisibleMS ?? self.deepseekFirstVisibleMS
-                current.finalVisibleSource = current.finalVisibleSource ?? "deepseek_stream_timeout"
-                if current.keyPoints.isEmpty {
-                    current.keyPoints = AnswerRelevancePolicy.fallbackAnswer(for: localQuestion).keyPoints
-                }
-                _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
-                    current,
-                    generationID: generationID,
-                    question: localQuestion,
-                    session: localSession,
-                    requestStart: requestStart,
-                    retrievedChunks: self.currentSuggestionRetrievedChunks,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker,
-                    caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
-                    stageATimedOut: true,
-                    fallback: current.isLocal || current.sayFirstSource?.contains("fallback") == true
-                )
+            if self.preserveStageAAnswerWhileExpansionContinues(
+                    context: generationContext, cardID: cardID,
+                    answerProviderConfiguration: answerProviderConfiguration,
+                    fallbackProviderModel: firstAnswerProviderRequest.model,
+                    generationRetrievedChunks: generationRetrievedChunks
+                ) {
                 return
             }
-
-            if !streamedTimeoutText.isEmpty {
-                var streamCard = createRAGFallbackCard(isSoft: true)
-                streamCard.strategy = "DeepSeek First Answer"
-                streamCard.sayFirst = streamedTimeoutText
-                streamCard.caution = "DeepSeek first-answer stream did not finish; the visible answer was saved."
-                streamCard.modelName = self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model
-                streamCard.providerKind = self.activeRealtimeProvider?.kind
-                streamCard.providerName = self.activeRealtimeProvider?.name ?? "DeepSeek"
-                streamCard.providerBaseURL = self.activeRealtimeProvider?.baseURL ?? "https://api.deepseek.com"
-                streamCard.latencyMS = Int(Date().timeIntervalSince(requestStart) * 1000)
-                streamCard.isLocal = false
-                streamCard.questionText = localQuestion.questionText
-                streamCard.transcriptSegmentID = localQuestion.transcriptSegmentID
-                streamCard.generationID = generationID
-                streamCard.source = telemetrySource?.rawValue
-                streamCard.speaker = telemetrySpeaker?.rawValue
-                streamCard.triggerPath = triggerPath
-                self.markProviderStreamOwnership(&streamCard, source: "deepseek_stream_timeout", modelName: self.activeRealtimeProvider?.model ?? firstAnswerProviderRequest.model)
-                streamCard.stageATimedOut = true
-                streamCard.stageBCompleted = false
-                streamCard.stageBStatus = "timed_out"
-                streamCard.latencyFirstTokenMS = self.deepseekFirstTokenMS
-                streamCard.latencyFirstVisibleMS = self.deepseekFirstVisibleMS
-                streamCard.deepseekFirstTokenMS = self.deepseekFirstTokenMS
-                streamCard.deepseekFirstVisibleMS = self.deepseekFirstVisibleMS
-                streamCard.firstVisibleAnswerMS = self.deepseekFirstVisibleMS ?? Int(Date().timeIntervalSince(requestStart) * 1000)
-                if !streamCard.keyPoints.isEmpty {
-                    streamCard.firstKeyPointVisibleMS = streamCard.firstVisibleAnswerMS
-                    streamCard.allKeyPointsVisibleMS = streamCard.firstVisibleAnswerMS
-                }
-                if !streamCard.followUpReady.isEmpty {
-                    streamCard.followUpVisibleMS = streamCard.firstVisibleAnswerMS
-                }
-                let validated = await self.validateAndRewriteIfNeeded(streamCard, generationID: generationID)
-                guard self.isActiveGeneration(generationID, questionID: localQuestion.id),
-                      !self.generationUIState.isTerminal else {
-                    return
-                }
-                guard self.displaySuggestionIfAligned(
-                    validated,
-                    question: localQuestion,
-                    generationID: generationID,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker
-                ) else { return }
-                self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
-                self.markFirstVisibleAnswer(generationID: generationID, fallback: false)
-                self.streamedSayFirst = ""
-                self.finalVisibleSource = "deepseek_stream_timeout"
-                let finalCard = self.currentSuggestion ?? validated
-                _ = self.preserveVisibleFirstAnswerWhileStageBContinues(
-                    finalCard,
-                    generationID: generationID,
-                    question: localQuestion,
-                    session: localSession,
-                    requestStart: requestStart,
-                    retrievedChunks: self.currentSuggestionRetrievedChunks,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker,
-                    caution: "DeepSeek first-answer stream did not finish; keeping the visible answer while the full answer expands.",
-                    stageATimedOut: true,
-                    fallback: false
-                )
-                return
-            }
-            
-            // If soft fallback was already shown, preserve it but mark timeout/failure.
-            // If not, show hard fallback now.
-            if !self.softFallbackUsed {
-                let fallbackCard = createRAGFallbackCard(isSoft: false)
-                var visibleFallback = fallbackCard
-                visibleFallback.firstVisibleAnswerMS = Int(Date().timeIntervalSince(requestStart) * 1000)
-                let validated = await self.validateAndRewriteIfNeeded(visibleFallback, generationID: generationID)
-                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                guard self.displaySuggestionIfAligned(
-                    validated,
-                    question: localQuestion,
-                    generationID: generationID,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker
-                ) else { return }
-                self.currentSuggestionSetAt = self.currentSuggestionSetAt ?? Date()
-                self.isExpandingSuggestionCard = true
-                self.softFallbackUsed = true
-                self.softFallbackLatencyMS = visibleFallback.firstVisibleAnswerMS
-                self.softFallbackShownAt = self.softFallbackShownAt ?? Date()
-                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
-                self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-                self.warnAction(ActionID.generateAnswer, title: "Local answer shown", message: "DeepSeek first answer failed or timed out. The fallback answer is visible.")
-            } else if var current = self.currentSuggestion {
-                guard self.visibleCardMatchesGeneration(
-                    card: current,
-                    generationID: generationID,
-                    detectedQuestionID: localQuestion.id,
-                    promptPrimaryQuestion: localQuestion.questionText
-                ) else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                current.stageATimedOut = true
-                current.caution = "Fast fallback shown; DeepSeek stream timed out."
-                let validated = await self.validateAndRewriteIfNeeded(current, generationID: generationID)
-                guard self.isActiveGeneration(generationID), !Task.isCancelled else {
-                    self.recordStaleGenerationDiscard()
-                    return
-                }
-                guard self.displaySuggestionIfAligned(
-                    validated,
-                    question: localQuestion,
-                    generationID: generationID,
-                    triggerPath: triggerPath,
-                    source: telemetrySource,
-                    speaker: telemetrySpeaker
-                ) else { return }
-                self.markFirstVisibleAnswer(generationID: generationID, fallback: true)
-                self.setGenerationUIState(.showingFallback(questionID: localQuestion.id, generationID: generationID, triggerPath: triggerPath), generationID: generationID)
-                self.warnAction(ActionID.generateAnswer, title: "First answer preserved", message: "DeepSeek first answer timed out. The visible fallback was kept.")
-            } else {
-                self.markGenerationFailed(
-                    generationID: generationID,
-                    reason: error.localizedDescription,
-                    providerError: error.localizedDescription,
-                    timeout: error.localizedDescription.lowercased().contains("timed out")
-                )
-                self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(self.userFacing(error))")
-            }
+            guard self.generationCoordinator.canPublish(generationContext.identity),
+                  !Task.isCancelled else { return }
+            self.markGenerationFailed(
+                generationID: generationID,
+                reason: error.localizedDescription,
+                providerError: error.localizedDescription,
+                timeout: (error as NSError).domain == "TimeoutDomain"
+            )
+            guard self.ownsCurrentGenerationPresentation(generationContext.identity, requestID: requestID) else { return }
+            self.failAction(ActionID.generateAnswer, title: "Generation failed", message: "Transcript preserved. \(self.userFacing(error))")
         }
     }
 

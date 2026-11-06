@@ -13,18 +13,7 @@ extension AppState {
                 warnAction(actionID, title: "More text needed", message: "Paste at least 80 characters before saving \(type.title).")
                 return
             }
-            practiceController.cancel()
-            cancelActiveGenerationForContextChange()
-            precomputeDebounceTask?.cancel()
-            precomputedRAGCache.removeAll()
-            AutomaticInterviewContextBuilder.clearExtractionCache()
-            let saved = try documentRepository.saveDocument(type: type, title: title, content: content)
-            if ProductionContextPolicy.isTestProcess {
-                try ingestDocumentIntoActiveContext(saved)
-            }
-            refreshAll()
-            scheduleAutomaticContextRebuild()
-            triggerEmbeddingGeneration(for: type)
+            let saved = try documentsState.saveDocument(type: type, title: title, content: content)
             if saved.sanitizationWarnings?.isEmpty == false {
                 warnAction(actionID, title: "Saved and cleaned", message: "LaTeX or formatting noise was cleaned for relevant context.")
             } else {
@@ -45,14 +34,12 @@ extension AppState {
         let actionID = ActionID.clearDocument(document.type)
         guard !isActionLoading(actionID) else { return }
         beginAction(actionID, title: "Clearing \(document.type.title)", message: "Removing the saved document and refreshing context status...")
-        automaticContextBuildTask?.cancel()
-        automaticContextBuildID = UUID()
-        precomputeDebounceTask?.cancel()
-        precomputedRAGCache.removeAll()
+        interviewContextState.invalidateBuild()
+        liveRAGPrefetch.cancelAndClear()
         cancelActiveGenerationForContextChange()
         AutomaticInterviewContextBuilder.clearExtractionCache()
         do {
-            try documentRepository.deleteDocument(id: document.id)
+            try documentsState.deleteDocument(document)
             if let id = practiceController.run?.sessionID { practiceController.restore(sessionID: id) }
             practiceController.refreshReviews()
             if let id = selectedSessionID { loadSessionDetails(sessionID: id) }
@@ -66,64 +53,17 @@ extension AppState {
         }
     }
 
-    func cancelMaterialImport() {
-        materialImportID = UUID()
-        materialImportTask?.cancel()
-        materialImportTask = nil
-        materialImportStatus = "Import cancelled"
-    }
+    func cancelMaterialImport() { documentsState.cancelImport() }
+    func closeMaterialImportAdmission() { documentsState.closeImportAdmission() }
+    func shutdownMaterialImports() async { await documentsState.shutdown() }
 
-    // Compatibility entry point used by the existing native Documents importer.
+    // Compatibility actions retain global feedback/context coordination;
+    // DocumentsState is the only document/import authority.
     func importPlainTextDocument(from url: URL, as type: DocumentType) {
-        cancelMaterialImport()
-        let id = UUID()
-        materialImportID = id
-        materialImportStatus = "Extracting locally…"
-        materialImportTask = Task { [weak self] in
-            defer { if self?.materialImportID == id { self?.materialImportTask = nil } }
-            do {
-                let (material, data) = try await MaterialExtractionService.extractCancellable(url: url)
-                guard let self, !Task.isCancelled, self.materialImportID == id else { return }
-                _ = try self.documentRepository.saveDocument(type: type, title: url.deletingPathExtension().lastPathComponent, content: material.text, material: material, originalData: data)
-                self.practiceController.cancel()
-                self.cancelActiveGenerationForContextChange()
-                self.precomputeDebounceTask?.cancel()
-                self.precomputedRAGCache.removeAll()
-                AutomaticInterviewContextBuilder.clearExtractionCache()
-                self.refreshAll()
-                self.scheduleAutomaticContextRebuild(useLocalQwen: false)
-                self.materialImportStatus = "Imported and indexed \(material.sections.count) source locations. " + material.warnings.joined(separator: " ")
-            } catch {
-                guard let self, !Task.isCancelled, self.materialImportID == id else { return }
-                self.materialImportStatus = "Import failed: \(error.localizedDescription). Select the file again to retry."
-            }
-        }
+        documentsState.importDocument(from: url, as: type)
     }
 
     func reprocessDocument(_ document: DocumentRecord) {
-        guard let source = try? documentRepository.source(documentID: document.id) else { return }
-        cancelMaterialImport()
-        let id = UUID(); materialImportID = id
-        materialImportStatus = "Reprocessing locally…"
-        materialImportTask = Task { [weak self] in
-            defer { if self?.materialImportID == id { self?.materialImportTask = nil } }
-            do {
-                let material = try await MaterialExtractionService.extractCancellable(data: source.data, filename: source.material.filename)
-                guard let self, !Task.isCancelled, self.materialImportID == id,
-                      (try self.documentRepository.source(documentID: document.id))?.material.sha256 == source.material.sha256 else { return }
-                self.practiceController.cancel()
-                self.cancelActiveGenerationForContextChange()
-                self.precomputeDebounceTask?.cancel()
-                self.precomputedRAGCache.removeAll()
-                AutomaticInterviewContextBuilder.clearExtractionCache()
-                _ = try self.documentRepository.saveDocument(type: document.type, title: document.title, content: material.text, material: material, originalData: source.data)
-                self.refreshAll()
-                self.scheduleAutomaticContextRebuild(useLocalQwen: false)
-                self.materialImportStatus = "Reprocessed from saved original; review extraction before confirming facts."
-            } catch {
-                guard let self, !Task.isCancelled, self.materialImportID == id else { return }
-                self.materialImportStatus = "Reprocessing failed: \(error.localizedDescription)"
-            }
-        }
+        documentsState.reprocessDocument(document)
     }
 }

@@ -17,12 +17,21 @@ enum QuestionIntentPromptPolicy {
         return RetrievedContext(
             cvChunks: pick(context.cvChunks, keywords: candidateKeywords, limit: intent == .projectComparison ? 4 : 3),
             jobDescriptionChunks: pick(context.jobDescriptionChunks, keywords: opportunityKeywords, limit: 2),
-            additionalNotesChunks: Array(context.additionalNotesChunks.prefix(1))
+            additionalNotesChunks: ContextBudgeter.limitChunks(context.additionalNotesChunks, maxWords: 120)
         )
     }
 
     static func fallbackAnswer(for question: DetectedQuestion) -> IntentFallbackAnswer {
         ProjectGroundedFallbackPolicy.fallbackAnswer(for: question)
+    }
+
+    static func relevantNotes(_ chunks: [DocumentChunk], question: String, maxWords: Int = 120) -> [DocumentChunk] {
+        let terms = Set(TextChunker.keywords(in: question))
+        guard !terms.isEmpty else { return [] }
+        // shortcut: lexical overlap does not prove semantic relevance or factual accuracy.
+        return ContextBudgeter.limitChunks(chunks.filter {
+            !terms.isDisjoint(with: $0.keywords + TextChunker.keywords(in: ($0.sectionTitle ?? "") + " " + $0.content))
+        }, maxWords: maxWords)
     }
 
     static func answerShape(for intent: AnswerRelevanceIntent) -> String {

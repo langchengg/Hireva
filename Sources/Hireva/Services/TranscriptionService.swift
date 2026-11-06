@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 protocol TranscriptionProvider: AnyObject {
     var providerName: String { get }
     var segments: AsyncStream<TranscriptSegment> { get }
@@ -18,11 +19,12 @@ enum TranscriptionError: LocalizedError {
     }
 }
 
+@MainActor
 final class MockTranscriptionService: TranscriptionProvider {
     let providerName = "Mock Interview Mode"
     private var continuation: AsyncStream<TranscriptSegment>.Continuation?
     private var currentSessionID: String?
-    var startBarrier: (() async -> Void)?
+    var startBarrier: (@MainActor () async -> Void)?
     private(set) var startCallCount = 0
     private(set) var stopCallCount = 0
 

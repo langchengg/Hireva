@@ -72,9 +72,7 @@ extension AppState {
     }
 
     func updateDiagnostics(_ mutate: (inout DeveloperDiagnostics) -> Void) {
-        var next = diagnostics
-        mutate(&next)
-        diagnostics = next
+        diagnosticsState.updateDeveloper(mutate)
     }
 
     public var activeDatabasePath: String {
@@ -128,13 +126,8 @@ extension AppState {
             micCaptureRunning: micCaptureRunning,
             lastSystemAudioBufferAt: lastSystemAudioBufferAt
         )
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.recent20CaptureEvents.append(event)
-            if self.recent20CaptureEvents.count > 20 {
-                self.recent20CaptureEvents.removeFirst()
-            }
-            self.objectWillChange.send()
+        DispatchQueue.main.async { [weak live = liveInterview] in
+            live?.appendCaptureEvent(event)
         }
     }
 }

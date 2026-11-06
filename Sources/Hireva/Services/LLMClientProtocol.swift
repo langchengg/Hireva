@@ -45,6 +45,20 @@ struct LLMProviderConfiguration: Codable, Equatable, Identifiable, Hashable {
     var createdAt: Date
     var updatedAt: Date
 
+    // These are the selected identity and inputs consumed by today's detector
+    // client. Display labels, dates and default/capability metadata do not
+    // change its frozen HTTP request or authorize a new one.
+    static func sameQuestionDetectionRequest(_ lhs: Self?, _ rhs: Self?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (left?, right?):
+            return left.id == right.id && left.kind == right.kind &&
+                left.baseURL == right.baseURL && left.model == right.model &&
+                left.apiKeyAccount == right.apiKeyAccount
+        default: return false
+        }
+    }
+
     static func deepSeekDefault(model: String = "deepseek-v4-flash") -> LLMProviderConfiguration {
         let now = Date()
         return LLMProviderConfiguration(
@@ -190,7 +204,7 @@ enum LLMProviderError: LocalizedError, Equatable {
     }
 }
 
-protocol LLMClientProtocol: AnyObject {
+protocol LLMClientProtocol: AnyObject, Sendable {
     var providerKind: LLMProviderKind { get }
 
     func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult

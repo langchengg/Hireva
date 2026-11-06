@@ -2,21 +2,30 @@ import SwiftUI
 
 /// A premium real-time visual indicator for microphone (candidate) and system audio (interviewer) capture levels.
 struct MicLevelIndicatorView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var live: LiveInterviewFeature
+    @ObservedObject var settingsState: SettingsState
+    @ObservedObject var permissions: SystemAudioPermissionController
     @ObservedObject var micDiagnostics: MicrophoneDiagnosticsService
-    @ObservedObject var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
-    var isMini: Bool
+    @ObservedObject var systemAudio: ScreenCaptureKitSystemAudioCaptureService
+    let isMini: Bool
 
-    init(appState: AppState, isMini: Bool = false) {
-        self.appState = appState
-        self.micDiagnostics = appState.microphoneDiagnostics
+    init(live: LiveInterviewFeature,
+        settingsState: SettingsState,
+        permissions: SystemAudioPermissionController,
+        micDiagnostics: MicrophoneDiagnosticsService,
+        systemAudio: ScreenCaptureKitSystemAudioCaptureService,
+        isMini: Bool) {
+        self.live = live
+        self.settingsState = settingsState
+        self.permissions = permissions
+        self.micDiagnostics = micDiagnostics
+        self.systemAudio = systemAudio
         self.isMini = isMini
     }
-
     public var body: some View {
         HStack(spacing: 12) {
             // Render Microphone Level Meter if capture mode uses Microphone
-            if appState.settings.audioCaptureMode == .microphoneOnly || appState.settings.audioCaptureMode == .microphoneAndSystem {
+            if settingsState.settings.audioCaptureMode == .microphoneOnly || settingsState.settings.audioCaptureMode == .microphoneAndSystem {
                 HStack(spacing: 6) {
                     micIcon
                         .font(isMini ? .caption : .subheadline)
@@ -30,7 +39,7 @@ struct MicLevelIndicatorView: View {
                                 .truncationMode(.tail)
                                 .layoutPriority(1)
                                 .fixedSize(horizontal: true, vertical: false)
-                            Text(appState.microphonePermissionState == .authorized && micDiagnostics.lastError == nil ? String(format: "%.1f dB", micDiagnostics.decibels) : "Mic Off")
+                            Text(permissions.microphonePermissionState == .authorized && micDiagnostics.lastError == nil ? String(format: "%.1f dB", micDiagnostics.decibels) : "Mic Off")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(micStatusColor)
                                 .lineLimit(1)
@@ -40,7 +49,7 @@ struct MicLevelIndicatorView: View {
                         }
                         .frame(minWidth: 95, alignment: .leading)
                         
-                        if appState.microphonePermissionState == .authorized, micDiagnostics.lastError == nil {
+                        if permissions.microphonePermissionState == .authorized, micDiagnostics.lastError == nil {
                             levelBar(level: micDiagnostics.normalizedLevel, color: micLevelColor)
                         }
                     }
@@ -51,7 +60,7 @@ struct MicLevelIndicatorView: View {
             }
 
             // Render System Audio Level Meter if capture mode uses System Audio
-            if appState.settings.audioCaptureMode == .systemAudioOnly || appState.settings.audioCaptureMode == .microphoneAndSystem {
+            if settingsState.settings.audioCaptureMode == .systemAudioOnly || settingsState.settings.audioCaptureMode == .microphoneAndSystem {
                 HStack(spacing: 6) {
                     systemAudioIcon
                         .font(isMini ? .caption : .subheadline)
@@ -110,13 +119,13 @@ struct MicLevelIndicatorView: View {
 
     @ViewBuilder
     private var micIcon: some View {
-        if appState.microphonePermissionState != .authorized {
+        if permissions.microphonePermissionState != .authorized {
             Image(systemName: "mic.slash.fill")
                 .foregroundStyle(.red)
         } else if micDiagnostics.lastError != nil {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
-        } else if micDiagnostics.isRunning || appState.liveState == .listening || appState.liveState == .transcribing {
+        } else if micDiagnostics.isRunning || live.liveState == .listening || live.liveState == .transcribing {
             if micDiagnostics.decibels > -45.0 {
                 Image(systemName: "waveform.and.mic")
                     .foregroundStyle(.green)
@@ -132,9 +141,9 @@ struct MicLevelIndicatorView: View {
     }
 
     private var micStatusColor: Color {
-        if appState.microphonePermissionState != .authorized || micDiagnostics.lastError != nil {
+        if permissions.microphonePermissionState != .authorized || micDiagnostics.lastError != nil {
             return .red
-        } else if micDiagnostics.isRunning || appState.liveState == .listening || appState.liveState == .transcribing {
+        } else if micDiagnostics.isRunning || live.liveState == .listening || live.liveState == .transcribing {
             return micDiagnostics.decibels > -45.0 ? .green : .secondary
         } else {
             return .secondary

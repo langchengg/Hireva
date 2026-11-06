@@ -1,15 +1,15 @@
 import Foundation
 import GRDB
 
-final class TranscriptRepository {
-    private let database: AppDatabase
+final class TranscriptRepository: Sendable {
+    private let dbQueue: DatabaseQueue
 
     init(database: AppDatabase) {
-        self.database = database
+        self.dbQueue = database.dbQueue
     }
 
     func saveSegment(_ segment: TranscriptSegment) throws {
-        try database.dbQueue.write { db in
+        try dbQueue.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO transcript_segments (
@@ -62,7 +62,7 @@ final class TranscriptRepository {
     }
 
     func segments(sessionID: String) throws -> [TranscriptSegment] {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM transcript_segments WHERE session_id = ? ORDER BY created_at ASC",
@@ -72,7 +72,7 @@ final class TranscriptRepository {
     }
 
     func recentSegments(sessionID: String, limit: Int = 24) throws -> [TranscriptSegment] {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             let rows = try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM transcript_segments WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
@@ -83,7 +83,7 @@ final class TranscriptRepository {
     }
 
     func segmentByID(_ id: String) throws -> TranscriptSegment? {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             let row = try Row.fetchOne(
                 db,
                 sql: "SELECT * FROM transcript_segments WHERE id = ?",

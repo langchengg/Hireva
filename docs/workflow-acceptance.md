@@ -1,4 +1,328 @@
-# Continuation acceptance — 2026-09-27
+# Active continuation — 2026-10-21
+
+**PARTIAL: source changed; final-source acceptance is in progress.** The single
+[external INDEX](/Users/delaynomore/Hireva-refactor-evidence/resume-20261020T152011Z/INDEX.md)
+retains the protected dirty baseline, exact commands, source manifests and raw
+failures. Historical results below retain their own source identities.
+
+The current personal-condition regression preserves neutral employer questions,
+their nominal lists, and candidate-only support for personal commitments. Mixed
+requests must not inherit a sentence-wide inquiry exemption. Exact failing and
+passing cases remain in the external INDEX; this heuristic is not general
+natural-language proof. An isolated Swift Testing probe also exposed nil passing
+when `#require` was assigned directly to an Optional cleanup handle. The test
+correction uses explicitly non-Optional locals and preserves the original cleanup;
+the final default repetitions must execute the corrected assertions.
+
+Live now owns accepted-question FIFO, ingress timing and echo history. Queue
+notifications follow synchronous coordination; stopped or replaced requests
+cannot resume from an old producer's remaining work. Diagnostics owns retrieval
+provenance, and shutdown closes only the original session header without
+recreating deleted sessions. The first committed end time remains authoritative.
+
+Tests now use the actual Answer Fallback, Regenerate and Manual Retry actions.
+They exposed terminal failures leaving Answer Now disabled, and old-context
+failure feedback overwriting newer state. Targeted tests failed before the fixes;
+terminal restoration and feedback retain full request/session/context checks.
+The unreachable legacy retry/fallback pair and its copied failure fields are
+removed. No alternate retry owner was introduced.
+
+Structured Ollama generate explicitly disables truncation and output context
+shifting. A length terminal is rejected even if accumulated JSON is closed. These
+are transport safety contracts; they are not evidence of improved model quality.
+Chat completion semantics and existing model/context/deadline settings remain.
+
+Final default-parallel repetitions, real local model quality, optimized bundle,
+system-only native acquisition, performance and soak results must be read with
+their source identities in the external INDEX. Earlier 102-question routing and
+16-attempt Practice results do not establish current-source semantic acceptance.
+The GUI tool currently reports a locked Mac. No microphone, cloud inference,
+commit/push, installation replacement or public distribution is authorized by
+this verification work.
+
+# Historical continuation evidence — 2026-10-20
+
+**PARTIAL: default regression stability is verified; technical/Practice semantic
+quality and rendered-GUI acceptance remain unmet.** The sole current
+[external INDEX](/Users/delaynomore/Hireva-refactor-evidence/20261019T155226Z/INDEX.md)
+links exact commands, all failures, raw samples, manifests and ownership review.
+Branch remains `test/question-evidence-corrections`, HEAD
+`e85275121b1bd33a3123ca32daf319bf87e0260f`; existing dirty changes were protected.
+No commit, push, production-data restoration or installation replacement occurred.
+
+The actual handover baseline is
+`d3b4292f0c6e2daa0662f4bcf16d0f59ca019a69e585d242af17eb3015d4b20f`;
+final test/model/audio measurement source is
+`dbbcf984a515dc6f67d251df1bca31ddf2ec4424e079009594f3f7b7ead96eb7`.
+Later README/code-map/acceptance changes have a separately recorded documentation-only
+manifest delta. Historical commands retain their original identities and outcomes.
+
+| Gate | Current observed result and limit |
+| --- | --- |
+| Player / artifact tooling | Existing player compiles with the correct `-parse-as-library` entry, strict warnings-as-errors and optimization. An actual command failed in artifact cleanup; the finalizer now checks owned-group activity and rechecks permission errors. The original kernel-level EPERM cause remains UNKNOWN. Failing regression then16Python tests pass; unknown/live-denied writers retain recoverable staging |
+| Default three rounds / serial control | Each command exits0: 2003 executed functions PASS,0issues,36explicit skips;449 parameter envelopes,2697 cases,4251 body invocations. Definitions include skips and are not all executed passes. Original four failed functions pass in all three final default rounds; their historical precise scheduling cause is not universally proved |
+| Fresh strict / Swift5 | PARTIAL: build exit0, own production/SDK/vendor primary warnings0. Tests retain89 keys/84 sites/29 files,2191 primary emissions;56 concurrency keys and33 other. No warning suppression or language-mode change |
+| Real Qwen routing102×3 | Frozen exposed diagnostic gate passes: each product TP56/FN2/FP0/TN44, raw TP48/FN10/FP0/TN44,task93/102;invalid/timeout0. All306 requests retained. Synthetic/model-assisted development labels, not independent holdout |
+| Practice original/revised16 | FAIL:4PASS/9FAIL/3PARTIAL;original1/8PASS,revised3/8PASS,13mechanical admissions. All50 actual UUID requests complete formally. Complete correct-version inputs reached the model; valid JSON, literal quotes and mechanical admission do not establish correct coverage, follow-up or reference facts |
+| Real controlled system audio | Own hashed player -> actual SCK -> real Parakeet -> real local Qwen -> validated state -> isolated DB observed. Microphone stays off. Rendered GUI remains BLOCKED by the desktop tool; state events are not pixels. Contextual historical F03 decoding success does not override current default-greedy errors |
+| Handover50 + final50 | Collection closes0 with10 excluded warmups. Before43/50 and final42/50 pipeline-admitted states; independent answer content12/50 and13/50 PASS, core route+ASR+answer joint7/50 and8/50. Fifteen no-state attempts all have raw model output. Ten correlated English families repeated five times/version are not50 independent questions |
+| Performance contract | FAIL: observed no-state rate14% ->16% violates frozen non-degradation gate. Conditional ASR-final-receipt -> admitted-state p50/p95=6747.354/7517.561ms(n43) ->6727.893/7409.586ms(n42),nearest-rank. Last-voiced-audio clock mapping and actual rendered latency remain NOT VERIFIED; no speedup or original pre-refactor B1 comparison claimed |
+| Actual soak | Engineering collection closes0:1849.8757935s window,53 primary questions plus1excluded warmup;40 primary states,13 no-state outcomes. Capture restarts between ten-question cycles; not one uninterrupted long session. Finish awaits capture teardown, then exact-owned supervisor safety cleanup; this is not a normal GUI quit. Zero numeric observation-ring overflow is separate from unmeasured ASR-writer drop counts. Quality/rendered acceptance remains unmet |
+| Resource/privacy boundary | Exact observed owned targets absent after collection; protected production path hashes and business preference hashes unchanged. This does not prove unobserved descendants or erase the historical production incident, whose business impact remains UNKNOWN. No real API key read, cloud inference, TCC reset or original Ollama stop |
+| Ownership / reading | Feature owners and Coordinator/current+retiring/join retained; AppState still has application/pipeline/UI/DB adapters, so thin-root completion is PARTIAL. Full own-text interval/hash coverage and binary identities are in the external reading ledger; reading does not prove correctness |
+| Packaging / untested modes | Optimized canonical arm64/ad-hoc builds verified; final documentation-only rebuild identity is in the current INDEX. Microphone, Combined microphone, Chinese real audio, old-system native ASR, Developer ID/notarization and PUBLIC_DISTRIBUTION remain NOT RUN |
+
+The historical 41/44 negative score counts three valid `uncertain` outputs as
+exact-label failures; it is not standard decided-only TN/(TN+FP) specificity.
+Those three are not invalid JSON. The current raw/product confusion matrices,
+invalid/timeout/abstention counts, task matrices and failed rows remain separate.
+
+Existing project implementations, SwiftPM/Swift Testing, the canonical build,
+owned native supervisor and Python standard library were reused. Official
+[Swift Testing parallelization](https://developer.apple.com/documentation/testing/parallelization),
+[Ollama API](https://docs.ollama.com/api/streaming) and
+[SQLite conflict behavior](https://www.sqlite.org/lang_conflict.html) informed
+verification; no external implementation, dependency, model or toolchain was added.
+
+# Historical product evidence — 2026-10-15
+
+**PARTIAL: technical answers, Practice and default-concurrency acceptance remain
+unqualified.** The sole [external INDEX](/Users/delaynomore/Hireva-refactor-evidence/20261001T154827Z/INDEX.md)
+links `reference-quality-20261009T104918Z/resume-20261012T1634Z/M269-active-receipt.json`,
+all commands, failures and protected source. Branch is `test/question-evidence-corrections`,
+HEAD `e85275121b1bd33a3123ca32daf319bf87e0260f`; no commit, push, installation
+replacement, publication or production-data restoration occurred.
+
+The current test/model execution fingerprint is
+`f2461104905c346fa1d569460926f4882e95df7f1f764adb25da7793294e9f15`.
+M326 release used `dda99d90368e8df7eb2453b0f42b171a3fa2019f5de7a94858306a912e584aea`;
+the sole subsequent executable-scope difference is a test optional-binding warning
+fix, with identical production and resources. Final README/code-map/acceptance edits
+have a separate manifest delta. Historical green results retain their own identities.
+
+This continuation retained three focused changes: optional public Ollama duration
+metadata, a narrower retrospective-work versus new-coding task distinction, and a
+cancellable load-only preparation inside the existing capture startup owner. Model
+loading can consume a substantial part of the unchanged eight-second routing budget;
+one immediately verified resident-model control answered the same route in 4.110s.
+This does not establish the cause of historical timeout accumulation or a universal
+latency fix. Positive GUI execution of the new preparation path remains unverified.
+
+| Gate | Result and evidence scope |
+| --- | --- |
+| D03 | FAIL: current M336 eight variants/eight requests: 3 PASS / 2 PARTIAL / 3 FAIL. Core four: 0 PASS / 2 PARTIAL / 2 FAIL. Generic rollback and explicit OR ROLLBACK answers remain wrong; wrapper and statement exceptions remain insufficiently scoped |
+| Technical correctness basis | Existing isolated SQLite/GRDB tests distinguish statement/transaction and ABORT/ROLLBACK/FAIL/application policies. Correct S0/S1/S2 or E0/E1 source notes reached all M336 requests. Eight cards match formal output exactly; no parser-loss evidence |
+| Reference / consumers | PARTIAL: saved Practice reference remains modelDraft or legacy unknown and revision-bound. The independent critic receives no old draft judgments/reference. Accepted generated Live cards are not independently verified technical facts; ordinary recap/material RAG do not automatically promote their text to evidence |
+| Practice / full16 | FAIL: current M334 preserves 16 scenarios / 50 requests: 4 PASS / 9 FAIL / 3 PARTIAL. 13 mechanical admissions; 11 framework issues across 6 mechanical failure scenarios; exit1. All50 formal stop, no timeout/cancel. Quotation, coverage, temporal scope and reference correctness remain separate |
+| Authorized 9B diagnostic | Historical M267 original/revised0/2 qualified; lifetime58/60,2unused. No new9B request, download or default replacement in this continuation |
+| Product routing102×3 | PASS for frozen exposed diagnostic: M331 each round product required56/58, negative44/44, raw48/58. All306 rows/306requests retained, no timeout/cancel/repair. Existing generic rules correct eight required cases with zero introduced error in this set. known21/32 remain product FN |
+| Raw routing / labels | PARTIAL: raw48/58 below target; eight rule corrections are not pure-model capability. Task93/102 and coverage88/96 each round. Synthetic/model-assisted labels are not human gold or an independent holdout; basis/relation lack gold |
+| F03 ASR | PARTIAL, scoped reuse: original greedy FAIL; contextual file PCM and original real-SCK F03 passed previously, with nearby words, literal dead application, F01, silence and None/new-epoch controls. Decoder/helper unchanged; approximate BPE general equivalence and arbitrary vocabulary remain unproved |
+| Lifecycle / preparation regressions | PASS within controlled scope: terminal duration metadata, load-only endpoint/terminal validation, cancellation/deadline and stale startup identity tests pass. Existing current/retiring/join, consent and publication fences retained. These tests do not prove every real GUI interleaving |
+| Default full suite / three-round gate | FAIL / not achieved: M322,M324,M328 and old-artifact M329 fail under default aggregate scheduling. M333's one-line fixture counterfactual also fails1114issues and is exactly reverted. Late focused and serial passes do not erase clustered60s deadline failures. No three best runs selected; sole cause remains UNKNOWN |
+| Current serial comparison | PASS: M332 exact f246 exit0;2033 function definitions,1997 executed,447 parameterized functions,2689cases,4239invocations,36skips,0issues; native301.743s. Axes are not additive. Skip/early return is not model/device PASS |
+| Fresh strict, Swift5 | PARTIAL: exact-f246 M337 exit0; production/third-party/SDK primary0, tests88keys/83sites/2151emissions. One new redundant-require warning removed; remaining old concurrency/callback/macro diagnostics preserved, not suppressed |
+| Optimized canonical release | PASS locally: M326 `bundle-current-M325/Hireva.app`,arm64 Swift5 release-O,22files and ad-hoc signature verified; main be403cc0…678b9,helper c9b4029e…56625,CDHash6a909876…9fffe. Not notarized or public-distribution acceptance |
+| Actual startup negatives | PASS: M335 four exact-bundle children exit1 before production migration for missing/misspelled/partial/invalid isolation; each reaped. Protected production paths/preferences unchanged |
+| System Audio → qualified visible GUI | BLOCKED for current bundle:09:43UTC desktop tool reports locked and same-user console metadata independently reports locked. No new positive GUI/audio launch. Historical SCK39 had visible grounded F05 but wrong task classification; F01 timed out. Historical SCK38 displayed a wrong technical answer |
+| Valid50+50 / qualified30-minute soak | NOT RUN: qualified visible current-candidate prerequisite unmet. Routing p50≈4.1s is classifier latency, not first-answer performance; failed runtimes are not soak |
+| Historical production incident | PARTIAL: October2 DB/preferences byte changes confirmed; business rows/keys UNKNOWN without a trustworthy before-state. No restoration, clearing, checkpoint or Keychain recovery; later unchanged hashes do not erase history |
+| Old-system compatibility | PARTIAL: main/helper minos14; bundled ONNX1.27 minos15.5. Pre-spawn guard prevents incompatible helper execution, not native ASR support on14–15.4. Old-system end-to-end NOT RUN |
+| Whole-source / remaining lifecycle review | PARTIAL: actual read ranges and current changes/callers recorded;691manifest hashes are not whole-repository reading or all device paths |
+| Microphone / Combined / PUBLIC_DISTRIBUTION | NOT RUN; not authorized |
+
+Current D03 request components match the prior M308 components, except request ID;
+seven formal responses differ. Existing temperature0.1 is unchanged; the specific
+cause of output variability is not proved. Current full16's sixteen critic responses
+happen to match M299 exactly, but were actually requested and independently reviewed.
+Neither equality nor difference proves caching, determinism or progressive degradation.
+
+Practice sometimes invents extra requirements, misses expressed content or writes
+incorrect references. Invalid quote/assessment pairs remain rejected; refusal is a
+safety result, not qualified feedback. No gold, deadline, semantic standard or model
+was relaxed. Review uses frozen rubric, literal current quotes, executable facts and
+[SQLite conflict semantics](https://www.sqlite.org/lang_conflict.html),
+[transaction errors](https://www.sqlite.org/lang_transaction.html) and
+[Ehcache3.11 conditions](https://www.ehcache.org/documentation/3.11/tiering.html).
+It is not human gold or the same local generator scoring itself.
+
+Existing project provider, owner, supervisor and build/test entry points were reused.
+[Ollama's API](https://docs.ollama.com/api/generate) and the installed0.24.0 handler
+were checked for load-only requests and numeric terminal diagnostics. No external
+implementation or dependency was added. Original Ollama/user models remain unchanged.
+Exact recorded child waits, empty exit residuals and final PID/start/executable checks
+are recorded; no claim covers all OS handles or unobserved descendants.
+
+# Historical targeted product evidence — earlier 2026-10-08
+
+**PARTIAL; complete product acceptance is not achieved.** The sole external
+[INDEX](/Users/delaynomore/Hireva-refactor-evidence/20261001T154827Z/INDEX.md)
+links source protection, raw commands, failed runs and the final per-question
+review. HEAD remains `e85275121b1bd33a3123ca32daf319bf87e0260f` on
+`test/question-evidence-corrections`; changes are uncommitted.
+
+The final test/build/model source fingerprint is
+`5d11a601c039bb3f5ef052b5179a209f059e55cdc0ce1d2c1ffa9f311db359ed`.
+The subsequent README/code-map/acceptance edits have an explicit document-only
+manifest delta in the external run. Production, tests, configuration, fixtures
+and packaged resources are unchanged by those edits; intermediate green runs
+and older bundles remain separately identified.
+
+| Gate | Current result |
+| --- | --- |
+| Historical production incident | PARTIAL: October 2 DB/preferences byte changes confirmed; affected business rows/keys UNKNOWN; no restoration, clearing or Keychain recovery |
+| Isolation / actual launch negatives | PASS: four final VerificationOnly bundle children exit 1 before production identity migration; wrapper exits 0; six protected paths and 22 business preference hashes unchanged |
+| Default tests / serial | PASS: final defaults three times and serial once, each 1907 executed functions, 386 parameter envelopes / 2386 cases / 3907 invocations, 33 skips, zero issues or unended calls |
+| Fresh strict, Swift 5 | PARTIAL: compiler exit 0, own production primary warnings 0; tests retain 88 warning keys at 83 sites / 2129 emissions; not warning-free or Swift 6 readiness |
+| Real product routing 102×3 | PASS for frozen diagnostic gate: required 56/58 each round; negatives 43/44, 44/44, 44/44; timeout 1, 0, 0, retained in fixed denominators; all 306 rows / 315 provider records preserved |
+| Raw model evidence classification | PARTIAL: raw required 52/58 each round; four existing generic personal-fact boundary projections produce final 56/58. known21/97 remain FN; not pure-model 95% recall |
+| Practice / current full16 | FAIL on retained representative original, PASS on its revision (1/2 semantic qualification, 2/2 mechanical admissions). Current full16 NOT RUN because registered representative-pair prerequisite failed; historical full16 0/16 qualified and 16 independent semantic FAIL remain |
+| ASR F03 | FAIL: immutable original asset yields “dead application” for “deduplication” through file and SCK paths; platform resampling does not resolve it; acoustic versus lexical cause UNKNOWN, no gold or forced-word replacement |
+| System Audio → qualified visible GUI | PARTIAL: D03 own-player → SCK → exact F01 ASR → question/context → formal local answer → isolated DB observed, but answer semantics FAIL and actual visibility NOT VERIFIED. Final scope bundle positive GUI NOT RUN; desktop-tool/session conflict unresolved |
+| Optimized canonical bundle | PASS for build/signature/resources on macOS 27: final arm64 Swift 5 release `-O`, main 7798769b… / helper d8e9d229… / CDHash 099a448a…; WMO not independently established in this run |
+| Native old-system compatibility | PARTIAL: app/helper targets remain 14; packaged ONNX 1.27 declares minimum 15.5 and loads before helper startup. Bundled helper is rejected before spawning below 15.5; actual old-system end-to-end NOT RUN |
+| Valid 50+50 / actual 30-minute soak | NOT RUN: qualifying live answer and visible-GUI prerequisites unmet; failed-run durations are not speed results, no short test relabeled as soak |
+| Lifecycle / whole-source review | PARTIAL: existing Coordinator/current/retiring/join and consent/version fences retained; controlled regressions pass. Domain-specific real GUI and whole-source correctness acceptance remain open; actual ranges recorded, hashes are not reading |
+| Microphone / Combined / public distribution | NOT RUN; outside authorization |
+
+The 102 labels remain exposed synthetic/model-assisted diagnostics, not human
+gold or independent holdout. Product routing TP, clean formal model completion
+and a conservative fallback are distinct. Across the three final rounds 315
+formal stop fields were observed, 314 captures were not cancelled and 305 final
+classifications were valid. Round 1 known102 completed JSON after its total
+question deadline and stays timeout. Basis/relation lack gold and are not
+reported as accuracy. Default skips and fixture-only tests receive no real-model
+credit; general branch coverage is not established.
+
+Historical 40/58 → 21/58 → 5/58 mostly reflects growing timeouts (22/54/98
+questions), plus retained semantic mismatches, not a proved model-decay cause.
+Current primary payloads match the historical closed runs; their old service,
+queue and resource state remains UNKNOWN. Historical full16 had all 16 route
+attempts cancelled, followed by 33 formal Practice responses; source notices,
+coverage and follow-up semantics failed. No parser drop of a qualified answer
+was established. Current Swift offline replay of those 33 Practice outputs is
+NOT RUN; the 310-output replay covers routing only.
+
+The earlier request repairs addressed reference subject restrictions, targeted
+follow-up and explanation-versus-design policy. In the current evaluator, the
+critic reassesses the complete frozen attempt using the same question, answer,
+rubric, source evidence and attachment; the primary draft/reference/prose is not
+supplied. Both phases receive the application-owned output contract; genuine
+validation failures may supply error context.
+The compact recovery no-CV rule remains scoped to general technical tasks.
+These mechanisms and shared-model criticism do not establish independent
+factual accuracy or successful answer-quality acceptance.
+Validators, gold, source guards, production deadlines and model versions were
+not relaxed. Original/revised attempts and literal quotations remain distinct.
+
+The latest actual positive flow was D03 at source `2dbf1253…`, not the final
+bundle. Its primary/shared answer policy is byte-identical to the final policy;
+only compact recovery scope and subsequent test expectations changed. Its
+formal atomicity answer still implies universal whole-transaction rollback on
+operation failure; an isolated SQLite default-ABORT counterexample contradicts
+that claim. State/DB publication is not proof of an answer visible to the user.
+No explicit unlock, TCC change or microphone-request command was issued. The
+desktop tool's reported failed internal unlock remains in the raw error; it
+does not establish usable access or authorize another unlock attempt.
+
+All known owned app/player/helper targets have prior exact reaping/retirement
+proofs and current absent-PID observations; client captures were cancelled and
+joined. This does not prove a normal GUI quit or all original service requests
+aborted. The original Ollama PID 1065 and selected model digest are retained.
+This run's unchanged protected hashes do not erase the historical production
+incident. No data restore, commit, push, PR, upload, publication, notarization or
+installation replacement occurred. Bundle and protected source archive remain
+only in the external evidence run.
+
+# Historical refactor acceptance — 2026-10-01
+
+**PARTIAL; complete architecture and public distribution are not accepted.**
+This run retained the existing SwiftUI/SwiftPM targets, backend/model versions,
+database schema, bundle/Keychain identities and user data paths. No commit, push,
+PR, release, notarization or existing installation replacement was performed.
+The clean baseline was `test/question-evidence-corrections` at
+`e85275121b1bd33a3123ca32daf319bf87e0260f`; `cfdda9e` exists and is its ancestor.
+Final HEAD is unchanged and the worktree contains this run's uncommitted changes.
+External evidence run `20261001T080554Z` contains `INDEX.md`, command/source
+manifests, raw logs, a hash-specific reading ledger and `handoff.md`.
+
+## Changed ownership and defects
+
+History loading and Diagnostics now have directly observed feature owners.
+PracticeController uses focused dependencies assembled by AppComposition and no
+longer retains AppState. The existing GenerationCoordinator owns request/generation
+identity and the registered tasks; AppState's task handles are read-only
+projections. Whole-app assembly, Documents/Settings/Live state, UI/DB output and
+retry/fallback policy remain in AppState. Retired task cancellation is not an
+awaitable join of every resource; the complete ownership migration remains partial.
+
+Regressions cover selected-source diagnostics, UTF-8-safe Ollama pull framing and
+explicit success, per-round Apple Speech/Parakeet bridge termination, frozen
+provider configuration, consent/revision fences, terminal publication/watchdogs,
+interleaved Float32 PCM and exact owned helper exit. Timeout remains cooperative;
+it cannot forcibly stop arbitrary code that ignores cancellation. Practice repair
+uses the actual missing criterion/validation failure without inventing a follow-up.
+
+## Verification recorded for that run
+
+| Check / external log | Executed / passed / failed / skipped; exit |
+|---|---|
+| Original ordinary `baseline-tests` | 812 /810 /2 /8; 1 (not a green baseline) |
+| Final ordinary `full-tests-serial-after-release-fix`, explicit `--no-parallel` | 923 /923 /0 /9; 0, 123.824s test time |
+| Final default `full-tests-default-after-release-fix` | 923 /919 /4 /9; 1, five issues retained |
+| Generation protected group `generation-final-green` | 111 /111 /0 /0; 0 |
+| Frozen-parent/configuration group `frozen-conversation-green` | 8 functions /8 /0 /0; 0 (11 parameter entries) |
+| Actual local Parakeet `native-asr-model-final-2` | 1 /1 /0 /0; 0, three final events, zero Swift writer drops |
+| Actual local Qwen `routing-current102` | 1 /0 /1 /0; 1; required recall 51/58 below 95% |
+| Actual Practice original / revised diagnostic | Each 1 /0 /1 /0; each 1; required feedback still incomplete |
+| Fresh strict-concurrency build, Swift 5 language mode | Exit0; 146 unique warnings retained. Latest changed-file build also exit0; no Swift 6 readiness claim |
+| Canonical release `.app` `canonical-release-value-copy` | Exit0, arm64/ad-hoc, signatures/resources/native helper verified; product not launched |
+
+Swift Testing's final summary 932 includes the nine explicit skips. Four other
+ordinary functions return early without their opt-in model/network flags; their
+ordinary pass is not actual model execution. Separate model logs above are the
+actual executions. The first native model attempt used an invalid zero-frame WAV
+header from this run's external generator; that failed fixture/log is retained.
+The repaired generator closes the file before the unchanged test reads it.
+
+Release initially reproduced a Swift 6.1 SIL crash in
+`freezeConversationContext(for:)` on both the saved original baseline and current
+source. Reading/updating a descriptor value copy before inout writeback fixes the
+release build; real frozen-parent behavior tests passed. A prior Boolean-only
+attempt still failed and is retained. No optimization flags or toolchain changed.
+
+The default parallel failures remain in terminal-provider readiness, merged-question
+content, PhD replay discard accounting and a runtime-path wait. Serial success
+does not override this gate; the discard caller/root cause is not established.
+
+## Quality, hardware and performance limits
+
+The unchanged 102 cases are previously inspected synthetic/model-assisted
+diagnostic data, not independent human gold or a fresh holdout. Required recall
+is 51/58 (87.93%), negative specificity 41/44, negative-to-required 0/44, task
+matches 89/102; one invalid result remains in the denominators. Full confusion
+matrices and all failed rows are in external `quality-report.md`. V3 was not rerun.
+Original and revised Practice model outputs still omit required targeted feedback.
+No labels, denominators or quality gates were changed to pass.
+
+GUI/system audio is **BLOCKED**: the actual unique-domain CFPreferences canary
+wrote preferences under the ordinary root despite `CFFIXED_USER_HOME`. Isolated
+DB, credential backend and application suite are separately tested, but framework
+standard-preference isolation is not established. The product was not launched;
+no recording or playback occurred. The user selected system audio only;
+microphone remains **NOT VERIFIED**. The actual native model test sends a
+synthetic file directly to PCM/helper/model, and proves neither devices nor GUI.
+
+No valid audio-end-to-render before/after, 50+50 sample comparison, cold/warm or
+soak run was performed. Existing p50 +20% /p95 +30% budgets remain. The legacy
+`answer.ui.rendered` state event is not a measured rendered frame. Ad-hoc package
+verification is separate from Developer ID, notarization, clean-Mac and public
+distribution, which were not run. Whole-source reading is partial; exact current
+hash/range coverage and continuation gates are in the external evidence index.
+
+---
+
+# Historical continuation acceptance — 2026-09-27
 
 **Overall core is NOT COMPLETE.** Routing recall misses its fixed gate; physical
 microphone/TTS/denial and the defined B1→B2 audio performance comparison remain

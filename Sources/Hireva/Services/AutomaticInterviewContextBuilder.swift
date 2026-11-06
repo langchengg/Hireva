@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 protocol AutomaticDocumentEvidenceExtracting {
     func extract(
@@ -46,17 +47,45 @@ struct LocalQwenDocumentEvidenceExtractor: AutomaticDocumentEvidenceExtracting {
         END_UNTRUSTED_DOCUMENT
         Extract only directly supported facts using the required JSON schema.
         """
-        let stream = try await provider.generateAnswer(request: LocalLLMRequest(
+        let request = LocalLLMRequest(
             prompt: prompt,
             systemPrompt: systemPrompt,
             modelName: modelName,
             temperature: 0,
             numPredict: 1_600,
             responseFormat: "json"
-        ))
-        var raw = ""
-        for try await token in stream {
-            raw += token.text
+        )
+        let stream: AsyncThrowingStream<LLMToken, Error>
+        let producer: Task<Void, Never>?
+        if let ollama = provider as? OllamaQwenProvider {
+            let owned = try await ollama.generateOwnedAnswer(request: request)
+            stream = owned.stream
+            producer = owned.producerTask
+        } else {
+            // Injected bare streams keep their existing opaque resource contract.
+            stream = try await provider.generateAnswer(request: request)
+            producer = nil
+        }
+        // The existing context worker remains owned until this exact request's
+        // producer exits. A finished stream alone does not establish cleanup.
+        let raw = try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                var raw = ""
+                for try await token in stream {
+                    try Task.checkCancellation()
+                    raw += token.text
+                }
+                await producer?.value
+                try Task.checkCancellation()
+                return raw
+            } catch {
+                producer?.cancel()
+                await producer?.value
+                throw error
+            }
+        } onCancel: {
+            producer?.cancel()
         }
         guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AutomaticDocumentExtractionError.emptyResponse
@@ -182,28 +211,23 @@ struct LocalQwenDocumentEvidenceExtractor: AutomaticDocumentEvidenceExtracting {
 struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
     typealias ChunkProvider = (String) throws -> [DocumentChunk]
 
-    private struct CachedExtraction {
+    private struct CachedExtraction: Sendable {
         var extraction: StructuredEvidenceExtraction
         var usedLocalQwen: Bool
     }
 
-    private final class ExtractionCache {
-        private let lock = NSLock()
-        private var values: [String: CachedExtraction] = [:]
+    private final class ExtractionCache: Sendable {
+        private let values = OSAllocatedUnfairLock(initialState: [String: CachedExtraction]())
 
         func value(for key: String) -> CachedExtraction? {
-            lock.lock()
-            defer { lock.unlock() }
-            return values[key]
+            values.withLock { $0[key] }
         }
 
-        func clear() { lock.lock(); values.removeAll(); lock.unlock() }
+        func clear() { values.withLock { $0.removeAll() } }
 
         func insert(_ value: CachedExtraction, for key: String) {
             guard !Task.isCancelled else { return }
-            lock.lock()
-            values[key] = value
-            lock.unlock()
+            values.withLock { $0[key] = value }
         }
     }
 
@@ -274,19 +298,25 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
                 cacheHitCount += 1
             } else if let evidenceExtractor {
                 do {
-                    extraction = try await evidenceExtractor.extract(
+                    let extracted = try await evidenceExtractor.extract(
                         documentID: document.id,
                         classification: classification.type.documentClassification,
                         content: sanitized.content,
                         persistedChunks: chunks
                     )
+                    try Task.checkCancellation()
+                    extraction = extracted
                     usedLocalQwen = true
                     promptCharacters += sanitized.content.count
                     Self.extractionCache.insert(
                         CachedExtraction(extraction: extraction, usedLocalQwen: true),
                         for: extractionCacheKey
                     )
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
+                    // Cancellation never becomes a successful fallback build.
+                    try Task.checkCancellation()
                     extraction = StructuredEvidenceExtractor().extract(
                         documentID: document.id,
                         classification: classification.type.documentClassification,
@@ -324,6 +354,7 @@ struct AutomaticInterviewContextBuilder: InterviewContextBuilding {
             }
         }
 
+        try Task.checkCancellation()
         candidateEvidence = Self.mergeReviewedEvidence(candidateEvidence, previous: previousConfirmedProfile)
         candidateEvidence = Self.deduplicated(candidateEvidence)
         opportunityEvidence = Self.deduplicated(opportunityEvidence)

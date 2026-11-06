@@ -43,7 +43,7 @@ struct RAGPhase3VerificationTests {
 
         let service = HybridContextRetrievalService(
             documentRepository: documents,
-            settingsProvider: { settings },
+            settingsProvider: { [settings] in settings },
             embeddingProviderResolver: { nil }
         )
 
@@ -116,7 +116,7 @@ struct RAGPhase3VerificationTests {
 
         let service = HybridContextRetrievalService(
             documentRepository: documents,
-            settingsProvider: { settings },
+            settingsProvider: { [settings] in settings },
             embeddingProviderResolver: { provider }
         )
 
@@ -133,18 +133,14 @@ struct RAGPhase3VerificationTests {
         #expect(trace.rankedCVChunks.first?.finalHybridScore != nil)
     }
 
-    @Test
+    @Test(.enabled(if: TestSupport.realAppDatabaseTestsEnabled &&
+        ProcessInfo.processInfo.environment["HIREVA_REAL_CLOUD_TESTS"] == "1",
+        "Requires explicit cloud/production-data opt-in; never part of ordinary or local-only validation."))
     func realDeepSeekProviderCompletionIsExplicitlyGated() async throws {
-        guard TestSupport.realAppDatabaseTestsEnabled else {
-            print("Skipping real DeepSeek provider test: set REAL_APP_DB_TESTS=1 to allow real provider/keychain access.")
-            return
-        }
-
         let keychain = KeychainService()
-        guard let apiKey = try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount), !apiKey.isEmpty else {
-            print("Skipping real DeepSeek provider test: DeepSeek API key is not configured in Keychain.")
-            return
-        }
+        let apiKey = try #require(try keychain.loadAPIKey(account: KeychainConstants.deepSeekAccount),
+            "Explicitly enabled cloud test needs a configured credential.")
+        try #require(!apiKey.isEmpty)
 
         final class EnvironmentAPIKeyStore: APIKeyStore {
             let key: String

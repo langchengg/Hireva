@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Source attribution drives auto-detection safety: interviewer/system audio can
 /// trigger answers, while candidate microphone speech is normally ignored.
-enum AudioSourceType: String, Codable, CaseIterable {
+enum AudioSourceType: String, Codable, CaseIterable, Sendable {
     case microphone
     case systemAudio
     case processAudio
@@ -13,7 +13,7 @@ enum AudioSourceType: String, Codable, CaseIterable {
 }
 
 /// Speaker attribution attached to a transcript segment.
-enum SpeakerRole: String, Codable, CaseIterable {
+enum SpeakerRole: String, Codable, CaseIterable, Sendable {
     case candidate
     case interviewer
     case unknown
@@ -42,7 +42,7 @@ enum SpeakerRole: String, Codable, CaseIterable {
 }
 
 /// Lightweight audio-device snapshot used by settings and diagnostics.
-public struct AudioDeviceInfo: Codable, Equatable, Identifiable {
+public struct AudioDeviceInfo: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let name: String
     public let transportType: String?
@@ -75,7 +75,7 @@ public struct AudioDeviceInfo: Codable, Equatable, Identifiable {
 ///
 /// Partial segments may update live UI, but final segments are preferred for
 /// answer generation so truncated fragments do not become primary questions.
-struct TranscriptSegment: Identifiable, Hashable, Codable {
+struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
     var id: String
     var sessionID: String
     var source: AudioSourceType
@@ -103,6 +103,8 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
     var sourceTextStartUTF16: Int?
     var sourceTextEndUTF16: Int?
     var recognitionIsFinal: Bool?
+    // Optional bridge-producer time; historical transcripts decode it as nil.
+    var verificationFinalHostTicks: UInt64?
 
     init(
         id: String,
@@ -126,7 +128,8 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         recognitionEventSequence: Int? = nil,
         sourceTextStartUTF16: Int? = nil,
         sourceTextEndUTF16: Int? = nil,
-        recognitionIsFinal: Bool? = nil
+        recognitionIsFinal: Bool? = nil,
+        verificationFinalHostTicks: UInt64? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -150,6 +153,7 @@ struct TranscriptSegment: Identifiable, Hashable, Codable {
         self.sourceTextStartUTF16 = sourceTextStartUTF16
         self.sourceTextEndUTF16 = sourceTextEndUTF16
         self.recognitionIsFinal = recognitionIsFinal
+        self.verificationFinalHostTicks = verificationFinalHostTicks
     }
 
     static func system(_ text: String, sessionID: String = "ephemeral") -> TranscriptSegment {

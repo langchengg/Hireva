@@ -35,7 +35,7 @@ MIN_SYSTEM_VERSION="14.0"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="${HIREVA_BUNDLE_OUTPUT_DIR:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -67,7 +67,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 else
     GIT_TREE_STATE="unknown"
 fi
-EXPECTED_BUNDLE_PATH="$APP_BUNDLE"
+EXPECTED_BUNDLE_PATH="${HIREVA_EXPECTED_BUNDLE_PATH:-$APP_BUNDLE}"
 BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD="no"
 
 case "$REQUESTED_SIGNING_MODE" in
@@ -98,86 +98,28 @@ if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]
     exit 2
 fi
 
-launch_existing_bundle() {
-    local open_args=(-n)
-
-    if [[ ! -d "$APP_BUNDLE" || ! -x "$APP_BINARY" ]]; then
-        echo "[Launch] ERROR: runnable app bundle not found at $APP_BUNDLE" >&2
-        echo "[Launch] Run $0 --verify once before using --relaunch." >&2
-        return 1
-    fi
-
-    if ! codesign --verify --deep --strict --verbose=4 "$APP_BUNDLE"; then
-        echo "[Launch] ERROR: existing app bundle failed code-signature verification." >&2
-        return 1
-    fi
-
-    if [[ -x "$LSREGISTER" ]]; then
-        "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || {
-            echo "[Launch] WARNING: could not refresh the current LaunchServices registration." >&2
-        }
-    fi
-
-    if [[ -n "$REQUESTED_FIXED_USER_HOME" ]]; then
-        mkdir -p "$REQUESTED_FIXED_USER_HOME"
-        open_args+=(--env "CFFIXED_USER_HOME=$REQUESTED_FIXED_USER_HOME")
-        echo "[Launch]   Fixed user home: $REQUESTED_FIXED_USER_HOME"
-    fi
-
-    if [[ "${HIREVA_VERIFICATION_MODE:-}" == "1" ]]; then
-        for variable_name in \
-            HIREVA_VERIFICATION_MODE \
-            HIREVA_VERIFICATION_SCENARIO_PATH \
-            HIREVA_VERIFICATION_OUTPUT_ROOT \
-            HIREVA_VERIFICATION_APP_SUPPORT_DIR \
-            HIREVA_VERIFICATION_MODEL_ROOT; do
-            variable_value="${!variable_name:-}"
-            if [[ -n "$variable_value" ]]; then
-                open_args+=(--env "$variable_name=$variable_value")
-            fi
-        done
-        echo "[Launch]   Verification mode: enabled with explicit scenario"
-    fi
-
-    /usr/bin/open "${open_args[@]}" "$APP_BUNDLE"
-}
-
-verify_launched_process() {
-    local app_pid=""
-
-    for i in {1..20}; do
-        app_pid="$(pgrep -f "$APP_BINARY" | head -1 || true)"
-        if [[ -n "$app_pid" ]]; then
-            break
-        fi
-        sleep 0.5
-    done
-    if [[ -n "$app_pid" ]]; then
-        sleep 2
-    fi
-    if [[ -n "$app_pid" ]] && kill -0 "$app_pid" >/dev/null 2>&1; then
-        echo "$app_pid"
-        return 0
-    fi
-    return 1
-}
-
 print_usage() {
     cat <<EOF
-usage: $0 [run|--relaunch|--debug|--logs|--telemetry|--verify|--identity-check|--reset-tcc]
+usage: $0 [run|--build-only|--relaunch|--debug|--logs|--telemetry|--verify|--identity-check|--reset-tcc]
 
   run               Build, sign, and launch (default)
-  --relaunch        Relaunch the existing signed bundle without rebuilding or re-signing
+  --build-only      Build/sign and safely publish the managed bundle without launching any app
+  --relaunch        Open the existing signed bundle, leaving running sessions intact
+  --verify          Build, launch, and verify the app is running
   --debug           Build and launch under lldb
   --logs            Build, launch, and stream process logs
   --telemetry       Build, launch, and stream subsystem logs
-  --verify          Build, launch, and verify the app is running
+  --reset-tcc       Explicitly reset this app's permissions (never part of build/cleanup)
   --identity-check  Verify CFBundleIdentifier, codesign authority, designated requirement, and cdhash
-  --reset-tcc       Reset all TCC permissions for the app's bundle ID
 
 Environment:
+  HIREVA_ARTIFACT_ROOT=/absolute/owned-local-directory
+                     Optional; defaults to ~/Developer/HirevaArtifacts/<repository-id>
+                     Legacy HIREVA_BUNDLE_OUTPUT_DIR destinations are rejected.
   HIREVA_FIXED_USER_HOME=/path
                      Pass CFFIXED_USER_HOME only to the launched app process
+  HIREVA_VERIFICATION_BUNDLE=1
+                     --build-only acceptance bundle refuses non-isolated relaunches
   HIREVA_SIGNING_MODE=adhoc|development|developer-id
                      Select an explicit signing mode; no implicit fallback.
   HIREVA_SIGNING_IDENTITY, HIREVA_SWIFTPM_BUILD_PATH, HIREVA_PREBUILT_BINARY,
@@ -188,7 +130,7 @@ EOF
 
 # Reject unsupported modes before any process is stopped or bundle is rebuilt.
 case "$MODE" in
-    run|--relaunch|relaunch|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--identity-check|identity-check|--reset-tcc|reset-tcc)
+    run|--build-only|--relaunch|relaunch|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--identity-check|identity-check|--reset-tcc|reset-tcc)
         ;;
     --help|help|-h)
         print_usage
@@ -200,95 +142,43 @@ case "$MODE" in
         ;;
 esac
 
-# --- Handle --reset-tcc mode early ---
+# An acceptance bundle fails closed even when a relaunch drops its environment.
+if [[ -n "${HIREVA_VERIFICATION_MODE+x}${HIREVA_VERIFICATION_SCENARIO_PATH+x}${HIREVA_VERIFICATION_OUTPUT_ROOT+x}${HIREVA_VERIFICATION_APP_SUPPORT_DIR+x}${HIREVA_VERIFICATION_MODEL_ROOT+x}" ]]; then
+    if [[ "$MODE" != "--build-only" || "${HIREVA_VERIFICATION_BUNDLE:-0}" != "1" ]]; then
+        echo "[build] ERROR: verification requires --build-only and HIREVA_VERIFICATION_BUNDLE=1; launch through the owned verification supervisor." >&2
+        exit 2
+    fi
+fi
+case "${HIREVA_VERIFICATION_BUNDLE:-0}" in
+    0) ;;
+    1)
+        [[ "$MODE" == "--build-only" ]] || {
+            echo "[build] ERROR: HIREVA_VERIFICATION_BUNDLE=1 requires --build-only." >&2
+            exit 2
+        }
+        ;;
+    *) echo "[build] ERROR: HIREVA_VERIFICATION_BUNDLE must be 0 or 1." >&2; exit 2 ;;
+esac
+
+# Keep the explicitly requested permission action separate from artifact management.
 if [[ "$MODE" == "--reset-tcc" || "$MODE" == "reset-tcc" ]]; then
     echo "Resetting TCC permissions for $BUNDLE_ID ..."
     tccutil reset Microphone "$BUNDLE_ID" 2>/dev/null || true
     tccutil reset SpeechRecognition "$BUNDLE_ID" 2>/dev/null || true
     tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null || true
-    echo "Done. Rebuild and relaunch to re-grant permissions."
     exit 0
 fi
 
+# All public modes share the same local output and coordination lock.
+if [[ "${HIREVA_ARTIFACT_WORKER:-0}" != "1" ]]; then
+    exec python3 "$ROOT_DIR/script/artifact_lifecycle.py" build "$MODE"
+fi
+[[ "$MODE" == "--build-only" ]] || { echo "worker requires --build-only" >&2; exit 2; }
+python3 "$ROOT_DIR/script/artifact_lifecycle.py" check-worker
+[[ ! -e "$APP_BUNDLE" && ! -L "$APP_BUNDLE" ]] || {
+    echo "[bundle] ERROR: staging bundle must not already exist." >&2; exit 2;
+}
 cd "$ROOT_DIR"
-
-# Permission prompts may relaunch the current app process. This mode intentionally
-# runs before every build, bundle replacement, and signing operation so the
-# process always points to the exact bundle whose permissions were granted.
-if [[ "$MODE" == "--relaunch" || "$MODE" == "relaunch" ]]; then
-    echo "[relaunch] Relaunching the existing signed bundle without rebuilding or re-signing..."
-    osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 &
-    RELAUNCH_QUIT_PID=$!
-    for i in {1..8}; do
-        if ! kill -0 "$RELAUNCH_QUIT_PID" >/dev/null 2>&1; then
-            wait "$RELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
-            break
-        fi
-        sleep 0.25
-    done
-    if kill -0 "$RELAUNCH_QUIT_PID" >/dev/null 2>&1; then
-        echo "[relaunch] WARNING: AppleScript quit request timed out."
-        kill "$RELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
-        wait "$RELAUNCH_QUIT_PID" >/dev/null 2>&1 || true
-    fi
-    for i in {1..12}; do
-        if ! pgrep -f "$APP_BINARY" >/dev/null; then
-            break
-        fi
-        sleep 0.25
-    done
-    if pgrep -f "$APP_BINARY" >/dev/null; then
-        echo "[relaunch] WARNING: graceful quit timed out; stopping the existing bundle process."
-        pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
-        sleep 0.5
-    fi
-
-    launch_existing_bundle
-    if APP_PID="$(verify_launched_process)"; then
-        echo "[relaunch] $EXECUTABLE_NAME is running from the unchanged bundle (pid $APP_PID)."
-        exit 0
-    fi
-    echo "[relaunch] ERROR: $EXECUTABLE_NAME did not remain running from $APP_BINARY." >&2
-    exit 1
-fi
-
-# --- Quit existing app instance ---
-# Required first step for every build: stop the user-facing process name.
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
-echo "[quit] Attempting graceful quit of $BUNDLE_ID ..."
-osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 &
-QUIT_SCRIPT_PID=$!
-for i in {1..8}; do
-    if ! kill -0 "$QUIT_SCRIPT_PID" >/dev/null 2>&1; then
-        wait "$QUIT_SCRIPT_PID" >/dev/null 2>&1 || true
-        break
-    fi
-    sleep 0.25
-done
-if kill -0 "$QUIT_SCRIPT_PID" >/dev/null 2>&1; then
-    echo "[quit] WARNING: AppleScript quit request timed out. Continuing with process fallback..."
-    kill "$QUIT_SCRIPT_PID" >/dev/null 2>&1 || true
-    wait "$QUIT_SCRIPT_PID" >/dev/null 2>&1 || true
-fi
-
-# Wait up to 3 seconds for the processes to exit
-for i in {1..12}; do
-    if ! pgrep -x "$EXECUTABLE_NAME" >/dev/null && ! pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
-        echo "[quit] Application exited gracefully."
-        break
-    fi
-    sleep 0.25
-done
-
-# Path-specific fallback kill if still running after 3 seconds
-if pgrep -x "$EXECUTABLE_NAME" >/dev/null || pgrep -x "$SPM_PRODUCT_NAME" >/dev/null; then
-    echo "[quit] WARNING: Application did not quit gracefully within 3 seconds. Using pkill fallback..."
-    pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
-    pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
-    pkill -x "$SPM_PRODUCT_NAME" >/dev/null 2>&1 || true
-    sleep 0.5
-fi
 
 # --- Build ---
 if [[ -n "$REQUESTED_PREBUILT_BINARY" ]]; then
@@ -316,20 +206,10 @@ if [[ ! -f "$BUILD_BINARY" ]]; then
 fi
 
 # --- Assemble .app bundle ---
-# Preserve the outer .app directory. Cloud file providers can move a deleted
-# bundle into their own Trash, where LaunchServices may register it as a second
-# app with the same bundle identifier. Replacing only Contents keeps one path.
-echo "[bundle] Clearing stale bundle contents at $APP_CONTENTS ..."
-mkdir -p "$APP_BUNDLE"
-rm -rf "$APP_CONTENTS"
-find "$DIST_DIR" -name '._*' -delete 2>/dev/null || true
-find "$DIST_DIR" -name '.DS_Store' -delete 2>/dev/null || true
-if [[ ! -e "$APP_CONTENTS" ]]; then
-    BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD="yes"
-else
-    echo "[bundle] ERROR: stale bundle contents still exist after removal: $APP_CONTENTS" >&2
-    exit 1
-fi
+# Only the coordinator's fresh task directory is writable here.
+echo "[bundle] Assembling owned staging bundle at $APP_BUNDLE ..."
+BUNDLE_CLEANUP_ROOT="$APP_BUNDLE"
+BUNDLE_CONTENTS_CLEARED_BEFORE_REBUILD="not needed: fresh staging"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_HELPERS" "$APP_FRAMEWORKS" \
     "$APP_DOCUMENTATION" "$APP_THIRD_PARTY_NOTICES"
 
@@ -359,6 +239,9 @@ chmod +x "$APP_BINARY"
 /usr/bin/plutil -insert HirevaGitTreeState         -string "$GIT_TREE_STATE"      "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaSigningMode          -string "$REQUESTED_SIGNING_MODE" "$INFO_PLIST"
 /usr/bin/plutil -insert HirevaRuntimeMode          -string "bundled_native"        "$INFO_PLIST"
+if [[ "${HIREVA_VERIFICATION_BUNDLE:-0}" == "1" ]]; then
+    /usr/bin/plutil -insert HirevaVerificationOnly -bool true "$INFO_PLIST"
+fi
 if [[ "$REQUESTED_SIGNING_MODE" == "developer-id" ]]; then
     /usr/bin/plutil -insert HirevaDistributionBuild -bool true "$INFO_PLIST"
 else
@@ -388,6 +271,22 @@ if [[ ! -f "$APP_ICON_SOURCE" ]]; then
 fi
 echo "[bundle] Copying app icon to bundle resources..."
 cp "$APP_ICON_SOURCE" "$APP_ICON_BUNDLE"
+
+echo "[bundle] Copying pinned SwiftPM dependency privacy resources..."
+for resource_bundle in GRDB_GRDB.bundle ZIPFoundation_ZIPFoundation.bundle; do
+    resource_source="$(dirname "$BUILD_BINARY")/$resource_bundle"
+    if [[ ! -d "$resource_source" || ! -f "$resource_source/PrivacyInfo.xcprivacy" ]]; then
+        echo "[bundle] ERROR: dependency privacy resource missing beside build binary: $resource_source" >&2
+        exit 1
+    fi
+    /usr/bin/plutil -lint "$resource_source/PrivacyInfo.xcprivacy" >/dev/null
+    cp -R "$resource_source" "$APP_RESOURCES/$resource_bundle"
+    if ! cmp -s "$resource_source/PrivacyInfo.xcprivacy" \
+        "$APP_RESOURCES/$resource_bundle/PrivacyInfo.xcprivacy"; then
+        echo "[bundle] ERROR: copied dependency privacy resource differs: $resource_bundle" >&2
+        exit 1
+    fi
+done
 
 echo "[bundle] Copying release documentation and verified third-party notices..."
 for document in \
@@ -421,8 +320,8 @@ fi
 # the assembled bundle; codesign rejects those as resource-fork detritus.
 echo "[sign] Clearing bundle extended attributes before signing..."
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-find "$DIST_DIR" -name '._*' -delete 2>/dev/null || true
-find "$DIST_DIR" -name '.DS_Store' -delete 2>/dev/null || true
+find "$BUNDLE_CLEANUP_ROOT" -name '._*' -delete 2>/dev/null || true
+find "$BUNDLE_CLEANUP_ROOT" -name '.DS_Store' -delete 2>/dev/null || true
 
 print_signing_diagnostics() {
     local signing_details
@@ -471,6 +370,12 @@ print_signing_diagnostics() {
     spctl --assess --type execute --verbose=4 "$APP_BUNDLE" 2>&1 || true
     echo "+ xattr -lr $APP_BUNDLE"
     xattr -lr "$APP_BUNDLE" 2>&1 || true
+    # A fresh acceptance build owns only this bundle. Broad process/event log
+    # queries can include a separately running user's app or private session.
+    if [[ "$MODE" == "--build-only" ]]; then
+        echo "[diagnostics] Isolated build: system log query omitted."
+        return
+    fi
     echo "+ log show --predicate 'process == \"amfid\" OR eventMessage CONTAINS \"Hireva\"' --last 5m --style compact"
     /usr/bin/log show \
         --predicate 'process == "amfid" OR eventMessage CONTAINS "Hireva"' \
@@ -526,86 +431,4 @@ plutil -p "$INFO_PLIST" | grep -E "CFBundleIdentifier|CFBundleName|CFBundleExecu
 codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier" || true
 echo ""
 
-# --- Launch ---
-open_app() {
-    echo "[Launch] Launching $APP_NAME..."
-    echo "[Launch]   Bundle Path: $APP_BUNDLE"
-    echo "[Launch]   Bundle ID:   $BUNDLE_ID"
-    echo "[Launch]   Binary Path: $APP_BINARY"
-    echo "[Launch]   Signature Info:"
-    codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature" | sed 's/^/  /' || true
-    launch_existing_bundle
-}
-
-case "$MODE" in
-    run)
-        open_app
-        echo "[run] Launched $APP_BUNDLE"
-        ;;
-    --debug|debug)
-        lldb -- "$APP_BINARY"
-        ;;
-    --logs|logs)
-        open_app
-        echo "[logs] Streaming process logs for $EXECUTABLE_NAME ..."
-        /usr/bin/log stream --info --style compact --predicate "process == \"$EXECUTABLE_NAME\""
-        ;;
-    --telemetry|telemetry)
-        open_app
-        echo "[telemetry] Streaming subsystem logs for $BUNDLE_ID ..."
-        /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
-        ;;
-    --verify|verify)
-        if open_app; then
-            :
-        else
-            launch_status=$?
-            echo "[verify] ERROR: open failed with exit $launch_status." >&2
-            print_signing_diagnostics
-            exit "$launch_status"
-        fi
-        if APP_PID="$(verify_launched_process)"; then
-            echo "[verify] ✅ $EXECUTABLE_NAME is running from the expected path (pid $APP_PID)."
-            echo "[verify] Bundle: $APP_BUNDLE"
-            echo "[verify] Bundle ID: $BUNDLE_ID"
-            echo "[verify] CFBundleExecutable: $EXECUTABLE_NAME"
-            codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature" || true
-        else
-            echo "[verify] ❌ $EXECUTABLE_NAME is NOT running from $APP_BINARY."
-            print_signing_diagnostics
-            exit 1
-        fi
-        ;;
-    --identity-check|identity-check)
-        echo "=== [Identity Check] ==="
-        echo "Bundle Path: $APP_BUNDLE"
-        if [[ ! -d "$APP_BUNDLE" ]]; then
-            echo "Bundle not built yet. Run build first."
-            exit 1
-        fi
-        if [[ -f "$INFO_PLIST" ]]; then
-            echo "CFBundleIdentifier: $(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "Unknown")"
-        else
-            echo "CFBundleIdentifier: Info.plist missing"
-        fi
-        echo ""
-        echo "Codesign Info:"
-        codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|Authority|Signature|TeamIdentifier" || true
-        echo ""
-        echo "Designated Requirement:"
-        codesign -d -r- "$APP_BUNDLE" 2>&1 || true
-        echo ""
-        echo "cdhash:"
-        codesign -dvvvv "$APP_BUNDLE" 2>&1 | grep "CDHash" || true
-        echo ""
-        echo "Executable Path: $APP_BINARY"
-        echo "========================"
-        ;;
-    --reset-tcc|reset-tcc)
-        # handled above
-        ;;
-    *)
-        print_usage >&2
-        exit 2
-        ;;
-esac
+echo "[build] Built and verified staging bundle: $APP_BUNDLE"

@@ -113,7 +113,7 @@ extension AppState {
     }
 
     var primaryHomeActionShouldStop: Bool {
-        liveState.canStop || currentCaptureRuntimeState == .starting || currentCaptureRuntimeState == .listening || currentCaptureRuntimeState == .generating || currentCaptureRuntimeState == .stopping
+        captureStartupID != nil || captureLifecycle.hasFailedTeardown || liveState.canStop || currentCaptureRuntimeState == .starting || currentCaptureRuntimeState == .listening || currentCaptureRuntimeState == .generating || currentCaptureRuntimeState == .stopping
     }
 
     var homeLiveAnswerPreviewText: String? {

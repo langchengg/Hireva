@@ -8,23 +8,39 @@ import Foundation
 
 extension AppState {
     func freezeConversationContext(for question: inout DetectedQuestion) {
-        if question.taskDescriptor?.conversationContextCaptured == true {
+        freezeConversationContext(for: &question, parentCard: currentSuggestion)
+    }
+
+    /// A queued detector uses the card captured by its user action. An explicit
+    /// nil records that no parent was available rather than rebinding later.
+    func freezeConversationContext(for question: inout DetectedQuestion, parentCard: SuggestionCard?,
+        mode submittedMode: InterviewSessionMode? = nil) {
+        let contextMode = submittedMode ?? interviewSessionMode
+        var descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+        if descriptor.conversationContextCaptured == true {
             // An obsolete frozen parent must never silently rebind to a new card.
-            if let frozen = question.taskDescriptor?.conversationContext,
-               frozen.sessionID != question.sessionID || frozen.contextSnapshotID != currentSession?.contextSnapshotID || frozen.mode != interviewSessionMode.rawValue {
-                question.taskDescriptor?.conversationContext = nil
-                question.taskDescriptor?.decision = nil
+            // Read and update the value copy before the single inout writeback;
+            // nested optional read/write access crashes the Swift 6.1 verifier.
+            let invalidFrozenContext: Bool
+            if let frozen = descriptor.conversationContext {
+                invalidFrozenContext = frozen.sessionID != question.sessionID || frozen.contextSnapshotID != currentSession?.contextSnapshotID || frozen.mode != contextMode.rawValue
+            } else {
+                invalidFrozenContext = false
+            }
+            if invalidFrozenContext {
+                descriptor.conversationContext = nil
+                descriptor.decision = nil
+                question.taskDescriptor = descriptor
             }
             return
         }
-        var descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
         descriptor.conversationContextCaptured = true
         question.taskDescriptor = descriptor
-        guard let card = currentSuggestion, card.sessionID == question.sessionID,
+        guard let card = parentCard, card.sessionID == question.sessionID,
               card.questionID != question.id, card.contextSnapshotID == currentSession?.contextSnapshotID,
               let parentID = card.questionID, let text = card.questionText, !text.isEmpty, !card.isPartial else { return }
         descriptor.conversationContext = .init(sessionID: question.sessionID, questionID: parentID,
-            questionText: text, answerText: card.sayFirst, contextSnapshotID: card.contextSnapshotID, mode: interviewSessionMode.rawValue)
+            questionText: text, answerText: card.sayFirst, contextSnapshotID: card.contextSnapshotID, mode: contextMode.rawValue)
         question.taskDescriptor = descriptor
     }
 
@@ -41,7 +57,7 @@ extension AppState {
         if segment.asrFinalizationReason == "partial" {
             return segment
         }
-        let reconciled = transcriptReconciler.segmentForQuestionExtraction(segment)
+        let reconciled = liveInterview.segmentForQuestionExtraction(segment)
         if let reconciled {
             return reconciled
         }
@@ -94,12 +110,13 @@ extension AppState {
         _ extractedQuestions: [ExtractedTranscriptQuestion],
         segment: TranscriptSegment,
         session: InterviewSession,
-        suggestionTranscript: String
+        suggestionTranscript: String,
+        consentTicket: Int? = nil
     ) {
         // One ASR segment can contain several interviewer questions. Persist
         // each accepted detection, but generate only for the newest question so
         // the visible answer stays aligned with the visible current question.
-        let baseDate = transcriptSegmentIngestedAt[segment.id] ?? Date()
+        let baseDate = liveInterview.transcriptIngressDate(for: segment.id) ?? Date()
         let acceptedQuestions = extractedQuestions.enumerated().compactMap { index, extracted in
             let detected = makeDetectedQuestion(
                 from: extracted,
@@ -147,7 +164,7 @@ extension AppState {
                         newRecognitionEpoch: ingress.recognitionTaskID,
                         oldSourceSpan: replaySource.sourceSpanDescription,
                         newSourceSpan: ingress.sourceSpanDescription,
-                        overlapScore: sourceSpanOverlapScore(replaySource, ingress),
+                        overlapScore: liveInterview.sourceSpanOverlapScore(replaySource, ingress),
                         reason: "consumed_source_span_overlap",
                         timestamp: Date()
                     ))
@@ -155,7 +172,7 @@ extension AppState {
                 duplicateQuestions.append(question)
             } else {
                 if intentionalRepeat {
-                    intentionalRepeatQuestionIDs.insert(question.id)
+                    liveInterview.markIntentionalQuestionRepeat(question.id)
                     recordTranscriptRuntimeEvent(.intentionalQuestionRepeatAccepted(
                         sessionID: session.id,
                         questionID: question.id,
@@ -195,13 +212,16 @@ extension AppState {
         }
 
         let latestQuestion = freshQuestions.last ?? firstQuestion
-        saveDetectedQuestionsInBackground(freshQuestions)
+        saveDetectedQuestionsInBackground(freshQuestions, consentTicket: consentTicket)
         // Cumulative ASR callbacks can contain older accepted questions plus a
         // newly appended one. The history contract is per accepted question,
         // while the active-generation contract is latest-only: persist earlier
         // fresh questions as local snapshots, then start one provider request
         // for the newest question below. Replay/correction suppression remains
         // in the source-span checks above, not in canonical text alone.
+        #if DEBUG
+        let historyBeganNS = DispatchTime.now().uptimeNanoseconds
+        #endif
         for historicalQuestion in freshQuestions.dropLast() {
             persistAcceptedQuestionHistorySnapshot(
                 for: historicalQuestion,
@@ -212,9 +232,14 @@ extension AppState {
                 caution: "Saved from an earlier complete question in a merged transcript.",
                 modelName: "local-merged-question-snapshot",
                 promptVersion: "merged-transcript-snapshot-v1",
-                consentTicket: persistenceConsent.ticket()
+                consentTicket: consentTicket ?? persistenceConsent.ticket()
             )
         }
+        #if DEBUG
+        diagnosticsState.onPipelineTimingForTesting?("merged_history.prepare_and_admit_sync",
+            session.id, latestQuestion.id, nil, historyBeganNS,
+            DispatchTime.now().uptimeNanoseconds, segment.text.utf16.count)
+        #endif
         detectedQuestionsInSessionCount += freshQuestions.count
         lastDetectedQuestion = latestQuestion
         lastDetectedQuestionSource = segment.source.rawValue
@@ -254,7 +279,6 @@ extension AppState {
                 transcriptSegmentID: question.transcriptSegmentID
             )
         }
-        lastAutoSuggestionAt = Date()
         lastTranscriptQuestionGenerationTrace.generationTriggered = true
         lastTranscriptQuestionGenerationTrace.generationBlockedReason = ""
         recordLifecycleTrace(
@@ -263,7 +287,8 @@ extension AppState {
             questionID: latestQuestion.id,
             text: latestQuestion.questionText
         )
-        launchOrQueueAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript)
+        launchOrQueueAutoSuggestionGeneration(for: latestQuestion, session: session, transcript: suggestionTranscript,
+            consentTicket: consentTicket)
     }
 
     // internal for AppState extension access only
@@ -295,6 +320,7 @@ extension AppState {
         card.caution = caution
         card.createdAt = question.createdAt
         card.questionText = question.questionText
+        card.questionDecision = question.taskDescriptor?.decision
         card.transcriptSegmentID = question.transcriptSegmentID
         card.generationID = generationID
         card.source = segment?.source.rawValue
@@ -481,16 +507,10 @@ extension AppState {
 
     // internal for AppState extension access only
     func maybeRunAutomaticDetection(triggeringSegment: TranscriptSegment) {
-        detectionDebounceTask?.cancel()
-        detectionDebounceTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await Task.sleep(nanoseconds: UInt64(self.detectionDebounceSeconds * 1_000_000_000))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self.beginAutomaticDetection(triggeringSegment: triggeringSegment)
+        liveInterview.scheduleAutomaticDetection(
+            delayNanoseconds: UInt64(detectionDebounceSeconds * 1_000_000_000)
+        ) { [weak self] in
+            self?.beginAutomaticDetection(triggeringSegment: triggeringSegment)
         }
         liveState = .listening
     }
@@ -513,21 +533,14 @@ extension AppState {
             return
         }
 
-        activeDetectionTask?.cancel()
-        activeDetectionTask = Task { [weak self] in
-            guard let self else { return }
-            await self.runAutomaticDetection(
-                session: session,
-                detectionTranscript: detectionTranscript,
-                suggestionTranscript: suggestionTranscript,
-                triggeringSegmentID: triggeringSegment.id
-            )
-        }
+        _ = submitAutomaticDetection(session: session,
+            detectionTranscript: detectionTranscript,
+            suggestionTranscript: suggestionTranscript,
+            triggeringSegmentID: triggeringSegment.id)
     }
 
     // MARK: - Provider Detection
 
-    // TODO: Move retry/detection coupling into GenerationCoordinator or QuestionDetectionCoordinator in Phase 2.
     /// Runs provider-backed question detection for one transcript snapshot.
     ///
     /// `detectionTranscript` may include recent context for classification, but
@@ -538,27 +551,115 @@ extension AppState {
         session: InterviewSession,
         detectionTranscript: String,
         suggestionTranscript: String,
-        triggeringSegmentID: String?
+        triggeringSegmentID: String?,
+        providerConfiguration: LLMProviderConfiguration? = nil
     ) async {
+        guard let task = submitAutomaticDetection(session: session,
+            detectionTranscript: detectionTranscript,
+            suggestionTranscript: suggestionTranscript,
+            triggeringSegmentID: triggeringSegmentID,
+            providerConfiguration: providerConfiguration) else { return }
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    private func submitAutomaticDetection(
+        session: InterviewSession,
+        detectionTranscript: String,
+        suggestionTranscript: String,
+        triggeringSegmentID: String?,
+        providerConfiguration: LLMProviderConfiguration? = nil
+    ) -> Task<Void, Never>? {
+        guard !isShuttingDown, !Task.isCancelled,
+              currentSession?.id == session.id,
+              currentSession?.contextSnapshotID == session.contextSnapshotID,
+              currentSession?.contentRevision == session.contentRevision,
+              currentSession?.endedAt == session.endedAt else { return nil }
+        // Capture semantic inputs before any publication can reenter settings,
+        // context selection or a newer detection. Cosmetic session edits do not
+        // revoke a request; its consumed session/version fields do.
+        let submittedSelection = currentInterviewContextSelection
+        let submittedSnapshotID = activeContextSnapshot?.id
+        let submittedMode = interviewSessionMode
+        let submittedAnswerMode = selectedAnswerProviderMode
+        let submittedProvider = activeRealtimeProvider
+        let resolvedProvider = Result {
+            try providerConfiguration ?? submittedProvider ?? llmRouter.realtimeConfiguration()
+        }
+        let triggeringSegment = transcriptSegments.first { $0.id == triggeringSegmentID }
+        let submittedParent = currentSuggestion
+        let submittedTicket = persistenceConsent.ticket()
+        let acceptsSubmittedInputs = { [weak self] in
+            guard let self else { return false }
+            return !self.isShuttingDown && !Task.isCancelled &&
+                self.currentSession?.id == session.id &&
+                self.currentSession?.contextSnapshotID == session.contextSnapshotID &&
+                self.currentSession?.contentRevision == session.contentRevision &&
+                self.currentSession?.endedAt == session.endedAt &&
+                self.currentInterviewContextSelection == submittedSelection &&
+                self.activeContextSnapshot?.id == submittedSnapshotID &&
+                self.interviewSessionMode == submittedMode &&
+                self.selectedAnswerProviderMode == submittedAnswerMode &&
+                LLMProviderConfiguration.sameQuestionDetectionRequest(self.activeRealtimeProvider, submittedProvider) &&
+                (providerConfiguration == nil ||
+                    LLMProviderConfiguration.sameQuestionDetectionRequest(providerConfiguration, submittedProvider)) &&
+                (triggeringSegment == nil || self.transcriptSegments.first {
+                    $0.id == triggeringSegmentID
+                } == triggeringSegment)
+        }
+        return liveInterview.submitAutomaticDetection { [weak self] detectionID in
+            guard let self else { return }
+            await self.performSubmittedAutomaticDetection(session: session,
+                detectionTranscript: detectionTranscript,
+                suggestionTranscript: suggestionTranscript,
+                triggeringSegmentID: triggeringSegmentID,
+                triggeringSegment: triggeringSegment,
+                resolvedProvider: resolvedProvider, submittedParent: submittedParent,
+                submittedMode: submittedMode, submittedTicket: submittedTicket,
+                detectionID: detectionID,
+                acceptsSubmittedInputs: acceptsSubmittedInputs)
+        }
+    }
+
+    private func performSubmittedAutomaticDetection(
+        session: InterviewSession,
+        detectionTranscript: String,
+        suggestionTranscript: String,
+        triggeringSegmentID: String?,
+        triggeringSegment: TranscriptSegment?,
+        resolvedProvider: Result<LLMProviderConfiguration, Error>,
+        submittedParent: SuggestionCard?,
+        submittedMode: InterviewSessionMode,
+        submittedTicket: Int,
+        detectionID: UUID,
+        acceptsSubmittedInputs: @escaping @MainActor () -> Bool
+    ) async {
+        defer { liveInterview.finishAutomaticDetectionAdmission(detectionID) }
+        let acceptsResult = {
+            self.liveInterview.acceptsAutomaticDetection(detectionID) && acceptsSubmittedInputs()
+        }
         do {
+            guard acceptsResult() else { return }
+            let frozenProvider = try resolvedProvider.get()
             print("[AppState] Automatic question detection running | transcriptLength = \(detectionTranscript.count) | triggeringSegmentID = \(triggeringSegmentID ?? "nil")")
             liveState = .detectingQuestion
+            guard acceptsResult() else { return }
 
             // Set input segment submitted to question detection
-            let triggeringSegment = transcriptSegments.first(where: { $0.id == triggeringSegmentID })
             self.lastDetectionSubmittedSegmentText = triggeringSegment?.text ?? "Unknown segment text"
             self.lastDetectionPromptSource = triggeringSegment?.source.rawValue ?? "Unknown source"
             self.lastDetectionPromptSpeaker = triggeringSegment?.speaker.rawValue ?? "Unknown speaker"
             self.lastDetectedQuestionSource = triggeringSegment?.source.rawValue ?? ""
             self.lastDetectedQuestionSpeaker = triggeringSegment?.speaker.rawValue ?? ""
 
+            guard acceptsResult() else { return }
             let detection = try await questionDetectionService.detect(
                 transcriptContext: detectionTranscript,
                 sessionID: session.id,
                 transcriptSegmentID: triggeringSegmentID,
-                model: activeRealtimeProvider?.model
+                model: frozenProvider.model,
+                providerConfiguration: frozenProvider
             )
-            guard !Task.isCancelled else { return }
+            guard acceptsResult() else { return }
             self.lastQuestionDetectionProvider = detection.response.providerName
             self.lastQuestionDetectionModel = detection.response.modelName
             updateDiagnostics {
@@ -569,13 +670,17 @@ extension AppState {
                 $0.apiCallCount += 1
             }
 
+            guard acceptsResult() else { return }
             var question = detection.question
+            freezeConversationContext(for: &question, parentCard: submittedParent, mode: submittedMode)
+            guard acceptsResult() else { return }
             if let triggeringSegment,
                processLocallySplitProviderQuestionIfNeeded(
                    question,
                    segment: triggeringSegment,
                    session: session,
-                   suggestionTranscript: suggestionTranscript
+                   suggestionTranscript: suggestionTranscript,
+                   consentTicket: submittedTicket
                ) {
                 return
             }
@@ -585,6 +690,7 @@ extension AppState {
                     question,
                     triggeringSegmentID: triggeringSegmentID
                 ) else {
+                    guard acceptsResult() else { return }
                     if self.stopReason == nil && self.anyCaptureRunning {
                         liveState = .listening
                         currentCaptureRuntimeState = .listening
@@ -594,8 +700,11 @@ extension AppState {
                 question = guarded
             }
 
-            saveDetectedQuestionInBackground(question)
+            guard acceptsResult() else { return }
+            saveDetectedQuestionInBackground(question, consentTicket: submittedTicket)
+            guard acceptsResult() else { return }
             lastDetectedQuestion = question
+            guard acceptsResult() else { return }
             if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
                 lastTranscriptQuestionGenerationTrace.detectedQuestionID = question.id
                 lastTranscriptQuestionGenerationTrace.questionConfidence = question.confidence
@@ -615,6 +724,7 @@ extension AppState {
             self.lastDetectionAnswerStrategy = question.answerStrategy.displayName
             self.lastQuestionDetectionResult = "Question complete: \(question.questionComplete) | Text: \"\(question.questionText)\" | Heuristic score (uncalibrated): \(question.confidence)"
 
+            guard acceptsResult() else { return }
             let isFirstAnswerWorthyQuestion = detectedQuestionsInSessionCount == 0
             // Duplicate suppression must not become a global "generation is
             // already busy" state. If a question is suppressed, the UI must end
@@ -632,7 +742,6 @@ extension AppState {
                     question.questionText,
                     transcriptSegmentID: question.transcriptSegmentID
                 )
-                lastAutoSuggestionAt = Date()
                 detectedQuestionsInSessionCount += 1
                 if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
                     lastTranscriptQuestionGenerationTrace.generationTriggered = true
@@ -646,7 +755,9 @@ extension AppState {
                     questionID: question.id,
                     text: question.questionText
                 )
-                startAutoSuggestionGeneration(for: question, session: session, transcript: suggestionTranscript)
+                guard acceptsResult() else { return }
+                startAutoSuggestionGeneration(for: question, session: session, transcript: suggestionTranscript,
+                    consentTicket: submittedTicket)
             } else {
                 var skipMsg = ""
                 if !question.shouldTrigger {
@@ -688,16 +799,18 @@ extension AppState {
                 }
                 self.lastDetectionSkipReason = skipMsg
 
+                guard acceptsResult() else { return }
                 if possibleQuestionConfidenceRange.contains(question.confidence) {
                     possibleQuestion = question
                 }
+                guard acceptsResult() else { return }
                 if self.stopReason == nil && self.anyCaptureRunning {
                     liveState = .listening
                     currentCaptureRuntimeState = .listening
                 }
             }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard acceptsResult() else { return }
             self.lastQuestionDetectionResult = "Detection failed: \(error.localizedDescription)"
             self.lastDetectionSkipReason = "LLM/Detection API call error: \(error.localizedDescription)"
             if triggeringSegmentID == lastTranscriptQuestionGenerationTrace.transcriptSegmentID {
@@ -709,14 +822,8 @@ extension AppState {
                 currentCaptureRuntimeState = .listening
             }
 
-            if self.lastFailedTaskType != .suggestionGeneration {
-                self.lastFailedTaskType = .questionDetection
-                self.lastFailedQuestion = nil
-                self.lastFailedTranscriptContext = detectionTranscript
-                self.lastFailedCVJDContext = nil
-                self.lastFailedProviderConfig = activeRealtimeProvider
-            }
 
+            guard acceptsResult() else { return }
             showError(userFacing(error))
         }
     }
@@ -727,7 +834,8 @@ extension AppState {
         _ question: DetectedQuestion,
         segment: TranscriptSegment,
         session: InterviewSession,
-        suggestionTranscript: String
+        suggestionTranscript: String,
+        consentTicket: Int? = nil
     ) -> Bool {
         guard segment.source == .systemAudio || segment.source == .processAudio || segment.source == .mock else {
             return false
@@ -745,7 +853,8 @@ extension AppState {
             extractedQuestions,
             segment: segment,
             session: session,
-            suggestionTranscript: suggestionTranscript
+            suggestionTranscript: suggestionTranscript,
+            consentTicket: consentTicket
         )
         return true
     }
@@ -770,13 +879,14 @@ extension AppState {
 
     /// Starts suggestion generation for an accepted interviewer question.
     ///
-    /// This method is only the bridge from detection into generation. Task
-    /// ownership, active generation guards, fallback watchdogs, and visible
-    /// answer mutation remain in AppState+Generation/AppState.generateSuggestion.
+    /// This bridge applies acceptance policy and submits to the existing
+    /// generation runtime. GenerationCoordinator owns generation tasks; App
+    /// applies the established UI publication and persistence boundaries.
     private func startAutoSuggestionGeneration(
         for question: DetectedQuestion,
         session: InterviewSession,
-        transcript: String
+        transcript: String,
+        consentTicket: Int? = nil
     ) {
         guard let acceptedQuestion = runtimeAcceptedQuestionForGeneration(
             question,
@@ -790,7 +900,8 @@ extension AppState {
             )
             return
         }
-        launchOrQueueAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
+        launchOrQueueAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript,
+            consentTicket: consentTicket)
     }
 
     // internal for AppState extension access only
@@ -820,26 +931,46 @@ extension AppState {
             ))
             return
         }
-        queuedQuestionHandoffTask?.cancel()
-        queuedQuestionHandoffTask = nil
-        let pending = pendingAcceptedQuestions.removeFirst()
-        recordTranscriptRuntimeEvent(.queueDepthChanged(
-            sessionID: pending.session.id,
-            depth: pendingAcceptedQuestions.count,
-            reason: "dequeued",
-            timestamp: Date()
-        ))
-        recordTranscriptRuntimeEvent(.questionDequeued(
-            sessionID: pending.session.id,
-            questionID: pending.question.id,
-            question: pending.question.questionText,
-            duplicateKey: pending.duplicateKey,
-            timestamp: Date()
-        ))
-        lastDetectedQuestion = pending.question
-        lastDetectedQuestionText = pending.question.questionText
-        lastAutoSuggestionAt = Date()
-        launchAutoSuggestionGeneration(for: pending.question, session: pending.session, transcript: pending.transcript)
+        let frozenSessionID = currentSession?.id
+        let frozenIdentity = generationCoordinator.activeGeneration?.identity
+        let frozenHandoffReceipt = generationCoordinator.activeGeneration?.queuedQuestionHandoffRegistrationID
+        guard let frozenHead = pendingAcceptedQuestions.first else { return }
+        if let identity = frozenIdentity {
+            generationCoordinator.clearTask(role: .queuedQuestionHandoff,
+                generationID: identity.generationID)
+        }
+        // Clearing an owned timer publishes committed retirement synchronously.
+        // A subscriber may replace the queue, session, generation or same-value
+        // timer receipt. Only this unchanged FIFO admission may consume its head.
+        // Terminal UI states remain legitimate drain conditions; canPublish is
+        // intentionally not the business queue's completion policy.
+        guard !isShuttingDown,
+              currentSession?.id == frozenSessionID,
+              generationCoordinator.activeGeneration?.identity == frozenIdentity,
+              generationCoordinator.activeGeneration?.queuedQuestionHandoffRegistrationID == frozenHandoffReceipt,
+              pendingAcceptedQuestions.first == frozenHead,
+              queueDrainBlockReasonForCurrentState() == nil else {
+            return
+        }
+        liveInterview.dequeueAcceptedQuestion(ifHeadMatches: frozenHead) { pending in
+            recordTranscriptRuntimeEvent(.queueDepthChanged(
+                sessionID: pending.session.id,
+                depth: pendingAcceptedQuestions.count,
+                reason: "dequeued",
+                timestamp: Date()
+            ))
+            recordTranscriptRuntimeEvent(.questionDequeued(
+                sessionID: pending.session.id,
+                questionID: pending.question.id,
+                question: pending.question.questionText,
+                duplicateKey: pending.duplicateKey,
+                timestamp: Date()
+            ))
+            lastDetectedQuestion = pending.question
+            lastDetectedQuestionText = pending.question.questionText
+            launchAutoSuggestionGeneration(for: pending.question, session: pending.session, transcript: pending.transcript,
+                consentTicket: pending.consentTicket)
+        }
     }
 
     private func shouldQueueAutoSuggestionGeneration(for question: DetectedQuestion) -> Bool {
@@ -885,10 +1016,63 @@ extension AppState {
         _ question: DetectedQuestion,
         session: InterviewSession,
         transcript: String,
-        drainImmediately: Bool = true
+        supersedeCurrentGeneration: Bool,
+        consentTicket: Int? = nil
     ) {
         let duplicateKey = SemanticDuplicateKeyBuilder.key(for: question.questionText)
-        if pendingAcceptedQuestions.contains(where: { $0.duplicateKey == duplicateKey }) {
+        let pending = PendingAcceptedQuestion(
+            question: question,
+            session: session,
+            transcript: transcript,
+            canonicalQuestion: QuestionCanonicalizer.canonicalize(question.questionText),
+            intent: AnswerRelevancePolicy.intent(for: question.questionText),
+            promptPrimaryQuestion: question.questionText,
+            duplicateKey: duplicateKey,
+            queuedAt: Date(),
+            consentTicket: consentTicket
+        )
+        let enqueued = liveInterview.enqueueAcceptedQuestion(pending) {
+            recordTranscriptRuntimeEvent(.questionQueued(
+                sessionID: session.id,
+                questionID: question.id,
+                question: question.questionText,
+                duplicateKey: duplicateKey,
+                timestamp: pending.queuedAt
+            ))
+            recordTranscriptRuntimeEvent(.queueDepthChanged(
+                sessionID: session.id,
+                depth: pendingAcceptedQuestions.count,
+                reason: "queued",
+                timestamp: Date()
+            ))
+            recordTranscriptRuntimeEvent(.generationSkippedBecauseActive(
+                sessionID: session.id,
+                questionID: question.id,
+                generationID: activeGenerationID,
+                question: question.questionText,
+                timestamp: Date()
+            ))
+            recordAnswerRequestSkipped(
+                reason: "request_inflight",
+                sessionID: session.id,
+                questionID: question.id,
+                generationID: activeGenerationID,
+                text: question.questionText
+            )
+            lastTranscriptQuestionGenerationTrace.generationTriggered = false
+            lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
+            if supersedeCurrentGeneration {
+                supersedeActiveGenerationForQueuedQuestion()
+                processNextQueuedAutoQuestionIfIdle()
+            } else {
+                finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
+                scheduleQueuedQuestionHandoffIfNeeded(
+                    questionID: question.id,
+                    sessionID: session.id
+                )
+            }
+        }
+        guard enqueued else {
             recordDuplicateSuppression()
             recordTranscriptRuntimeEvent(.generationRejected(
                 sessionID: session.id,
@@ -902,82 +1086,47 @@ extension AppState {
                 reason: .duplicateSuppressed,
                 timestamp: Date()
             ))
+            if supersedeCurrentGeneration {
+                supersedeActiveGenerationForQueuedQuestion()
+                processNextQueuedAutoQuestionIfIdle()
+            }
             return
         }
-        let pending = PendingAcceptedQuestion(
-            question: question,
-            session: session,
-            transcript: transcript,
-            canonicalQuestion: QuestionCanonicalizer.canonicalize(question.questionText),
-            intent: AnswerRelevancePolicy.intent(for: question.questionText),
-            promptPrimaryQuestion: question.questionText,
-            duplicateKey: duplicateKey,
-            queuedAt: Date()
-        )
-        pendingAcceptedQuestions.append(pending)
-        recordTranscriptRuntimeEvent(.questionQueued(
-            sessionID: session.id,
-            questionID: question.id,
-            question: question.questionText,
-            duplicateKey: duplicateKey,
-            timestamp: pending.queuedAt
-        ))
-        recordTranscriptRuntimeEvent(.queueDepthChanged(
-            sessionID: session.id,
-            depth: pendingAcceptedQuestions.count,
-            reason: "queued",
-            timestamp: Date()
-        ))
-        recordTranscriptRuntimeEvent(.generationSkippedBecauseActive(
-            sessionID: session.id,
-            questionID: question.id,
-            generationID: activeGenerationID,
-            question: question.questionText,
-            timestamp: Date()
-        ))
-        recordAnswerRequestSkipped(
-            reason: "request_inflight",
-            sessionID: session.id,
-            questionID: question.id,
-            generationID: activeGenerationID,
-            text: question.questionText
-        )
-        lastTranscriptQuestionGenerationTrace.generationTriggered = false
-        lastTranscriptQuestionGenerationTrace.generationBlockedReason = "generationActiveQueued"
-        if drainImmediately {
-            finishActiveVisibleGenerationBeforeDrainingQueueIfNeeded(session: session)
-            scheduleQueuedQuestionHandoffIfNeeded(
-                questionID: question.id,
-                sessionID: session.id
-            )
-        }
     }
+
+    #if DEBUG
+    // Mixed regression seam: invokes the actual private scheduling entry.
+    func scheduleQueuedQuestionHandoffForTesting(questionID: String, sessionID: String) {
+        scheduleQueuedQuestionHandoffIfNeeded(questionID: questionID, sessionID: sessionID)
+    }
+    #endif
 
     private func scheduleQueuedQuestionHandoffIfNeeded(
         questionID: String,
         sessionID: String
     ) {
         guard pendingAcceptedQuestions.contains(where: { $0.question.id == questionID }),
-              let blockedGenerationID = activeGenerationController?.generationID,
+              let blockedIdentity = activeGenerationController?.identity,
               !visibleAnswerExists else {
             return
         }
-        queuedQuestionHandoffTask?.cancel()
-        queuedQuestionHandoffTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 2_000_000_000)
-            } catch {
-                return
-            }
+        // Freeze the test clock before task creation; the shipping path still
+        // uses the same cooperative two-second delay.
+        #if DEBUG
+        let handoffClock: any DelayProvider = queuedQuestionHandoffDelayProviderForTesting ?? RealDelayProvider()
+        #else
+        let handoffClock: any DelayProvider = RealDelayProvider()
+        #endif
+        generationCoordinator.launchQueuedQuestionHandoff(identity: blockedIdentity,
+            nanoseconds: 2_000_000_000, delayProvider: handoffClock) { [weak self] identity in
             guard let self,
                   !Task.isCancelled,
                   self.currentSession?.id == sessionID,
-                  self.activeGenerationController?.generationID == blockedGenerationID,
+                  self.generationCoordinator.canPublish(identity),
                   !self.visibleAnswerExists,
                   self.pendingAcceptedQuestions.contains(where: { $0.question.id == questionID }) else {
                 return
             }
-            self.queuedQuestionHandoffTask = nil
             self.supersedeActiveGenerationForQueuedQuestion()
             self.processNextQueuedAutoQuestionIfIdle()
         }
@@ -1076,7 +1225,8 @@ extension AppState {
     private func launchOrQueueAutoSuggestionGeneration(
         for acceptedQuestion: DetectedQuestion,
         session: InterviewSession,
-        transcript: String
+        transcript: String,
+        consentTicket: Int? = nil
     ) {
         if shouldQueueAutoSuggestionGeneration(for: acceptedQuestion) {
             let shouldSupersede = shouldImmediatelySupersedeActiveGeneration(for: acceptedQuestion)
@@ -1084,16 +1234,15 @@ extension AppState {
                 acceptedQuestion,
                 session: session,
                 transcript: transcript,
-                drainImmediately: !shouldSupersede
+                supersedeCurrentGeneration: shouldSupersede,
+                consentTicket: consentTicket
             )
-            if shouldSupersede {
-                supersedeActiveGenerationForQueuedQuestion()
-                processNextQueuedAutoQuestionIfIdle()
-            }
             return
         }
-        pendingAcceptedQuestions.removeAll()
-        launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript)
+        liveInterview.clearAcceptedQuestions {
+            launchAutoSuggestionGeneration(for: acceptedQuestion, session: session, transcript: transcript,
+                consentTicket: consentTicket)
+        }
     }
 
     // A distinct real utterance is a follow-up, not another clause from the
@@ -1112,35 +1261,43 @@ extension AppState {
     private func launchAutoSuggestionGeneration(
         for acceptedQuestion: DetectedQuestion,
         session: InterviewSession,
-        transcript: String
+        transcript: String,
+        consentTicket: Int? = nil
     ) {
-        activeAITask?.cancel()
-        let launchID = UUID().uuidString
-        autoSuggestionLaunchID = launchID
-        autoSuggestionLaunchPending = true
-        activeAITask = Task { [weak self] in
+        #if DEBUG
+        let submittedNS = DispatchTime.now().uptimeNanoseconds
+        #endif
+        startGenerationRequest(triggerPath: .autoDetect) { [weak self] requestID in
             guard let self else { return }
-            defer {
-                if self.autoSuggestionLaunchID == launchID {
-                    self.autoSuggestionLaunchPending = false
-                    self.autoSuggestionLaunchID = nil
-                }
-            }
+            #if DEBUG
+            self.diagnosticsState.onPipelineTimingForTesting?("auto_generation.submit_to_operation_entry",
+                session.id, acceptedQuestion.id, nil, submittedNS,
+                DispatchTime.now().uptimeNanoseconds, acceptedQuestion.questionText.utf16.count)
+            #endif
+            let submittedLocalModelName = self.selectedQwenModelName
             do {
-                try await self.generateSuggestion(for: acceptedQuestion, session: session, transcript: transcript, autoGenerated: true)
+                try await self.generateSuggestion(for: acceptedQuestion, session: session, transcript: transcript,
+                    autoGenerated: true, requestID: requestID, localModelName: submittedLocalModelName,
+                    consentTicket: consentTicket)
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.generationCoordinator.isCurrentRequest(requestID) else { return }
+                let owner = self.generationCoordinator.activeGeneration
+                let failureContextID = owner?.identity.contextSnapshotID ?? session.contextSnapshotID
+                @MainActor func acceptsFailure() -> Bool {
+                    !Task.isCancelled && self.generationCoordinator.isCurrentRequest(requestID)
+                        && self.currentSession?.id == session.id
+                        && self.currentSession?.contextSnapshotID == failureContextID
+                        && (owner.map { self.generationCoordinator.isCurrent($0.identity) } ?? true)
+                }
                 let message = self.userFacing(error)
+                guard acceptsFailure() else { return }
                 if self.stopReason == nil && self.anyCaptureRunning {
                     self.liveState = .listening
+                    guard acceptsFailure() else { return }
                     self.currentCaptureRuntimeState = .listening
+                    guard acceptsFailure() else { return }
                 }
-                self.lastFailedTaskType = .suggestionGeneration
-                self.lastFailedQuestion = acceptedQuestion
-                self.lastFailedTranscriptContext = transcript
-                self.lastFailedCVJDContext = nil
-                self.lastFailedProviderConfig = self.activeRealtimeProvider
-                self.failGenerationNonBlocking(message: "Transcript preserved. \(message)")
+                self.failGenerationNonBlocking(message: "Transcript preserved. \(message)", whileCurrent: acceptsFailure)
             }
         }
     }
@@ -1262,11 +1419,6 @@ extension AppState {
         return segment.speaker.displayName
     }
 
-    private func isOutsideAutoSuggestionCooldown() -> Bool {
-        guard let lastAutoSuggestionAt else { return true }
-        return Date().timeIntervalSince(lastAutoSuggestionAt) >= autoSuggestionCooldownSeconds
-    }
-
     // internal for AppState extension access only
     func isDuplicateAutoQuestion(_ questionText: String) -> Bool {
         isDuplicateAutoQuestion(questionText, transcriptSegmentID: nil, now: Date())
@@ -1300,77 +1452,8 @@ extension AppState {
         transcriptSegmentID: String? = nil,
         now: Date = Date()
     ) -> Bool {
-        let normalized = normalizedQuestion(questionText)
-        guard !normalized.isEmpty else { return false }
-
-        if let transcriptSegmentID,
-           acceptedQuestionSegmentIDs[normalized] == transcriptSegmentID {
-            return true
-        }
-        if let transcriptSegmentID {
-            for (fingerprint, acceptedSegmentID) in acceptedQuestionSegmentIDs
-            where acceptedSegmentID == transcriptSegmentID && isNearDuplicateQuestion(normalized, fingerprint) {
-                return true
-            }
-        }
-
-        pruneRecentQuestionTimestamps(now: now)
-
-        if let lastTime = recentQuestionTimestamps[normalized],
-           now.timeIntervalSince(lastTime) <= autoQuestionDuplicateCooldownSeconds {
-            return true
-        }
-
-        for (fingerprint, timestamp) in recentQuestionTimestamps {
-            if now.timeIntervalSince(timestamp) <= autoQuestionDuplicateCooldownSeconds {
-                if isNearDuplicateQuestion(normalized, fingerprint) {
-                    return true
-                }
-            }
-        }
-
-        return false
-    }
-
-    private func isNearDuplicateQuestion(_ lhs: String, _ rhs: String) -> Bool {
-        if lhs == rhs {
-            return true
-        }
-
-        let lhsWordCount = lhs.split(separator: " ").count
-        let rhsWordCount = rhs.split(separator: " ").count
-        guard lhsWordCount > 0, rhsWordCount > 0 else {
-            return false
-        }
-
-        let shorter = lhs.count <= rhs.count ? lhs : rhs
-        let longer = lhs.count > rhs.count ? lhs : rhs
-        guard longer.contains(shorter) else {
-            return false
-        }
-
-        let wordRatio = Double(max(lhsWordCount, rhsWordCount)) / Double(min(lhsWordCount, rhsWordCount))
-        if wordRatio <= 1.35 {
-            return true
-        }
-
-        let remainder = longer
-            .replacingOccurrences(of: shorter, with: " ")
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return !containsQuestionStarter(remainder)
-    }
-
-    private func containsQuestionStarter(_ text: String) -> Bool {
-        let padded = " \(text.lowercased()) "
-        let starters = [
-            " what ", " how ", " why ", " where ", " who ", " when ",
-            " can you ", " could you ", " would you ", " should you ",
-            " are you ", " do you ", " have you ", " is there ",
-            " tell me ", " walk me ", " describe ", " explain "
-        ]
-        return starters.contains { padded.contains($0) }
+        liveInterview.isRecentDuplicateAutoQuestion(questionText,
+            transcriptSegmentID: transcriptSegmentID, now: now)
     }
 
     private func rememberAutoQuestion(
@@ -1378,46 +1461,15 @@ extension AppState {
         transcriptSegmentID: String? = nil,
         now: Date = Date()
     ) {
-        let normalized = normalizedQuestion(questionText)
-        guard !normalized.isEmpty else { return }
-        pruneRecentQuestionTimestamps(now: now)
-        recentQuestionTimestamps[normalized] = now
-        if let transcriptSegmentID, !transcriptSegmentID.isEmpty {
-            acceptedQuestionSegmentIDs[normalized] = transcriptSegmentID
-        }
-    }
-
-    private func pruneRecentQuestionTimestamps(now: Date) {
-        for (fingerprint, timestamp) in recentQuestionTimestamps {
-            if now.timeIntervalSince(timestamp) > autoQuestionDuplicateCooldownSeconds {
-                recentQuestionTimestamps.removeValue(forKey: fingerprint)
-            }
-        }
-    }
-
-    private func normalizedQuestion(_ text: String) -> String {
-        SystemAudioQuestionExtractor.duplicateKey(for: text)
+        liveInterview.rememberAutoQuestion(questionText,
+            transcriptSegmentID: transcriptSegmentID, now: now)
     }
 
     private func consumedReplaySource(
         _ question: DetectedQuestion,
         isCumulativeTranscript: Bool
     ) -> TranscriptQuestionIngressIdentity? {
-        guard let ingress = question.ingressIdentity else { return nil }
-        if let consumed = consumedQuestionOccurrences[ingress.occurrenceKey] {
-            return consumed
-        }
-        guard isCumulativeTranscript else { return nil }
-        if let consumed = consumedQuestionSourceSpans[ingress.sourceSpanKey] {
-            return consumed
-        }
-        if let consumed = consumedQuestionAbsoluteSourceSpans[ingress.absoluteSourceSpanKey] {
-            return consumed
-        }
-        return consumedQuestionAbsoluteSourceSpans.values.first {
-            $0.normalizedText == ingress.normalizedText &&
-                sourceSpanOverlapScore($0, ingress) >= 0.80
-        }
+        liveInterview.consumedReplaySource(question, isCumulativeTranscript: isCumulativeTranscript)
     }
 
     private func isIntentionalQuestionRepeat(
@@ -1425,34 +1477,12 @@ extension AppState {
         isCumulativeTranscript: Bool,
         replayedOccurrence: Bool
     ) -> Bool {
-        guard !replayedOccurrence else { return false }
-        guard !isCumulativeTranscript else { return false }
-        let normalized = normalizedQuestion(question.questionText)
-        return acceptedNormalizedQuestionKeys.contains(normalized)
+        liveInterview.isIntentionalQuestionRepeat(question,
+            isCumulativeTranscript: isCumulativeTranscript, replayedOccurrence: replayedOccurrence)
     }
 
     private func rememberConsumedTranscriptOccurrence(_ question: DetectedQuestion) {
-        let normalized = normalizedQuestion(question.questionText)
-        acceptedNormalizedQuestionKeys.insert(normalized)
-        guard let ingress = question.ingressIdentity else { return }
-        consumedQuestionOccurrenceKeys.insert(ingress.occurrenceKey)
-        consumedQuestionOccurrences[ingress.occurrenceKey] = ingress
-        consumedQuestionSourceSpanKeys.insert(ingress.sourceSpanKey)
-        consumedQuestionSourceSpans[ingress.sourceSpanKey] = ingress
-        consumedQuestionAbsoluteSourceSpans[ingress.absoluteSourceSpanKey] = ingress
+        liveInterview.rememberConsumedTranscriptOccurrence(question)
     }
 
-    private func sourceSpanOverlapScore(
-        _ lhs: TranscriptQuestionIngressIdentity,
-        _ rhs: TranscriptQuestionIngressIdentity
-    ) -> Double {
-        let overlapStart = max(lhs.sourceStartUTF16, rhs.sourceStartUTF16)
-        let overlapEnd = min(lhs.sourceEndUTF16, rhs.sourceEndUTF16)
-        let overlap = max(0, overlapEnd - overlapStart)
-        let shortest = max(1, min(
-            lhs.sourceEndUTF16 - lhs.sourceStartUTF16,
-            rhs.sourceEndUTF16 - rhs.sourceStartUTF16
-        ))
-        return Double(overlap) / Double(shortest)
-    }
 }

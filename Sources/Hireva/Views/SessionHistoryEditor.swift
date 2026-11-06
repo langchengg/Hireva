@@ -1,8 +1,17 @@
 import SwiftUI
 
 struct SessionHistoryEditor: View {
+    // App policy and Practice controls remain coordinated by AppState; saved
+    // transcript records are observed through their single History owner.
     @ObservedObject var appState: AppState
+    @ObservedObject private var historyState: HistoryState
     let session: InterviewSession
+
+    init(appState: AppState, session: InterviewSession) {
+        self.appState = appState
+        self.session = session
+        historyState = appState.historyState
+    }
     var body: some View {
         let history = (try? HistoryCorrectionRepository(database: appState.database).revisions(sessionID: session.id)) ?? []
         let revision = (try? appState.sessionRepository.session(id: session.id))?.contentRevision ?? 0
@@ -14,7 +23,7 @@ struct SessionHistoryEditor: View {
                     PracticeHistoryRow(appState: appState, sessionID: session.id, attempt: attempt).id(attempt.id + "-\(attempt.revision)-\(attempt.feedback != nil)")
                 }
             }
-            ForEach(appState.selectedSessionTranscript) { segment in
+            ForEach(historyState.selectedSessionTranscript) { segment in
                 TranscriptHistoryRow(appState: appState, segment: segment, correction: history.last { $0.segmentID == segment.id }, isDetectedQuestion: ((try? appState.suggestionRepository.questions(sessionID: session.id)) ?? []).contains { $0.transcriptSegmentID == segment.id })
                     .id(segment.id + "-\(history.last { $0.segmentID == segment.id }?.revision ?? 0)")
             }
@@ -62,12 +71,14 @@ private struct TranscriptHistoryRow: View {
 
 private struct PracticeHistoryRow: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var controller: PracticeController
     let sessionID: String
     let attempt: PracticeAttempt
     @State var question: String
     @State var answer: String
     init(appState: AppState, sessionID: String, attempt: PracticeAttempt) {
         self.appState = appState; self.sessionID = sessionID; self.attempt = attempt
+        controller = appState.practiceController
         _question = State(initialValue: attempt.question); _answer = State(initialValue: attempt.answer)
     }
     var body: some View {
@@ -77,23 +88,26 @@ private struct PracticeHistoryRow: View {
             HStack {
                 Button("Save Corrected Attempt / 保存纠错") { appState.correctPracticeAttempt(sessionID: sessionID, attemptID: attempt.id, question: question, answer: answer) }
                 Button("Re-evaluate This Attempt / 重评本题") {
-                    appState.practiceController.restore(sessionID: sessionID)
-                    appState.practiceController.reevaluate(attemptID: attempt.id)
-                }.disabled(appState.primaryHomeActionShouldStop || attempt.feedback != nil || attempt.skipped || appState.practiceController.run?.phase == .evaluating)
+                    controller.restore(sessionID: sessionID)
+                    controller.reevaluate(attemptID: attempt.id)
+                }.disabled(appState.primaryHomeActionShouldStop || attempt.feedback != nil || attempt.skipped || controller.run?.phase == .evaluating)
             }
             if let feedback = attempt.feedback {
                 Text("Current feedback · v\(attempt.revision)")
-                ForEach(Array(feedback.covered.enumerated()), id: \.offset) { _, item in Text("\(item.criterion): “\(item.quote)” [\(attempt.id) v\(attempt.revision)]").textSelection(.enabled) }
+                ForEach(Array(feedback.assessmentLines.enumerated()), id: \.offset) { _, line in Text("\(line) [\(attempt.id) v\(attempt.revision)]").textSelection(.enabled) }
                 Text(feedback.suggestions.joined(separator: "\n"))
                 if ((try? PracticeRepository(database: appState.database).reviews()) ?? []).contains(where: { $0.id == attempt.id && $0.needsReevaluation == true }) {
-                    Button("Update Review Card (keep rating history)") { appState.practiceController.updateCorrectedReview(sessionID: sessionID, attemptID: attempt.id) }
+                    Button("Update Review Card (keep rating history)") { controller.updateCorrectedReview(sessionID: sessionID, attemptID: attempt.id) }
                 }
             } else { Text("Not re-evaluated. Older feedback is not a score for the corrected input.").foregroundStyle(.orange) }
             ForEach(Array((attempt.corrections ?? []).enumerated()), id: \.offset) { _, old in
                 DisclosureGroup("Original input / old feedback v\(old.revision)") {
                     Text(old.hinted.map { $0 ? "Assisted original attempt" : "Unprompted original attempt" } ?? "Original assistance status was not recorded")
                     Text(old.question + "\n" + old.answer).textSelection(.enabled)
-                    Text(old.feedback?.suggestions.joined(separator: "\n") ?? "Not evaluated")
+                    if let feedback = old.feedback {
+                        ForEach(Array(feedback.assessmentLines.enumerated()), id: \.offset) { _, line in Text("\(line) [\(attempt.id) v\(old.revision)]").textSelection(.enabled) }
+                        Text(feedback.suggestions.joined(separator: "\n"))
+                    } else { Text("Not evaluated") }
                 }
             }
         }

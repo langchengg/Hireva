@@ -1,6 +1,6 @@
 import Foundation
 
-enum OllamaFailureCategory: String, Codable, Equatable, Hashable {
+enum OllamaFailureCategory: String, Codable, Equatable, Hashable, Sendable {
     case providerReturnedNoContent = "provider_returned_no_content"
     case streamParserDroppedContent = "stream_parser_dropped_content"
     case responseSchemaMismatch = "response_schema_mismatch"
@@ -38,12 +38,12 @@ enum OllamaFailureCategory: String, Codable, Equatable, Hashable {
     }
 }
 
-enum OllamaResponseSchema: String, Codable, Equatable, Hashable {
+enum OllamaResponseSchema: String, Codable, Equatable, Hashable, Sendable {
     case chatMessageContent = "chat.message.content"
     case generateResponse = "generate.response"
 }
 
-struct OllamaProviderDiagnostics: Equatable, Hashable {
+struct OllamaProviderDiagnostics: Equatable, Hashable, Sendable {
     var endpoint: String
     var model: String
     var streamMode: Bool
@@ -60,6 +60,15 @@ struct OllamaProviderDiagnostics: Equatable, Hashable {
     var firstContentObserved: Bool
     var streamCompleted: Bool
     var doneReason: String?
+    var promptEvalCount: Int? = nil
+    var evalCount: Int? = nil
+    // Optional server timings are observations, never answer admission or deadlines.
+    var totalDurationNS: UInt64? = nil
+    var loadDurationNS: UInt64? = nil
+    var promptEvalDurationNS: UInt64? = nil
+    var evalDurationNS: UInt64? = nil
+    // Provider lifetime; counts transport attempts, including failed responses.
+    var transportRequestCount: Int = 0
     var sectionParserResult: String
     var alignmentDecision: String
     var cancellationReason: String?
@@ -141,6 +150,12 @@ struct OllamaResponseAccumulator {
         let done: Bool?
         let doneReason: String?
         let error: String?
+        let promptEvalCount: Int?
+        let evalCount: Int?
+        let totalDurationNS: UInt64?
+        let loadDurationNS: UInt64?
+        let promptEvalDurationNS: UInt64?
+        let evalDurationNS: UInt64?
 
         enum CodingKeys: String, CodingKey {
             case message
@@ -149,6 +164,29 @@ struct OllamaResponseAccumulator {
             case done
             case doneReason = "done_reason"
             case error
+            case promptEvalCount = "prompt_eval_count"
+            case evalCount = "eval_count"
+            case totalDurationNS = "total_duration"
+            case loadDurationNS = "load_duration"
+            case promptEvalDurationNS = "prompt_eval_duration"
+            case evalDurationNS = "eval_duration"
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            message = try values.decodeIfPresent(Message.self, forKey: .message)
+            response = try values.decodeIfPresent(String.self, forKey: .response)
+            thinking = try values.decodeIfPresent(String.self, forKey: .thinking)
+            done = try values.decodeIfPresent(Bool.self, forKey: .done)
+            doneReason = try values.decodeIfPresent(String.self, forKey: .doneReason)
+            error = try values.decodeIfPresent(String.self, forKey: .error)
+            // Optional usage metadata must not change content admission.
+            promptEvalCount = try? values.decodeIfPresent(Int.self, forKey: .promptEvalCount)
+            evalCount = try? values.decodeIfPresent(Int.self, forKey: .evalCount)
+            totalDurationNS = try? values.decodeIfPresent(UInt64.self, forKey: .totalDurationNS)
+            loadDurationNS = try? values.decodeIfPresent(UInt64.self, forKey: .loadDurationNS)
+            promptEvalDurationNS = try? values.decodeIfPresent(UInt64.self, forKey: .promptEvalDurationNS)
+            evalDurationNS = try? values.decodeIfPresent(UInt64.self, forKey: .evalDurationNS)
         }
     }
 
@@ -217,6 +255,12 @@ struct OllamaResponseAccumulator {
         if envelope.done == true {
             diagnostics.streamCompleted = true
             diagnostics.doneReason = envelope.doneReason
+            diagnostics.promptEvalCount = envelope.promptEvalCount
+            diagnostics.evalCount = envelope.evalCount
+            diagnostics.totalDurationNS = envelope.totalDurationNS
+            diagnostics.loadDurationNS = envelope.loadDurationNS
+            diagnostics.promptEvalDurationNS = envelope.promptEvalDurationNS
+            diagnostics.evalDurationNS = envelope.evalDurationNS
         }
         return emitted
     }
@@ -253,10 +297,44 @@ struct LocalQwenParsedAnswer: Equatable {
     let sayFirst: String
     let sectionParserResult: String
     let failureCategory: OllamaFailureCategory?
+    var scopedClaim: String? = nil
 }
 
 enum LocalQwenAnswerParser {
-    static func parse(_ raw: String) -> LocalQwenParsedAnswer {
+    static let scopedPropertyOrder = ["scoped_claim", "say_first"]
+    static let scopedResponseSchema: LocalJSONValue = .object([
+        "type": .string("object"), "additionalProperties": .boolean(false),
+        "properties": .object([
+            "scoped_claim": .object(["type": .string("string"),
+                "description": .string("One complete concise sentence, at least 20 characters and ending with punctuation, with the conditions that actually apply to the question.")]),
+            "say_first": .object(["type": .string("string"),
+                "description": .string("Spoken version of scoped_claim, 1 to 3 sentences, covering every requested part of the question. Retain its applicable conditions and conclusions; do not add further guarantees, personal experience or unsupported outcomes.")])
+        ]), "required": .array(scopedPropertyOrder.map(LocalJSONValue.string))
+    ])
+    static let scopedOutputInstructions = "Return only valid JSON matching the supplied public response schema. Give a concise conclusion with its actual conditions, and say_first as a direct 1 to 3 sentence spoken answer covering every requested concept and result in the exact current question. Keep say_first consistent with scoped_claim. These are public answer fields, not private reasoning.\n" + JSONParsing.jsonString(scopedResponseSchema)
+
+    static func parse(_ raw: String, responseSchema: LocalJSONValue? = nil) -> LocalQwenParsedAnswer {
+        if responseSchema == scopedResponseSchema {
+            // Exactly two string fields also rejects duplicate keys, including escaped aliases.
+            let string = #""(?:[^"\\\x00-\x1F]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*""#
+            let field = "\(string)\\s*:\\s*\(string)"
+            let grammar = "\\A\\s*\\{\\s*\(field)\\s*,\\s*\(field)\\s*\\}\\s*\\z"
+            guard raw.range(of: grammar, options: .regularExpression) != nil,
+                  let values = try? JSONDecoder().decode([String: String].self, from: Data(raw.utf8)),
+                  Set(values.keys) == Set(scopedPropertyOrder),
+                  let claim = values["scoped_claim"], let spoken = values["say_first"],
+                  !claim.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return LocalQwenParsedAnswer(sayFirst: "", sectionParserResult: "invalid_scoped_json",
+                    failureCategory: .answerSectionParserRejectedContent)
+            }
+            let answer = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !answer.isEmpty else {
+                return LocalQwenParsedAnswer(sayFirst: "", sectionParserResult: "invalid_scoped_json",
+                    failureCategory: .answerSectionParserRejectedContent)
+            }
+            return LocalQwenParsedAnswer(sayFirst: answer, sectionParserResult: "scoped_json_answer",
+                failureCategory: nil, scopedClaim: claim.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleaned = AnswerQualityValidator.localCleanupAnswer(trimmed)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -287,6 +365,50 @@ enum LocalQwenAnswerParser {
 }
 
 struct LocalQwenAnswerValidationResult: Equatable {
+    static func validate(
+        _ answer: String,
+        question: DetectedQuestion,
+        interviewContextSnapshot: InterviewContextSnapshot?
+    ) -> LocalQwenAnswerValidationResult {
+        guard !QuestionAnswerAlignmentEvaluator.containsGenericCoachingTemplate(answer),
+              QuestionAnswerAlignmentEvaluator.incompleteAnswerReason(answer) == nil else {
+            return .rejected(
+                category: .alignmentRejectedNonemptyContent,
+                diagnostic: "generic_or_incomplete"
+            )
+        }
+        do {
+            let grounding = AnswerClaimValidator().validate(
+                answer: answer,
+                candidateEvidence: interviewContextSnapshot?.candidateEvidence ?? [],
+                opportunityEvidence: interviewContextSnapshot?.opportunityEvidence ?? [],
+                domainKnowledge: InterviewDomainProfile.profile(
+                    for: InterviewDomainID(rawValue: interviewContextSnapshot?.domainProfileID ?? "") ?? .general
+                ).domainKnowledge
+            )
+            guard grounding.unsupportedClaims.isEmpty else {
+                return .rejected(
+                    category: .alignmentRejectedNonemptyContent,
+                    diagnostic: "unsupported_personal_claim"
+                )
+            }
+        }
+        let alignment = QuestionAnswerAlignmentEvaluator.evaluate(
+            questionText: question.questionText,
+            answerText: answer,
+            sayFirst: answer,
+            stageBCompleted: true,
+            decision: question.taskDescriptor?.decision
+        )
+        guard alignment.verdict == .aligned else {
+            return .rejected(
+                category: .alignmentRejectedNonemptyContent,
+                diagnostic: alignment.reason
+            )
+        }
+        return .accepted(alignment.verdict.rawValue)
+    }
+
     let accepted: Bool
     let failureCategory: OllamaFailureCategory?
     let diagnostic: String

@@ -53,7 +53,8 @@ struct WorkflowSafetyTests {
         let database = try AppDatabase(inMemory: true)
         let app = AppState(database: database, dialogueDefaults: nil)
         let active = Task<Void, Never> { try? await Task.sleep(for: .seconds(30)) }
-        app.activeAITask = active
+        let requestID = app.generationCoordinator.beginRequest(triggerPath: .manualGenerate)
+        app.generationCoordinator.registerRequestTask(active, requestID: requestID)
         app.liveState = .listening
         app.startListening(mode: .microphone)
         app.submitMockQuestion("Synthetic injection must not enter a live session")

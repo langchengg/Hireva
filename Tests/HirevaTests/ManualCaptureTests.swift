@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 import AVFoundation
 @testable import Hireva
@@ -6,111 +7,145 @@ import AVFoundation
 @Suite(.serialized)
 @MainActor
 struct ManualCaptureTests {
-    @Test func cancelledCaptureIgnoresLateRecognitionCallbacks() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancelledCaptureIgnoresLateRecognitionCallbacks() async throws {
         resetMockHooks(); defer { resetMockHooks() }
         let database = try makeTemporaryDatabase()
         try await setupOnboardingData(database: database)
         let app = try makeAppState(database: database, client: TrackingLLMClient(), permissionService: MockPermissionService())
-        var finalCallback: ((String) -> Void)?
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, final, _ in finalCallback = final }
-        ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
-        var settings = app.settings; settings.manualCaptureSource = .microphone; app.saveSettings(settings)
-        app.startManualCapture()
-        try await waitUntil("manual callbacks registered") { finalCallback != nil }
-        app.cancelManualCapture()
-        finalCallback?("DELETED_MANUAL_CALLBACK_CANARY")
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(app.manualCaptureTranscript.isEmpty)
-        #expect(app.manualCaptureState == .idle)
-        #expect(app.currentSuggestion == nil)
+        do {
+            let registered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingOldest(1))
+            defer { registered.continuation.finish() }
+            var finalCallback: ((String) -> Void)?
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, final, _ in
+                finalCallback = final
+                registered.continuation.yield(())
+            }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            var settings = app.settings; settings.manualCaptureSource = .microphone; app.saveSettings(settings)
+            app.startManualCapture()
+            _ = try await TestEventWaitTrace(label: "manual.cancelled-callback")
+                .nextEvent(in: registered.stream, event: "actual-callbacks-registered")
+            let startup = app.manualCaptureController.startupTask
+            app.cancelManualCapture()
+            let lateCallback = try #require(finalCallback)
+            lateCallback("DELETED_MANUAL_CALLBACK_CANARY")
+            await startup?.value
+            #expect(app.manualCaptureTranscript.isEmpty)
+            #expect(app.manualCaptureState == .idle)
+            #expect(app.currentSuggestion == nil)
+        } catch {
+            await app.shutdownForTesting()
+            throw error
+        }
+        await app.shutdownForTesting()
     }
 
     @Test(arguments: [false, true]) func localManualModeUsesFrozenDecisionWithoutCloudOrDurableTemporarySession(saveHistory: Bool) async throws {
+        resetMockHooks(); defer { resetMockHooks() }
         let database = try makeTemporaryDatabase()
         let remote = TrackingLLMClient()
         let app = try makeAppState(database: database, client: remote, permissionService: MockPermissionService())
-        app.answerProviderModeOverride = .localQwenPrimary
-        app.localLLMProviderOverride = ManualLocalProvider()
-        var settings = app.settings; settings.saveTranscriptsLocally = saveHistory; app.saveSettings(settings)
-        app.manualCaptureState = .transcriptReady
-        app.manualCaptureTranscript = "Explain database transactions and atomicity."
-        app.sendManualCaptureToAI()
-        if !saveHistory {
-            try await waitUntil("manual decision frozen") { app.lastDetectedQuestion?.taskDescriptor?.decision != nil }
-            settings.saveTranscriptsLocally = true
-            app.saveSettings(settings)
+        do {
+            app.answerProviderModeOverride = .localQwenPrimary
+            app.localLLMProviderOverride = ManualLocalProvider()
+            var settings = app.settings; settings.saveTranscriptsLocally = saveHistory; app.saveSettings(settings)
+            app.manualCaptureState = .transcriptReady
+            app.manualCaptureTranscript = "Explain database transactions and atomicity."
+            app.sendManualCaptureToAI()
+            if !saveHistory {
+                try await waitUntil("manual decision frozen") { app.lastDetectedQuestion?.taskDescriptor?.decision != nil }
+                settings.saveTranscriptsLocally = true
+                app.saveSettings(settings)
+            }
+            try await waitUntil("local manual answer") { app.manualCaptureState == .suggestionReady }
+            #expect(remote.chatCallsCount == 0)
+            #expect(app.lastDetectedQuestion?.isLocal == true)
+            #expect(app.lastDetectedQuestion?.providerKind == .ollamaLocal)
+            #expect(app.lastDetectedQuestion?.modelName == app.selectedQwenModelName)
+            #expect(app.lastDetectedQuestion?.taskDescriptor?.decision?.routerVersion == InterviewQuestionRouter.version)
+            #expect(app.manualCaptureSuggestion?.sayFirst.contains("atomic") == true)
+            #expect(app.transcriptSegments.last?.speaker == .unknown)
+            let session = try #require(app.currentSession)
+            if saveHistory {
+                try await waitUntil("manual local row committed") { ((try? app.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 }
+                #expect(try app.sessionRepository.session(id: session.id) != nil)
+                #expect(try app.suggestionRepository.questions(sessionID: session.id).count == 1)
+                let row = try #require(app.suggestionRepository.suggestions(sessionID: session.id).first)
+                #expect(try app.suggestionRepository.questions(sessionID: session.id).first(where: { $0.id == row.questionID })?.taskDescriptor?.decision?.routerVersion == InterviewQuestionRouter.version)
+            } else {
+                #expect(try app.sessionRepository.session(id: session.id) == nil)
+                #expect(try app.suggestionRepository.questions(sessionID: session.id).isEmpty)
+                #expect(try app.suggestionRepository.suggestions(sessionID: session.id).isEmpty)
+            }
+            app.manualCaptureState = .suggestionReady
+            app.sendManualCaptureToAI()
+            #expect(app.manualCaptureSuggestion == nil)
+            app.cancelManualCapture()
+        } catch {
+            await app.shutdownForTesting()
+            throw error
         }
-        try await waitUntil("local manual answer") { app.manualCaptureState == .suggestionReady }
-        #expect(remote.chatCallsCount == 0)
-        #expect(app.lastDetectedQuestion?.isLocal == true)
-        #expect(app.lastDetectedQuestion?.providerKind == .ollamaLocal)
-        #expect(app.lastDetectedQuestion?.modelName == app.selectedQwenModelName)
-        #expect(app.lastDetectedQuestion?.taskDescriptor?.decision?.routerVersion == InterviewQuestionRouter.version)
-        #expect(app.manualCaptureSuggestion?.sayFirst.contains("atomic") == true)
-        #expect(app.transcriptSegments.last?.speaker == .unknown)
-        let session = try #require(app.currentSession)
-        if saveHistory {
-            try await waitUntil("manual local row committed") { ((try? app.suggestionRepository.suggestions(sessionID: session.id).count) ?? 0) == 1 }
-            #expect(try app.sessionRepository.session(id: session.id) != nil)
-            #expect(try app.suggestionRepository.questions(sessionID: session.id).count == 1)
-            let row = try #require(app.suggestionRepository.suggestions(sessionID: session.id).first)
-            #expect(try app.suggestionRepository.questions(sessionID: session.id).first(where: { $0.id == row.questionID })?.taskDescriptor?.decision?.routerVersion == InterviewQuestionRouter.version)
-        } else {
-            #expect(try app.sessionRepository.session(id: session.id) == nil)
-            #expect(try app.suggestionRepository.questions(sessionID: session.id).isEmpty)
-            #expect(try app.suggestionRepository.suggestions(sessionID: session.id).isEmpty)
-        }
-        app.manualCaptureState = .suggestionReady
-        app.sendManualCaptureToAI()
-        #expect(app.manualCaptureSuggestion == nil)
-        app.cancelManualCapture()
+        await app.shutdownForTesting()
     }
 
     @Test func retryRecordingCancelsAnUnfinishedProviderAndInvalidatesCapture() async throws {
         resetMockHooks(); defer { resetMockHooks() }
         let database = try makeTemporaryDatabase()
         let app = try makeAppState(database: database, client: TrackingLLMClient(), permissionService: MockPermissionService())
-        app.answerProviderModeOverride = .localQwenPrimary
-        app.localLLMProviderOverride = ManualLocalProvider()
-        app.manualCaptureState = .transcriptReady
-        app.manualCaptureTranscript = "Explain database transactions and atomicity."
-        app.sendManualCaptureToAI()
-        try await waitUntil("manual request active") { app.currentGenerationID != nil }
-        let oldRevision = app.manualCaptureRevision
-        app.retryManualCapture()
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(app.manualCaptureRevision > oldRevision)
-        #expect(app.currentGenerationID == nil)
-        #expect(app.manualCaptureState == .idle)
-        #expect(app.manualCaptureSuggestion == nil)
-        #expect(app.manualCaptureTranscript.isEmpty)
+        do {
+            app.answerProviderModeOverride = .localQwenPrimary
+            app.localLLMProviderOverride = ManualLocalProvider()
+            app.manualCaptureState = .transcriptReady
+            app.manualCaptureTranscript = "Explain database transactions and atomicity."
+            app.sendManualCaptureToAI()
+            try await waitUntil("manual request active") { app.currentGenerationID != nil }
+            let oldRevision = app.manualCaptureRevision
+            app.retryManualCapture()
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(app.manualCaptureRevision > oldRevision)
+            #expect(app.currentGenerationID == nil)
+            #expect(app.manualCaptureState == .idle)
+            #expect(app.manualCaptureSuggestion == nil)
+            #expect(app.manualCaptureTranscript.isEmpty)
+        } catch {
+            await app.shutdownForTesting()
+            throw error
+        }
+        await app.shutdownForTesting()
     }
 
     @Test func newManualOperationAfterOptInDoesNotResaveTemporaryHistory() async throws {
+        resetMockHooks(); defer { resetMockHooks() }
         let database = try makeTemporaryDatabase()
         let app = try makeAppState(database: database, client: TrackingLLMClient(), permissionService: MockPermissionService())
-        app.answerProviderModeOverride = .localQwenPrimary
-        app.localLLMProviderOverride = ManualLocalProvider()
-        var settings = app.settings; settings.saveTranscriptsLocally = false; app.saveSettings(settings)
-        app.manualCaptureState = .transcriptReady
-        app.manualCaptureTranscript = "Explain database transactions and atomicity."
-        app.sendManualCaptureToAI()
-        try await waitUntil("temporary manual answer") { app.manualCaptureState == .suggestionReady }
-        let oldID = try #require(app.currentSession?.id)
-        app.retryManualCapture()
-        settings.saveTranscriptsLocally = true; app.saveSettings(settings)
-        app.manualCaptureState = .transcriptReady
-        app.manualCaptureTranscript = "Explain database transactions and atomicity."
-        app.sendManualCaptureToAI()
-        try await waitUntil("new saved manual answer") { app.manualCaptureState == .suggestionReady }
-        let newID = try #require(app.currentSession?.id)
-        try await waitUntil("new manual row") { ((try? app.suggestionRepository.suggestions(sessionID: newID).count) ?? 0) == 1 }
-        #expect(oldID != newID)
-        #expect(try app.sessionRepository.session(id: oldID) == nil)
-        #expect(try app.transcriptRepository.segments(sessionID: oldID).isEmpty)
-        #expect(try app.sessionRepository.session(id: newID) != nil)
-        #expect(try app.transcriptRepository.segments(sessionID: newID).count == 1)
-        app.cancelManualCapture()
+        do {
+            app.answerProviderModeOverride = .localQwenPrimary
+            app.localLLMProviderOverride = ManualLocalProvider()
+            var settings = app.settings; settings.saveTranscriptsLocally = false; app.saveSettings(settings)
+            app.manualCaptureState = .transcriptReady
+            app.manualCaptureTranscript = "Explain database transactions and atomicity."
+            app.sendManualCaptureToAI()
+            try await waitUntil("temporary manual answer") { app.manualCaptureState == .suggestionReady }
+            let oldID = try #require(app.currentSession?.id)
+            app.retryManualCapture()
+            settings.saveTranscriptsLocally = true; app.saveSettings(settings)
+            app.manualCaptureState = .transcriptReady
+            app.manualCaptureTranscript = "Explain database transactions and atomicity."
+            app.sendManualCaptureToAI()
+            try await waitUntil("new saved manual answer") { app.manualCaptureState == .suggestionReady }
+            let newID = try #require(app.currentSession?.id)
+            try await waitUntil("new manual row") { ((try? app.suggestionRepository.suggestions(sessionID: newID).count) ?? 0) == 1 }
+            #expect(oldID != newID)
+            #expect(try app.sessionRepository.session(id: oldID) == nil)
+            #expect(try app.transcriptRepository.segments(sessionID: oldID).isEmpty)
+            #expect(try app.sessionRepository.session(id: newID) != nil)
+            #expect(try app.transcriptRepository.segments(sessionID: newID).count == 1)
+            app.cancelManualCapture()
+        } catch {
+            await app.shutdownForTesting()
+            throw error
+        }
+        await app.shutdownForTesting()
     }
 
     @Test func stopAndNewStartInvalidatePendingCaptureStartTokens() {
@@ -127,24 +162,51 @@ struct ManualCaptureTests {
 
     @Test func oldSpeechCallbacksAndTimeoutCannotCompleteReplacementRequest() async throws {
         resetMockHooks(); defer { resetMockHooks() }
-        let service = ManualQuestionTranscriptionService.shared
+        let clock = ControlledGenerationWatchdogClock()
+        let service = ManualQuestionTranscriptionService(finalizeDelayProvider: clock)
         var callbacks: [(String) -> Void] = []
         ManualQuestionTranscriptionService.mockStartTranscription = { _, final, _ in callbacks.append(final) }
         var received: [String] = []
-        try await service.startTranscription(onPartialResult: { _ in }, onFinalResult: { received.append($0) }, onError: { _ in })
-        let oldWait = Task { try await service.endAudioAndFinalize(timeoutSeconds: 0.08) }
-        try await Task.sleep(for: .milliseconds(10))
-        service.cancel()
-        do { _ = try await oldWait.value; Issue.record("Cancelled transcription should throw") } catch is CancellationError {} catch { Issue.record("Unexpected cancellation error") }
-        try await service.startTranscription(onPartialResult: { _ in }, onFinalResult: { received.append($0) }, onError: { _ in })
-        let newWait = Task { try await service.endAudioAndFinalize(timeoutSeconds: 1) }
-        callbacks[0]("STALE_OLD_RECOGNIZER")
-        try await Task.sleep(for: .milliseconds(120))
-        #expect(received.isEmpty)
-        callbacks[1]("Current request")
-        #expect(try await newWait.value == "Current request")
-        #expect(received == ["Current request"])
-        service.cancel()
+        var requests: [Task<String, Error>] = []
+        @MainActor func cancelAndJoinRequests() async {
+            service.cancel()
+            clock.cancelAll()
+            requests.forEach { $0.cancel() }
+            for request in requests { _ = await request.result }
+        }
+        do {
+            try await service.startTranscription(onPartialResult: { _ in }, onFinalResult: { received.append($0) }, onError: { _ in })
+            let oldWait = Task { try await service.endAudioAndFinalize(timeoutSeconds: 0.08) }
+            requests.append(oldWait)
+            try await GenerationCoordinator.withTimeout(seconds: 30) {
+                try await clock.waitUntilScheduled()
+            }
+            #expect(clock.requestedNanoseconds == [80_000_000])
+            service.cancel()
+            do { _ = try await oldWait.value; Issue.record("Cancelled transcription should throw") } catch is CancellationError {} catch { Issue.record("Unexpected cancellation error") }
+            #expect(clock.pendingCount == 0)
+            try await service.startTranscription(onPartialResult: { _ in }, onFinalResult: { received.append($0) }, onError: { _ in })
+            let newWait = Task { try await service.endAudioAndFinalize(timeoutSeconds: 1) }
+            requests.append(newWait)
+            try await GenerationCoordinator.withTimeout(seconds: 30) {
+                try await clock.waitUntilScheduled(minimumCount: 2)
+            }
+            #expect(clock.requestedNanoseconds == [80_000_000, 1_000_000_000])
+            // Cross the cancelled request's exact deadline after its replacement
+            // registered, rather than depending on MainActor scheduling delays.
+            clock.advance(by: 80_000_000)
+            callbacks[0]("STALE_OLD_RECOGNIZER")
+            #expect(clock.pendingCount == 1)
+            #expect(received.isEmpty)
+            callbacks[1]("Current request")
+            #expect(try await newWait.value == "Current request")
+            #expect(received == ["Current request"])
+        } catch {
+            await cancelAndJoinRequests()
+            throw error
+        }
+        await cancelAndJoinRequests()
+        #expect(clock.pendingCount == 0)
     }
 
     private struct ManualLocalProvider: LocalLLMProvider {
@@ -352,8 +414,13 @@ struct ManualCaptureTests {
 
     final class TrackingLLMClient: LLMClientProtocol {
         let providerKind: LLMProviderKind = .deepSeek
-        var chatCallsCount = 0
-        var lastMessages: [LLMChatMessage] = []
+        private struct State: Sendable {
+            var chatCallsCount = 0
+            var lastMessages: [LLMChatMessage] = []
+        }
+        private let state = OSAllocatedUnfairLock(initialState: State())
+        var chatCallsCount: Int { state.withLock { $0.chatCallsCount } }
+        var lastMessages: [LLMChatMessage] { state.withLock { $0.lastMessages } }
 
         func testConnection(configuration: LLMProviderConfiguration) async throws -> LLMConnectionTestResult {
             return LLMConnectionTestResult(success: true, message: "ok", latencyMS: 1, models: [])
@@ -365,8 +432,10 @@ struct ManualCaptureTests {
             responseFormat: LLMResponseFormat?,
             options: LLMRequestOptions
         ) async throws -> LLMChatResult {
-            chatCallsCount += 1
-            lastMessages = messages
+            state.withLock { state in
+                state.chatCallsCount += 1
+                state.lastMessages = messages
+            }
             let prompt = messages.last?.content ?? ""
             let question = prompt.components(separatedBy: "CURRENT QUESTION TO ANSWER:\n").last?.components(separatedBy: "\n").first ?? ""
             let answer = question.localizedCaseInsensitiveContains("comfortable")
@@ -430,80 +499,85 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        // 1. Force systemAudio manual capture source
-        var settings = appState.settings
-        settings.manualCaptureSource = .systemAudio
-        settings.showTranscriptBeforeSending = false
-        settings.autoSendAfterTranscription = true
-        appState.saveSettings(settings)
+            // 1. Force systemAudio manual capture source
+            var settings = appState.settings
+            settings.manualCaptureSource = .systemAudio
+            settings.showTranscriptBeforeSending = false
+            settings.autoSendAfterTranscription = true
+            appState.saveSettings(settings)
 
-        // Mock preflight screen recording to succeed
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
+            // Mock preflight screen recording to succeed
+            ScreenSystemAudioPermissionProbe.mockProbe = {
+                return ScreenSystemAudioPermissionProbeResult(
+                    preflightGranted: true,
+                    shareableContentProbeSucceeded: true,
+                    streamAudioProbeSucceeded: true,
+                    errorDescription: nil,
+                    likelyIdentityMismatch: false
+                )
+            }
+
+            // Mock audio capture start
+            var captureStarted = false
+            ManualQuestionCaptureService.mockStartCapture = { source, maxSecs, timeoutBlock in
+                captureStarted = true
+                #expect(source == .systemAudio)
+            }
+
+            // Mock transcription start
+            var transcriptionStarted = false
+            ManualQuestionTranscriptionService.mockStartTranscription = { onPartial, onFinal, onError in
+                transcriptionStarted = true
+            }
+
+            // Create an active session so database persistence triggers
+            let session = try appState.createContextBoundSession(mode: .microphone)
+            appState.currentSession = session
+
+            // Act
+            appState.startManualCapture()
+            try await waitUntil("system-audio manual recording to start") {
+                appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
+            }
+
+            // System capture does not request microphone access. Its Apple Speech
+            // transcription adapter still requires Speech Recognition permission.
+            #expect(mockPermission.micRequestedCount == 0)
+            #expect(mockPermission.speechRequestedCount == 1)
+            #expect(captureStarted)
+            #expect(transcriptionStarted)
+            #expect(appState.manualCaptureState == .recording)
+
+            // Mock stopping and transcribing
+            ManualQuestionCaptureService.mockStopCapture = {
+                return [self.makeDummyAudioBuffer()]
+            }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { timeout in
+                return "How comfortable are you with Python, C++, and ROS2?"
+            }
+
+            appState.stopAndTranscribeManualCapture()
+            try await waitUntil("manual suggestion and transcript persistence") {
+                appState.manualCaptureState == .suggestionReady && appState.transcriptSegments.last != nil
+            }
+
+            // Selecting a source is not evidence of speaker identity.
+            let lastSegment = try #require(appState.transcriptSegments.last)
+            #expect(lastSegment.source == .systemAudio)
+            #expect(lastSegment.speaker == .unknown)
+            #expect(lastSegment.text == "How comfortable are you with Python, C++, and ROS2?")
+
+            // Validate final state is suggestionReady
+            #expect(appState.manualCaptureState == .suggestionReady)
+            let suggestion = try #require(appState.manualCaptureSuggestion)
+            #expect(suggestion.strategy == "Technical Deep Dive")
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        // Mock audio capture start
-        var captureStarted = false
-        ManualQuestionCaptureService.mockStartCapture = { source, maxSecs, timeoutBlock in
-            captureStarted = true
-            #expect(source == .systemAudio)
-        }
-
-        // Mock transcription start
-        var transcriptionStarted = false
-        ManualQuestionTranscriptionService.mockStartTranscription = { onPartial, onFinal, onError in
-            transcriptionStarted = true
-        }
-
-        // Create an active session so database persistence triggers
-        let session = try appState.createContextBoundSession(mode: .microphone)
-        appState.currentSession = session
-
-        // Act
-        appState.startManualCapture()
-        try await waitUntil("system-audio manual recording to start") {
-            appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
-        }
-
-        // System capture does not request microphone access. Its Apple Speech
-        // transcription adapter still requires Speech Recognition permission.
-        #expect(mockPermission.micRequestedCount == 0)
-        #expect(mockPermission.speechRequestedCount == 1)
-        #expect(captureStarted)
-        #expect(transcriptionStarted)
-        #expect(appState.manualCaptureState == .recording)
-
-        // Mock stopping and transcribing
-        ManualQuestionCaptureService.mockStopCapture = {
-            return [self.makeDummyAudioBuffer()]
-        }
-        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { timeout in
-            return "How comfortable are you with Python, C++, and ROS2?"
-        }
-
-        appState.stopAndTranscribeManualCapture()
-        try await waitUntil("manual suggestion and transcript persistence") {
-            appState.manualCaptureState == .suggestionReady && appState.transcriptSegments.last != nil
-        }
-
-        // Selecting a source is not evidence of speaker identity.
-        let lastSegment = try #require(appState.transcriptSegments.last)
-        #expect(lastSegment.source == .systemAudio)
-        #expect(lastSegment.speaker == .unknown)
-        #expect(lastSegment.text == "How comfortable are you with Python, C++, and ROS2?")
-
-        // Validate final state is suggestionReady
-        #expect(appState.manualCaptureState == .suggestionReady)
-        let suggestion = try #require(appState.manualCaptureSuggestion)
-        #expect(suggestion.strategy == "Technical Deep Dive")
+        await appState.shutdownForTesting()
     }
 
     // MARK: - Requirement 2 Test
@@ -518,38 +592,43 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        // 1. Force microphone manual capture source
-        var settings = appState.settings
-        settings.manualCaptureSource = .microphone
-        appState.saveSettings(settings)
+            // 1. Force microphone manual capture source
+            var settings = appState.settings
+            settings.manualCaptureSource = .microphone
+            appState.saveSettings(settings)
 
-        // Mock audio capture start
-        var captureStarted = false
-        var transcriptionStarted = false
-        ManualQuestionCaptureService.mockStartCapture = { source, maxSecs, timeoutBlock in
-            #expect(source == .microphone)
-            captureStarted = true
+            // Mock audio capture start
+            var captureStarted = false
+            var transcriptionStarted = false
+            ManualQuestionCaptureService.mockStartCapture = { source, maxSecs, timeoutBlock in
+                #expect(source == .microphone)
+                captureStarted = true
+            }
+            ManualQuestionCaptureService.mockCancelCapture = {}
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in
+                transcriptionStarted = true
+            }
+            ManualQuestionTranscriptionService.mockCancel = {}
+
+            // Act
+            appState.startManualCapture()
+            try await waitUntil("microphone manual recording to start") {
+                appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
+            }
+
+            // Assert Constraint 2: microphone manual capture requests microphone/speech permissions
+            #expect(mockPermission.micRequestedCount == 1)
+            #expect(mockPermission.speechRequestedCount == 1)
+            #expect(appState.manualCaptureState == .recording)
+            #expect(captureStarted)
+            #expect(transcriptionStarted)
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-        ManualQuestionCaptureService.mockCancelCapture = {}
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in
-            transcriptionStarted = true
-        }
-        ManualQuestionTranscriptionService.mockCancel = {}
-
-        // Act
-        appState.startManualCapture()
-        try await waitUntil("microphone manual recording to start") {
-            appState.manualCaptureState == .recording && captureStarted && transcriptionStarted
-        }
-
-        // Assert Constraint 2: microphone manual capture requests microphone/speech permissions
-        #expect(mockPermission.micRequestedCount == 1)
-        #expect(mockPermission.speechRequestedCount == 1)
-        #expect(appState.manualCaptureState == .recording)
-        #expect(captureStarted)
-        #expect(transcriptionStarted)
+        await appState.shutdownForTesting()
     }
 
     // MARK: - Requirement 3 Test
@@ -564,49 +643,54 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        // Force both parameters to true
-        var settings = appState.settings
-        settings.manualCaptureSource = .systemAudio
-        settings.showTranscriptBeforeSending = true
-        settings.autoSendAfterTranscription = true
-        appState.saveSettings(settings)
+            // Force both parameters to true
+            var settings = appState.settings
+            settings.manualCaptureSource = .systemAudio
+            settings.showTranscriptBeforeSending = true
+            settings.autoSendAfterTranscription = true
+            appState.saveSettings(settings)
 
-        // Mock preflight screen recording to succeed
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
+            // Mock preflight screen recording to succeed
+            ScreenSystemAudioPermissionProbe.mockProbe = {
+                return ScreenSystemAudioPermissionProbeResult(
+                    preflightGranted: true,
+                    shareableContentProbeSucceeded: true,
+                    streamAudioProbeSucceeded: true,
+                    errorDescription: nil,
+                    likelyIdentityMismatch: false
+                )
+            }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+
+            appState.startManualCapture()
+            try await waitUntil("review-mode manual recording to start") {
+                appState.manualCaptureState == .recording
+            }
+
+            // Stop capture
+            ManualQuestionCaptureService.mockStopCapture = { return [] }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
+                return "A question to review"
+            }
+
+            appState.stopAndTranscribeManualCapture()
+            try await waitUntil("manual transcript review state") {
+                appState.manualCaptureState == .transcriptReady
+            }
+
+            // Assert Constraint 3: showTranscriptBeforeSending overrides autoSendAfterTranscription
+            // State should be .transcriptReady and NOT auto-sent to AI (calls count should be 0)
+            #expect(appState.manualCaptureState == .transcriptReady)
+            #expect(appState.manualCaptureTranscript == "A question to review")
+            #expect(trackingLLM.chatCallsCount == 0)
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-        ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
-
-        appState.startManualCapture()
-        try await waitUntil("review-mode manual recording to start") {
-            appState.manualCaptureState == .recording
-        }
-
-        // Stop capture
-        ManualQuestionCaptureService.mockStopCapture = { return [] }
-        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
-            return "A question to review"
-        }
-
-        appState.stopAndTranscribeManualCapture()
-        try await waitUntil("manual transcript review state") {
-            appState.manualCaptureState == .transcriptReady
-        }
-
-        // Assert Constraint 3: showTranscriptBeforeSending overrides autoSendAfterTranscription
-        // State should be .transcriptReady and NOT auto-sent to AI (calls count should be 0)
-        #expect(appState.manualCaptureState == .transcriptReady)
-        #expect(appState.manualCaptureTranscript == "A question to review")
-        #expect(trackingLLM.chatCallsCount == 0)
+        await appState.shutdownForTesting()
     }
 
     // MARK: - Requirement 5 Test
@@ -621,48 +705,53 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        var settings = appState.settings
-        settings.manualCaptureSource = .systemAudio
-        settings.showTranscriptBeforeSending = false
-        settings.autoSendAfterTranscription = true
-        appState.saveSettings(settings)
+            var settings = appState.settings
+            settings.manualCaptureSource = .systemAudio
+            settings.showTranscriptBeforeSending = false
+            settings.autoSendAfterTranscription = true
+            appState.saveSettings(settings)
 
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
+            ScreenSystemAudioPermissionProbe.mockProbe = {
+                return ScreenSystemAudioPermissionProbeResult(
+                    preflightGranted: true,
+                    shareableContentProbeSucceeded: true,
+                    streamAudioProbeSucceeded: true,
+                    errorDescription: nil,
+                    likelyIdentityMismatch: false
+                )
+            }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+
+            appState.startManualCapture()
+            try await waitUntil("direct-generation manual recording to start") {
+                appState.manualCaptureState == .recording
+            }
+
+            ManualQuestionCaptureService.mockStopCapture = { return [] }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
+                return "Can we write swift package tests?"
+            }
+
+            appState.stopAndTranscribeManualCapture()
+            try await waitUntil("manual generation to finish") {
+                appState.manualCaptureState == .suggestionReady
+            }
+
+            // Assert Constraint 5: Bypasses QuestionDetectionService and goes directly to SuggestionGenerationService.
+            // There should be exactly 1 call to LLM (the suggestion prompt), and the system prompt must NOT contain
+            // question detection rules.
+            #expect(trackingLLM.chatCallsCount == 1)
+            let lastMsg = try #require(trackingLLM.lastMessages.first?.content)
+            #expect(lastMsg.contains("expert interviewer") || lastMsg.contains("Direct Answer") || lastMsg.contains("suggest"))
+            #expect(!lastMsg.contains("determine if the interviewer is asking a complete question"))
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-        ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
-
-        appState.startManualCapture()
-        try await waitUntil("direct-generation manual recording to start") {
-            appState.manualCaptureState == .recording
-        }
-
-        ManualQuestionCaptureService.mockStopCapture = { return [] }
-        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
-            return "Can we write swift package tests?"
-        }
-
-        appState.stopAndTranscribeManualCapture()
-        try await waitUntil("manual generation to finish") {
-            appState.manualCaptureState == .suggestionReady
-        }
-
-        // Assert Constraint 5: Bypasses QuestionDetectionService and goes directly to SuggestionGenerationService.
-        // There should be exactly 1 call to LLM (the suggestion prompt), and the system prompt must NOT contain
-        // question detection rules.
-        #expect(trackingLLM.chatCallsCount == 1)
-        let lastMsg = try #require(trackingLLM.lastMessages.first?.content)
-        #expect(lastMsg.contains("expert interviewer") || lastMsg.contains("Direct Answer") || lastMsg.contains("suggest"))
-        #expect(!lastMsg.contains("determine if the interviewer is asking a complete question"))
+        await appState.shutdownForTesting()
     }
 
     // MARK: - Requirement 6 Test
@@ -677,49 +766,54 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        var settings = appState.settings
-        settings.manualCaptureSource = .systemAudio
-        settings.showTranscriptBeforeSending = false
-        settings.autoSendAfterTranscription = true
-        appState.saveSettings(settings)
+            var settings = appState.settings
+            settings.manualCaptureSource = .systemAudio
+            settings.showTranscriptBeforeSending = false
+            settings.autoSendAfterTranscription = true
+            appState.saveSettings(settings)
 
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
+            ScreenSystemAudioPermissionProbe.mockProbe = {
+                return ScreenSystemAudioPermissionProbeResult(
+                    preflightGranted: true,
+                    shareableContentProbeSucceeded: true,
+                    streamAudioProbeSucceeded: true,
+                    errorDescription: nil,
+                    likelyIdentityMismatch: false
+                )
+            }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+
+            appState.startManualCapture()
+            try await waitUntil("empty-transcript manual recording to start") {
+                appState.manualCaptureState == .recording
+            }
+
+            ManualQuestionCaptureService.mockStopCapture = { return [] }
+            // Return empty string as transcript result
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
+                return "   "
+            }
+
+            appState.stopAndTranscribeManualCapture()
+            try await waitUntil("empty transcript error") {
+                if case .error = appState.manualCaptureState { return true }
+                return false
+            }
+
+            // Assert Constraint 6: Empty transcript results show a clean error state
+            if case .error(let message) = appState.manualCaptureState {
+                #expect(message.contains("No speech detected"))
+            } else {
+                #expect(Bool(false), "Expected manualCaptureState to be .error but was \(appState.manualCaptureState)")
+            }
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-        ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
-
-        appState.startManualCapture()
-        try await waitUntil("empty-transcript manual recording to start") {
-            appState.manualCaptureState == .recording
-        }
-
-        ManualQuestionCaptureService.mockStopCapture = { return [] }
-        // Return empty string as transcript result
-        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
-            return "   "
-        }
-
-        appState.stopAndTranscribeManualCapture()
-        try await waitUntil("empty transcript error") {
-            if case .error = appState.manualCaptureState { return true }
-            return false
-        }
-
-        // Assert Constraint 6: Empty transcript results show a clean error state
-        if case .error(let message) = appState.manualCaptureState {
-            #expect(message.contains("No speech detected"))
-        } else {
-            #expect(Bool(false), "Expected manualCaptureState to be .error but was \(appState.manualCaptureState)")
-        }
+        await appState.shutdownForTesting()
     }
 
     // MARK: - Requirement 7 Test
@@ -734,55 +828,60 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        var settings = appState.settings
-        settings.manualCaptureSource = .systemAudio
-        settings.maxManualCaptureSeconds = 2
-        settings.showTranscriptBeforeSending = false
-        settings.autoSendAfterTranscription = true
-        appState.saveSettings(settings)
+            var settings = appState.settings
+            settings.manualCaptureSource = .systemAudio
+            settings.maxManualCaptureSeconds = 2
+            settings.showTranscriptBeforeSending = false
+            settings.autoSendAfterTranscription = true
+            appState.saveSettings(settings)
 
-        ScreenSystemAudioPermissionProbe.mockProbe = {
-            return ScreenSystemAudioPermissionProbeResult(
-                preflightGranted: true,
-                shareableContentProbeSucceeded: true,
-                streamAudioProbeSucceeded: true,
-                errorDescription: nil,
-                likelyIdentityMismatch: false
-            )
+            ScreenSystemAudioPermissionProbe.mockProbe = {
+                return ScreenSystemAudioPermissionProbeResult(
+                    preflightGranted: true,
+                    shareableContentProbeSucceeded: true,
+                    streamAudioProbeSucceeded: true,
+                    errorDescription: nil,
+                    likelyIdentityMismatch: false
+                )
+            }
+
+            var capturedTimeoutBlock: (() -> Void)?
+            ManualQuestionCaptureService.mockStartCapture = { source, maxSec, onTimeout in
+                capturedTimeoutBlock = onTimeout
+            }
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+
+            appState.startManualCapture()
+            try await waitUntil("manual timeout callback installation") {
+                appState.manualCaptureState == .recording && capturedTimeoutBlock != nil
+            }
+
+            #expect(appState.manualCaptureState == .recording)
+            let timeoutBlock = try #require(capturedTimeoutBlock)
+
+            // Mock stopping and returning buffers
+            ManualQuestionCaptureService.mockStopCapture = { return [] }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
+                return "How do you test Swift packages?"
+            }
+
+            // Trigger timeout block manually
+            timeoutBlock()
+            try await waitUntil("max-duration manual generation to finish") {
+                appState.manualCaptureState == .suggestionReady
+            }
+
+            // Assert Constraint 7: Max duration reached triggers automatic stop
+            // The AppState should have handled the timeout, finalized, and turned state to suggestionReady or error
+            #expect(appState.manualCaptureState == .suggestionReady)
+            #expect(appState.manualCaptureTranscript == "How do you test Swift packages?")
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        var capturedTimeoutBlock: (() -> Void)?
-        ManualQuestionCaptureService.mockStartCapture = { source, maxSec, onTimeout in
-            capturedTimeoutBlock = onTimeout
-        }
-        ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
-
-        appState.startManualCapture()
-        try await waitUntil("manual timeout callback installation") {
-            appState.manualCaptureState == .recording && capturedTimeoutBlock != nil
-        }
-
-        #expect(appState.manualCaptureState == .recording)
-        let timeoutBlock = try #require(capturedTimeoutBlock)
-
-        // Mock stopping and returning buffers
-        ManualQuestionCaptureService.mockStopCapture = { return [] }
-        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
-            return "How do you test Swift packages?"
-        }
-
-        // Trigger timeout block manually
-        timeoutBlock()
-        try await waitUntil("max-duration manual generation to finish") {
-            appState.manualCaptureState == .suggestionReady
-        }
-
-        // Assert Constraint 7: Max duration reached triggers automatic stop
-        // The AppState should have handled the timeout, finalized, and turned state to suggestionReady or error
-        #expect(appState.manualCaptureState == .suggestionReady)
-        #expect(appState.manualCaptureTranscript == "How do you test Swift packages?")
+        await appState.shutdownForTesting()
     }
 
     @Test
@@ -796,36 +895,46 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        let captureService = ManualQuestionCaptureService.shared
-        let originalBufferCount = captureService.capturedBufferCount
-        let originalDuration = captureService.recordingDuration
-        let originalTimestamp = captureService.lastBufferTimestamp
-        defer {
-            captureService.capturedBufferCount = originalBufferCount
-            captureService.recordingDuration = originalDuration
-            captureService.lastBufferTimestamp = originalTimestamp
+            let captureService = ManualQuestionCaptureService.shared
+            let originalBufferCount = captureService.capturedBufferCount
+            let originalDuration = captureService.recordingDuration
+            let originalTimestamp = captureService.lastBufferTimestamp
+            defer {
+                captureService.capturedBufferCount = originalBufferCount
+                captureService.recordingDuration = originalDuration
+                captureService.lastBufferTimestamp = originalTimestamp
+            }
+
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            appState.startManualCapture()
+            let startup = try #require(appState.manualCaptureController.startupTask)
+            await startup.value
+            #expect(appState.manualCaptureState == .recording)
+            captureService.capturedBufferCount = 42
+            captureService.recordingDuration = 10.5
+            let testTimestamp = Date()
+            captureService.lastBufferTimestamp = testTimestamp
+
+            // Stop capture
+            ManualQuestionCaptureService.mockStopCapture = { return [] }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in return "What do you offer?" }
+
+            appState.stopAndTranscribeManualCapture()
+            try await waitUntil("manual buffer diagnostics transcription") {
+                appState.manualCaptureTranscript == "What do you offer?"
+            }
+
+            #expect(appState.manualCaptureBufferCount == 42)
+            #expect(abs(appState.manualCaptureDuration - 10.5) <= 0.30)
+            #expect(appState.manualCaptureTranscript == "What do you offer?")
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        appState.manualCaptureState = .recording
-        captureService.capturedBufferCount = 42
-        captureService.recordingDuration = 10.5
-        let testTimestamp = Date()
-        captureService.lastBufferTimestamp = testTimestamp
-
-        // Stop capture
-        ManualQuestionCaptureService.mockStopCapture = { return [] }
-        ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in return "What do you offer?" }
-
-        appState.stopAndTranscribeManualCapture()
-        try await waitUntil("manual buffer diagnostics transcription") {
-            appState.manualCaptureTranscript == "What do you offer?"
-        }
-
-        #expect(appState.manualCaptureBufferCount == 42)
-        #expect(abs(appState.manualCaptureDuration - 10.5) <= 0.30)
-        #expect(appState.manualCaptureTranscript == "What do you offer?")
+        await appState.shutdownForTesting()
     }
 
     @Test
@@ -852,26 +961,47 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let failingLLM = FailingLLMClient()
         let appState = try makeAppState(database: database, client: failingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        var reviewSettings = appState.settings
+        reviewSettings.showTranscriptBeforeSending = true
+        appState.saveSettings(reviewSettings)
+        do {
 
-        appState.manualCaptureState = .transcriptReady
-        appState.manualCaptureTranscript = "What do you offer"
-        appState.manualCaptureBufferCount = 15
+            let recorder = ManualQuestionCaptureService.shared
+            let previousCount = recorder.capturedBufferCount
+            defer { recorder.capturedBufferCount = previousCount }
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            ManualQuestionCaptureService.mockStopCapture = { [] }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in "What do you offer" }
+            appState.startManualCapture()
+            let startup = try #require(appState.manualCaptureController.startupTask)
+            await startup.value
+            #expect(appState.manualCaptureState == .recording)
+            recorder.capturedBufferCount = 15
+            appState.stopAndTranscribeManualCapture()
+            let finalizer = try #require(appState.manualCaptureController.finalizationTask)
+            await finalizer.value
+            #expect(appState.manualCaptureState == .transcriptReady)
 
-        appState.sendManualCaptureToAI()
-        try await waitUntil("manual provider failure") {
-            if case .suggestionError = appState.manualCaptureState { return true }
-            return false
+            appState.sendManualCaptureToAI()
+            try await waitUntil("manual provider failure") {
+                if case .suggestionError = appState.manualCaptureState { return true }
+                return false
+            }
+
+            // Verify state is suggestionError, and transcript is retained!
+            if case .suggestionError(let msg) = appState.manualCaptureState {
+                #expect(msg.contains("API provider timeout error domain"))
+            } else {
+                Issue.record("Expected state to be suggestionError but was \(appState.manualCaptureState)")
+            }
+            #expect(appState.manualCaptureTranscript == "What do you offer")
+            #expect(appState.manualCaptureBufferCount == 15)
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        // Verify state is suggestionError, and transcript is retained!
-        if case .suggestionError(let msg) = appState.manualCaptureState {
-            #expect(msg.contains("API provider timeout error domain"))
-        } else {
-            Issue.record("Expected state to be suggestionError but was \(appState.manualCaptureState)")
-        }
-        #expect(appState.manualCaptureTranscript == "What do you offer")
-        #expect(appState.manualCaptureBufferCount == 15)
+        await appState.shutdownForTesting()
     }
 
     @Test
@@ -885,20 +1015,44 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let trackingLLM = TrackingLLMClient()
         let appState = try makeAppState(database: database, client: trackingLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        var reviewSettings = appState.settings
+        reviewSettings.showTranscriptBeforeSending = true
+        appState.saveSettings(reviewSettings)
+        do {
 
-        appState.manualCaptureState = .suggestionError("Previous failure")
-        appState.manualCaptureTranscript = "How comfortable are you with Python, C++, and ROS2?"
-        appState.manualCaptureBufferCount = 12
+            let recorder = ManualQuestionCaptureService.shared
+            let previousCount = recorder.capturedBufferCount
+            defer { recorder.capturedBufferCount = previousCount }
+            ManualQuestionTranscriptionService.mockStartTranscription = { _, _, _ in }
+            ManualQuestionCaptureService.mockStartCapture = { _, _, _ in }
+            ManualQuestionCaptureService.mockStopCapture = { [] }
+            ManualQuestionTranscriptionService.mockEndAudioAndFinalize = { _ in
+                "How comfortable are you with Python, C++, and ROS2?"
+            }
+            appState.startManualCapture()
+            let startup = try #require(appState.manualCaptureController.startupTask)
+            await startup.value
+            #expect(appState.manualCaptureState == .recording)
+            recorder.capturedBufferCount = 12
+            appState.stopAndTranscribeManualCapture()
+            let finalizer = try #require(appState.manualCaptureController.finalizationTask)
+            await finalizer.value
+            #expect(appState.manualCaptureState == .transcriptReady)
+            appState.manualCaptureState = .suggestionError("Previous failure")
 
-        appState.sendManualCaptureToAI()
-        try await waitUntil("manual retry generation") {
-            appState.manualCaptureState == .suggestionReady
+            appState.sendManualCaptureToAI()
+            try await waitUntil("manual retry generation") {
+                appState.manualCaptureState == .suggestionReady
+            }
+
+            #expect(appState.manualCaptureState == .suggestionReady)
+            #expect(appState.manualCaptureTranscript == "How comfortable are you with Python, C++, and ROS2?")
+            #expect(appState.manualCaptureSuggestion != nil)
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        #expect(appState.manualCaptureState == .suggestionReady)
-        #expect(appState.manualCaptureTranscript == "How comfortable are you with Python, C++, and ROS2?")
-        #expect(appState.manualCaptureSuggestion != nil)
+        await appState.shutdownForTesting()
     }
 
     @Test
@@ -948,21 +1102,26 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let malformedLLM = MalformedJSONLLMClient()
         let appState = try makeAppState(database: database, client: malformedLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        appState.manualCaptureState = .transcriptReady
-        appState.manualCaptureTranscript = "Why do you want to join our team?"
+            appState.manualCaptureState = .transcriptReady
+            appState.manualCaptureTranscript = "Why do you want to join our team?"
 
-        appState.sendManualCaptureToAI()
-        try await waitUntil("malformed JSON repair") {
-            appState.manualCaptureState == .suggestionReady
+            appState.sendManualCaptureToAI()
+            try await waitUntil("malformed JSON repair") {
+                appState.manualCaptureState == .suggestionReady
+            }
+
+            #expect(appState.manualCaptureState == .suggestionReady)
+            let suggestion = try #require(appState.manualCaptureSuggestion)
+            #expect(suggestion.strategy == "Direct Answer")
+            #expect(suggestion.sayFirst == "I want this role because it connects with my robotics, AI, and perception experience, real robot deployment interests, and engineering growth.")
+            #expect(suggestion.keyPoints.count == 2)
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        #expect(appState.manualCaptureState == .suggestionReady)
-        let suggestion = try #require(appState.manualCaptureSuggestion)
-        #expect(suggestion.strategy == "Direct Answer")
-        #expect(suggestion.sayFirst == "I want this role because it connects with my robotics, AI, and perception experience, real robot deployment interests, and engineering growth.")
-        #expect(suggestion.keyPoints.count == 2)
+        await appState.shutdownForTesting()
     }
 
     @Test
@@ -999,21 +1158,26 @@ struct ManualCaptureTests {
         let mockPermission = MockPermissionService()
         let plainLLM = PlainTextLLMClient()
         let appState = try makeAppState(database: database, client: plainLLM, permissionService: mockPermission)
-        defer { appState.cancelManualCapture() }
+        do {
 
-        appState.manualCaptureState = .transcriptReady
-        appState.manualCaptureTranscript = "Why do you want to join our team?"
+            appState.manualCaptureState = .transcriptReady
+            appState.manualCaptureTranscript = "Why do you want to join our team?"
 
-        appState.sendManualCaptureToAI()
-        try await waitUntil("plain-text suggestion conversion") {
-            appState.manualCaptureState == .suggestionReady
+            appState.sendManualCaptureToAI()
+            try await waitUntil("plain-text suggestion conversion") {
+                appState.manualCaptureState == .suggestionReady
+            }
+
+            #expect(appState.manualCaptureState == .suggestionReady)
+            let suggestion = try #require(appState.manualCaptureSuggestion)
+            #expect(suggestion.strategy == "Direct Answer")
+            #expect(suggestion.sayFirst.contains("I want this role"))
+            #expect(suggestion.keyPoints.count >= 2)
+            #expect(suggestion.keyPoints.contains("Engineering growth"))
+        } catch {
+            await appState.shutdownForTesting()
+            throw error
         }
-
-        #expect(appState.manualCaptureState == .suggestionReady)
-        let suggestion = try #require(appState.manualCaptureSuggestion)
-        #expect(suggestion.strategy == "Direct Answer")
-        #expect(suggestion.sayFirst.contains("I want this role"))
-        #expect(suggestion.keyPoints.count >= 2)
-        #expect(suggestion.keyPoints.contains("Engineering growth"))
+        await appState.shutdownForTesting()
     }
 }

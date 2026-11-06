@@ -2,7 +2,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="${SIGNING_STATUS_APP_BUNDLE:-$ROOT_DIR/dist/Hireva.app}"
+APP_BUNDLE="${SIGNING_STATUS_APP_BUNDLE:-$(python3 "${DEFAULT_ROOT_DIR:-$ROOT_DIR}/script/artifact_lifecycle.py" paths)}"
 
 echo "=== Hireva Signing Status ==="
 echo "App bundle: $APP_BUNDLE"

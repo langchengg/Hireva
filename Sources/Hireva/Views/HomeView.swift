@@ -1,14 +1,142 @@
 import SwiftUI
 
 struct HomeView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var live: LiveInterviewFeature
+    @ObservedObject var manual: ManualCaptureController
+    @ObservedObject var settingsState: SettingsState
+    @Binding var hirevaMode: HirevaMode
+    let activeIdentity: GenerationIdentity?
+    private var generationState: GenerationUIState { live.generationUIState }
+    let elapsedMS: Int
+    private var isStreaming: Bool { live.isStreamingSayFirst }
+    private var isExpanding: Bool { live.isExpandingSuggestionCard }
+    let providerStreamActive: Bool
+    let productInterviewStatus: ProductInterviewStatus
+    let primaryHomeActionTitle: String
+    let primaryHomeActionSystemImage: String
+    let primaryHomeActionShouldStop: Bool
+    let coreInterviewReadinessPassed: Bool
+    let liveBlockedReason: String?
+    let anyCaptureRunning: Bool
+    let isListening: Bool
+    let selectedAnswerProviderStatusTitle: String
+    let selectedAnswerProviderConfigured: Bool
+    let userFacingRelevantContextStatus: String
+    let candidateDisplayName: String
+    let opportunityTitle: String
+    let domainDisplayName: String
+    let contextReadinessStatus: ContextReadinessStatus
+    let permissionSummary: String
+    let isFloatingAssistantVisible: Bool
+    let manualWorkspace: ManualCaptureWorkspaceView
+    let cancelManualCapture: () -> Void
+    let clearManualCapture: () -> Void
+    let refreshPermissions: () -> Void
+    let saveSettings: (AppSettings) -> Void
+    let selectSection: (AppSection) -> Void
+    let showFloatingAssistant: () -> Void
+    let answerCurrentQuestionOrTranscriptNow: () -> Void
+    let stopListening: () -> Void
+    let startListening: () -> Void
+    let feedbacks: [ActionFeedback]
+    let loadingStates: [String: Bool]
+    let beginFeedback: (String, String, String) -> Void
+    let completeFeedback: (String, String, String) -> Void
+    let infoFeedback: (String, String, String, TimeInterval?) -> Void
+
+    init(live: LiveInterviewFeature,
+        manual: ManualCaptureController,
+        settingsState: SettingsState,
+        hirevaMode: Binding<HirevaMode>,
+        activeIdentity: GenerationIdentity?,
+        elapsedMS: Int,
+        providerStreamActive: Bool,
+        productInterviewStatus: ProductInterviewStatus,
+        primaryHomeActionTitle: String,
+        primaryHomeActionSystemImage: String,
+        primaryHomeActionShouldStop: Bool,
+        coreInterviewReadinessPassed: Bool,
+        liveBlockedReason: String?,
+        anyCaptureRunning: Bool,
+        isListening: Bool,
+        selectedAnswerProviderStatusTitle: String,
+        selectedAnswerProviderConfigured: Bool,
+        userFacingRelevantContextStatus: String,
+        candidateDisplayName: String,
+        opportunityTitle: String,
+        domainDisplayName: String,
+        contextReadinessStatus: ContextReadinessStatus,
+        permissionSummary: String,
+        isFloatingAssistantVisible: Bool,
+        manualWorkspace: ManualCaptureWorkspaceView,
+        cancelManualCapture: @escaping () -> Void,
+        clearManualCapture: @escaping () -> Void,
+        refreshPermissions: @escaping () -> Void,
+        saveSettings: @escaping (AppSettings) -> Void,
+        selectSection: @escaping (AppSection) -> Void,
+        showFloatingAssistant: @escaping () -> Void,
+        answerCurrentQuestionOrTranscriptNow: @escaping () -> Void,
+        stopListening: @escaping () -> Void,
+        startListening: @escaping () -> Void,
+        feedbacks: [ActionFeedback],
+        loadingStates: [String: Bool],
+        beginFeedback: @escaping (String, String, String) -> Void,
+        completeFeedback: @escaping (String, String, String) -> Void,
+        infoFeedback: @escaping (String, String, String, TimeInterval?) -> Void) {
+        self.live = live
+        self.manual = manual
+        self.settingsState = settingsState
+        self._hirevaMode = hirevaMode
+        self.activeIdentity = activeIdentity
+        self.elapsedMS = elapsedMS
+        self.providerStreamActive = providerStreamActive
+        self.productInterviewStatus = productInterviewStatus
+        self.primaryHomeActionTitle = primaryHomeActionTitle
+        self.primaryHomeActionSystemImage = primaryHomeActionSystemImage
+        self.primaryHomeActionShouldStop = primaryHomeActionShouldStop
+        self.coreInterviewReadinessPassed = coreInterviewReadinessPassed
+        self.liveBlockedReason = liveBlockedReason
+        self.anyCaptureRunning = anyCaptureRunning
+        self.isListening = isListening
+        self.selectedAnswerProviderStatusTitle = selectedAnswerProviderStatusTitle
+        self.selectedAnswerProviderConfigured = selectedAnswerProviderConfigured
+        self.userFacingRelevantContextStatus = userFacingRelevantContextStatus
+        self.candidateDisplayName = candidateDisplayName
+        self.opportunityTitle = opportunityTitle
+        self.domainDisplayName = domainDisplayName
+        self.contextReadinessStatus = contextReadinessStatus
+        self.permissionSummary = permissionSummary
+        self.isFloatingAssistantVisible = isFloatingAssistantVisible
+        self.manualWorkspace = manualWorkspace
+        self.cancelManualCapture = cancelManualCapture
+        self.clearManualCapture = clearManualCapture
+        self.refreshPermissions = refreshPermissions
+        self.saveSettings = saveSettings
+        self.selectSection = selectSection
+        self.showFloatingAssistant = showFloatingAssistant
+        self.answerCurrentQuestionOrTranscriptNow = answerCurrentQuestionOrTranscriptNow
+        self.stopListening = stopListening
+        self.startListening = startListening
+        self.feedbacks = feedbacks
+        self.loadingStates = loadingStates
+        self.beginFeedback = beginFeedback
+        self.completeFeedback = completeFeedback
+        self.infoFeedback = infoFeedback
+    }
     @State private var showManualCapture = false
     @ObservedObject private var audioDeviceManager = AudioDeviceManager.shared
 
-    private var renderState: VisibleAssistantRenderState {
-        appState.visibleAssistantRenderState
+    var renderState: VisibleAssistantRenderState {
+        live.renderState(activeIdentity: activeIdentity, generationState: generationState,
+            elapsedMS: elapsedMS, isStreaming: isStreaming, isExpanding: isExpanding,
+            providerStreamActive: providerStreamActive)
     }
-
+    private var shouldShowBlockingAnswerSpinner: Bool {
+        live.shouldShowBlockingAnswerSpinner(generationState: generationState, elapsedMS: elapsedMS)
+    }
+    private var shouldShowAnswerExpansionStatus: Bool {
+        live.shouldShowAnswerExpansionStatus(generationState: generationState, isExpanding: isExpanding)
+    }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -23,33 +151,33 @@ struct HomeView: View {
         }
         .navigationTitle("Home / Interview")
         .sheet(isPresented: $showManualCapture, onDismiss: {
-            appState.cancelManualCapture()
-            appState.hirevaMode = .autoDetect
+            cancelManualCapture()
+            hirevaMode = .autoDetect
         }) {
             VStack(spacing: 0) {
                 HStack {
                     Picker("Source", selection: Binding(
-                        get: { appState.settings.manualCaptureSource },
+                        get: { settingsState.settings.manualCaptureSource },
                         set: { source in
-                            var settings = appState.settings
+                            var settings = settingsState.settings
                             settings.manualCaptureSource = source
-                            appState.saveSettings(settings)
+                            saveSettings(settings)
                         }
                     )) {
                         ForEach(ManualCaptureSource.allCases) { Text($0.displayName).tag($0) }
                     }
-                    .disabled(appState.manualCaptureState != .idle)
+                    .disabled(manual.state != .idle)
                     Spacer()
-                    Button("Clear") { appState.clearManualCapture() }
+                    Button("Clear") { clearManualCapture() }
                     Button("Close") { showManualCapture = false }
                 }.padding()
                 Divider()
-                LiveInterviewView(appState: appState).manualCaptureWorkspace(isWide: false)
+                manualWorkspace.layout(isWide: false)
             }
             .frame(width: 720, height: 720)
         }
         .onAppear {
-            appState.refreshPermissions()
+            refreshPermissions()
         }
     }
 
@@ -64,9 +192,9 @@ struct HomeView: View {
             }
             Spacer()
             Button {
-                appState.beginAction(ActionID.diagnosticsRefresh, title: "Opening diagnostics", message: "Developer diagnostics are opening.")
-                appState.selectSection(.diagnostics)
-                appState.completeAction(ActionID.diagnosticsRefresh, title: "Diagnostics opened", message: "Technical details are available for troubleshooting.")
+                beginAction(ActionID.diagnosticsRefresh, title: "Opening diagnostics", message: "Developer diagnostics are opening.")
+                selectSection(.diagnostics)
+                completeAction(ActionID.diagnosticsRefresh, title: "Diagnostics opened", message: "Technical details are available for troubleshooting.")
             } label: {
                 Label("Diagnostics", systemImage: "stethoscope")
             }
@@ -77,13 +205,13 @@ struct HomeView: View {
     private var interviewStatusCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
-                Image(systemName: appState.productInterviewStatus.systemImage)
+                Image(systemName: productInterviewStatus.systemImage)
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(statusTint)
                     .frame(width: 42)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(appState.productInterviewStatus.title)
+                    Text(productInterviewStatus.title)
                         .font(.title2.weight(.bold))
                     Text(statusMessage)
                         .font(.callout)
@@ -97,58 +225,58 @@ struct HomeView: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 10)], alignment: .leading, spacing: 10) {
-                metric("Capture mode", appState.settings.audioCaptureMode.shortDisplayName, "waveform.and.mic")
-                metric("Answer provider", appState.selectedAnswerProviderStatusTitle, appState.selectedAnswerProviderConfigured ? "sparkles" : "key")
-                metric("Relevant context", appState.userFacingRelevantContextStatus, "doc.text.magnifyingglass")
-                metric("Candidate", appState.candidateProfiles.first(where: { $0.id == appState.activeCandidateProfileID })?.displayName ?? "Missing", "person.crop.circle")
-                metric("Opportunity", appState.opportunityContexts.first(where: { $0.id == appState.activeOpportunityContextID })?.title ?? "General", "briefcase")
-                metric("Domain", appState.activeInterviewDomainID.displayName, "square.grid.2x2")
+                metric("Capture mode", settingsState.settings.audioCaptureMode.shortDisplayName, "waveform.and.mic")
+                metric("Answer provider", selectedAnswerProviderStatusTitle, selectedAnswerProviderConfigured ? "sparkles" : "key")
+                metric("Relevant context", userFacingRelevantContextStatus, "doc.text.magnifyingglass")
+                metric("Candidate", candidateDisplayName, "person.crop.circle")
+                metric("Opportunity", opportunityTitle, "briefcase")
+                metric("Domain", domainDisplayName, "square.grid.2x2")
                 metric("Context readiness", contextReadinessTitle, "checkmark.shield")
-                metric("Permissions", appState.permissionSummary, "hand.raised")
-                metric("Floating panel", appState.isFloatingAssistantVisible ? "Visible" : "Hidden", "macwindow")
+                metric("Permissions", permissionSummary, "hand.raised")
+                metric("Floating panel", isFloatingAssistantVisible ? "Visible" : "Hidden", "macwindow")
             }
 
             HStack(spacing: 10) {
                 Button("Capture Question", systemImage: "hand.tap") {
-                    appState.cancelManualCapture()
-                    appState.hirevaMode = .manualCapture
+                    cancelManualCapture()
+                    hirevaMode = .manualCapture
                     showManualCapture = true
                 }
-                .disabled(appState.anyCaptureRunning)
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.runReadiness,
+                .disabled(anyCaptureRunning)
+                ActionButtonContent(
+                    isLoading: isActionLoading(ActionID.runReadiness),
+                    feedback: latestActionFeedback(for: ActionID.runReadiness),
                     title: "Run Readiness Check",
                     loadingTitle: "Opening check...",
                     systemImage: "checklist.checked"
                 ) {
-                    appState.beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing the pre-interview checklist...")
-                    appState.selectSection(.readinessCheck)
-                    appState.completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
+                    beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing the pre-interview checklist...")
+                    selectSection(.readinessCheck)
+                    completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
                 }
 
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.showFloatingPanel,
-                    title: appState.isFloatingAssistantVisible ? "Show Floating Panel" : "Open Floating Panel",
+                ActionButtonContent(
+                    isLoading: isActionLoading(ActionID.showFloatingPanel),
+                    feedback: latestActionFeedback(for: ActionID.showFloatingPanel),
+                    title: isFloatingAssistantVisible ? "Show Floating Panel" : "Open Floating Panel",
                     loadingTitle: "Opening panel...",
                     systemImage: "macwindow.badge.plus"
                 ) {
-                    appState.showFloatingAssistant()
+                    showFloatingAssistant()
                 }
 
-                if appState.lastDetectedQuestion != nil || appState.possibleQuestion != nil {
-                    ActionButton(
-                        appState: appState,
-                        actionID: ActionID.generateAnswer,
+                if live.lastDetectedQuestion != nil || live.possibleQuestion != nil {
+                    ActionButtonContent(
+                        isLoading: isActionLoading(ActionID.generateAnswer),
+                        feedback: latestActionFeedback(for: ActionID.generateAnswer),
                         title: "Generate Answer",
                         loadingTitle: "Generating first answer...",
                         successTitle: "Answer ready",
                         systemImage: "sparkles",
                         isProminent: true,
-                        disabled: !appState.liveState.canAnswerNow
+                        disabled: !live.liveState.canAnswerNow
                     ) {
-                        appState.answerCurrentQuestionOrTranscriptNow()
+                        answerCurrentQuestionOrTranscriptNow()
                     }
                 }
             }
@@ -160,7 +288,7 @@ struct HomeView: View {
     }
 
     private var contextReadinessTitle: String {
-        switch appState.contextReadiness.status {
+        switch contextReadinessStatus {
         case .ready: return "Ready"
         case .needsReview: return "Needs Review"
         case .missing: return "Missing"
@@ -168,24 +296,24 @@ struct HomeView: View {
     }
 
     private var primaryAction: some View {
-        ActionButton(
-            appState: appState,
-            actionID: primaryActionID,
-            title: appState.primaryHomeActionTitle,
+        ActionButtonContent(
+            isLoading: isActionLoading(primaryActionID),
+            feedback: latestActionFeedback(for: primaryActionID),
+            title: primaryHomeActionTitle,
             loadingTitle: primaryLoadingTitle,
             successTitle: primarySuccessTitle,
-            systemImage: appState.primaryHomeActionSystemImage,
+            systemImage: primaryHomeActionSystemImage,
             isProminent: true,
             controlSize: .large
         ) {
-            if appState.primaryHomeActionShouldStop {
-                appState.stopListening()
-            } else if !appState.coreInterviewReadinessPassed {
-                appState.beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing exactly what needs attention...")
-                appState.selectSection(.readinessCheck)
-                appState.completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
+            if primaryHomeActionShouldStop {
+                stopListening()
+            } else if !coreInterviewReadinessPassed {
+                beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing exactly what needs attention...")
+                selectSection(.readinessCheck)
+                completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
             } else {
-                appState.startListening(mode: .microphone)
+                startListening()
             }
         }
     }
@@ -196,7 +324,7 @@ struct HomeView: View {
                 Label("Capture Mode", systemImage: "slider.horizontal.3")
                     .font(.headline)
                 Spacer()
-                Text(appState.anyCaptureRunning ? "Stop listening to change mode." : "Choose what the app listens to.")
+                Text(anyCaptureRunning ? "Stop listening to change mode." : "Choose what the app listens to.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -234,10 +362,10 @@ struct HomeView: View {
                 Label("Live Answer", systemImage: "text.bubble")
                     .font(.headline)
                 Spacer()
-                if appState.shouldShowBlockingAnswerSpinner {
+                if shouldShowBlockingAnswerSpinner {
                     ProgressView()
                         .controlSize(.small)
-                } else if appState.shouldShowAnswerExpansionStatus {
+                } else if shouldShowAnswerExpansionStatus {
                     Text("Expanding full answer...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -268,10 +396,10 @@ struct HomeView: View {
                 .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             }
 
-            if let card = appState.currentSuggestion, !card.sayFirst.isEmpty {
+            if let card = live.currentSuggestion, !card.sayFirst.isEmpty {
                 answerCard(card)
                 recentAnswersList
-            } else if appState.shouldShowBlockingAnswerSpinner || renderState.hasAnswerText {
+            } else if shouldShowBlockingAnswerSpinner || renderState.hasAnswerText {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Say First")
                         .font(.caption.weight(.semibold))
@@ -280,7 +408,7 @@ struct HomeView: View {
                         .font(.system(size: 17, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            } else if !appState.coreInterviewReadinessPassed {
+            } else if !coreInterviewReadinessPassed {
                 emptyAction(
                     title: "Setup is incomplete",
                     message: "Run the readiness check to see exactly what needs attention before the interview.",
@@ -290,11 +418,11 @@ struct HomeView: View {
                     loadingTitle: "Opening check...",
                     successTitle: "Checklist open"
                 ) {
-                    appState.beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing exactly what needs attention...")
-                    appState.selectSection(.readinessCheck)
-                    appState.completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
+                    beginAction(ActionID.runReadiness, title: "Opening readiness check", message: "Showing exactly what needs attention...")
+                    selectSection(.readinessCheck)
+                    completeAction(ActionID.runReadiness, title: "Readiness check opened", message: "Fix failed items before starting.")
                 }
-            } else if !appState.isListening {
+            } else if !isListening {
                 emptyAction(
                     title: "Listening is stopped",
                     message: "Start listening or capture a question to generate an answer.",
@@ -304,7 +432,7 @@ struct HomeView: View {
                     loadingTitle: "Starting...",
                     successTitle: "Listening started"
                 ) {
-                    appState.startListening(mode: .microphone)
+                    startListening()
                 }
             } else {
                 EmptyStateView(
@@ -353,7 +481,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var recentAnswersList: some View {
-        let cards = Array(appState.liveSuggestionHistory.suffix(4).reversed())
+        let cards = Array(live.liveSuggestionHistory.suffix(4).reversed())
         if cards.count > 1 {
             Divider()
             VStack(alignment: .leading, spacing: 8) {
@@ -369,6 +497,12 @@ struct HomeView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
+                        if let caution = card.caution, !caution.isEmpty {
+                            Text(caution)
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
@@ -398,13 +532,13 @@ struct HomeView: View {
     }
 
     private func modeCard(_ mode: AudioCaptureMode) -> some View {
-        let selected = appState.settings.audioCaptureMode == mode
+        let selected = settingsState.settings.audioCaptureMode == mode
         return Button {
-            guard !appState.anyCaptureRunning else { return }
-            var next = appState.settings
+            guard !anyCaptureRunning else { return }
+            var next = settingsState.settings
             next.audioCaptureMode = mode
-            appState.infoAction(ActionID.switchCaptureMode, title: "Capture mode selected", message: "\(mode.shortDisplayName): \(mode.userFacingDescription)")
-            appState.saveSettings(next)
+            infoAction(ActionID.switchCaptureMode, title: "Capture mode selected", message: "\(mode.shortDisplayName): \(mode.userFacingDescription)")
+            saveSettings(next)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -431,7 +565,7 @@ struct HomeView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(appState.anyCaptureRunning)
+        .disabled(anyCaptureRunning)
     }
 
     private func emptyAction(
@@ -455,9 +589,9 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
-            ActionButton(
-                appState: appState,
-                actionID: actionID,
+            ActionButtonContent(
+                isLoading: isActionLoading(actionID),
+                feedback: latestActionFeedback(for: actionID),
                 title: buttonTitle,
                 loadingTitle: loadingTitle,
                 successTitle: successTitle,
@@ -471,7 +605,7 @@ struct HomeView: View {
     }
 
     private var statusTint: Color {
-        switch appState.productInterviewStatus {
+        switch productInterviewStatus {
         case .ready: return .green
         case .listening, .questionDetected, .generatingFirstAnswer, .expandingAnswer: return .blue
         case .needsAttention: return .orange
@@ -480,7 +614,7 @@ struct HomeView: View {
     }
 
     private var statusMessage: String {
-        switch appState.productInterviewStatus {
+        switch productInterviewStatus {
         case .ready:
             return "Ready to start a test interview."
         case .listening:
@@ -492,7 +626,7 @@ struct HomeView: View {
         case .expandingAnswer:
             return "Adding supporting points while the first answer remains visible."
         case .needsAttention:
-            return appState.liveBlockedReason ?? appState.permissionSummary
+            return liveBlockedReason ?? permissionSummary
         case .stopped:
             return "Listening is stopped."
         }
@@ -507,7 +641,7 @@ struct HomeView: View {
         let output = audioDeviceManager.currentOutputDeviceName.lowercased()
         let builtInInput = input.contains("macbook") || input.contains("built-in") || input.contains("built in")
         let builtInOutput = output.contains("macbook") || output.contains("built-in") || output.contains("built in")
-        return builtInInput && builtInOutput && appState.settings.audioCaptureMode != .systemAudioOnly
+        return builtInInput && builtInOutput && settingsState.settings.audioCaptureMode != .systemAudioOnly
     }
 
     private func modeIcon(_ mode: AudioCaptureMode) -> String {
@@ -519,7 +653,7 @@ struct HomeView: View {
     }
 
     private var homeFeedback: ActionFeedback? {
-        appState.latestActionFeedback(matching: [
+        latestActionFeedback(matching: [
             ActionID.startInterview,
             ActionID.stopListening,
             ActionID.runReadiness,
@@ -531,32 +665,49 @@ struct HomeView: View {
     }
 
     private var primaryActionID: String {
-        if appState.primaryHomeActionShouldStop {
+        if primaryHomeActionShouldStop {
             return ActionID.stopListening
         }
-        if !appState.coreInterviewReadinessPassed {
+        if !coreInterviewReadinessPassed {
             return ActionID.runReadiness
         }
         return ActionID.startInterview
     }
 
     private var primaryLoadingTitle: String {
-        if appState.primaryHomeActionShouldStop {
+        if primaryHomeActionShouldStop {
             return "Stopping..."
         }
-        if !appState.coreInterviewReadinessPassed {
+        if !coreInterviewReadinessPassed {
             return "Opening check..."
         }
         return "Starting..."
     }
 
     private var primarySuccessTitle: String {
-        if appState.primaryHomeActionShouldStop {
+        if primaryHomeActionShouldStop {
             return "Stopped"
         }
-        if !appState.coreInterviewReadinessPassed {
+        if !coreInterviewReadinessPassed {
             return "Checklist open"
         }
         return "Listening started"
     }
+    private func isActionLoading(_ id: String) -> Bool { loadingStates[id] == true }
+    private func latestActionFeedback(for id: String) -> ActionFeedback? {
+        feedbacks.last { $0.actionID == id }
+    }
+    private func latestActionFeedback(matching ids: [String]) -> ActionFeedback? {
+        feedbacks.last { ids.contains($0.actionID) }
+    }
+    private func beginAction(_ id: String, title: String, message: String) {
+        beginFeedback(id, title, message)
+    }
+    private func completeAction(_ id: String, title: String, message: String) {
+        completeFeedback(id, title, message)
+    }
+    private func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4) {
+        infoFeedback(id, title, message, autoDismissAfter)
+    }
+
 }

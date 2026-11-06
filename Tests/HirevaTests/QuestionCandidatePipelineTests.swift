@@ -5,6 +5,84 @@ import Testing
 @Suite(.serialized)
 struct QuestionCandidatePipelineTests {
     @Test
+    func scopedQuestionsPreserveMeaningAndOriginalUTF16Span() throws {
+        let questions = [
+            "In your learning prototype, how did you test transaction rollback?",
+            "Your concurrency experiment, which indexing strategies did you compare?",
+            "During your load test, why did the queue grow?",
+            "Within a database transaction, why can retries duplicate side effects?",
+            "For notification delivery, how can an idempotency key prevent duplicate processing?",
+            "For a database transaction, how can a failed statement preserve earlier changes?"
+        ]
+        for question in questions {
+            let source = "准备完成 🙂. \(question)"
+            let candidates = QuestionCandidatePipeline.extract(from: source)
+            let candidate = try #require(candidates.first)
+            #expect(candidates.count == 1)
+            #expect(candidate.text == question)
+            #expect((source as NSString).substring(with: NSRange(
+                location: candidate.sourceStartUTF16,
+                length: candidate.sourceEndUTF16 - candidate.sourceStartUTF16
+            )) == question)
+            #expect(QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: question).accepted)
+        }
+    }
+
+    @Test
+    func scopedSecondQuestionStaysSeparateFromPriorQuestion() {
+        let first = "How did you test the rollback?"
+        let second = "In your experiment, which metrics did you compare?"
+        #expect(QuestionCandidatePipeline.extract(from: "\(first) \(second)").map(\.text) == [first, second])
+        #expect(!QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: "\(first) \(second)").accepted)
+    }
+
+    @Test
+    func modalQuestionsRemainCompleteWithoutReportedSpeechFalsePositives() {
+        for question in [
+            "Why can retries duplicate an external side effect?",
+            "Why could two clients observe different snapshots?",
+            "Why would a queue keep growing under load?",
+            "Why will this retry need an idempotency key?",
+            "Why may a transaction need to be retried?",
+            "Why must the update preserve the invariant?",
+            "Why does a unique constraint reject this write?",
+            "How can this help?",
+            "How can we recover?",
+            "How can this be safe?",
+            "How can a queue avoid processing twice?"
+        ] {
+            #expect(QuestionCandidatePipeline.extract(from: question).map(\.text) == [question])
+        }
+        for statement in [
+            "I explained why retries can duplicate an external side effect.",
+            "The report describes which indexing strategies we compared.",
+            "In your report, you explained how the rollback was tested.",
+            "I explained how can retries preserve earlier changes.",
+            "For our report, you described how can a queue avoid processing twice."
+        ] {
+            #expect(QuestionCandidatePipeline.extract(from: statement).isEmpty)
+        }
+    }
+
+    @Test
+    func scopeDoesNotCompleteAnUnfinishedQuestion() {
+        for fragment in [
+            "In your experiment, why did you choose?",
+            "During your review, why do you want to",
+            "Within a transaction, why can",
+            "Your prototype, how did you compare?",
+            "For notification delivery, how can an idempotency key?",
+            "For a transaction, how can the database?",
+            "How can you choose?",
+            "How can I?",
+            "How can a queue avoid processing with"
+        ] {
+            #expect(QuestionCandidatePipeline.extract(from: fragment).isEmpty)
+            #expect(!QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: fragment).accepted)
+        }
+    }
+
+    @Test
     func modalImprovementAndEvidenceQuestionsAreAcceptedWithoutEmbeddedStatements() {
         let positiveQuestions = [
             "What would you improve next?",

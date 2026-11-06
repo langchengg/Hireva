@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public struct CleanRAGMaintenanceResult: Equatable {
+public struct CleanRAGMaintenanceResult: Equatable, Sendable {
     public let documentsRebuilt: Int
     public let chunksRebuilt: Int
     public let embeddingsUpdated: Int
@@ -15,6 +15,7 @@ public struct CleanRAGMaintenanceResult: Equatable {
 
 public enum HirevaMaintenance {
     public static func rebuildCleanRAGIndex(regenerateEmbeddings: Bool = true) async throws -> CleanRAGMaintenanceResult {
+        try Task.checkCancellation()
         let database = try AppDatabase(path: AppPaths.databaseURL)
         let documents = DocumentRepository(database: database)
         let rebuild = try documents.rebuildCleanRAGIndex()
@@ -29,12 +30,16 @@ public enum HirevaMaintenance {
 
             if let provider = makeEmbeddingProvider(settings: settings) {
                 do {
+                    let sources = try documents.embeddingSources()
                     let dimension = try await provider.dimension
-                    let chunks = try documents.allChunks()
+                    try Task.checkCancellation()
 
-                    for chunk in chunks {
+                    for source in sources {
+                        let chunk = source.chunk
                         do {
+                            try Task.checkCancellation()
                             let embedding = try await provider.embed(text: chunk.content)
+                            try Task.checkCancellation()
                             let hash = documents.calculateContentHash(
                                 content: chunk.content,
                                 sectionTitle: chunk.sectionTitle,
@@ -42,20 +47,23 @@ public enum HirevaMaintenance {
                                 modelName: provider.modelName,
                                 dimension: dimension
                             )
-                            try documents.updateChunkEmbedding(
-                                chunkID: chunk.id,
+                            let accepted = try documents.updateChunkEmbeddingIfUnchanged(
+                                source: source,
                                 embedding: embedding,
                                 model: provider.modelName,
                                 provider: provider.providerID,
                                 dimension: dimension,
                                 contentHash: hash
                             )
-                            embeddingsUpdated += 1
+                            if accepted { embeddingsUpdated += 1 }
+                            else { embeddingErrors.append("Chunk \(chunk.id): source changed before embedding persistence.") }
                         } catch {
+                            try Task.checkCancellation()
                             embeddingErrors.append("Chunk \(chunk.id): \(error.localizedDescription)")
                         }
                     }
                 } catch {
+                    try Task.checkCancellation()
                     embeddingErrors.append(error.localizedDescription)
                 }
             } else {
@@ -63,6 +71,7 @@ public enum HirevaMaintenance {
             }
         }
 
+        try Task.checkCancellation()
         let artifactRepair = try sanitizeHistoricalRAGArtifacts(database: database)
 
         let pollutedCount = try await database.dbQueue.read { db in
@@ -79,6 +88,7 @@ public enum HirevaMaintenance {
             ) ?? 0
         }
 
+        try Task.checkCancellation()
         return CleanRAGMaintenanceResult(
             documentsRebuilt: rebuild.documentsRebuilt,
             chunksRebuilt: rebuild.chunksRebuilt,

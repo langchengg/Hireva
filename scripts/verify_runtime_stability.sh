@@ -2,8 +2,11 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/dist/Hireva.app"
-APP_BINARY="$ROOT_DIR/dist/Hireva.app/Contents/MacOS/Hireva"
+if [[ -z "${HIREVA_ARTIFACT_LOCK_FD:-}" ]]; then
+    exec python3 "$ROOT_DIR/script/artifact_lifecycle.py" exec -- "$0" "$@"
+fi
+APP_BUNDLE="${HIREVA_APP_BUNDLE:?managed bundle required}"
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/Hireva"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 DB_PATH="$HOME/Library/Application Support/Hireva/hireva.sqlite"
 TOTAL_STARTED_AT="$(date +%s)"
@@ -98,7 +101,7 @@ run_step() {
 }
 
 run_build_and_run_verification() {
-    ./script/build_and_run.sh --verify || return $?
+    ./script/build_and_run.sh --build-only || return $?
     print_bundle_timestamps
 }
 
@@ -124,8 +127,8 @@ cd "$ROOT_DIR" || {
     exit 1
 }
 
-run_step "Swift build" swift build
-run_step "Swift test" swift test
+run_step "Swift build" swift build --build-path "$HIREVA_SWIFTPM_BUILD_PATH"
+run_step "Swift test" swift test --build-path "$HIREVA_SWIFTPM_BUILD_PATH"
 run_step "runtime_smoke" ./scripts/runtime_smoke.sh --suite all
 run_step "build_and_run verify" run_build_and_run_verification
 

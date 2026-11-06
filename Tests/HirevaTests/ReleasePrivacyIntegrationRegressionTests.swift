@@ -20,7 +20,8 @@ struct ReleasePrivacyIntegrationRegressionTests {
         let appState = AppState(
             database: database,
             verificationMocksEnabled: true,
-            dialogueDefaults: defaults
+            dialogueDefaults: defaults,
+            diagnosticsTraceStore: RuntimeTranscriptTraceStore()
         )
         appState.runtimeTranscriptTraceLogURL = root.appendingPathComponent("runtime_transcript_trace.jsonl")
 
@@ -45,34 +46,33 @@ struct ReleasePrivacyIntegrationRegressionTests {
             asrFinalizationReason: "final_accepted"
         )
 
-        await appState.handleTranscriptSegment(segment)
-        try await waitForTraceFile(at: appState.runtimeTranscriptTraceLogURL)
+        do {
+            await appState.handleTranscriptSegment(segment)
+            #expect(try appState.transcriptRepository.segments(sessionID: session.id).isEmpty)
+            #expect(appState.transcriptSegments.contains(where: { $0.text.contains(canary) }))
 
-        #expect(try appState.transcriptRepository.segments(sessionID: session.id).isEmpty)
-        #expect(appState.transcriptSegments.contains(where: { $0.text.contains(canary) }))
-
-        let files = allRegularFiles(under: root)
-        #expect(!files.isEmpty)
-        for file in files {
-            let bytes = try Data(contentsOf: file)
-            #expect(
-                !String(decoding: bytes, as: UTF8.self).contains(canary),
-                "Privacy canary leaked to \(file.lastPathComponent)"
-            )
-        }
-    }
-
-    private func waitForTraceFile(at url: URL) async throws {
-        let deadline = Date().addingTimeInterval(2)
-        while Date() < deadline {
-            if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let size = attributes[.size] as? NSNumber,
-               size.intValue > 0 {
-                return
+            // Join this fixture's actual writes before inspecting or removing its files.
+            await appState.shutdownForTesting()
+            let writes = appState.diagnosticsState.traceWriteSnapshot
+            #expect(writes.isSealed && writes.pendingWriteCount == 0)
+            #expect(writes.completedWriteCount > 0 && writes.failedWriteCount == 0)
+            let trace = try Data(contentsOf: appState.runtimeTranscriptTraceLogURL)
+            #expect(!trace.isEmpty)
+            let files = allRegularFiles(under: root)
+            #expect(!files.isEmpty)
+            for file in files {
+                let bytes = try Data(contentsOf: file)
+                #expect(
+                    !String(decoding: bytes, as: UTF8.self).contains(canary),
+                    "Privacy canary leaked to \(file.lastPathComponent)"
+                )
             }
-            try await Task.sleep(nanoseconds: 20_000_000)
+            try database.close()
+        } catch {
+            await appState.shutdownForTesting()
+            try? database.close()
+            throw error
         }
-        Issue.record("Timed out waiting for metadata trace output at \(url.path)")
     }
 
     private func allRegularFiles(under root: URL) -> [URL] {

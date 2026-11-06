@@ -11,7 +11,7 @@ struct PracticeWorkflowTests {
         let controller = app.practiceController
         let kind = InterviewTaskKind.systemDesign
         let task = InterviewTaskDescriptor(question: "Design a queue", kind: kind)
-        app.localLLMProviderOverride = FeedbackProvider(feedback: .init(covered: [.init(criterion: task.criteria[0], quote: "Requirements")], missing: Array(task.criteria.dropFirst()), suggestions: ["Explain delivery semantics"], followUp: "How would you avoid lost messages?", reason: "Reliability was not covered", reference: "Clarify delivery guarantees before selecting storage."))
+        app.localLLMProviderOverride = FeedbackProvider(feedback: .init(covered: [.init(criterion: task.criteria[0], quote: "Requirements")], missing: Array(task.criteria.dropFirst()), suggestions: ["Explain components and data flow"], followUp: "Which components would handle a request, and how would data flow between them?", reason: "Components and data flow were not covered", reference: "An API admits jobs, a queue stores pending work, and workers send jobs to providers; define the boundaries and failure handling."))
         controller.start(kind: kind, question: task.question, language: "en", criteria: task.criteria, maxFollowUps: 99)
         #expect(controller.run?.phase == .asking)
         #expect(controller.run?.maxFollowUps == 2)
@@ -155,7 +155,23 @@ private struct FeedbackProvider: LocalLLMProvider {
             let criterion = pair.dropFirst().joined(separator: ": ")
             coverage[pair[0]] = .some(feedback.covered.first { $0.criterion == criterion }?.quote)
         }
-        let wire = PracticeEvaluationPayload(coverage: coverage, suggestion: feedback.suggestions.joined(separator: "\n"), followUp: feedback.followUp, reason: feedback.reason, reference: feedback.reference)
+        var reference = feedback.reference
+        let isReview = request.systemPrompt?.contains("Independently critique the complete original answer") == true
+        if isReview {
+            guard payload["previous_invalid_output"] == nil, payload["draft_feedback"] == nil,
+                  payload["draft_first_missing_rubric_id"] == nil,
+                  payload["draft_first_missing_rubric_criterion"] == nil,
+                  payload["editable_output_fields"] != nil else {
+                throw MaterialError.invalid("Unexpected fresh review fixture phase.")
+            }
+            // Return only the configured scripted feedback for this rubric.
+            // The application checks its literal quotes; this fake performs no
+            // semantic review and does not synthesize missing model metadata.
+            let schema = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try #require(request.responseSchema))) as? [String: Any]
+            let fields = try #require(schema?["properties"] as? [String: [String: Any]])
+            reference = fields["reference"]?["const"] as? String ?? feedback.reference
+        }
+        let wire = PracticeEvaluationPayload(coverage: coverage, suggestion: feedback.suggestions.joined(separator: "\n"), followUp: feedback.followUp, reason: feedback.reason, reference: reference, reviewOutcome: isReview ? "accepted" : nil)
         let text = String(decoding: try JSONEncoder().encode(wire), as: UTF8.self)
         return AsyncThrowingStream { $0.yield(.init(text: text, source: .localQwen, modelName: "synthetic")); $0.finish() }
     }

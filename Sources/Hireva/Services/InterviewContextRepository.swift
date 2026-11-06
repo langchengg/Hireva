@@ -109,20 +109,20 @@ final class InterviewContextRepository {
         }
     }
 
-    func updateEvidenceExplicitness(evidenceID: String, explicitness: EvidenceExplicitness) throws {
-        for var profile in try candidateProfiles() where profile.updateEvidence(id: evidenceID, explicitness: explicitness) {
+    func updateEvidenceExplicitness(evidenceID: String, explicitness: EvidenceExplicitness, scope: InterviewContextSelection? = nil) throws {
+        for var profile in try scopedCandidateProfiles(scope) where profile.updateEvidence(id: evidenceID, explicitness: explicitness) {
             try saveCandidateProfile(profile)
             return
         }
-        for var opportunity in try opportunityContexts() where opportunity.updateEvidence(id: evidenceID, explicitness: explicitness) {
+        for var opportunity in try scopedOpportunityContexts(scope) where opportunity.updateEvidence(id: evidenceID, explicitness: explicitness) {
             try saveOpportunityContext(opportunity)
             return
         }
     }
 
-    func updateFactConfirmation(evidenceID: String, value: FactConfirmation) throws {
+    func updateFactConfirmation(evidenceID: String, value: FactConfirmation, scope: InterviewContextSelection? = nil) throws {
         guard value.summary.count <= 4000 else { throw MaterialError.invalid("Fact confirmation exceeds the input budget.") }
-        for var profile in try candidateProfiles() {
+        for var profile in try scopedCandidateProfiles(scope) {
             let paths: [WritableKeyPath<CandidateProfile, [ProfileEvidence]>] = [\.education, \.experience, \.projects, \.skills, \.publications, \.achievements, \.declaredGaps, \.goals]
             for path in paths {
                 if let index = profile[keyPath: path].firstIndex(where: { $0.id == evidenceID }) {
@@ -134,23 +134,49 @@ final class InterviewContextRepository {
                 }
             }
         }
+        for var opportunity in try scopedOpportunityContexts(scope) {
+            let paths: [WritableKeyPath<OpportunityContext, [ProfileEvidence]>] = [\.responsibilities, \.requiredSkills, \.preferredSkills, \.researchTopics, \.evaluationCriteria]
+            for path in paths {
+                if let index = opportunity[keyPath: path].firstIndex(where: { $0.id == evidenceID }) {
+                    opportunity[keyPath: path][index].confirmation = value
+                    opportunity[keyPath: path][index].explicitness = .inferred
+                    opportunity.version += 1; opportunity.updatedAt = Date()
+                    try saveOpportunityContext(opportunity)
+                    return
+                }
+            }
+        }
     }
 
-    func updateEvidenceStatement(evidenceID: String, statement: String) throws {
+    func updateEvidenceStatement(evidenceID: String, statement: String, scope: InterviewContextSelection? = nil) throws {
         let clean = statement.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
-        for var profile in try candidateProfiles() {
+        for var profile in try scopedCandidateProfiles(scope) {
             if profile.updateEvidenceStatement(id: evidenceID, statement: clean) {
                 try saveCandidateProfile(profile)
                 return
             }
         }
-        for var opportunity in try opportunityContexts() {
+        for var opportunity in try scopedOpportunityContexts(scope) {
             if opportunity.updateEvidenceStatement(id: evidenceID, statement: clean) {
                 try saveOpportunityContext(opportunity)
                 return
             }
         }
+    }
+
+    // An explicit selection is an admission scope, including an empty one.
+    // It must not fall back to a similarly identified row in an unrelated owner.
+    private func scopedCandidateProfiles(_ scope: InterviewContextSelection?) throws -> [CandidateProfile] {
+        guard let scope else { return try candidateProfiles() }
+        guard let id = scope.candidateProfileID, let profile = try candidateProfile(id: id) else { return [] }
+        return [profile]
+    }
+
+    private func scopedOpportunityContexts(_ scope: InterviewContextSelection?) throws -> [OpportunityContext] {
+        guard let scope else { return try opportunityContexts() }
+        guard let id = scope.opportunityContextID, let opportunity = try opportunityContext(id: id) else { return [] }
+        return [opportunity]
     }
 
     func loadSelection() throws -> InterviewContextSelection {

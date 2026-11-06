@@ -13,11 +13,43 @@ extension AppState {
     // MARK: - Segment Ingestion
 
     func consumeSegments(from provider: TranscriptionProvider) {
-        transcriptionTask = Task { [weak self] in
-            for await segment in provider.segments {
-                guard !Task.isCancelled else { return }
-                await self?.handleTranscriptSegment(segment)
+        // The provider may replace its stream on restart. Freeze this exact
+        // stream and parent before task creation rather than looking them up
+        // later on the consumer's first execution.
+        let stream = provider.segments
+        let speech = provider as? AppleSpeechTranscriptionService
+        let outputIdentity = speech?.currentTranscriptOutputIdentity
+        let terminalError = speech?.captureTerminalErrorReader()
+        let sessionID = currentSession?.id
+        captureLifecycle.consume { [weak self] consumerID in
+            for await segment in stream {
+                guard let self,
+                      self.captureLifecycle.isConsumerCurrent(consumerID),
+                      self.activeTranscriptionProvider === provider,
+                      self.currentSession?.id == sessionID,
+                      (speech == nil || speech?.currentTranscriptOutputIdentity == outputIdentity),
+                      segment.sessionID == sessionID else { return }
+                await self.handleTranscriptSegment(segment)
+                guard self.captureLifecycle.isConsumerCurrent(consumerID),
+                      self.activeTranscriptionProvider === provider,
+                      self.currentSession?.id == sessionID,
+                      (speech == nil || speech?.currentTranscriptOutputIdentity == outputIdentity) else { return }
             }
+            guard let self, !self.isShuttingDown,
+                  self.captureLifecycle.isConsumerCurrent(consumerID),
+                  self.activeTranscriptionProvider === provider,
+                  self.currentSession?.id == sessionID,
+                  speech?.currentTranscriptOutputIdentity == outputIdentity,
+                  let error = terminalError?() else { return }
+            self.failAction(ActionID.startInterview, title: "Transcription failed", message: error.localizedDescription)
+            // Nonblocking feedback can synchronously replace the current Live
+            // capture. The old terminal then loses authority to stop that round.
+            guard !self.isShuttingDown,
+                  self.captureLifecycle.isConsumerCurrent(consumerID),
+                  self.activeTranscriptionProvider === provider,
+                  self.currentSession?.id == sessionID,
+                  speech?.currentTranscriptOutputIdentity == outputIdentity else { return }
+            self.stopListening(reason: .asrTaskFailed)
         }
     }
 
@@ -30,18 +62,7 @@ extension AppState {
     /// segment can become the single clean current question.
     func handleTranscriptSegment(_ segment: TranscriptSegment) async {
         let ingestionStartedAt = Date()
-        transcriptSegmentIngestedAt[segment.id] = ingestionStartedAt
-        transcriptSegmentHadVisibleAnswerAtIngestion[segment.id] = visibleAnswerExists && currentSuggestion != nil
-        if transcriptSegmentIngestedAt.count > 512 {
-            let oldestIDs = transcriptSegmentIngestedAt
-                .sorted { $0.value < $1.value }
-                .prefix(256)
-                .map(\.key)
-            oldestIDs.forEach {
-                transcriptSegmentIngestedAt.removeValue(forKey: $0)
-                transcriptSegmentHadVisibleAnswerAtIngestion.removeValue(forKey: $0)
-            }
-        }
+        liveInterview.recordTranscriptIngress(segmentID: segment.id, at: ingestionStartedAt)
         let previousSegment = transcriptSegments.first(where: { $0.id == segment.id })
         defer {
             lastTranscriptIngestionMs = Int(Date().timeIntervalSince(ingestionStartedAt) * 1000)
@@ -50,8 +71,7 @@ extension AppState {
         liveState = .transcribing
         recordASRTranscriptRuntimeEvent(for: segment)
         if segment.asrFinalizationReason != "partial" {
-            partialUtteranceFinalizationTasks[segment.id]?.cancel()
-            partialUtteranceFinalizationTasks[segment.id] = nil
+            liveInterview.cancelPartialUtteranceFinalization(segmentID: segment.id)
         }
         lastTranscriptQuestionGenerationTrace = TranscriptQuestionGenerationTrace(
             transcriptSegmentID: segment.id,
@@ -169,77 +189,41 @@ extension AppState {
            systemAudioClassification?.intent == .answerWorthyQuestion {
             let words = segment.text.split(whereSeparator: \.isWhitespace)
             if words.count >= 6 { // 5-7 words range
-                precomputeDebounceTask?.cancel()
                 let retrievalService = contextRetrievalService!
-                precomputeDebounceTask = Task { [weak self] in
-                    do {
-                        try await Task.sleep(nanoseconds: 400_000_000) // 300-500ms debounce
-                    } catch {
-                        return
-                    }
-                    guard let self = self, !Task.isCancelled else { return }
-                    
-                    let precomputeIntent = AnswerRelevancePolicy.intent(for: segment.text)
-                    let key = self.ragPrecomputeCacheKey(
-                        segmentID: segment.id,
-                        questionText: segment.text,
-                        intent: precomputeIntent
-                    )
-                    do {
-                        let snapshotID = self.activeContextSnapshot?.id
-                        let sessionID = self.currentSession?.id
-                        let (context, trace) = try await retrievalService.retrieveContextWithTrace(
-                            question: segment.text, intent: .unclear, maxCVWords: 240, maxJDWords: 120
-                        )
-                        guard !Task.isCancelled, self.activeContextSnapshot?.id == snapshotID,
-                              self.currentSession?.id == sessionID else { return }
-                        await MainActor.run {
-                            self.precomputedRAGCache[key] = RAGPrecomputeCacheItem(
-                                context: context,
-                                trace: trace,
-                                rawText: segment.text,
-                                normalizedQuestionText: AnswerRelevancePolicy.normalizedQuestionText(for: segment.text),
-                                questionIntent: precomputeIntent
-                            )
-                            print("[PrecomputeRAG] Context cached")
-                        }
-                    } catch {
-                        print("[PrecomputeRAG] Background RAG precompute failed: code=\((error as NSError).code)")
-                    }
-                }
+                liveRAGPrefetch.schedule(resolve: { [weak self] in
+                    guard let self, !self.isShuttingDown else { return nil }
+                    let scope = LiveRAGPrefetch.Scope(sessionID: self.currentSession?.id,
+                        snapshotID: self.activeContextSnapshot?.id,
+                        cacheContextID: self.activeContextSnapshot?.id ?? self.currentSession?.contextSnapshotID ?? "legacy-context")
+                    let frozenService = retrievalService.freezeConfiguration()
+                    // Resolution may synchronously publish diagnostics. The
+                    // owner separately rejects reentrant stop/replacement.
+                    guard !self.isShuttingDown,
+                          self.currentSession?.id == scope.sessionID,
+                          self.activeContextSnapshot?.id == scope.snapshotID else { return nil }
+                    return LiveRAGPrefetch.Request(scope: scope,
+                        segmentID: segment.id, question: segment.text, service: frozenService)
+                }, isScopeCurrent: { [weak self] scope in
+                    guard let self else { return false }
+                    return self.activeContextSnapshot?.id == scope.snapshotID && self.currentSession?.id == scope.sessionID
+                })
             }
         }
 
         // Echo/leakage protection keeps interviewer audio that bleeds into the
         // microphone from being treated as candidate speech or as a new question.
         if segment.source == .systemAudio {
-            recentSystemAudioRecords.append(RecentSystemAudioRecord(text: segment.text, timestamp: Date()))
-            recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
+            liveInterview.recordSystemAudioForEcho(segment.text)
             
             // Set last system audio transcript
             self.lastSystemAudioTranscript = segment.text
         }
 
         var isEchoLeakage = false
-        if segment.source == .microphone {
-            recentSystemAudioRecords.removeAll { Date().timeIntervalSince($0.timestamp) > 5.0 }
-            
-            let micWords = Set(segment.text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
-            if !micWords.isEmpty {
-                for record in recentSystemAudioRecords {
-                    let systemWords = Set(record.text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
-                    let intersection = micWords.intersection(systemWords)
-                    let union = micWords.union(systemWords)
-                    if !union.isEmpty {
-                        let similarity = Double(intersection.count) / Double(union.count)
-                        if similarity >= 0.5 { // 50% Jaccard word overlap indicates interviewer echo leak
-                            isEchoLeakage = true
-                            print("[EchoProtection] Detected interviewer leakage in mic stream: segmentID = \(segment.id) | micTextLength = \(segment.text.count) | systemTextLength = \(record.text.count) | similarity = \(String(format: "%.2f", similarity)). Question detection bypassed.")
-                            break
-                        }
-                    }
-                }
-            }
+        if segment.source == .microphone,
+           let match = liveInterview.microphoneEchoMatch(segment.text) {
+            isEchoLeakage = true
+            print("[EchoProtection] Detected interviewer leakage in mic stream: segmentID = \(segment.id) | micTextLength = \(segment.text.count) | systemTextLength = \(match.textLength) | similarity = \(String(format: "%.2f", match.similarity)). Question detection bypassed.")
         }
 
         var shouldTriggerDetection = false
@@ -392,13 +376,15 @@ extension AppState {
             // current answer is bound to one clean latest interviewer question,
             // not to a merged monologue.
             self.lastDetectionSkipReason = ""
-            processExtractedSystemAudioQuestions(
-                extractedSystemAudioQuestions,
-                segment: questionExtractionSegment ?? segment,
-                session: session,
-                suggestionTranscript: recentTranscriptText()
-            )
-            liveState = .listening
+            liveInterview.coordinateAcceptedQuestions {
+                processExtractedSystemAudioQuestions(
+                    extractedSystemAudioQuestions,
+                    segment: questionExtractionSegment ?? segment,
+                    session: session,
+                    suggestionTranscript: recentTranscriptText()
+                )
+                liveState = .listening
+            }
             return
         }
 
@@ -503,6 +489,14 @@ extension AppState {
                 timestamp: segment.createdAt
             ))
         } else {
+            // Stamp came from the actual Parakeet bridge before stream enqueue.
+            // This does not substitute UI arrival time for provider production.
+            recordVerificationBoundary("verification.asr_final_bridge_produced",
+                at: segment.verificationFinalHostTicks, sessionID: segment.sessionID,
+                segmentID: segment.id)
+            recordVerificationBoundary("verification.asr_final_app_received",
+                at: VerificationTiming.hostTicks(), sessionID: segment.sessionID,
+                segmentID: segment.id)
             recordTranscriptRuntimeEvent(.asrFinal(
                 sessionID: segment.sessionID,
                 text: segment.text,
@@ -520,123 +514,154 @@ extension AppState {
     func scheduleStablePartialUtteranceCandidateIfNeeded(_ segment: TranscriptSegment) {
         let tokenCount = segment.text.split(whereSeparator: \.isWhitespace).count
         guard tokenCount >= minimumQuestionTokenCount else { return }
-        partialUtteranceFinalizationTasks[segment.id]?.cancel()
-
         let segmentID = segment.id
         let textSnapshot = segment.text
+        let sessionSnapshot = currentSession
         let delayNanoseconds = UInt64(max(900, min(partialStabilityWindowMS, 1_500))) * 1_000_000
-        partialUtteranceFinalizationTasks[segmentID] = Task { [weak self] in
+#if DEBUG
+        let delayForTesting = partialFinalizationDelayForTesting
+        let beforeSnapshotForTesting = partialFinalizationBeforeSnapshotForTesting
+#endif
+        liveInterview.submitPartialUtteranceFinalization(segmentID: segmentID) { [weak self] id in
             do {
+#if DEBUG
+                if let delayForTesting { try await delayForTesting(delayNanoseconds) }
+                else { try await Task.sleep(nanoseconds: delayNanoseconds) }
+#else
                 try await Task.sleep(nanoseconds: delayNanoseconds)
+#endif
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
+#if DEBUG
+            await beforeSnapshotForTesting?(segmentID)
+#endif
 
-            let stableSegment: TranscriptSegment? = await MainActor.run { [weak self] in
-                guard let self else { return nil }
-                defer { self.partialUtteranceFinalizationTasks[segmentID] = nil }
-                guard let current = self.transcriptSegments.first(where: { $0.id == segmentID }),
-                      current.asrFinalizationReason == "partial",
-                      current.text == textSnapshot else {
-                    return nil
-                }
-                return TranscriptSegment(
-                    id: current.id,
-                    sessionID: current.sessionID,
-                    source: current.source,
-                    speaker: current.speaker,
-                    text: current.text,
-                    startTime: current.startTime,
-                    endTime: current.endTime,
-                    createdAt: Date(),
-                    inputDeviceName: current.inputDeviceName,
-                    outputDeviceName: current.outputDeviceName,
-                    deviceID: current.deviceID,
-                    confidence: current.confidence,
-                    asrSource: current.asrSource,
-                    asrFirstPartialMS: current.asrFirstPartialMS,
-                    asrFinalMS: current.asrFinalMS,
-                    asrBestSelectedMS: current.asrBestSelectedMS,
-                    asrFinalizationReason: "stable_partial",
-                    recognitionTaskID: current.recognitionTaskID,
-                    recognitionEventSequence: current.recognitionEventSequence,
-                    sourceTextStartUTF16: current.sourceTextStartUTF16,
-                    sourceTextEndUTF16: current.sourceTextEndUTF16,
-                    recognitionIsFinal: true
-                )
-            }
-
-            guard let stableSegment else { return }
-            await self?.handleTranscriptSegment(stableSegment)
+            guard let self,
+                  self.liveInterview.acceptsPartialUtteranceFinalization(segmentID: segmentID, id: id),
+                  !Task.isCancelled,
+                  self.currentSession?.id == sessionSnapshot?.id,
+                  self.currentSession?.contextSnapshotID == sessionSnapshot?.contextSnapshotID,
+                  self.currentSession?.contentRevision == sessionSnapshot?.contentRevision,
+                  let current = self.transcriptSegments.first(where: { $0.id == segmentID }),
+                  current.sessionID == segment.sessionID,
+                  current.asrFinalizationReason == "partial",
+                  current.text == textSnapshot else { return }
+            let stableSegment = TranscriptSegment(
+                id: current.id,
+                sessionID: current.sessionID,
+                source: current.source,
+                speaker: current.speaker,
+                text: current.text,
+                startTime: current.startTime,
+                endTime: current.endTime,
+                createdAt: Date(),
+                inputDeviceName: current.inputDeviceName,
+                outputDeviceName: current.outputDeviceName,
+                deviceID: current.deviceID,
+                confidence: current.confidence,
+                asrSource: current.asrSource,
+                asrFirstPartialMS: current.asrFirstPartialMS,
+                asrFinalMS: current.asrFinalMS,
+                asrBestSelectedMS: current.asrBestSelectedMS,
+                asrFinalizationReason: "stable_partial",
+                recognitionTaskID: current.recognitionTaskID,
+                recognitionEventSequence: current.recognitionEventSequence,
+                sourceTextStartUTF16: current.sourceTextStartUTF16,
+                sourceTextEndUTF16: current.sourceTextEndUTF16,
+                recognitionIsFinal: true
+            )
+            // The finalized callback cancels only a still-current partial slot.
+            // Release admission first without cancelling this executing root;
+            // its exact receipt remains managed until the real Task exit.
+            self.liveInterview.finishPartialUtteranceFinalizationAdmission(segmentID: segmentID, id: id)
+            await self.handleTranscriptSegment(stableSegment)
         }
     }
 
     // MARK: - Background Persistence
 
+    // These history writes outlive answer-generation terminals. Transfer their
+    // exact handles to the existing admitted-write retirement owner before
+    // yielding; permanent app shutdown closes new admission, not old tickets.
+
     func saveTranscriptSegmentInBackground(_ segment: TranscriptSegment, consentTicket frozenTicket: Int? = nil) {
+        guard !isShuttingDown else { return }
         let consent = persistenceConsent
         let consentTicket = frozenTicket ?? consent.ticket()
         let repository = transcriptRepository
         markSQLiteOperation("Saving transcript segment in background")
-        Task.detached(priority: .utility) { [weak self] in
+        let task: Task<Void, Never> = Task.detached(priority: .utility) { [weak self] in
             do {
                 try consent.write(ticket: consentTicket) { try repository.saveSegment(segment) }
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved transcript segment"
+                    guard let self, !self.isShuttingDown else { return }
+                    self.lastSQLiteOperation = "Saved transcript segment"
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Transcript save failed: \(error.localizedDescription)"
+                    guard let self, !self.isShuttingDown else { return }
+                    self.lastSQLiteOperation = "Transcript save failed: \(error.localizedDescription)"
                 }
             }
         }
+        generationCoordinator.retainAdmittedPersistenceUntilExit(task)
     }
 
     func saveDetectedQuestionInBackground(_ question: DetectedQuestion, consentTicket frozenTicket: Int? = nil) {
+        guard !isShuttingDown else { return }
         guard settings.saveTranscriptsLocally else { return }
         let consent = persistenceConsent
         let consentTicket = frozenTicket ?? consent.ticket()
         let repository = suggestionRepository
         markSQLiteOperation("Saving detected question in background")
-        Task.detached(priority: .utility) { [weak self] in
+        let task: Task<Void, Never> = Task.detached(priority: .utility) { [weak self] in
             do {
                 try consent.write(ticket: consentTicket) { try repository.saveDetectedQuestion(question) }
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved detected question"
+                    guard let self, !self.isShuttingDown else { return }
+                    self.lastSQLiteOperation = "Saved detected question"
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Detected question save failed: \(error.localizedDescription)"
+                    guard let self, !self.isShuttingDown else { return }
+                    self.lastSQLiteOperation = "Detected question save failed: \(error.localizedDescription)"
                 }
             }
         }
+        generationCoordinator.retainAdmittedPersistenceUntilExit(task)
     }
 
-    func saveDetectedQuestionsInBackground(_ questions: [DetectedQuestion]) {
+    func saveDetectedQuestionsInBackground(_ questions: [DetectedQuestion], consentTicket frozenTicket: Int? = nil) {
+        guard !isShuttingDown else { return }
         guard settings.saveTranscriptsLocally else { return }
         guard !questions.isEmpty else { return }
         let consent = persistenceConsent
-        let consentTicket = consent.ticket()
+        let consentTicket = frozenTicket ?? consent.ticket()
         let repository = suggestionRepository
         markSQLiteOperation("Saving extracted detected questions in background")
-        Task.detached(priority: .utility) { [weak self] in
+        let task: Task<Void, Never> = Task.detached(priority: .utility) { [weak self] in
             do {
                 for question in questions {
                     try consent.write(ticket: consentTicket) { try repository.saveDetectedQuestion(question) }
                 }
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Saved extracted detected questions"
+                    guard let self, !self.isShuttingDown else { return }
+                    self.lastSQLiteOperation = "Saved extracted detected questions"
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Extracted detected question save failed: \(error.localizedDescription)"
+                    guard let self, !self.isShuttingDown else { return }
+                    self.lastSQLiteOperation = "Extracted detected question save failed: \(error.localizedDescription)"
                 }
             }
         }
+        generationCoordinator.retainAdmittedPersistenceUntilExit(task)
     }
 
     func saveSuggestionSnapshotInBackground(_ card: SuggestionCard, chunks: [RetrievedChunk], consentTicket: Int) {
+        guard !isShuttingDown else { return }
         guard settings.saveTranscriptsLocally else { return }
         guard !card.isPartial else {
             print("[Transcript] Skipping saveSuggestionSnapshotInBackground for partial card.")
@@ -690,7 +715,7 @@ extension AppState {
             timestamp: Date()
         ))
         markSQLiteOperation("Saving suggestion snapshot in background")
-        Task.detached(priority: .utility) { [weak self, sanitizedCard] in
+        let task: Task<Void, Never> = Task.detached(priority: .utility) { [weak self, sanitizedCard] in
             do {
                 guard let self else { return }
                 guard !(await self.rejectCancelledPersistenceIfNeeded(
@@ -701,18 +726,21 @@ extension AppState {
                 let detachedGuard = QuestionRuntimeAcceptanceGuard.validateSuggestionCardForPersistence(sanitizedCard)
                 guard detachedGuard.accepted else {
                     await MainActor.run { [weak self] in
-                        self?.lastSQLiteOperation = "Suggestion snapshot save blocked: \(detachedGuard.reason?.rawValue ?? "rejected_pre_persistence_guard")"
-                        self?.lastAlignmentError = detachedGuard.diagnostic
-                        self?.recordTranscriptRuntimeEvent(.persistenceRejected(
+                        guard let self else { return }
+                        if !self.isShuttingDown {
+                            self.lastSQLiteOperation = "Suggestion snapshot save blocked: \(detachedGuard.reason?.rawValue ?? "rejected_pre_persistence_guard")"
+                            self.lastAlignmentError = detachedGuard.diagnostic
+                        }
+                        self.recordTranscriptRuntimeEvent(.persistenceRejected(
                             sessionID: sanitizedCard.sessionID,
                             questionID: sanitizedCard.detectedQuestionID ?? sanitizedCard.questionID,
                             generationID: sanitizedCard.generationID,
                             question: sanitizedCard.questionText ?? sanitizedCard.promptPrimaryQuestion ?? "",
-                            reason: self?.snapshotPersistenceTraceReason(for: detachedGuard) ?? "persistence_rejected_unknown",
+                            reason: self.snapshotPersistenceTraceReason(for: detachedGuard),
                             timestamp: Date()
                         ))
                         if detachedGuard.diagnostic.localizedCaseInsensitiveContains("wrong project grounding") {
-                            self?.recordTranscriptRuntimeEvent(.answerRejectedWrongProjectGrounding(
+                            self.recordTranscriptRuntimeEvent(.answerRejectedWrongProjectGrounding(
                                 sessionID: sanitizedCard.sessionID,
                                 questionID: sanitizedCard.detectedQuestionID ?? sanitizedCard.questionID,
                                 generationID: sanitizedCard.generationID,
@@ -734,13 +762,23 @@ extension AppState {
                     sourceCallback: "snapshot_sqlite_save"
                 )) else { return }
                 try consent.write(ticket: consentTicket) { try repository.saveSuggestionCard(detachedCard, retrievedChunks: chunks) }
+                let verificationCommit = VerificationTimingEvent.card("verification.db_commit.snapshot",
+                    at: VerificationTiming.hostTicks(), card: detachedCard)
                 await MainActor.run { [weak self, detachedCard] in
                     guard let self else { return }
-                    self.lastSQLiteOperation = "Saved suggestion snapshot"
-                    self.refreshLiveSuggestionHistory(
-                        sessionID: detachedCard.sessionID,
-                        latestQuestion: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? ""
-                    )
+                    if let verificationCommit {
+                        self.diagnosticsState.recordVerificationTiming(verificationCommit,
+                            mode: self.settings.effectiveDiagnosticTraceMode)
+                    }
+                    if !self.isShuttingDown {
+                        self.lastSQLiteOperation = "Saved suggestion snapshot"
+                        self.refreshLiveSuggestionHistory(
+                            sessionID: detachedCard.sessionID,
+                            latestQuestion: detachedCard.questionText ?? detachedCard.promptPrimaryQuestion ?? ""
+                        )
+                    }
+                    // A completed admitted write remains an audit fact even
+                    // after shutdown closes publication to current UI.
                     if self.markSuggestionPersistenceSucceededOnce(
                         cardID: detachedCard.id,
                         generationID: detachedCard.generationID
@@ -757,7 +795,9 @@ extension AppState {
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
-                    self.lastSQLiteOperation = "Suggestion snapshot save failed: \(error.localizedDescription)"
+                    if !self.isShuttingDown {
+                        self.lastSQLiteOperation = "Suggestion snapshot save failed: \(error.localizedDescription)"
+                    }
                     self.recordTranscriptRuntimeEvent(.persistenceRejected(
                         sessionID: sanitizedCard.sessionID,
                         questionID: sanitizedCard.detectedQuestionID ?? sanitizedCard.questionID,
@@ -769,6 +809,7 @@ extension AppState {
                 }
             }
         }
+        generationCoordinator.retainAdmittedPersistenceUntilExit(task)
     }
 
     private func snapshotPersistenceTraceReason(for result: QuestionPersistenceGuardResult) -> String {

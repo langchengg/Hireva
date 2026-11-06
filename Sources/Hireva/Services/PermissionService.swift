@@ -3,8 +3,9 @@ import AppKit
 import CoreGraphics
 import Foundation
 import Speech
+import os
 
-enum MicrophonePermissionState: String, Codable, Hashable {
+enum MicrophonePermissionState: String, Codable, Hashable, Sendable {
     case notDetermined
     case authorized
     case denied
@@ -42,7 +43,7 @@ enum MicrophonePermissionState: String, Codable, Hashable {
     }
 }
 
-enum PermissionState: String, Codable {
+enum PermissionState: String, Codable, Sendable {
     case unknown
     case granted
     case denied
@@ -65,7 +66,7 @@ enum PermissionState: String, Codable {
     }
 }
 
-enum ScreenSystemAudioPermissionState: Equatable, Hashable {
+enum ScreenSystemAudioPermissionState: Equatable, Hashable, Sendable {
     case granted
     case permissionMissing
     case restartLikely
@@ -85,14 +86,35 @@ enum ScreenSystemAudioPermissionState: Equatable, Hashable {
     }
 }
 
-struct PermissionSnapshot: Hashable {
+struct PermissionSnapshot: Hashable, Sendable {
     var microphone: PermissionState
     var speechRecognition: PermissionState
     var screenRecording: PermissionState
     var systemAudioCapture: PermissionState
 }
 
+@MainActor
 class PermissionService {
+    private let codeSigningInvocation: CodeSigningDiagnosticsInvocation
+    typealias SpeechAuthorizationRequest = @Sendable (@escaping @Sendable (PermissionState) -> Void) -> Void
+    private let speechAuthorizationRequest: SpeechAuthorizationRequest?
+    typealias MicrophoneAuthorizationRequest = @Sendable (@escaping @Sendable (Bool) -> Void) -> Void
+    private let microphoneAuthorizationRequest: MicrophoneAuthorizationRequest?
+    private let screenCaptureAuthorizationRequest: (@MainActor () -> Void)?
+    private let permissionAdmission: VerificationPermissionAdmission
+
+    init(codeSigningInvocation: CodeSigningDiagnosticsInvocation? = nil,
+        speechAuthorizationRequest: SpeechAuthorizationRequest? = nil,
+        permissionAdmission: VerificationPermissionAdmission = .current,
+        microphoneAuthorizationRequest: MicrophoneAuthorizationRequest? = nil,
+        screenCaptureAuthorizationRequest: (@MainActor () -> Void)? = nil) {
+        self.codeSigningInvocation = codeSigningInvocation ?? CodeSigningDiagnosticsInvocation()
+        self.speechAuthorizationRequest = speechAuthorizationRequest
+        self.permissionAdmission = permissionAdmission
+        self.microphoneAuthorizationRequest = microphoneAuthorizationRequest
+        self.screenCaptureAuthorizationRequest = screenCaptureAuthorizationRequest
+    }
+
     func snapshot() -> PermissionSnapshot {
         if isRunningUnderTestOrAutomation() {
             return PermissionSnapshot(
@@ -160,7 +182,8 @@ class PermissionService {
     }
 
     func requestMicrophonePermission() async -> MicrophonePermissionState {
-        if isRunningUnderTestOrAutomation() {
+        guard permissionAdmission.mayRequestAuthorization else { return checkMicrophonePermission() }
+        if microphoneAuthorizationRequest == nil, isRunningUnderTestOrAutomation() {
             return .authorized
         }
         let current = checkMicrophonePermission()
@@ -171,46 +194,68 @@ class PermissionService {
             print("[Permission] Microphone request bypassed (already \(current.rawValue))")
             return current
         case .notDetermined:
-            return await withCheckedContinuation { continuation in
-                AVCaptureDevice.requestAccess(for: .audio) { granted in
+            let granted = await withCheckedContinuation { continuation in
+                let completion: @Sendable (Bool) -> Void = { granted in
                     print("[Permission] Microphone request returned granted = \(granted)")
-                    if granted {
-                        continuation.resume(returning: .authorized)
-                    } else {
-                        continuation.resume(returning: self.checkMicrophonePermission())
-                    }
+                    continuation.resume(returning: granted)
+                }
+                if let microphoneAuthorizationRequest {
+                    microphoneAuthorizationRequest(completion)
+                } else {
+                    AVCaptureDevice.requestAccess(for: .audio) { completion($0) }
                 }
             }
+            return granted ? .authorized : checkMicrophonePermission()
         case .unknown:
             return .unknown
         }
     }
 
     func requestSpeechRecognition() async -> PermissionState {
-        if isRunningUnderTestOrAutomation() {
+        guard !Task.isCancelled else { return .unknown }
+        guard permissionAdmission.mayRequestAuthorization else { return speechStatus() }
+        if speechAuthorizationRequest == nil, isRunningUnderTestOrAutomation() {
             return .granted
         }
-        return await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                let state: PermissionState
-                switch status {
-                case .authorized:
-                    state = .granted
-                case .denied:
-                    state = .denied
-                case .restricted:
-                    state = .restricted
-                case .notDetermined:
-                    state = .notDetermined
-                @unknown default:
-                    state = .unknown
-                }
-                continuation.resume(returning: state)
+        let waiter = SpeechAuthorizationWaiter()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard waiter.install(continuation) else { return }
+                requestSpeechAuthorization { waiter.resolve($0) }
             }
+        } onCancel: {
+            // Swift wait cancellation does not revoke TCC or close the SDK
+            // dialog. An already admitted request can still call back later.
+            waiter.resolve(.unknown)
+        }
+    }
+
+    // Tests replace only the SDK invocation. The real continuation bridge,
+    // mapping and callers remain in this service; no TCC request is needed.
+    private func requestSpeechAuthorization(_ completion: @escaping @Sendable (PermissionState) -> Void) {
+        if let speechAuthorizationRequest {
+            speechAuthorizationRequest(completion)
+            return
+        }
+        SFSpeechRecognizer.requestAuthorization { status in
+            let state: PermissionState
+            switch status {
+            case .authorized: state = .granted
+            case .denied: state = .denied
+            case .restricted: state = .restricted
+            case .notDetermined: state = .notDetermined
+            @unknown default: state = .unknown
+            }
+            completion(state)
         }
     }
 
     func requestScreenRecording() {
+        guard permissionAdmission.mayRequestAuthorization else { return }
+        if let screenCaptureAuthorizationRequest {
+            screenCaptureAuthorizationRequest()
+            return
+        }
         if isRunningUnderTestOrAutomation() {
             print("[Permission] requestScreenRecording skipped (running under test/automation)")
             return
@@ -256,61 +301,13 @@ class PermissionService {
         Bundle.main.bundlePath.hasSuffix(".app")
     }
 
-    /// Fetch code signing status asynchronously. Call from a Task or .task modifier.
-    /// Do NOT call from the main thread synchronously — it shells out to /usr/bin/codesign.
+    /// The diagnostic invocation owns both read-only codesign queries.
     func fetchCodeSigningStatus() async -> String {
-        let bundlePath = Bundle.main.bundlePath
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-                process.arguments = ["-dvvvv", bundlePath]
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = pipe
-                
-                let reqProcess = Process()
-                reqProcess.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-                reqProcess.arguments = ["-d", "-r-", bundlePath]
-                let reqPipe = Pipe()
-                reqProcess.standardOutput = reqPipe
-                reqProcess.standardError = Pipe()
-                
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: data, encoding: .utf8) ?? ""
-                    
-                    try? reqProcess.run()
-                    reqProcess.waitUntilExit()
-                    let reqData = reqPipe.fileHandleForReading.readDataToEndOfFile()
-                    let reqOutput = String(data: reqData, encoding: .utf8) ?? ""
-                    
-                    let lines = output.components(separatedBy: "\n")
-                    var relevant = lines.filter {
-                        $0.hasPrefix("Identifier=") ||
-                        $0.hasPrefix("Authority=") ||
-                        $0.hasPrefix("TeamIdentifier=") ||
-                        $0.hasPrefix("Signature=") ||
-                        $0.contains("code signature")
-                    }
-                    
-                    if !reqOutput.isEmpty {
-                        relevant.append("Designated Requirement: \(reqOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
-                    }
-                    
-                    if relevant.isEmpty {
-                        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                        continuation.resume(returning: trimmed.isEmpty ? "Not signed" : String(trimmed.prefix(200)))
-                    } else {
-                        continuation.resume(returning: relevant.joined(separator: "\n"))
-                    }
-                } catch {
-                    continuation.resume(returning: "Could not check: \(error.localizedDescription)")
-                }
-            }
-        }
+        await codeSigningInvocation.run(bundlePath: Bundle.main.bundlePath)
+    }
+
+    func shutdownCodeSigningDiagnostics() async -> Bool {
+        await codeSigningInvocation.shutdown()
     }
 
     /// Whether Screen Recording permission requires an app restart.
@@ -319,5 +316,41 @@ class PermissionService {
     /// still returns false until the app is relaunched.
     var screenRecordingMayNeedRestart: Bool {
         !CGPreflightScreenCaptureAccess()
+    }
+}
+
+/// One request owns one continuation. Native callbacks may use any executor;
+/// resume happens outside the lock, and late or duplicate callbacks are inert.
+private final class SpeechAuthorizationWaiter: Sendable {
+    private struct State: Sendable {
+        var continuation: CheckedContinuation<PermissionState, Never>?
+        var result: PermissionState?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    /// True admits this request's one SDK invocation. Cancellation preceding
+    /// admission returns false; cancellation afterward cannot close its dialog.
+    func install(_ continuation: CheckedContinuation<PermissionState, Never>) -> Bool {
+        let result = state.withLock { state -> PermissionState? in
+            if let result = state.result { return result }
+            state.continuation = continuation
+            return nil
+        }
+        if let result {
+            continuation.resume(returning: result)
+            return false
+        }
+        return true
+    }
+
+    func resolve(_ result: PermissionState) {
+        let continuation = state.withLock { state -> CheckedContinuation<PermissionState, Never>? in
+            guard state.result == nil else { return nil }
+            state.result = result
+            let continuation = state.continuation
+            state.continuation = nil
+            return continuation
+        }
+        continuation?.resume(returning: result)
     }
 }

@@ -11,7 +11,9 @@ enum SnapshotBoundContextPolicy {
         legacyContext: RetrievedContext
     ) -> RetrievedContext {
         guard snapshot != nil else { return legacyContext }
-        return snapshotContext ?? RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
+        var selected = snapshotContext ?? RetrievedContext(cvChunks: [], jobDescriptionChunks: [])
+        selected.additionalNotesChunks = legacyContext.additionalNotesChunks
+        return selected
     }
 
     static func summaries(
@@ -32,7 +34,7 @@ enum SnapshotBoundContextPolicy {
 /// This prevents late transcript updates or a newer detected question from
 /// changing the prompt after generation has already started. It is data only:
 /// no AppState mutation, task ownership, provider streaming, or persistence.
-struct GenerationExecutionContext: Equatable {
+struct GenerationExecutionContext: Equatable, Sendable {
     let session: InterviewSession
     let question: DetectedQuestion
     let generationID: String

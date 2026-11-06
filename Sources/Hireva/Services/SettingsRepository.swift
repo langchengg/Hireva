@@ -1,19 +1,19 @@
 import Foundation
 import GRDB
 
-final class SettingsRepository {
-    private let database: AppDatabase
+final class SettingsRepository: Sendable {
+    private let databaseQueue: DatabaseQueue
     private let settingsKey = "app_settings"
     private let apiCallCountKey = "api_call_count"
     private let activeRealtimeProviderIDKey = "active_realtime_provider_id"
     private let activeRecapProviderIDKey = "active_recap_provider_id"
 
     init(database: AppDatabase) {
-        self.database = database
+        self.databaseQueue = database.dbQueue
     }
 
     func loadSettings() throws -> AppSettings {
-        let rawValue: String? = try database.dbQueue.read { db in
+        let rawValue: String? = try databaseQueue.read { db in
             try String.fetchOne(
                 db,
                 sql: "SELECT value FROM app_settings WHERE key = ?",
@@ -39,7 +39,7 @@ final class SettingsRepository {
     }
 
     func apiCallCount() throws -> Int {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             guard let value: String = try String.fetchOne(
                 db,
                 sql: "SELECT value FROM app_settings WHERE key = ?",
@@ -51,14 +51,29 @@ final class SettingsRepository {
         }
     }
 
-    func incrementAPICallCount() throws -> Int {
-        let next = (try apiCallCount()) + 1
-        try setValue(String(next), forKey: apiCallCountKey)
-        return next
+    func incrementAPICallCount(beforeWriteAdmission: (@Sendable () -> Void)? = nil) throws -> Int {
+        beforeWriteAdmission?()
+        return try databaseQueue.write { db in
+            let value = try String.fetchOne(
+                db,
+                sql: "SELECT value FROM app_settings WHERE key = ?",
+                arguments: [apiCallCountKey]
+            )
+            let next = (value.flatMap(Int.init) ?? 0) + 1
+            try db.execute(
+                sql: """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                arguments: [apiCallCountKey, String(next), DateCoding.string(from: Date())]
+            )
+            return next
+        }
     }
 
     func deleteAllSettings() throws {
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(sql: "DELETE FROM app_settings")
         }
     }
@@ -108,7 +123,7 @@ final class SettingsRepository {
     }
 
     private func disableLegacyLocalProviderRows() throws {
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(
                 sql: """
                 UPDATE llm_provider_configurations
@@ -124,7 +139,7 @@ final class SettingsRepository {
     }
 
     func providerConfigurations() throws -> [LLMProviderConfiguration] {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM llm_provider_configurations ORDER BY created_at ASC")
                 .map(Self.makeProviderConfiguration)
                 .filter { !Self.isLegacyLocalProvider($0) }
@@ -132,7 +147,7 @@ final class SettingsRepository {
     }
 
     func providerConfiguration(id: UUID) throws -> LLMProviderConfiguration? {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             let row = try Row.fetchOne(
                 db,
                 sql: "SELECT * FROM llm_provider_configurations WHERE id = ?",
@@ -149,7 +164,7 @@ final class SettingsRepository {
     func saveProviderConfiguration(_ provider: LLMProviderConfiguration) throws {
         var provider = provider
         provider.updatedAt = Date()
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO llm_provider_configurations (
@@ -177,7 +192,7 @@ final class SettingsRepository {
     }
 
     func deleteProviderConfiguration(id: UUID) throws {
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(sql: "DELETE FROM llm_provider_configurations WHERE id = ?", arguments: [id.uuidString])
         }
         if try activeRealtimeProvider()?.id == id {
@@ -219,7 +234,7 @@ final class SettingsRepository {
     }
 
     private func activeProviderID(forKey key: String) throws -> UUID? {
-        try database.dbQueue.read { db in
+        try databaseQueue.read { db in
             guard let value: String = try String.fetchOne(
                 db,
                 sql: "SELECT value FROM app_settings WHERE key = ?",
@@ -232,7 +247,7 @@ final class SettingsRepository {
     }
 
     private func setValue(_ value: String, forKey key: String) throws {
-        try database.dbQueue.write { db in
+        try databaseQueue.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO app_settings (key, value, updated_at)

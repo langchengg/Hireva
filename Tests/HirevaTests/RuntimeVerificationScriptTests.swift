@@ -53,13 +53,18 @@ struct RuntimeVerificationScriptTests {
             to: scriptsDirectory.appendingPathComponent("verify_runtime_stability.sh")
         )
         try writeExecutable("#!/usr/bin/env bash\nexit 0\n", to: binDirectory.appendingPathComponent("swift"))
+        try FileManager.default.copyItem(
+            at: repositoryRoot.appendingPathComponent("script/artifact_lifecycle.py"),
+            to: scriptDirectory.appendingPathComponent("artifact_lifecycle.py")
+        )
         try writeExecutable("#!/usr/bin/env bash\nexit 0\n", to: scriptsDirectory.appendingPathComponent("runtime_smoke.sh"))
         try writeExecutable("#!/usr/bin/env bash\nexit 23\n", to: scriptDirectory.appendingPathComponent("build_and_run.sh"))
 
         let result = try runScript(
             at: scriptsDirectory.appendingPathComponent("verify_runtime_stability.sh"),
             currentDirectory: sandbox,
-            environment: ["PATH": "\(binDirectory.path):/usr/bin:/bin"]
+            environment: ["PATH": "\(binDirectory.path):/usr/bin:/bin",
+                "HIREVA_ARTIFACT_ROOT": sandbox.resolvingSymlinksInPath().appendingPathComponent("managed").path]
         )
 
         #expect(result.status != 0)
@@ -99,13 +104,18 @@ struct RuntimeVerificationScriptTests {
             """,
             to: binDirectory.appendingPathComponent("swift")
         )
+        try FileManager.default.copyItem(
+            at: repositoryRoot.appendingPathComponent("script/artifact_lifecycle.py"),
+            to: scriptDirectory.appendingPathComponent("artifact_lifecycle.py")
+        )
         try writeExecutable("#!/usr/bin/env bash\nexit 0\n", to: scriptsDirectory.appendingPathComponent("runtime_smoke.sh"))
         try writeExecutable("#!/usr/bin/env bash\nexit 23\n", to: scriptDirectory.appendingPathComponent("build_and_run.sh"))
 
         let result = try runScript(
             at: scriptsDirectory.appendingPathComponent("verify_runtime_stability.sh"),
             currentDirectory: sandbox,
-            environment: ["PATH": "\(binDirectory.path):/usr/bin:/bin"]
+            environment: ["PATH": "\(binDirectory.path):/usr/bin:/bin",
+                "HIREVA_ARTIFACT_ROOT": sandbox.resolvingSymlinksInPath().appendingPathComponent("managed").path]
         )
 
         #expect(result.status != 0)
@@ -122,8 +132,9 @@ struct RuntimeVerificationScriptTests {
         let contents = try String(contentsOf: url, encoding: .utf8)
 
         let requiredSnippets = [
-            "find \"$DIST_DIR\" -name '._*' -delete",
-            "find \"$DIST_DIR\" -name '.DS_Store' -delete",
+            "find \"$BUNDLE_CLEANUP_ROOT\" -name '._*' -delete",
+            "find \"$BUNDLE_CLEANUP_ROOT\" -name '.DS_Store' -delete",
+            "BUNDLE_CLEANUP_ROOT=\"$APP_BUNDLE\"",
             "xattr -cr \"$APP_BUNDLE\"",
             "security find-identity -v -p codesigning",
             "HIREVA_SIGNING_IDENTITY",
@@ -133,12 +144,7 @@ struct RuntimeVerificationScriptTests {
             "HirevaGitTreeState",
             "GIT_STATUS_PORCELAIN",
             "developer-id builds require a clean Git worktree",
-            "--env",
-            "CFFIXED_USER_HOME=",
             "--relaunch",
-            "Relaunching the existing signed bundle without rebuilding",
-            "rm -rf \"$APP_CONTENTS\"",
-            "\"$LSREGISTER\" -f \"$APP_BUNDLE\"",
             "script/runtime/build_parakeet_helper.sh",
             "script/runtime/prepare_third_party_notices.sh",
             "APP_HELPERS=\"$APP_CONTENTS/Helpers\"",
@@ -175,18 +181,11 @@ struct RuntimeVerificationScriptTests {
         let cacheReplacement = try #require(runtimePreparation.range(of: "rm -rf \"$SDK_ROOT\""))
         #expect(extractedSherpaHash.lowerBound < cacheReplacement.lowerBound)
 
-        let modeValidation = try #require(contents.range(of: "# Reject unsupported modes before any process is stopped or bundle is rebuilt."))
-        let relaunch = try #require(contents.range(of: "if [[ \"$MODE\" == \"--relaunch\""))
-        let build = try #require(contents.range(of: "# --- Build ---"))
-        let bundleRemoval = try #require(contents.range(of: "rm -rf \"$APP_CONTENTS\""))
-        let nativeRuntime = try #require(contents.range(of: "script/runtime/build_parakeet_helper.sh"))
-        let releaseSigning = try #require(contents.range(of: "script/release/sign_app.sh"))
+        #expect(contents.contains("artifact_lifecycle.py"))
+        #expect(contents.contains("HIREVA_EXPECTED_BUNDLE_PATH"))
+        #expect(!contents.contains("pkill"))
+        #expect(!contents.contains("rm -rf \"$APP_CONTENTS\""))
 
-        #expect(modeValidation.lowerBound < relaunch.lowerBound)
-        #expect(relaunch.lowerBound < build.lowerBound)
-        #expect(relaunch.lowerBound < bundleRemoval.lowerBound)
-        #expect(bundleRemoval.lowerBound < nativeRuntime.lowerBound)
-        #expect(nativeRuntime.lowerBound < releaseSigning.lowerBound)
     }
 
     @Test
@@ -359,7 +358,7 @@ struct RuntimeVerificationScriptTests {
         let packageContents = try String(contentsOf: packageURL, encoding: .utf8)
         for snippet in [
             "./scripts/verify_runtime_stability.sh",
-            "./script/build_and_run.sh --verify",
+            "artifact_lifecycle.py\" package-local",
             "codesign --verify --deep --strict",
             "RELEASE_INFO.txt",
             "docs/local-workspace-migration.md",

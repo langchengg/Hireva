@@ -3,15 +3,20 @@ import SwiftUI
 @MainActor
 struct PermissionsDiagnosticView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var live: LiveInterviewFeature
     @ObservedObject private var micDiagnostics: MicrophoneDiagnosticsService
-    @ObservedObject private var systemAudio = ScreenCaptureKitSystemAudioCaptureService.shared
+    @ObservedObject private var systemAudio: ScreenCaptureKitSystemAudioCaptureService
+    @ObservedObject private var systemPermissions: SystemAudioPermissionController
     @State private var codeSigningStatusText: String = "Loading…"
     @State private var refreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     @State private var refreshTrigger = UUID()
 
     init(appState: AppState) {
         self.appState = appState
+        self._live = ObservedObject(wrappedValue: appState.liveInterview)
         self._micDiagnostics = ObservedObject(wrappedValue: appState.microphoneDiagnostics)
+        self._systemAudio = ObservedObject(wrappedValue: appState.systemAudioCaptureService)
+        self._systemPermissions = ObservedObject(wrappedValue: appState.systemAudioPermissions)
     }
 
     var body: some View {
@@ -41,11 +46,11 @@ struct PermissionsDiagnosticView: View {
     }
 
     private var migrationDiagnosticsCard: some View {
-        let defaults = UserDefaults.standard
-        let version = defaults.integer(forKey: HirevaPreferenceKeys.migrationVersion)
-        let result = defaults.string(forKey: HirevaPreferenceKeys.migrationResult) ?? "Not run"
-        let legacyPath = defaults.string(forKey: HirevaPreferenceKeys.legacyDataPath) ?? "None"
-        let legacyCopied = defaults.bool(forKey: HirevaPreferenceKeys.legacyDataMigrated)
+        let defaults = appState.dialogueDefaults
+        let version = defaults?.integer(forKey: HirevaPreferenceKeys.migrationVersion) ?? 0
+        let result = defaults?.string(forKey: HirevaPreferenceKeys.migrationResult) ?? "Not run"
+        let legacyPath = defaults?.string(forKey: HirevaPreferenceKeys.legacyDataPath) ?? "None"
+        let legacyCopied = defaults?.bool(forKey: HirevaPreferenceKeys.legacyDataMigrated) ?? false
 
         return VStack(alignment: .leading, spacing: 10) {
             Label("Hireva Data Migration", systemImage: "externaldrive.badge.checkmark")
@@ -113,7 +118,7 @@ struct PermissionsDiagnosticView: View {
     private var microphoneTestCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Microphone Test (Candidate)", systemImage: "waveform.path.ecg")
+                Label("Microphone Test", systemImage: "waveform.path.ecg")
                     .font(.headline)
                 Spacer()
                 StatusPill(
@@ -219,7 +224,7 @@ struct PermissionsDiagnosticView: View {
     private var systemAudioTestCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("System Audio Test (Interviewer / Chrome)", systemImage: "speaker.wave.2.bubble")
+                Label("System Audio Test", systemImage: "speaker.wave.2.bubble")
                     .font(.headline)
                 Spacer()
                 StatusPill(
@@ -247,7 +252,7 @@ struct PermissionsDiagnosticView: View {
                     .progressViewStyle(.linear)
             }
 
-            if let error = systemAudio.lastError {
+            if let error = systemPermissions.diagnosticCaptureError ?? systemAudio.lastError {
                 Text(error)
                     .font(.callout)
                     .foregroundStyle(.red)
@@ -264,9 +269,7 @@ struct PermissionsDiagnosticView: View {
                 Button {
                     appState.refreshPermissions()
                     if appState.permissionSnapshot.screenRecording == .granted {
-                        Task {
-                            try? await systemAudio.startSystemAudioCapture()
-                        }
+                        systemPermissions.requestDiagnosticCapture()
                     } else {
                         appState.requestScreenRecordingPermission()
                     }
@@ -274,15 +277,15 @@ struct PermissionsDiagnosticView: View {
                     Label("Start System Test", systemImage: "play.fill")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(systemAudio.isCapturing)
+                .disabled(!systemPermissions.canStartDiagnosticCapture)
 
                 Button {
-                    systemAudio.stopSystemAudioCapture()
+                    systemPermissions.stopDiagnosticCapture()
                 } label: {
                     Label("Stop System Test", systemImage: "stop.fill")
                 }
                 .buttonStyle(.bordered)
-                .disabled(!systemAudio.isCapturing)
+                .disabled(!systemPermissions.hasOwnedDiagnosticCapture)
 
                 Spacer()
 
@@ -343,13 +346,16 @@ struct PermissionsDiagnosticView: View {
             Label("Dual Stream ASR Diagnostics", systemImage: "bolt.horizontal.fill")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.purple)
+            Text("Buffer, request, transcript and session fields below describe Apple Speech; task activity follows the selected provider.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             
             Divider()
             
             HStack(alignment: .top, spacing: 16) {
                 // Microphone Stream Status Card
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Microphone (Candidate)")
+                    Text("Microphone")
                         .font(.headline)
                         .foregroundStyle(.green)
                     
@@ -486,7 +492,7 @@ struct PermissionsDiagnosticView: View {
                 
                 // System Audio Stream Status Card
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("System Audio (Interviewer)")
+                    Text("System Audio")
                         .font(.headline)
                         .foregroundStyle(.blue)
                     
@@ -673,17 +679,17 @@ struct PermissionsDiagnosticView: View {
                     .padding(.top, 4)
                 }
                 
-                // Concurrency Limit Banner if twoSessionsActive fails when mode is dual
+                // Report channel activity without attributing an unconfirmed cause.
                 if captureMode == .microphoneAndSystem && !appState.twoSessionsActive && appState.isAudioEngineRunning {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.shield.fill")
                             .foregroundStyle(.red)
                             .font(.body)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Apple Speech Concurrency Restriction Detected")
+                            Text("Not all ASR channels are active")
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(.red)
-                            Text("Apple Speech could not run two concurrent transcription streams. Use System Audio Only / Manual Capture or configure an alternate ASR provider.")
+                            Text("Combined capture is selected, but both transcription channels are not active. Check the selected provider, permissions and channel errors.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -751,8 +757,8 @@ struct PermissionsDiagnosticView: View {
     private var audioDeviceConfigPanel: some View {
         let manager = AudioDeviceManager.shared
         let warningText = manager.isUsingHeadphonesOrBluetooth ?
-            "Headset mode: microphone captures you (Candidate); interviewer audio requires system/process audio capture. Microphone-only mode cannot reliably hear the interviewer if you are wearing headphones." :
-            "Speaker mode: microphone may capture both you and interviewer with echo. Use system audio capture for reliable separation."
+            "Headset mode: when microphone capture is enabled, it may pick up nearby speech or sound leaking from the output device. Audio source does not identify the speaker." :
+            "Speaker mode: when microphone capture is enabled, it may recapture speaker output and introduce echo. Audio source does not identify the speaker."
         
         return VStack(alignment: .leading, spacing: 10) {
             Label("Audio Route Configuration", systemImage: "speaker.wave.2.fill")
@@ -1078,9 +1084,9 @@ struct PermissionsDiagnosticView: View {
                     GridRow {
                         Text("Generation Active")
                             .font(.caption.weight(.semibold))
-                        Text(appState.suggestionGenerationStarted ? "True" : "False")
+                        Text(live.suggestionGenerationStarted ? "True" : "False")
                             .font(.caption)
-                            .foregroundStyle(appState.suggestionGenerationStarted ? .blue : .secondary)
+                            .foregroundStyle(live.suggestionGenerationStarted ? .blue : .secondary)
                     }
                     GridRow {
                         Text("AI Provider / Model")
@@ -1181,7 +1187,7 @@ struct PermissionsDiagnosticView: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        appState.refreshPermissions()
+                        appState.requestScreenSystemAudioProbe()
                     } label: {
                         Label("Refresh Permissions", systemImage: "arrow.clockwise")
                     }
@@ -1232,7 +1238,7 @@ struct PermissionsDiagnosticView: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        appState.refreshPermissions()
+                        appState.requestScreenSystemAudioProbe()
                     } label: {
                         Label("Refresh Permissions", systemImage: "arrow.clockwise")
                     }
@@ -1285,7 +1291,7 @@ struct PermissionsDiagnosticView: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        appState.refreshPermissions()
+                        appState.requestScreenSystemAudioProbe()
                     } label: {
                         Label("Refresh Permissions", systemImage: "arrow.clockwise")
                     }
@@ -1335,7 +1341,7 @@ struct PermissionsDiagnosticView: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        appState.refreshPermissions()
+                        appState.requestScreenSystemAudioProbe()
                     } label: {
                         Label("Refresh Permissions", systemImage: "arrow.clockwise")
                     }
@@ -1385,7 +1391,7 @@ struct PermissionsDiagnosticView: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        appState.refreshPermissions()
+                        appState.requestScreenSystemAudioProbe()
                     } label: {
                         Label("Refresh Permissions", systemImage: "arrow.clockwise")
                     }
@@ -1532,7 +1538,9 @@ struct PermissionsDiagnosticView: View {
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .task {
-            codeSigningStatusText = await appState.permissionService.fetchCodeSigningStatus()
+            let result = await appState.permissionService.fetchCodeSigningStatus()
+            guard !Task.isCancelled else { return }
+            codeSigningStatusText = result
         }
     }
 

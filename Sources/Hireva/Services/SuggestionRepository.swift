@@ -1,57 +1,94 @@
 import Foundation
 import GRDB
 
-final class SuggestionRepository {
-    private let database: AppDatabase
+final class SuggestionRepository: Sendable {
+    private let dbQueue: DatabaseQueue
 
     init(database: AppDatabase) {
-        self.database = database
+        self.dbQueue = database.dbQueue
     }
 
     func saveDetectedQuestion(_ question: DetectedQuestion) throws {
-        try database.dbQueue.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO detected_questions (
-                    id, session_id, transcript_segment_id, question_text, intent, answer_strategy,
-                    confidence, reason, should_trigger, question_complete, model_name, prompt_version,
-                    provider_kind, provider_name, provider_base_url, latency_ms, is_local, raw_json, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO NOTHING
-                """,
-                arguments: [
-                    question.id,
-                    question.sessionID,
-                    question.transcriptSegmentID,
-                    question.questionText,
-                    question.intent.rawValue,
-                    question.answerStrategy.rawValue,
-                    question.confidence,
-                    question.reason,
-                    question.shouldTrigger,
-                    question.questionComplete,
-                    question.modelName,
-                    question.promptVersion,
-                    question.providerKind?.rawValue,
-                    question.providerName,
-                    question.providerBaseURL,
-                    question.latencyMS,
-                    question.isLocal,
-                    question.rawJSON,
-                    DateCoding.string(from: question.createdAt)
-                ]
-            )
-            let descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
-            try db.execute(sql: "UPDATE detected_questions SET task_descriptor_json = ? WHERE id = ? AND task_descriptor_json IS NULL", arguments: [try JSONEncoder().encode(descriptor), question.id])
+        try dbQueue.write { db in
+            try saveDetectedQuestion(question, in: db)
         }
+    }
+
+    /// A new explicit submission may save its question without recovering a
+    /// transcript captured while persistence was disabled.
+    func saveRegeneratedQuestion(_ question: DetectedQuestion) throws {
+        try dbQueue.write { db in
+            if let existing = try Row.fetchOne(db,
+                sql: "SELECT session_id, question_text FROM detected_questions WHERE id = ?",
+                arguments: [question.id]) {
+                let storedSession: String = existing["session_id"]
+                let storedText: String = existing["question_text"]
+                guard storedSession == question.sessionID,
+                      storedText == question.questionText ||
+                        QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: storedText,
+                            hasFrozenContext: question.taskDescriptor?.decision?.parentQuestionID != nil).candidate?.text == question.questionText else {
+                    throw DatabaseError(resultCode: .SQLITE_CONSTRAINT,
+                        message: "Regeneration cannot replace a different stored question.")
+                }
+            }
+            var projection = question
+            if let segmentID = question.transcriptSegmentID {
+                if let storedSession = try String.fetchOne(db,
+                    sql: "SELECT session_id FROM transcript_segments WHERE id = ?", arguments: [segmentID]) {
+                    guard storedSession == question.sessionID else {
+                        throw DatabaseError(resultCode: .SQLITE_CONSTRAINT,
+                            message: "Regeneration cannot use another session's transcript.")
+                    }
+                } else {
+                    projection.transcriptSegmentID = nil
+                }
+            }
+            try saveDetectedQuestion(projection, in: db)
+        }
+    }
+
+    private func saveDetectedQuestion(_ question: DetectedQuestion, in db: Database) throws {
+        try db.execute(
+            sql: """
+            INSERT INTO detected_questions (
+                id, session_id, transcript_segment_id, question_text, intent, answer_strategy,
+                confidence, reason, should_trigger, question_complete, model_name, prompt_version,
+                provider_kind, provider_name, provider_base_url, latency_ms, is_local, raw_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            arguments: [
+                question.id,
+                question.sessionID,
+                question.transcriptSegmentID,
+                question.questionText,
+                question.intent.rawValue,
+                question.answerStrategy.rawValue,
+                question.confidence,
+                question.reason,
+                question.shouldTrigger,
+                question.questionComplete,
+                question.modelName,
+                question.promptVersion,
+                question.providerKind?.rawValue,
+                question.providerName,
+                question.providerBaseURL,
+                question.latencyMS,
+                question.isLocal,
+                question.rawJSON,
+                DateCoding.string(from: question.createdAt)
+            ]
+        )
+        let descriptor = question.taskDescriptor ?? InterviewTaskDescriptor(question: question.questionText)
+        try db.execute(sql: "UPDATE detected_questions SET task_descriptor_json = ? WHERE id = ? AND task_descriptor_json IS NULL", arguments: [try JSONEncoder().encode(descriptor), question.id])
     }
 
     /// Resolve only the unchanged question before an answer has been persisted.
     /// Historical answers keep their original frozen descriptor.
     func resolveQuestionTask(_ question: DetectedQuestion) throws {
         guard let descriptor = question.taskDescriptor, descriptor.decision != nil else { return }
-        try database.dbQueue.write { db in
+        try dbQueue.write { db in
             try db.execute(sql: "UPDATE detected_questions SET task_descriptor_json = ? WHERE id = ? AND session_id = ? AND question_text = ? AND NOT EXISTS (SELECT 1 FROM suggestion_cards WHERE question_id = ?)", arguments: [try JSONEncoder().encode(descriptor), question.id, question.sessionID, question.questionText, question.id])
         }
     }
@@ -65,7 +102,7 @@ final class SuggestionRepository {
     }
 
     private func saveSuggestionCard(_ card: SuggestionCard, retrievedChunks: [RetrievedChunk]?) throws {
-        try database.dbQueue.write { db in
+        try dbQueue.write { db in
             var card = card
             if card.detectedQuestionID == nil {
                 card.detectedQuestionID = card.questionID
@@ -89,9 +126,10 @@ final class SuggestionRepository {
             }
 
             let incomingCreatedAt = DateCoding.string(from: card.createdAt)
+            var replacesGeneration = false
             if let existing = try Row.fetchOne(
                 db,
-                sql: "SELECT created_at, stage_b_completed FROM suggestion_cards WHERE id = ?",
+                sql: "SELECT created_at, stage_b_completed, generation_id, question_decision_json FROM suggestion_cards WHERE id = ?",
                 arguments: [card.id]
             ) {
                 let existingCreatedAt: String = existing["created_at"]
@@ -103,7 +141,37 @@ final class SuggestionRepository {
                     (existingStageBCompleted && !incomingStageBCompleted) {
                     return
                 }
+                let storedData: Data? = existing["question_decision_json"]
+                let storedDecision = try storedData.map { try JSONDecoder().decode(InterviewQuestionDecision.self, from: $0) }
+                let storedGenerationID: String? = existing["generation_id"]
+                replacesGeneration = storedGenerationID != card.generationID
+                if !replacesGeneration {
+                    if let incomingDecision = card.questionDecision, incomingDecision != storedDecision {
+                        throw DatabaseError(resultCode: .SQLITE_CONSTRAINT,
+                            message: "An existing answer cannot change its frozen routing decision.")
+                    }
+                    // Expansion and legacy callbacks keep this generation's
+                    // snapshot. Explicit regenerate reuses the visible card ID
+                    // but owns a new generation and its own submitted policy.
+                    card.questionDecision = storedDecision
+                }
             }
+            if let decision = card.questionDecision {
+                guard let questionID = card.detectedQuestionID,
+                      decision.questionID == questionID,
+                      decision.contextSnapshotID == card.contextSnapshotID,
+                      let questionText = card.questionText,
+                      let storedQuestionText = try String.fetchOne(db,
+                        sql: "SELECT question_text FROM detected_questions WHERE id = ? AND session_id = ?",
+                        arguments: [questionID, card.sessionID]),
+                      storedQuestionText == questionText ||
+                        QuestionRuntimeAcceptanceGuard.acceptedCandidate(from: storedQuestionText,
+                            hasFrozenContext: decision.parentQuestionID != nil).candidate?.text == questionText else {
+                    throw DatabaseError(resultCode: .SQLITE_CONSTRAINT,
+                        message: "The frozen routing decision does not match the answer's question binding.")
+                }
+            }
+            let decisionData = try card.questionDecision.map { try JSONEncoder().encode($0) }
 
             try db.execute(
                 sql: """
@@ -253,6 +321,13 @@ final class SuggestionRepository {
                 ]
             )
 
+            // This write and the card upsert share the existing transaction.
+            // A regenerate creates a new answer under the existing visible ID.
+            // Advance that answer's creation time for the existing monotonic
+            // admission guard; expansion keeps its generation's original time.
+            try db.execute(sql: "UPDATE suggestion_cards SET question_decision_json = ?, created_at = CASE WHEN ? THEN ? ELSE created_at END WHERE id = ?",
+                arguments: [decisionData, replacesGeneration, incomingCreatedAt, card.id])
+
             try db.execute(
                 sql: """
                 UPDATE suggestion_cards
@@ -358,7 +433,7 @@ final class SuggestionRepository {
     }
 
     func retrievedChunks(suggestionCardID: String) throws -> [RetrievedChunk] {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM suggestion_card_retrieved_chunks WHERE suggestion_card_id = ? ORDER BY rank ASC",
@@ -398,7 +473,7 @@ final class SuggestionRepository {
     }
 
     func questions(sessionID: String) throws -> [DetectedQuestion] {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM detected_questions WHERE session_id = ? ORDER BY created_at ASC",
@@ -408,7 +483,7 @@ final class SuggestionRepository {
     }
 
     func suggestions(sessionID: String) throws -> [SuggestionCard] {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM suggestion_cards WHERE session_id = ? ORDER BY created_at ASC",
@@ -418,7 +493,7 @@ final class SuggestionRepository {
     }
 
     func latestSuggestion(sessionID: String) throws -> SuggestionCard? {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             let row = try Row.fetchOne(
                 db,
                 sql: "SELECT * FROM suggestion_cards WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -429,13 +504,13 @@ final class SuggestionRepository {
     }
 
     func suggestionCount() throws -> Int {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM suggestion_cards") ?? 0
         }
     }
 
     func latestSuggestion() throws -> SuggestionCard? {
-        try database.dbQueue.read { db in
+        try dbQueue.read { db in
             let row = try Row.fetchOne(
                 db,
                 sql: "SELECT * FROM suggestion_cards ORDER BY created_at DESC LIMIT 1"
@@ -522,6 +597,7 @@ final class SuggestionRepository {
             promptTokenEstimate: row["prompt_token_estimate"],
             promptContextPreview: row["prompt_context_preview"],
             mismatchReason: row["mismatch_reason"],
+            questionDecision: (row["question_decision_json"] as Data?).flatMap { try? JSONDecoder().decode(InterviewQuestionDecision.self, from: $0) },
             sayFirstSource: row["say_first_source"],
             stageATimedOut: stageATimedOutInt == 1,
             stageBCompleted: stageBCompletedInt == 1,
@@ -568,91 +644,110 @@ final class SuggestionRepository {
         provider: String? = nil,
         mode: InterviewMode? = nil
     ) throws -> LatencyAverages {
-        try database.dbQueue.read { db in
-            var sql = """
-                SELECT sc.latency_first_visible_ms, sc.latency_full_card_ms,
-                       sc.first_visible_answer_ms, sc.first_key_point_visible_ms,
-                       sc.all_key_points_visible_ms, sc.follow_up_visible_ms,
-                       sc.full_card_visible_ms, sc.db_persisted_ms,
-                       sc.stage_b_stream_started_ms, sc.stage_b_first_section_ms,
-                       sc.rag_retrieval_latency_ms, sc.question_asr_best_selected_ms,
-                       sc.soft_fallback_used, sc.stage_b_status
-                FROM suggestion_cards sc
-            """
-            var conditions: [String] = ["COALESCE(sc.stage_b_status, '') != 'needs_personal_evidence'"]
-            var args: [DatabaseValueConvertible?] = []
-
-            if let provider {
-                conditions.append("sc.provider_name = ?")
-                args.append(provider)
-            }
-            if let mode {
-                sql += " JOIN interview_sessions s ON sc.session_id = s.id"
-                conditions.append("s.mode = ?")
-                args.append(mode.rawValue)
-            }
-
-            if !conditions.isEmpty {
-                sql += " WHERE " + conditions.joined(separator: " AND ")
-            }
-            sql += " ORDER BY sc.created_at DESC LIMIT ?"
-            args.append(n)
-
-            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args.map { $0 as Any }) ?? [])
-
-            guard !rows.isEmpty else { return .empty }
-
-            var firstVisibles: [Int] = []
-            var firstKeyPoints: [Int] = []
-            var allKeyPoints: [Int] = []
-            var followUps: [Int] = []
-            var fullCards: [Int] = []
-            var dbPersisted: [Int] = []
-            var streamStarted: [Int] = []
-            var firstSections: [Int] = []
-            var ragRetrievals: [Int] = []
-            var asrBests: [Int] = []
-            var softFallbackCount = 0
-            var failureCount = 0
-
-            for row in rows {
-                if let v: Int = row["first_visible_answer_ms"] ?? row["latency_first_visible_ms"] { firstVisibles.append(v) }
-                if let v: Int = row["first_key_point_visible_ms"] { firstKeyPoints.append(v) }
-                if let v: Int = row["all_key_points_visible_ms"] { allKeyPoints.append(v) }
-                if let v: Int = row["follow_up_visible_ms"] { followUps.append(v) }
-                if let v: Int = row["full_card_visible_ms"] ?? row["latency_full_card_ms"] { fullCards.append(v) }
-                if let v: Int = row["db_persisted_ms"] { dbPersisted.append(v) }
-                if let v: Int = row["stage_b_stream_started_ms"] { streamStarted.append(v) }
-                if let v: Int = row["stage_b_first_section_ms"] { firstSections.append(v) }
-                if let v: Int = row["rag_retrieval_latency_ms"] { ragRetrievals.append(v) }
-                if let v: Int = row["question_asr_best_selected_ms"] { asrBests.append(v) }
-                if let sf: Int = row["soft_fallback_used"], sf == 1 { softFallbackCount += 1 }
-                if let status: String = row["stage_b_status"], status != "completed" { failureCount += 1 }
-            }
-
-            let count = rows.count
-            return LatencyAverages(
-                count: count,
-                avgFirstVisibleMS: Self.avg(firstVisibles),
-                p50FirstVisibleMS: Self.percentile(firstVisibles, 50),
-                p90FirstVisibleMS: Self.percentile(firstVisibles, 90),
-                avgFirstKeyPointVisibleMS: Self.avg(firstKeyPoints),
-                p50FirstKeyPointVisibleMS: Self.percentile(firstKeyPoints, 50),
-                p90FirstKeyPointVisibleMS: Self.percentile(firstKeyPoints, 90),
-                avgAllKeyPointsVisibleMS: Self.avg(allKeyPoints),
-                avgFollowUpVisibleMS: Self.avg(followUps),
-                avgFullCardMS: Self.avg(fullCards),
-                p50FullCardMS: Self.percentile(fullCards, 50),
-                p90FullCardMS: Self.percentile(fullCards, 90),
-                avgDBPersistedMS: Self.avg(dbPersisted),
-                avgStageBStreamStartedMS: Self.avg(streamStarted),
-                avgStageBFirstSectionMS: Self.avg(firstSections),
-                avgRagRetrievalMS: Self.avg(ragRetrievals),
-                avgASRBestSelectedMS: Self.avg(asrBests),
-                softFallbackRate: Double(softFallbackCount) / Double(count),
-                failureRate: Double(failureCount) / Double(count)
-            )
+        try dbQueue.read { db in
+            try Self.fetchLatencyAverages(db, last: n, provider: provider, mode: mode)
         }
+    }
+
+    /// Capture only GRDB's serialized queue, never the repository or AppState.
+    /// The async read resumes after both projections have used the same snapshot.
+    func makeLatencyQuery() -> @Sendable () async throws -> (overall: LatencyAverages, deepSeek: LatencyAverages) {
+        let queue = dbQueue
+        return {
+            try Task.checkCancellation()
+            return try await queue.read { db in
+                (try Self.fetchLatencyAverages(db, last: 10),
+                 try Self.fetchLatencyAverages(db, last: 10, provider: "DeepSeek"))
+            }
+        }
+    }
+
+    private static func fetchLatencyAverages(
+        _ db: Database, last n: Int, provider: String? = nil, mode: InterviewMode? = nil
+    ) throws -> LatencyAverages {
+        var sql = """
+            SELECT sc.latency_first_visible_ms, sc.latency_full_card_ms,
+                   sc.first_visible_answer_ms, sc.first_key_point_visible_ms,
+                   sc.all_key_points_visible_ms, sc.follow_up_visible_ms,
+                   sc.full_card_visible_ms, sc.db_persisted_ms,
+                   sc.stage_b_stream_started_ms, sc.stage_b_first_section_ms,
+                   sc.rag_retrieval_latency_ms, sc.question_asr_best_selected_ms,
+                   sc.soft_fallback_used, sc.stage_b_status
+            FROM suggestion_cards sc
+        """
+        var conditions: [String] = ["COALESCE(sc.stage_b_status, '') != 'needs_personal_evidence'"]
+        var args: [DatabaseValueConvertible?] = []
+
+        if let provider {
+            conditions.append("sc.provider_name = ?")
+            args.append(provider)
+        }
+        if let mode {
+            sql += " JOIN interview_sessions s ON sc.session_id = s.id"
+            conditions.append("s.mode = ?")
+            args.append(mode.rawValue)
+        }
+
+        if !conditions.isEmpty {
+            sql += " WHERE " + conditions.joined(separator: " AND ")
+        }
+        sql += " ORDER BY sc.created_at DESC LIMIT ?"
+        args.append(n)
+
+        let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args.map { $0 as Any }) ?? [])
+
+        guard !rows.isEmpty else { return .empty }
+
+        var firstVisibles: [Int] = []
+        var firstKeyPoints: [Int] = []
+        var allKeyPoints: [Int] = []
+        var followUps: [Int] = []
+        var fullCards: [Int] = []
+        var dbPersisted: [Int] = []
+        var streamStarted: [Int] = []
+        var firstSections: [Int] = []
+        var ragRetrievals: [Int] = []
+        var asrBests: [Int] = []
+        var softFallbackCount = 0
+        var failureCount = 0
+
+        for row in rows {
+            if let v: Int = row["first_visible_answer_ms"] ?? row["latency_first_visible_ms"] { firstVisibles.append(v) }
+            if let v: Int = row["first_key_point_visible_ms"] { firstKeyPoints.append(v) }
+            if let v: Int = row["all_key_points_visible_ms"] { allKeyPoints.append(v) }
+            if let v: Int = row["follow_up_visible_ms"] { followUps.append(v) }
+            if let v: Int = row["full_card_visible_ms"] ?? row["latency_full_card_ms"] { fullCards.append(v) }
+            if let v: Int = row["db_persisted_ms"] { dbPersisted.append(v) }
+            if let v: Int = row["stage_b_stream_started_ms"] { streamStarted.append(v) }
+            if let v: Int = row["stage_b_first_section_ms"] { firstSections.append(v) }
+            if let v: Int = row["rag_retrieval_latency_ms"] { ragRetrievals.append(v) }
+            if let v: Int = row["question_asr_best_selected_ms"] { asrBests.append(v) }
+            if let sf: Int = row["soft_fallback_used"], sf == 1 { softFallbackCount += 1 }
+            if let status: String = row["stage_b_status"], status != "completed" { failureCount += 1 }
+        }
+
+        let count = rows.count
+        return LatencyAverages(
+            count: count,
+            avgFirstVisibleMS: Self.avg(firstVisibles),
+            p50FirstVisibleMS: Self.percentile(firstVisibles, 50),
+            p90FirstVisibleMS: Self.percentile(firstVisibles, 90),
+            avgFirstKeyPointVisibleMS: Self.avg(firstKeyPoints),
+            p50FirstKeyPointVisibleMS: Self.percentile(firstKeyPoints, 50),
+            p90FirstKeyPointVisibleMS: Self.percentile(firstKeyPoints, 90),
+            avgAllKeyPointsVisibleMS: Self.avg(allKeyPoints),
+            avgFollowUpVisibleMS: Self.avg(followUps),
+            avgFullCardMS: Self.avg(fullCards),
+            p50FullCardMS: Self.percentile(fullCards, 50),
+            p90FullCardMS: Self.percentile(fullCards, 90),
+            avgDBPersistedMS: Self.avg(dbPersisted),
+            avgStageBStreamStartedMS: Self.avg(streamStarted),
+            avgStageBFirstSectionMS: Self.avg(firstSections),
+            avgRagRetrievalMS: Self.avg(ragRetrievals),
+            avgASRBestSelectedMS: Self.avg(asrBests),
+            softFallbackRate: Double(softFallbackCount) / Double(count),
+            failureRate: Double(failureCount) / Double(count)
+        )
     }
 
     // MARK: - Percentile Helpers

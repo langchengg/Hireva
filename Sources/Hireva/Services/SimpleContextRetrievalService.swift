@@ -157,8 +157,17 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
                         remaining -= words.count
                     } else {
                         chunk.isIncludedInPrompt = true
-                        let trimmedWords = words.prefix(remaining)
-                        let trimmedContent = trimmedWords.joined(separator: " ")
+                        let trimmedContent = chunk.documentType == .additionalNotes
+                            ? ContextBudgeter.limitReferenceWords(chunk.fullContent, maxWords: remaining)
+                            : words.prefix(remaining).joined(separator: " ")
+                        let trimmedCount = trimmedContent.split(whereSeparator: \.isWhitespace).count
+                        guard !trimmedContent.isEmpty else {
+                            chunk.isIncludedInPrompt = false
+                            excluded.append(chunk)
+                            updatedCandidates.append(chunk)
+                            remaining = 0
+                            continue
+                        }
                         let trimmedChunk = RetrievedChunk(
                             id: chunk.id,
                             documentID: chunk.documentID,
@@ -173,10 +182,10 @@ final class SimpleContextRetrievalService: ContextRetrievalService {
                             rank: chunk.rank,
                             isIncludedInPrompt: true,
                             sectionTitle: chunk.sectionTitle,
-                            wordCount: remaining
+                            wordCount: trimmedCount
                         )
                         included.append(trimmedChunk)
-                        wordsUsed += remaining
+                        wordsUsed += trimmedCount
                         remaining = 0
                         chunk = trimmedChunk
                     }

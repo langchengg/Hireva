@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import CoreMedia
 import Testing
 @testable import Hireva
 
@@ -13,12 +15,14 @@ struct CaptureRuntimeStateTests {
     @MainActor
     private final class AsyncGate {
         private var continuations: [CheckedContinuation<Void, Never>] = []
+        private let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         private(set) var waiterCount = 0
         private var isOpen = false
 
         func wait() async {
             guard !isOpen else { return }
             waiterCount += 1
+            entered.continuation.yield(())
             await withCheckedContinuation { continuation in
                 if isOpen {
                     continuation.resume()
@@ -26,6 +30,12 @@ struct CaptureRuntimeStateTests {
                     continuations.append(continuation)
                 }
             }
+        }
+
+        func waitUntilEntered() async throws {
+            if waiterCount > 0 { return }
+            _ = try await TestEventWaitTrace(label: "capture-runtime.mock-startup")
+                .nextEvent(in: entered.stream, event: "actual_provider_start_entered")
         }
 
         func open() {
@@ -265,35 +275,45 @@ struct CaptureRuntimeStateTests {
         }
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func stoppingPendingStartupCannotReviveCaptureOrLeaveSessionOpen() async throws {
         let appState = try makeAppState()
         let gate = AsyncGate()
         appState.mockTranscriptionService.startBarrier = { await gate.wait() }
-        defer {
+        appState.startListening(mode: .mock)
+        let startup = try #require(appState.captureStartupTask)
+        @MainActor func cleanup() async {
             gate.open()
             appState.mockTranscriptionService.startBarrier = nil
             cancelAsyncWork(appState)
-            if appState.liveState.canStop {
-                appState.stopListening(reason: .userRequested)
-            }
+            appState.stopListening(reason: .userRequested)
+            await startup.value
+            await appState.shutdownForTesting()
         }
+        do {
+            try await gate.waitUntilEntered()
+            #expect(gate.waiterCount == 1)
+            let pendingSession = try #require(appState.currentSession)
 
-        appState.startListening(mode: .mock)
-        try await waitUntil("mock provider startup to suspend") {
-            gate.waiterCount == 1 && appState.currentSession != nil
+            appState.stopListening(reason: .userRequested)
+            let teardown = try #require(appState.captureTeardownTask)
+            gate.open()
+            await withTaskCancellationHandler { await startup.value } onCancel: { startup.cancel() }
+            await teardown.value
+
+            #expect(appState.captureStartupID == nil)
+            #expect(appState.captureStartupTask == nil,
+                "A stopped startup must leave the owner only after its exact task exits.")
+            #expect(appState.liveState == .stopped)
+            #expect(appState.currentCaptureRuntimeState == .stopped(reason: .userRequested))
+            let persistedSession = try #require(try appState.sessionRepository.session(id: pendingSession.id))
+            #expect(persistedSession.endedAt != nil)
+            #expect(appState.mockTranscriptionService.stopCallCount >= 1)
+            await cleanup()
+        } catch {
+            await cleanup()
+            throw error
         }
-        let pendingSession = try #require(appState.currentSession)
-
-        appState.stopListening(reason: .userRequested)
-        gate.open()
-        await appState.captureStartupTask?.value
-
-        #expect(appState.liveState == .stopped)
-        #expect(appState.currentCaptureRuntimeState == .stopped(reason: .userRequested))
-        let persistedSession = try #require(try appState.sessionRepository.session(id: pendingSession.id))
-        #expect(persistedSession.endedAt != nil)
-        #expect(appState.mockTranscriptionService.stopCallCount >= 1)
     }
 
     @Test
@@ -340,7 +360,10 @@ struct CaptureRuntimeStateTests {
     func captureStartupWaitsForPreviousTeardown() async throws {
         let appState = try makeAppState()
         let gate = AsyncGate()
-        appState.captureTeardownTask = Task { await gate.wait() }
+        appState.captureLifecycle.queueTeardown(after: nil) { _ in
+            await gate.wait()
+            return true
+        }
         defer {
             gate.open()
             cancelAsyncWork(appState)
@@ -513,16 +536,32 @@ struct CaptureRuntimeStateTests {
     // 3. Stream capture failures (`isCapturing = false` during suggestion) trigger `.stopped(reason: .screenCaptureStreamEnded)`.
     @Test
     func testStreamCaptureFailuresTriggerStoppedScreenCaptureStreamEnded() async throws {
-        let captureService = ScreenCaptureKitSystemAudioCaptureService()
-        captureService.isCapturing = true
-        let appState = try makeAppState(systemAudioCaptureService: captureService)
-        defer {
-            cancelAsyncWork(appState)
-            captureService.isCapturing = false
-            captureService.lastError = nil
+        let native = CaptureRuntimeControlledStream()
+        let captureService = ScreenCaptureKitSystemAudioCaptureService(streamFactory: { native })
+        native.onStart = { [weak captureService] source in
+            // This healthy-stream test must not race the unrelated no-PCM watchdog.
+            let capture = try #require(captureService)
+            capture.receiveAudioSampleBuffer(try captureRuntimeSample(), from: source)
         }
+        let appState = try makeAppState(systemAudioCaptureService: captureService)
+        let speech = AppleSpeechTranscriptionService(stopTestingOperations: nil,
+            pcmTestingOperations: .init(append: { _ in }, endAudio: {}), systemAudioCaptureService: captureService)
+        appState.appleSpeechService = speech
         let session = try makeContextBoundSession(appState)
-        try await waitForState(appState, toSatisfy: { _ in appState.anyCaptureRunning })
+        try await speech.start(sessionID: session.id, captureMode: .systemAudioOnly)
+        @MainActor func cleanup() async {
+            cancelAsyncWork(appState)
+            speech.stop()
+            await speech.finishStoppingAudioInput()
+            await appState.shutdownForTesting()
+        }
+        do {
+        try await waitForState(appState, toSatisfy: { _ in
+            appState.anyCaptureRunning && captureService.totalBuffersReceived == 1
+        })
+        #expect(captureService.totalBuffersReceived == 1)
+        #expect(appState.ownsCurrentSystemAudioCaptureRuntime,
+            "The real controlled capture receipt, not a writable diagnostic flag, authorizes this notification")
         
         let dummyQuestion = DetectedQuestion(
             id: "q-1",
@@ -541,7 +580,6 @@ struct CaptureRuntimeStateTests {
         )
         
         // Trigger suggestion generation
-        appState.markSystemAudioCaptureRuntimeOwnedForTesting(true)
         try await appState.generateSuggestion(for: dummyQuestion, session: session, transcript: "Why do you want this role?", autoGenerated: false)
 
         // Provider failure is allowed to restore listening before generateSuggestion returns.
@@ -563,6 +601,10 @@ struct CaptureRuntimeStateTests {
         
         #expect(appState.currentCaptureRuntimeState == .stopped(reason: .screenCaptureStreamEnded))
         #expect(appState.stopReason == .screenCaptureStreamEnded)
+        } catch { await cleanup(); throw error }
+        await cleanup()
+        #expect(!native.running)
+        #expect(native.stopCalls == 1)
     }
 
     // 4. Main window toolbar buttons correctly disable Start / enable Stop when streams are active across Mic, System, and Dual modes.
@@ -618,6 +660,43 @@ struct CaptureRuntimeStateTests {
         #expect(lastEvent?.line == testLine)
         #expect(lastEvent?.function == testFunction)
     }
+}
+
+/// Supplies native lifecycle acknowledgements without any device, permission,
+/// audio engine, Speech recognizer or external process.
+@MainActor
+private final class CaptureRuntimeControlledStream: SystemAudioCaptureStream {
+    private let identity = CaptureRuntimeControlledIdentity()
+    nonisolated let callbackIdentity: ObjectIdentifier
+    private(set) var running = false
+    private(set) var stopCalls = 0
+    var onStart: ((CaptureRuntimeControlledStream) throws -> Void)?
+    init() { callbackIdentity = ObjectIdentifier(identity) }
+    func startCapture() async throws { running = true; try onStart?(self) }
+    func stopCapture() async throws { stopCalls += 1; running = false }
+}
+
+private final class CaptureRuntimeControlledIdentity {}
+
+private func captureRuntimeSample() throws -> CMSampleBuffer {
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+    let pcm = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16))
+    pcm.frameLength = 16
+    for index in 0..<16 { pcm.floatChannelData?[0][index] = 0.1 }
+    var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 48_000),
+        presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+    var sample: CMSampleBuffer?
+    #expect(CMSampleBufferCreate(allocator: kCFAllocatorDefault, dataBuffer: nil,
+        dataReady: false, makeDataReadyCallback: nil, refcon: nil,
+        formatDescription: format.formatDescription, sampleCount: 16,
+        sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+        sampleSizeEntryCount: 0, sampleSizeArray: nil, sampleBufferOut: &sample) == noErr)
+    let created = try #require(sample)
+    #expect(CMSampleBufferSetDataBufferFromAudioBufferList(created,
+        blockBufferAllocator: kCFAllocatorDefault, blockBufferMemoryAllocator: kCFAllocatorDefault,
+        flags: 0, bufferList: pcm.audioBufferList) == noErr)
+    #expect(CMSampleBufferSetDataReady(created) == noErr)
+    return created
 }
 
 private final class CaptureRuntimeLLMClient: LLMClientProtocol {

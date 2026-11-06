@@ -1,3 +1,5 @@
+import Combine
+import Dispatch
 import Foundation
 import Testing
 @testable import Hireva
@@ -5,138 +7,185 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SystemAudioQuestionOnlyAutoGenerationTests {
-    @Test
+    // Eight cumulative pipelines share one session; the full default suite also
+    // queues work on MainActor. This host safety bound is not a latency SLO.
+    @Test(.timeLimit(.minutes(2)))
     func interviewerOnlySystemAudioUnknownSpeakerAutoGeneratesEveryQuestionWithoutQuestionMarks() async throws {
         let (appState, session, client) = try makeAppState()
-        let questions = [
-            "First, could you tell me a little bit about yourself and what brought you into robotics",
-            "Great, thanks. Could you walk me through your LeoRover project",
-            "What was the hardest technical challenge you faced",
-            "How did you handle noisy detections or localisation errors",
-            "Why did the diffusion decoder perform better in your MuJoCo evaluation",
-            "What would you change first if you had another month",
-            "Why do you want to join our team",
-            "How comfortable are you with Python, C plus plus, and ROS two"
-        ]
+        // Subscribe before any transcript submission. Actual terminal readiness
+        // is bounded by the owning test, independent of MainActor scheduling load.
+        let terminal = QuestionOnlyTerminalObservation(app: appState)
+        let trace = TestEventWaitTrace(label: "QuestionOnly.same-session.\(session.id)")
+        defer {
+            if ProcessInfo.processInfo.environment["HIREVA_TEST_EVENT_TRACE"] == "1" {
+                trace.mark("sequence.return.detected_count.\(appState.detectedQuestionsInSessionCount).mock_control.\(client.streamControlSnapshot())")
+            }
+            terminal.close()
+        }
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let questions = [
+                "First, could you tell me a little bit about yourself and what brought you into robotics",
+                "Great, thanks. Could you walk me through your LeoRover project",
+                "What was the hardest technical challenge you faced",
+                "How did you handle noisy detections or localisation errors",
+                "Why did the diffusion decoder perform better in your MuJoCo evaluation",
+                "What would you change first if you had another month",
+                "Why do you want to join our team",
+                "How comfortable are you with Python, C plus plus, and ROS two"
+            ]
 
-        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
-            id: "question-only-greeting",
-            sessionID: session.id,
-            text: "Hi Lang, thanks for joining today"
-        ))
-        try await Task.sleep(nanoseconds: 120_000_000)
-        #expect(appState.detectedQuestionsInSessionCount == 0)
-
-        var detectedQuestionIDs = Set<String>()
-        for (index, text) in questions.enumerated() {
-            let segmentID = "question-only-\(index)"
-            let beforeDetected = appState.detectedQuestionsInSessionCount
             await appState.handleTranscriptSegment(systemAudioUnknownSegment(
-                id: segmentID,
+                id: "question-only-greeting",
                 sessionID: session.id,
-                text: text
+                text: "Hi Lang, thanks for joining today"
             ))
+            try await Task.sleep(nanoseconds: 120_000_000)
+            #expect(appState.detectedQuestionsInSessionCount == 0)
 
-            try await waitUntil(appState: appState, timeout: 10.0) {
-                appState.detectedQuestionsInSessionCount == beforeDetected + 1 &&
-                appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
-                appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
-                appState.currentGenerationTelemetry.questionID == appState.lastDetectedQuestion?.id &&
-                appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated &&
-                appState.visibleAnswerExists &&
-                appState.generationUIState.isTerminal &&
-                !appState.currentSpinnerVisible
+            var detectedQuestionIDs = Set<String>()
+            for (index, text) in questions.enumerated() {
+                let segmentID = "question-only-\(index)"
+                let beforeDetected = appState.detectedQuestionsInSessionCount
+                trace.mark("question.\(index).ingress.requested.segment.\(segmentID)")
+                await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+                    id: segmentID,
+                    sessionID: session.id,
+                    text: text
+                ))
+                trace.mark("question.\(index).ingress.return.observed_question.\(appState.lastDetectedQuestion?.id ?? "none").observed_generation.\(appState.currentGenerationID ?? "none").detected_count.\(appState.detectedQuestionsInSessionCount)")
+
+                let ready: @MainActor () -> Bool = {
+                    appState.detectedQuestionsInSessionCount == beforeDetected + 1 &&
+                    appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
+                    appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
+                    appState.currentGenerationTelemetry.questionID == appState.lastDetectedQuestion?.id &&
+                    appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated &&
+                    appState.visibleAnswerExists &&
+                    appState.generationUIState.isTerminal &&
+                    !appState.currentSpinnerVisible
+                }
+                while true {
+                    trace.mark("question.\(index).terminal.wait.requested.segment.\(segmentID)")
+                    let event = try await terminal.next()
+                    trace.mark("question.\(index).terminal.event.question.\(event.questionID).generation.\(event.generationID)")
+                    // Reject buffered terminal events from earlier questions.
+                    // Both publication identity and the accepted source segment
+                    // must match this submission before evaluating readiness.
+                    guard appState.lastDetectedQuestion?.transcriptSegmentID == segmentID,
+                          event.questionID == appState.lastDetectedQuestion?.id,
+                          event.generationID == appState.currentGenerationID else {
+                        trace.mark("question.\(index).terminal.event.unmatched")
+                        continue
+                    }
+                    #expect(appState.generationUIState.questionID == event.questionID)
+                    #expect(appState.generationUIState.generationID == event.generationID)
+                    #expect(ready())
+                    trace.mark("question.\(index).terminal.assertions.recorded.visible.\(appState.visibleAnswerExists ? 1 : 0).terminal.\(appState.generationUIState.isTerminal ? 1 : 0).spinner.\(appState.currentSpinnerVisible ? 1 : 0)")
+                    break
+                }
+
+                let question = try #require(appState.lastDetectedQuestion)
+                detectedQuestionIDs.insert(question.id)
+                #expect(question.shouldTrigger)
+                #expect(question.questionComplete)
+                #expect(question.confidence >= 0.75)
+                #expect(appState.activeTriggerPath == .autoDetect)
+                #expect(appState.lastDetectedQuestionSource == AudioSourceType.systemAudio.rawValue)
+                #expect(appState.lastDetectedQuestionSpeaker == SpeakerRole.unknown.rawValue)
+                #expect(appState.currentSuggestion?.questionID == question.id)
+                #expect(!appState.currentSpinnerVisible)
+                #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered)
+                #expect(appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated)
             }
 
-            let question = try #require(appState.lastDetectedQuestion)
-            detectedQuestionIDs.insert(question.id)
-            #expect(question.shouldTrigger)
-            #expect(question.questionComplete)
-            #expect(question.confidence >= 0.75)
-            #expect(appState.activeTriggerPath == .autoDetect)
-            #expect(appState.lastDetectedQuestionSource == AudioSourceType.systemAudio.rawValue)
-            #expect(appState.lastDetectedQuestionSpeaker == SpeakerRole.unknown.rawValue)
-            #expect(appState.currentSuggestion?.questionID == question.id)
-            #expect(!appState.currentSpinnerVisible)
-            #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered)
-            #expect(appState.lastTranscriptQuestionGenerationTrace.visibleSuggestionCreated)
+            #expect(detectedQuestionIDs.count == questions.count)
+            #expect(appState.detectedQuestionsInSessionCount == questions.count)
+            #expect(client.detectionCallCount == 0)
+            trace.mark("all8.assertions.recorded.detected_count.\(appState.detectedQuestionsInSessionCount)")
         }
-
-        #expect(detectedQuestionIDs.count == questions.count)
-        #expect(appState.detectedQuestionsInSessionCount == questions.count)
-        #expect(client.detectionCallCount == 0)
+        trace.mark("fixture.app_shutdown.returned")
     }
 
     @Test
     func transcriptQuestionWithoutGenerationRecordsBlockedTrace() async throws {
         let (appState, session, _) = try makeAppState(autoDetectEnabled: false)
-        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
-            id: "blocked-question",
-            sessionID: session.id,
-            text: "What was the hardest technical challenge you faced"
-        ))
-        try await Task.sleep(nanoseconds: 120_000_000)
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+                id: "blocked-question",
+                sessionID: session.id,
+                text: "What was the hardest technical challenge you faced"
+            ))
+            try await Task.sleep(nanoseconds: 120_000_000)
 
-        #expect(appState.transcriptSegments.contains { $0.id == "blocked-question" })
-        #expect(appState.detectedQuestionsInSessionCount == 0)
-        #expect(appState.currentSuggestion == nil)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.transcriptSegmentID == "blocked-question")
-        #expect(appState.lastTranscriptQuestionGenerationTrace.questionCandidate)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered == false)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason == "autoDetectDisabled")
+            #expect(appState.transcriptSegments.contains { $0.id == "blocked-question" })
+            #expect(appState.detectedQuestionsInSessionCount == 0)
+            #expect(appState.currentSuggestion == nil)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.transcriptSegmentID == "blocked-question")
+            #expect(appState.lastTranscriptQuestionGenerationTrace.questionCandidate)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered == false)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.generationBlockedReason == "autoDetectDisabled")
+        }
     }
 
     @Test
     func partialWhyDoYouWantDoesNotRunDetectionOrPersistQuestion() async throws {
         let (appState, session, client) = try makeAppState()
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
 
-        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
-            id: "partial-why-role",
-            sessionID: session.id,
-            text: "why do you want",
-            asrFinalizationReason: "partial"
-        ))
+            await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+                id: "partial-why-role",
+                sessionID: session.id,
+                text: "why do you want",
+                asrFinalizationReason: "partial"
+            ))
 
-        try await Task.sleep(nanoseconds: 160_000_000)
-        #expect(client.detectionCallCount == 0)
-        #expect(appState.detectedQuestionsInSessionCount == 0)
-        #expect(appState.currentSuggestion == nil)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.isFinal == false)
-        #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered == false)
+            try await Task.sleep(nanoseconds: 160_000_000)
+            #expect(client.detectionCallCount == 0)
+            #expect(appState.detectedQuestionsInSessionCount == 0)
+            #expect(appState.currentSuggestion == nil)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.isFinal == false)
+            #expect(appState.lastTranscriptQuestionGenerationTrace.generationTriggered == false)
+        }
     }
 
     @Test
     func finalWhyRoleSupersedesPartialPrefixWithSameSegmentID() async throws {
         let (appState, session, client) = try makeAppState()
-        let segmentID = "partial-to-final-why-role"
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let segmentID = "partial-to-final-why-role"
 
-        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
-            id: segmentID,
-            sessionID: session.id,
-            text: "why do you want",
-            asrFinalizationReason: "partial"
-        ))
-        try await Task.sleep(nanoseconds: 10_000_000)
-        await appState.handleTranscriptSegment(systemAudioUnknownSegment(
-            id: segmentID,
-            sessionID: session.id,
-            text: "Why do you want to join our team",
-            asrFinalizationReason: "final_accepted"
-        ))
+            await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+                id: segmentID,
+                sessionID: session.id,
+                text: "why do you want",
+                asrFinalizationReason: "partial"
+            ))
+            try await Task.sleep(nanoseconds: 10_000_000)
+            await appState.handleTranscriptSegment(systemAudioUnknownSegment(
+                id: segmentID,
+                sessionID: session.id,
+                text: "Why do you want to join our team",
+                asrFinalizationReason: "final_accepted"
+            ))
 
-        try await waitUntil(appState: appState, timeout: 8.0) {
-            appState.detectedQuestionsInSessionCount == 1 &&
-            appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
-            appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
-            appState.visibleAnswerExists &&
-            appState.generationUIState.isTerminal &&
-            !appState.currentSpinnerVisible
+            try await waitUntil(appState: appState, watchdogClock: fixture.clock, streamClient: client, timeout: 8.0) {
+                appState.detectedQuestionsInSessionCount == 1 &&
+                appState.lastDetectedQuestion?.transcriptSegmentID == segmentID &&
+                appState.currentSuggestion?.questionID == appState.lastDetectedQuestion?.id &&
+                appState.visibleAnswerExists &&
+                appState.generationUIState.isTerminal &&
+                !appState.currentSpinnerVisible
+            }
+
+            #expect(client.detectionCallCount == 0)
+            #expect(appState.lastDetectedQuestion?.questionText == "Why do you want to join our team")
+            #expect(appState.currentSuggestion?.questionText == "Why do you want to join our team")
+            #expect(appState.currentSuggestion?.questionText != "why do you want")
         }
-
-        #expect(client.detectionCallCount == 0)
-        #expect(appState.lastDetectedQuestion?.questionText == "Why do you want to join our team")
-        #expect(appState.currentSuggestion?.questionText == "Why do you want to join our team")
-        #expect(appState.currentSuggestion?.questionText != "why do you want")
     }
 
     private func makeAppState(autoDetectEnabled: Bool = true) throws -> (AppState, InterviewSession, QuestionOnlyLLMClient) {
@@ -196,10 +245,13 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
 
     private func waitUntil(
         appState: AppState,
+        watchdogClock: ControlledGenerationWatchdogClock,
+        streamClient: QuestionOnlyLLMClient,
         timeout: TimeInterval,
         predicate: @escaping @MainActor () -> Bool
     ) async throws {
         let start = Date()
+        let monotonicStartNS = DispatchTime.now().uptimeNanoseconds
         while !predicate() {
             if Date().timeIntervalSince(start) > timeout {
                 throw NSError(
@@ -216,7 +268,10 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
                         "terminal=\(appState.generationUIState.isTerminal)",
                         "spinner=\(appState.currentSpinnerVisible)",
                         "generationError=\(appState.visibleAssistantRenderState.generationErrorText ?? "nil")",
-                        "alignmentError=\(appState.lastAlignmentError)"
+                        "alignmentError=\(appState.lastAlignmentError)",
+                        generationFixtureControlSnapshot(app: appState, clock: watchdogClock,
+                            monotonicStartNS: monotonicStartNS),
+                        streamClient.streamControlSnapshot()
                     ].joined(separator: " | ")]
                 )
             }
@@ -225,11 +280,93 @@ struct SystemAudioQuestionOnlyAutoGenerationTests {
     }
 }
 
+// The sink does not capture an actor-owned application object. It projects its
+// parameter into immutable Sendable metadata, then only yields to the owned stream.
+private struct QuestionOnlyTerminalPublication: Sendable {
+    let questionID: String
+    let generationID: String
+
+}
+
+@MainActor
+private final class QuestionOnlyTerminalObservation {
+    private let events: AsyncStream<QuestionOnlyTerminalPublication>
+    private let continuation: AsyncStream<QuestionOnlyTerminalPublication>.Continuation
+    private var subscription: AnyCancellable?
+    private let trace = TestEventWaitTrace(label: "QuestionOnlyActualTerminal")
+
+    init(app: AppState) {
+        let pair = AsyncStream<QuestionOnlyTerminalPublication>.makeStream(bufferingPolicy: .bufferingOldest(16))
+        events = pair.stream
+        continuation = pair.continuation
+        let trace = self.trace
+        subscription = app.liveInterview.generationStateUpdates.sink { @Sendable [continuation = pair.continuation, trace] state in
+            guard state.isTerminal, let questionID = state.questionID,
+                  let generationID = state.generationID else { return }
+            let event = QuestionOnlyTerminalPublication(questionID: questionID, generationID: generationID)
+            trace.mark("producer.terminal.yield.before.question.\(questionID).generation.\(generationID).terminal.1")
+            if case .dropped = continuation.yield(event) {
+                Issue.record("Owned terminal observation buffer exceeded 16 events.")
+            }
+        }
+    }
+
+    func next() async throws -> QuestionOnlyTerminalPublication {
+        try await trace.nextEvent(in: events, event: "terminal")
+    }
+
+    func close() {
+        subscription?.cancel()
+        subscription = nil
+        continuation.finish()
+    }
+}
+
 private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendable {
     let providerKind: LLMProviderKind = .deepSeek
     private let lock = NSLock()
     private var detectionCalls = 0
     private var answerCalls = 0
+    private struct StreamCounters {
+        var requests = 0
+        var producerEntered = 0
+        var yieldAttempts = 0
+        var producerFinished = 0
+        var requestMonotonicNS: UInt64 = 0
+        var producerEnteredMonotonicNS: UInt64 = 0
+        var producerFinishedMonotonicNS: UInt64 = 0
+    }
+    private var streamCounters: [Bool: StreamCounters] = [:]
+
+    private func recordStream(_ sectionStream: Bool, _ mutate: (inout StreamCounters) -> Void) {
+        lock.withLock {
+            var value = streamCounters[sectionStream] ?? StreamCounters()
+            mutate(&value)
+            streamCounters[sectionStream] = value
+        }
+    }
+
+    func streamControlSnapshot() -> String {
+        let values: [String: Any] = lock.withLock {
+            var values: [String: Any] = [:]
+            for sectionStream in [false, true] {
+                let counters = streamCounters[sectionStream] ?? StreamCounters()
+                let prefix = sectionStream ? "stage_b_mock" : "stage_a_mock"
+                values[prefix + "_requests"] = counters.requests
+                values[prefix + "_producer_entered"] = counters.producerEntered
+                values[prefix + "_yield_attempts"] = counters.yieldAttempts
+                values[prefix + "_producer_finished"] = counters.producerFinished
+                values[prefix + "_request_uptime_ns"] = counters.requestMonotonicNS
+                values[prefix + "_producer_entered_uptime_ns"] = counters.producerEnteredMonotonicNS
+                values[prefix + "_producer_finished_uptime_ns"] = counters.producerFinishedMonotonicNS
+            }
+            return values
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]) else {
+            return "mock_stream_control_snapshot_serialization_failed"
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
 
     var detectionCallCount: Int {
         lock.withLock { detectionCalls }
@@ -280,9 +417,24 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
     ) -> AsyncThrowingStream<String, Error> {
         let prompt = messages.map(\.content).joined(separator: "\n")
         let answer = answerText(for: prompt)
+        let sectionStream = prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.")
+        recordStream(sectionStream) {
+            $0.requests += 1
+            $0.requestMonotonicNS = DispatchTime.now().uptimeNanoseconds
+        }
         return AsyncThrowingStream<String, Error> { continuation in
             Task {
-                if prompt.contains("Return plain text sections only") || prompt.contains("Stream the section response now.") {
+                self.recordStream(sectionStream) {
+                    $0.producerEntered += 1
+                    $0.producerEnteredMonotonicNS = DispatchTime.now().uptimeNanoseconds
+                }
+                defer {
+                    self.recordStream(sectionStream) {
+                        $0.producerFinished += 1
+                        $0.producerFinishedMonotonicNS = DispatchTime.now().uptimeNanoseconds
+                    }
+                }
+                if sectionStream {
                     for section in [
                         "STRATEGY:\nDirect answer\n",
                         "SAY_FIRST:\n\(answer)\n",
@@ -294,12 +446,14 @@ private final class QuestionOnlyLLMClient: LLMClientProtocol, @unchecked Sendabl
                         "CAUTION:\nNone\n"
                     ] {
                         continuation.yield(section)
+                        self.recordStream(sectionStream) { $0.yieldAttempts += 1 }
                     }
                     continuation.finish()
                     return
                 }
                 for token in answer.split(separator: " ") {
                     continuation.yield(String(token) + " ")
+                    self.recordStream(sectionStream) { $0.yieldAttempts += 1 }
                 }
                 continuation.finish()
             }

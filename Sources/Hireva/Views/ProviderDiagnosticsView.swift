@@ -2,10 +2,20 @@ import SwiftUI
 
 struct ProviderDiagnosticsView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var diagnosticsState: DiagnosticsState
+    @ObservedObject var live: LiveInterviewFeature
+    @ObservedObject private var embeddingState: DocumentEmbeddingState
 
     @State private var selectedProvider: String = "All"
     @State private var selectedMode: String = "All"
     @State private var latencyAverages: LatencyAverages = .empty
+
+    init(appState: AppState) {
+        self.appState = appState
+        diagnosticsState = appState.diagnosticsState
+        live = appState.liveInterview
+        embeddingState = appState.documentsState.embeddings
+    }
 
     var body: some View {
         ScrollView {
@@ -70,10 +80,10 @@ struct ProviderDiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Last AI Call", systemImage: "timer")
                         .font(.headline)
-                    row("Provider", appState.diagnostics.lastProviderName ?? "None")
-                    row("Model", appState.diagnostics.lastProviderModel ?? "None")
-                    row("Latency", appState.diagnostics.lastAPILatencyMS.map { "\($0) ms" } ?? "None")
-                    row("Last Error", appState.diagnostics.lastError ?? "None")
+                    row("Provider", diagnosticsState.developer.lastProviderName ?? "None")
+                    row("Model", diagnosticsState.developer.lastProviderModel ?? "None")
+                    row("Latency", diagnosticsState.developer.lastAPILatencyMS.map { "\($0) ms" } ?? "None")
+                    row("Last Error", diagnosticsState.developer.lastError ?? "None")
                 }
                 .padding(18)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -159,8 +169,8 @@ struct ProviderDiagnosticsView: View {
                 )
                 manualCheckRow(
                     "Start/Stop state",
-                    passed: appState.canStopCapture || appState.currentCaptureRuntimeState != .idle,
-                    value: appState.currentCaptureRuntimeState.displayName
+                    passed: appState.canStopCapture || live.currentCaptureRuntimeState != .idle,
+                    value: live.currentCaptureRuntimeState.displayName
                 )
                 manualCheckRow(
                     "DeepSeek configured",
@@ -193,12 +203,12 @@ struct ProviderDiagnosticsView: View {
 
             Group {
                 captureRow("captureMode", appState.captureMode.rawValue)
-                captureRow("currentCaptureRuntimeState", appState.currentCaptureRuntimeState.displayName, valueColor: stateColor(appState.currentCaptureRuntimeState))
+                captureRow("currentCaptureRuntimeState", live.currentCaptureRuntimeState.displayName, valueColor: stateColor(live.currentCaptureRuntimeState))
                 captureRow("systemCaptureRunning", appState.systemCaptureRunning ? "true" : "false")
                 captureRow("micCaptureRunning", appState.micCaptureRunning ? "true" : "false")
                 captureRow("lastSystemTranscript", manualTranscriptPreview)
                 captureRow("currentSuggestion exists", appState.currentSuggestion == nil ? "false" : "true")
-                captureRow("stopReason", appState.stopReason?.rawValue ?? "None")
+                captureRow("stopReason", live.stopReason?.rawValue ?? "None")
                 captureRow("DeepSeek configured", appState.keychainDeepSeekKeyExists ? "true" : "false")
                 captureRow("RAG mode", appState.manualVerificationRAGMode)
                 captureRow("LaTeX polluted chunk count", "\(appState.latexPollutedChunkCount)", valueColor: appState.latexPollutedChunkCount == 0 ? .green : .red)
@@ -229,7 +239,7 @@ struct ProviderDiagnosticsView: View {
             if let error = appState.lastEmbeddingError {
                 row("Last Error", error)
             }
-            if let coverage = appState.embeddingCoverage {
+            if let coverage = embeddingState.coverage {
                 row("Coverage", "\(coverage.chunksWithEmbeddings) / \(coverage.totalChunks) chunks (\(Int(coverage.coveragePercent))%)")
                 row("Dimension", coverage.dimension.map { "\($0)" } ?? "None")
             }
@@ -250,9 +260,9 @@ struct ProviderDiagnosticsView: View {
                     title: "Rebuild Embeddings",
                     loadingTitle: "Rebuilding...",
                     systemImage: "square.stack.3d.up",
-                    progress: appState.rebuildProgress
+                    progress: embeddingState.progress
                 ) {
-                    appState.rebuildAllEmbeddings()
+                    embeddingState.rebuildAll()
                 }
             }
             InlineStatusBanner(appState.latestActionFeedback(matching: [ActionID.providerTest, ActionID.rebuildEmbeddings]))
@@ -619,12 +629,12 @@ struct ProviderDiagnosticsView: View {
                 .font(.headline)
             
             Group {
-                captureRow("Runtime State", appState.currentCaptureRuntimeState.displayName, valueColor: stateColor(appState.currentCaptureRuntimeState))
-                if let stopReason = appState.stopReason {
+                captureRow("Runtime State", live.currentCaptureRuntimeState.displayName, valueColor: stateColor(live.currentCaptureRuntimeState))
+                if let stopReason = live.stopReason {
                     captureRow("Stop Reason", stopReason.rawValue, valueColor: .orange)
                 }
-                captureRow("Last Capture Started", appState.lastCaptureStartedAt.map { dateFormatter.string(from: $0) } ?? "Never")
-                captureRow("Last Capture Stopped", appState.lastCaptureStoppedAt.map { dateFormatter.string(from: $0) } ?? "Never")
+                captureRow("Last Capture Started", live.lastCaptureStartedAt.map { dateFormatter.string(from: $0) } ?? "Never")
+                captureRow("Last Capture Stopped", live.lastCaptureStoppedAt.map { dateFormatter.string(from: $0) } ?? "Never")
                 captureRow("Last System Buffer", appState.lastSystemAudioBufferAt.map { dateFormatter.string(from: $0) } ?? "Never")
                 if let err = appState.lastSystemAudioError {
                     captureRow("System Audio Error", err, valueColor: .red)
@@ -650,11 +660,27 @@ struct ProviderDiagnosticsView: View {
             
             Divider()
             
+            if appState.activeASRProviderRuntime?.id == .localParakeet {
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    if let writer = appState.parakeetAudioWriterSnapshot {
+                        VStack(alignment: .leading, spacing: 6) {
+                            captureRow("Parakeet Queued PCM", "\(writer.pendingChunks) / \(writer.maximumPendingChunks) chunks")
+                            captureRow("Parakeet Admission Budget", "\(writer.pendingBytes) / \(writer.maximumPendingBytes) bytes")
+                            captureRow("Parakeet Dropped PCM", "\(writer.droppedChunks) chunks",
+                                valueColor: writer.droppedChunks > 0 ? .orange : .primary)
+                        }
+                    } else {
+                        captureRow("Parakeet PCM Writer", "Diagnostics unavailable")
+                    }
+                }
+                Divider()
+            }
+
             Text("Capture Event History (Last 20)")
                 .font(.subheadline.bold())
                 .foregroundStyle(.secondary)
             
-            if appState.recent20CaptureEvents.isEmpty {
+            if live.recent20CaptureEvents.isEmpty {
                 Text("No capture events logged yet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -662,7 +688,7 @@ struct ProviderDiagnosticsView: View {
             } else {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(appState.recent20CaptureEvents.reversed()) { event in
+                        ForEach(live.recent20CaptureEvents.reversed()) { event in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(alignment: .top) {
                                     Text(dateFormatter.string(from: event.timestamp))

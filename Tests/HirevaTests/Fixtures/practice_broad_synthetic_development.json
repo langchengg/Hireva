@@ -1,0 +1,457 @@
+{
+  "labelsFrozenBeforeAnyNewModelRun": true,
+  "split": "All8 language conversations belong to4 bilingual scenario groups in DEVELOPMENT. Existing retry chain already tuned is a known positivecontrol, not included as independent holdout. No new independent holdout established. No gold passed in request.",
+  "modelDenominator": {
+    "groups": 4,
+    "languageConversations": 8,
+    "attempts": 16,
+    "plannedRouterCalls": 16,
+    "maxEvaluationCalls": 48,
+    "maxTotalGenerateCalls": 80,
+    "timeoutOrValidationFailureRetained": true,
+    "unexecutedRows": "NOT RUN, still in16 denominator; no deletion/rounding",
+    "withGaps": 8,
+    "noGaps": 8,
+    "maxRouterCalls": 32,
+    "budgetRationale": "Actual Router.resolve has atmost2 protocol calls; current successful chain used1 perversion but malformed response repair retained, not hidden. Actual evaluation has atmost2 normal calls plus atmost1 question-only repair for an accepted valid final map with a blank required gap question.16attempts→16minimum plannedrouter+16–48evaluation; worst32router+48evaluation=80. The third call stays within the existing evaluation deadline and is not a new full review. All real calls export actual count and reason; no request count is assumed."
+  },
+  "nonModelDenominators": {
+    "emptyAnswerUICases": 2,
+    "twoCorrectionLateCallbackCases": 2,
+    "modelCallsForThese": 0,
+    "neverAddedToModelPassCount": true
+  },
+  "fixtures": [
+    {
+      "scenarioID": "cache-wrong-topic-en-original",
+      "conversationGroup": "cache-wrong-topic",
+      "language": "en",
+      "stage": "original",
+      "selectedTask": "generalKnowledge",
+      "question": "Explain caching versus persistent storage and their limitations.",
+      "answer": "I bake bread.",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Assumptions and distinctions / 条件与区别",
+        "Example or reasoning / 示例或推理",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [],
+      "expectedMissingIDs": [
+        "r0",
+        "r1",
+        "r2",
+        "r3"
+      ],
+      "expectedFirstMissingID": "r0",
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Wrong-topic short answer contains none of the question concepts. Revision explicitly defines both, distinguishes durability/staleness, gives a restart example and states limits. AI-assisted synthetic labels, not independent human gold.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "cache-wrong-topic-en-revised",
+      "conversationGroup": "cache-wrong-topic",
+      "language": "en",
+      "stage": "revised",
+      "selectedTask": "generalKnowledge",
+      "question": "Explain caching versus persistent storage and their limitations.",
+      "answer": "Caching stores a reusable copy for fast access, while persistent storage retains authoritative data across restarts. A cache may lose entries or become stale and must not be treated as the only durable record. For example, after a service restarts it can rebuild a cache from its persistent database. Caching reduces repeated reads but adds invalidation complexity; persistent storage can be slower.",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Assumptions and distinctions / 条件与区别",
+        "Example or reasoning / 示例或推理",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1",
+        "r2",
+        "r3"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Wrong-topic short answer contains none of the question concepts. Revision explicitly defines both, distinguishes durability/staleness, gives a restart example and states limits. AI-assisted synthetic labels, not independent human gold.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "cache-wrong-topic-zh-original",
+      "conversationGroup": "cache-wrong-topic",
+      "language": "zh",
+      "stage": "original",
+      "selectedTask": "generalKnowledge",
+      "question": "解释缓存与持久存储的区别，以及各自的局限。",
+      "answer": "我会烤面包。",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Assumptions and distinctions / 条件与区别",
+        "Example or reasoning / 示例或推理",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [],
+      "expectedMissingIDs": [
+        "r0",
+        "r1",
+        "r2",
+        "r3"
+      ],
+      "expectedFirstMissingID": "r0",
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Translation pair belongs to same scenario group and split. Wrong-topic original lacks question coverage. Explicit revised concept/distinction/example/limit labels are provisional synthetic AI-assisted annotations.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "cache-wrong-topic-zh-revised",
+      "conversationGroup": "cache-wrong-topic",
+      "language": "zh",
+      "stage": "revised",
+      "selectedTask": "generalKnowledge",
+      "question": "解释缓存与持久存储的区别，以及各自的局限。",
+      "answer": "缓存保存可复用的副本来加快访问，持久存储则保留进程重启后的权威数据。缓存项可能丢失或过期，不能把缓存当作唯一的持久记录。例如服务重启后，可以从持久数据库重新建立缓存。缓存减少重复读取，但增加失效管理的复杂度；持久存储的访问可能更慢。",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Assumptions and distinctions / 条件与区别",
+        "Example or reasoning / 示例或推理",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1",
+        "r2",
+        "r3"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Translation pair belongs to same scenario group and split. Wrong-topic original lacks question coverage. Explicit revised concept/distinction/example/limit labels are provisional synthetic AI-assisted annotations.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "qualitative-delivery-tradeoff-en-original",
+      "conversationGroup": "qualitative-delivery-tradeoff",
+      "language": "en",
+      "stage": "original",
+      "selectedTask": "systemDesign",
+      "question": "How would you handle duplicate delivery, and what trade-off would you make?",
+      "answer": "I would persist an idempotency key with a unique database constraint. This makes duplicate rejection atomic but costs database writes and retained-key storage. An eventually consistent cache reduces database work but can admit duplicates during races. I would choose the constraint when preventing duplicate delivery matters more than peak throughput.",
+      "rubric": [
+        "Reliability and trade-offs / 可靠性与取舍"
+      ],
+      "expectedCoveredIDs": [
+        "r0"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Uses actual product single-criterion follow-up rubric systemDesign.criteria[3], as existing integration. Concrete qualitative tradeoff meets this rubric; no benchmark/scalability number is requested. Revision remains qualitative.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "qualitative-delivery-tradeoff-en-revised",
+      "conversationGroup": "qualitative-delivery-tradeoff",
+      "language": "en",
+      "stage": "revised",
+      "selectedTask": "systemDesign",
+      "question": "How would you handle duplicate delivery, and what trade-off would you make?",
+      "answer": "I would persist the same idempotency key across retries and reject duplicates with a unique database constraint. This gives atomic duplicate rejection but requires database writes and retained-key storage. An eventually consistent cache reduces database work but can admit duplicates during races. I would retain keys for the redelivery window and choose the constraint when duplicate prevention matters more than peak throughput.",
+      "rubric": [
+        "Reliability and trade-offs / 可靠性与取舍"
+      ],
+      "expectedCoveredIDs": [
+        "r0"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Uses actual product single-criterion follow-up rubric systemDesign.criteria[3], as existing integration. Concrete qualitative tradeoff meets this rubric; no benchmark/scalability number is requested. Revision remains qualitative.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "qualitative-delivery-tradeoff-zh-original",
+      "conversationGroup": "qualitative-delivery-tradeoff",
+      "language": "zh",
+      "stage": "original",
+      "selectedTask": "systemDesign",
+      "question": "你会如何处理重复投递，又会做什么取舍？",
+      "answer": "我会持久保存幂等键，并用数据库唯一约束拒绝重复投递。这样能原子地拒绝重复，但需要数据库写入和保留键的存储。最终一致缓存减少数据库工作，却可能在并发竞争时放过重复。我会在防止重复比峰值吞吐更重要时选择唯一约束。",
+      "rubric": [
+        "Reliability and trade-offs / 可靠性与取舍"
+      ],
+      "expectedCoveredIDs": [
+        "r0"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Chinese translation stays in the same semantic group. Actual single follow-up rubric asks reliability/tradeoffs only. Both answers state mechanism+cost+alternative+rationale, no invented number required.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "qualitative-delivery-tradeoff-zh-revised",
+      "conversationGroup": "qualitative-delivery-tradeoff",
+      "language": "zh",
+      "stage": "revised",
+      "selectedTask": "systemDesign",
+      "question": "你会如何处理重复投递，又会做什么取舍？",
+      "answer": "我会让重试使用同一个幂等键，并用数据库唯一约束拒绝重复投递。这样能原子地拒绝重复，但需要数据库写入和保留键的存储。最终一致缓存减少数据库工作，却可能在并发竞争时放过重复。我会为可能重新投递的时间窗口保留键，并在防止重复比峰值吞吐更重要时选择唯一约束。",
+      "rubric": [
+        "Reliability and trade-offs / 可靠性与取舍"
+      ],
+      "expectedCoveredIDs": [
+        "r0"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "Chinese translation stays in the same semantic group. Actual single follow-up rubric asks reliability/tradeoffs only. Both answers state mechanism+cost+alternative+rationale, no invented number required.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "personal-result-plan-gap-en-original",
+      "conversationGroup": "personal-result-plan-gap",
+      "language": "en",
+      "stage": "original",
+      "selectedTask": "behavioral",
+      "question": "Describe a real disagreement with a team, your actions, the result and what you learned.",
+      "answer": "During a student team planning meeting, we disagreed about which prototype to build. I listened to both proposals, wrote down their risks, and asked the team to compare them against the project goal. We plan to test the selected prototype next week.",
+      "rubric": [
+        "Situation / 情境",
+        "Personal action / 个人行动",
+        "Result / 结果",
+        "Reflection / 反思"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1"
+      ],
+      "expectedMissingIDs": [
+        "r2",
+        "r3"
+      ],
+      "expectedFirstMissingID": "r2",
+      "expectedPersonalEvidence": "required",
+      "sourceEvidence": [],
+      "labelSource": "Past situation and personal action explicit; planned test is a future plan, not observed result. Revision adds reflection but still no completed result. With no confirmed candidate sources, product must use existing safe reference fallback; raw model inventions retained for review.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "personal-result-plan-gap-en-revised",
+      "conversationGroup": "personal-result-plan-gap",
+      "language": "en",
+      "stage": "revised",
+      "selectedTask": "behavioral",
+      "question": "Describe a real disagreement with a team, your actions, the result and what you learned.",
+      "answer": "During a student team planning meeting, we disagreed about which prototype to build. I listened to both proposals, wrote down their risks, and asked the team to compare them against the project goal. We plan to test the selected prototype next week. I learned to make the comparison criteria explicit before asking teammates to defend their proposals.",
+      "rubric": [
+        "Situation / 情境",
+        "Personal action / 个人行动",
+        "Result / 结果",
+        "Reflection / 反思"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1",
+        "r3"
+      ],
+      "expectedMissingIDs": [
+        "r2"
+      ],
+      "expectedFirstMissingID": "r2",
+      "expectedPersonalEvidence": "required",
+      "sourceEvidence": [],
+      "labelSource": "Past situation and personal action explicit; planned test is a future plan, not observed result. Revision adds reflection but still no completed result. With no confirmed candidate sources, product must use existing safe reference fallback; raw model inventions retained for review.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "personal-result-plan-gap-zh-original",
+      "conversationGroup": "personal-result-plan-gap",
+      "language": "zh",
+      "stage": "original",
+      "selectedTask": "behavioral",
+      "question": "讲一次你与团队发生真实分歧的经历、你的行动、结果，以及你学到了什么。",
+      "answer": "在一次学生团队的规划会议上，我们对应该制作哪一个原型意见不一致。我听取了两个方案，列出各自风险，并请团队按项目目标比较。我们计划下周测试选出的原型。",
+      "rubric": [
+        "Situation / 情境",
+        "Personal action / 个人行动",
+        "Result / 结果",
+        "Reflection / 反思"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1"
+      ],
+      "expectedMissingIDs": [
+        "r2",
+        "r3"
+      ],
+      "expectedFirstMissingID": "r2",
+      "expectedPersonalEvidence": "required",
+      "sourceEvidence": [],
+      "labelSource": "Translation pair grouped with English. Future test cannot be promoted to achieved result. Revision adds explicit reflection only; exact quote and version boundaries unchanged.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "personal-result-plan-gap-zh-revised",
+      "conversationGroup": "personal-result-plan-gap",
+      "language": "zh",
+      "stage": "revised",
+      "selectedTask": "behavioral",
+      "question": "讲一次你与团队发生真实分歧的经历、你的行动、结果，以及你学到了什么。",
+      "answer": "在一次学生团队的规划会议上，我们对应该制作哪一个原型意见不一致。我听取了两个方案，列出各自风险，并请团队按项目目标比较。我们计划下周测试选出的原型。我学到，在请队友为方案辩护之前，应该先明确比较标准。",
+      "rubric": [
+        "Situation / 情境",
+        "Personal action / 个人行动",
+        "Result / 结果",
+        "Reflection / 反思"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1",
+        "r3"
+      ],
+      "expectedMissingIDs": [
+        "r2"
+      ],
+      "expectedFirstMissingID": "r2",
+      "expectedPersonalEvidence": "required",
+      "sourceEvidence": [],
+      "labelSource": "Translation pair grouped with English. Future test cannot be promoted to achieved result. Revision adds explicit reflection only; exact quote and version boundaries unchanged.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder+quote/rubric/source guard succeeds; exact attempt identity/revision and durable record preserved. Same actual frozen map used for first-gap target.",
+      "semanticGate": "Exact expected coverage map compared with actual feedback; reason/suggestion cannot deny covered rubric or add absent numeric/experience demands; followUp must ask original-question information for first missing criterion, and be absent if no gaps. Review human/Codex identity recorded, never equate nonempty question to targeted question."
+    },
+    {
+      "scenarioID": "cache-short-correct-en-original",
+      "conversationGroup": "cache-short-correct",
+      "language": "en",
+      "stage": "original",
+      "selectedTask": "generalKnowledge",
+      "question": "Explain caching versus persistent storage and their limitations.",
+      "answer": "A cache is a rebuildable fast copy. Persistent storage keeps authoritative data across restarts.",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [
+        "r0"
+      ],
+      "expectedMissingIDs": [
+        "r1"
+      ],
+      "expectedFirstMissingID": "r1",
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "AI-assisted synthetic predeclaration: actual user-supplied two-criterion rubric selects generalKnowledge.criteria[0] and [3], renumbered by production map asr0/r1. Short original correctly contrasts concepts but does not state limits; revision adds explicit eviction/staleness/durability/slow-access limits. No minimum answer length/numbers permitted by rubric. Translation variants belong to same development group.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder/quote/rubric/source guards plus exact frozen attempt/revision and DBreopen preserved.",
+      "semanticGate": "Coverage exactly matches two supplied criteria; original has substantive first missing limits followUp, revised noFollowUp; brevity not treated as missing correct concept nor extra numeric evidence required."
+    },
+    {
+      "scenarioID": "cache-short-correct-en-revised",
+      "conversationGroup": "cache-short-correct",
+      "language": "en",
+      "stage": "revised",
+      "selectedTask": "generalKnowledge",
+      "question": "Explain caching versus persistent storage and their limitations.",
+      "answer": "A cache is a rebuildable fast copy. Persistent storage keeps authoritative data across restarts. Cache entries can be evicted or stale, so a cache cannot be the only durable record; persistent storage may have slower access.",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "AI-assisted synthetic predeclaration: actual user-supplied two-criterion rubric selects generalKnowledge.criteria[0] and [3], renumbered by production map asr0/r1. Short original correctly contrasts concepts but does not state limits; revision adds explicit eviction/staleness/durability/slow-access limits. No minimum answer length/numbers permitted by rubric. Translation variants belong to same development group.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder/quote/rubric/source guards plus exact frozen attempt/revision and DBreopen preserved.",
+      "semanticGate": "Coverage exactly matches two supplied criteria; original has substantive first missing limits followUp, revised noFollowUp; brevity not treated as missing correct concept nor extra numeric evidence required."
+    },
+    {
+      "scenarioID": "cache-short-correct-zh-original",
+      "conversationGroup": "cache-short-correct",
+      "language": "zh",
+      "stage": "original",
+      "selectedTask": "generalKnowledge",
+      "question": "解释缓存与持久存储的区别，以及各自的局限。",
+      "answer": "缓存是可以重建的快速副本。持久存储在重启后保留权威数据。",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [
+        "r0"
+      ],
+      "expectedMissingIDs": [
+        "r1"
+      ],
+      "expectedFirstMissingID": "r1",
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "AI-assisted synthetic predeclaration: actual user-supplied two-criterion rubric selects generalKnowledge.criteria[0] and [3], renumbered by production map asr0/r1. Short original correctly contrasts concepts but does not state limits; revision adds explicit eviction/staleness/durability/slow-access limits. No minimum answer length/numbers permitted by rubric. Translation variants belong to same development group.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder/quote/rubric/source guards plus exact frozen attempt/revision and DBreopen preserved.",
+      "semanticGate": "Coverage exactly matches two supplied criteria; original has substantive first missing limits followUp, revised noFollowUp; brevity not treated as missing correct concept nor extra numeric evidence required."
+    },
+    {
+      "scenarioID": "cache-short-correct-zh-revised",
+      "conversationGroup": "cache-short-correct",
+      "language": "zh",
+      "stage": "revised",
+      "selectedTask": "generalKnowledge",
+      "question": "解释缓存与持久存储的区别，以及各自的局限。",
+      "answer": "缓存是可以重建的快速副本。持久存储在重启后保留权威数据。缓存项可能被淘汰或过期，不能作为唯一持久记录；持久存储的访问可能较慢。",
+      "rubric": [
+        "Correct explanation / 解释正确",
+        "Limits / 局限"
+      ],
+      "expectedCoveredIDs": [
+        "r0",
+        "r1"
+      ],
+      "expectedMissingIDs": [],
+      "expectedFirstMissingID": null,
+      "expectedPersonalEvidence": "notRequired",
+      "sourceEvidence": [],
+      "labelSource": "AI-assisted synthetic predeclaration: actual user-supplied two-criterion rubric selects generalKnowledge.criteria[0] and [3], renumbered by production map asr0/r1. Short original correctly contrasts concepts but does not state limits; revision adds explicit eviction/staleness/durability/slow-access limits. No minimum answer length/numbers permitted by rubric. Translation variants belong to same development group.",
+      "labelStatus": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT",
+      "mandatoryMechanical": "Actual production decoder/quote/rubric/source guards plus exact frozen attempt/revision and DBreopen preserved.",
+      "semanticGate": "Coverage exactly matches two supplied criteria; original has substantive first missing limits followUp, revised noFollowUp; brevity not treated as missing correct concept nor extra numeric evidence required."
+    }
+  ],
+  "purpose": "PREDECLARED_SYNTHETIC_AI_ASSISTED_DEVELOPMENT_NOT_HUMAN_GOLD_NOT_HOLDOUT; expectations never passed to model"
+}

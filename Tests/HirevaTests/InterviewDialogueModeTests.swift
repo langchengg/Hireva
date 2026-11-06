@@ -59,20 +59,30 @@ struct InterviewDialogueModeTests {
     @Test
     func systemAudioPanelQuestionTriggersWithMicOff() {
         let state = DialogueRuntimeState.initial(for: .auto)
-        let decision = decide(
-            TranscriptSegment(
-                id: "system-unknown",
-                sessionID: "test",
-                source: .systemAudio,
-                speaker: .unknown,
-                text: "How does your current project prepare you for this PhD?"
-            ),
-            state: state
-        )
+        for question in [
+            "How does your current project prepare you for this PhD?",
+            "For notification delivery, how can an idempotency key prevent duplicate processing?"
+        ] {
+            let decision = decide(
+                TranscriptSegment(
+                    id: "system-unknown",
+                    sessionID: "test",
+                    source: .systemAudio,
+                    speaker: .unknown,
+                    text: question
+                ),
+                state: state
+            )
 
-        #expect(decision.shouldEvaluateQuestion)
-        #expect(decision.speakerRole == .ambiguous)
-        #expect(decision.nextResolvedSessionPhase == .panelQuestions)
+            #expect(decision.shouldEvaluateQuestion)
+            #expect(decision.speakerRole == .ambiguous)
+            #expect(decision.nextResolvedSessionPhase == .panelQuestions)
+            #expect(!decide(candidateSpeech(question), state: state).shouldEvaluateQuestion)
+            #expect(!InterviewDialogueTriggerPolicy.decideDialogueTrigger(
+                segment: systemQuestion(question), sessionMode: .auto, currentState: state,
+                answerPanelQuestions: false, suppressPresentation: true, suppressCandidateQuestions: true
+            ).shouldEvaluateQuestion)
+        }
     }
 
     @Test

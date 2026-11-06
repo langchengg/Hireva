@@ -19,9 +19,8 @@ enum QuestionTextUtilities {
 /// Universal ASR cleanup only. Candidate-specific vocabulary is preserved as
 /// transcribed and may later be resolved against the active profile evidence.
 enum ASRCanonicalizer {
-    static func canonicalizeTerms(_ text: String) -> String {
-        var result = QuestionTextUtilities.collapse(text)
-        let replacements: [(String, String)] = [
+    private static let replacements: [(regex: NSRegularExpression, replacement: String)] = {
+        let patterns: [(String, String)] = [
             (#"\bc\s+plus\s+plus\b"#, "C++"),
             (#"\bs\s*q\s*l\b"#, "SQL"),
             (#"\ba\s*p\s*i\b"#, "API"),
@@ -29,8 +28,17 @@ enum ASRCanonicalizer {
             (#"\bend\s+to\s+end\b"#, "end-to-end"),
             (#"\bfrom\s+n\s+to\s+end\b"#, "from end to end")
         ]
-        for (pattern, replacement) in replacements {
-            result = QuestionTextUtilities.regexReplace(pattern, in: result, with: replacement)
+        return patterns.compactMap { pattern, replacement in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+            return (regex, replacement)
+        }
+    }()
+
+    static func canonicalizeTerms(_ text: String) -> String {
+        var result = QuestionTextUtilities.collapse(text)
+        for (regex, replacement) in replacements {
+            let range = NSRange(location: 0, length: (result as NSString).length)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
         }
         return QuestionTextUtilities.collapse(result)
     }
@@ -42,14 +50,19 @@ enum QuestionCanonicalizer {
         return QuestionTextUtilities.collapse(cleaned)
     }
 
-    static func removeDanglingQuestionTail(_ text: String) -> String {
-        var result = QuestionTextUtilities.collapse(text)
-        let dangling = [
+    private static let danglingExpressions: [NSRegularExpression] = {
+        let patterns = [
             #"\s+(?:and|or|but|because|including|such as)\s*[?.!,]*$"#,
             #"\s+(?:what|how|why|whether)\s+(?:the|it|they|you|we)\s*[?.!,]*$"#
         ]
-        for pattern in dangling {
-            result = QuestionTextUtilities.regexReplace(pattern, in: result, with: "")
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+    }()
+
+    static func removeDanglingQuestionTail(_ text: String) -> String {
+        var result = QuestionTextUtilities.collapse(text)
+        for regex in danglingExpressions {
+            let range = NSRange(location: 0, length: (result as NSString).length)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
         }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }

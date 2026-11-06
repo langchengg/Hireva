@@ -1,6 +1,6 @@
 import Foundation
 
-struct ASRPermissionRequirements: Equatable {
+struct ASRPermissionRequirements: Equatable, Sendable {
     let microphone: Bool
     let speechRecognition: Bool
     let screenAndSystemAudio: Bool
@@ -12,7 +12,7 @@ struct ASRPermissionRequirements: Equatable {
     }
 }
 
-struct ASRProviderCapabilities: Equatable {
+struct ASRProviderCapabilities: Equatable, Sendable {
     let supportsPartialTranscripts: Bool
 
     static func forProvider(_ provider: ASRProviderID) -> ASRProviderCapabilities {

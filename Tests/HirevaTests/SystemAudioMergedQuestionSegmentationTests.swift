@@ -74,27 +74,30 @@ struct SystemAudioMergedQuestionSegmentationTests {
     @Test
     func unpunctuatedCoordinatedQuestionPersistsOneDetectionWithoutLocalSnapshot() async throws {
         let (appState, _, session, _) = try makeAppState()
-        let question = "How did you validate the forecasting model and how did you guard against leakage?"
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let question = "How did you validate the forecasting model and how did you guard against leakage?"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "unpunctuated-coordinated-question",
-            sessionID: session.id,
-            text: question
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "unpunctuated-coordinated-question",
+                sessionID: session.id,
+                text: question
+            ))
 
-        try await waitUntil(
-            timeout: Self.runtimeWaitTimeout,
-            label: "single coordinated question detection"
-        ) {
-            appState.detectedQuestionsInSessionCount == 1 &&
-            ((try? appState.suggestionRepository.questions(sessionID: session.id).count) ?? 0) == 1
+            try await waitUntil(
+                timeout: Self.runtimeWaitTimeout,
+                label: "single coordinated question detection"
+            ) {
+                appState.detectedQuestionsInSessionCount == 1 &&
+                ((try? appState.suggestionRepository.questions(sessionID: session.id).count) ?? 0) == 1
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            let cards = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(detected.map(\.questionText) == [question])
+            #expect(cards.allSatisfy { $0.finalVisibleSource != "local_merged_question_snapshot" })
         }
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        let cards = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(detected.map(\.questionText) == [question])
-        #expect(cards.allSatisfy { $0.finalVisibleSource != "local_merged_question_snapshot" })
     }
 
     @Test
@@ -111,253 +114,267 @@ struct SystemAudioMergedQuestionSegmentationTests {
     @Test
     func mergedTranscriptPersistsAllDetectedQuestionsAndGeneratesLatestAnswer() async throws {
         let (appState, database, session, client) = try makeAppState()
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "merged-runtime-segment",
+                sessionID: session.id,
+                text: Self.runtimeMergedTranscript
+            ))
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "merged-runtime-segment",
-            sessionID: session.id,
-            text: Self.runtimeMergedTranscript
-        ))
+            try await waitUntil(
+                timeout: Self.runtimeWaitTimeout,
+                label: "local extraction of all merged transcript questions",
+                stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+            ) {
+                appState.detectedQuestionsInSessionCount == 3 &&
+                appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 3
+            }
 
-        try await waitUntil(
-            timeout: Self.runtimeWaitTimeout,
-            label: "local extraction of all merged transcript questions",
-            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
-        ) {
-            appState.detectedQuestionsInSessionCount == 3 &&
-            appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 3
+            try await waitUntil(
+                timeout: Self.runtimeWaitTimeout,
+                label: "latest answer for split questions",
+                stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+            ) {
+                appState.currentSuggestion.map {
+                    SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedQuestions.last ?? "")
+                } == true &&
+                (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
+                    SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedQuestions.last ?? "")
+                } == true &&
+                appState.visibleAnswerExists &&
+                !appState.currentSpinnerVisible &&
+                !appState.providerStreamActive && !appState.stageBTaskActive
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == Self.expectedQuestions.map(SemanticDuplicateKeyBuilder.key))
+            #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.lastDetectedQuestionText, Self.expectedQuestions.last ?? ""))
+            #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.questionText ?? "", Self.expectedQuestions.last ?? ""))
+            #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.promptPrimaryQuestion ?? "", Self.expectedQuestions.last ?? ""))
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("perception") == true)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("localisation") == true, "Synthetic replay final card: \(String(describing: appState.currentSuggestion))")
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timing") == true)
+            #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("join our team") == false)
+            #expect(client.detectionCallCount == 0)
+
+            let persistedDetected = try await database.dbQueue.read { db in
+                try String.fetchAll(
+                    db,
+                    sql: """
+                    SELECT question_text
+                    FROM detected_questions
+                    WHERE session_id = ?
+                    ORDER BY created_at ASC
+                    """,
+                    arguments: [session.id]
+                )
+            }
+            #expect(persistedDetected.map(SemanticDuplicateKeyBuilder.key) == Self.expectedQuestions.map(SemanticDuplicateKeyBuilder.key))
+            #expect(persistedDetected.allSatisfy { !$0.localizedCaseInsensitiveContains("why do you want to join our team now let us switch") })
+            let persistedSuggestions = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(persistedSuggestions.isEmpty == false)
+            #expect(persistedSuggestions.allSatisfy { card in
+                detected.contains { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText, card.questionText ?? "") }
+            })
+            #expect(SemanticDuplicateKeyBuilder.areDuplicates(persistedSuggestions.last?.questionText ?? "", Self.expectedQuestions.last ?? ""))
         }
-
-        try await waitUntil(
-            timeout: Self.runtimeWaitTimeout,
-            label: "latest answer for split questions",
-            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
-        ) {
-            appState.currentSuggestion.map {
-                SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedQuestions.last ?? "")
-            } == true &&
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
-                SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedQuestions.last ?? "")
-            } == true &&
-            appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible &&
-            !appState.providerStreamActive && !appState.stageBTaskActive
-        }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == Self.expectedQuestions.map(SemanticDuplicateKeyBuilder.key))
-        #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.lastDetectedQuestionText, Self.expectedQuestions.last ?? ""))
-        #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.questionText ?? "", Self.expectedQuestions.last ?? ""))
-        #expect(SemanticDuplicateKeyBuilder.areDuplicates(appState.currentSuggestion?.promptPrimaryQuestion ?? "", Self.expectedQuestions.last ?? ""))
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("perception") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("localisation") == true, "Synthetic replay final card: \(String(describing: appState.currentSuggestion))")
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("timing") == true)
-        #expect(appState.currentSuggestion?.sayFirst.localizedCaseInsensitiveContains("join our team") == false)
-        #expect(client.detectionCallCount == 0)
-
-        let persistedDetected = try await database.dbQueue.read { db in
-            try String.fetchAll(
-                db,
-                sql: """
-                SELECT question_text
-                FROM detected_questions
-                WHERE session_id = ?
-                ORDER BY created_at ASC
-                """,
-                arguments: [session.id]
-            )
-        }
-        #expect(persistedDetected.map(SemanticDuplicateKeyBuilder.key) == Self.expectedQuestions.map(SemanticDuplicateKeyBuilder.key))
-        #expect(persistedDetected.allSatisfy { !$0.localizedCaseInsensitiveContains("why do you want to join our team now let us switch") })
-        let persistedSuggestions = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(persistedSuggestions.isEmpty == false)
-        #expect(persistedSuggestions.allSatisfy { card in
-            detected.contains { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText, card.questionText ?? "") }
-        })
-        #expect(SemanticDuplicateKeyBuilder.areDuplicates(persistedSuggestions.last?.questionText ?? "", Self.expectedQuestions.last ?? ""))
     }
 
     @Test
     func fourQuestionRuntimeTranscriptDedupesASRVariantsAndBoundaryContamination() async throws {
         let (appState, database, session, client) = try makeAppState()
-        let pureQuestions = SystemAudioQuestionExtractor.extract(from: Self.fourQuestionRuntimeTranscript).map(\.text)
-        #expect(
-            pureQuestions.map(SemanticDuplicateKeyBuilder.key) ==
-                Self.expectedFourQuestions.map(SemanticDuplicateKeyBuilder.key)
-        )
-        guard pureQuestions.count == Self.expectedFourQuestions.count else { return }
-
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "four-question-runtime-segment",
-            sessionID: session.id,
-            text: Self.fourQuestionRuntimeTranscript
-        ))
-
-        try await waitUntil(
-            timeout: Self.runtimeWaitTimeout,
-            label: "four split detected questions",
-            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
-        ) {
-            appState.detectedQuestionsInSessionCount == 4 &&
-            appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 4
-        }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == Self.expectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
-        #expect(detected.map(\.questionText).allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
-        #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("diffusion") }.count == 1)
-        #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("Atlas migration") }.count == 1)
-
-        try await waitUntil(
-            timeout: Self.runtimeWaitTimeout,
-            label: "latest answer for four split questions",
-            stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
-        ) {
-            appState.currentSuggestion.map {
-                SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedFourQuestions.last ?? "")
-            } == true &&
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
-                SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedFourQuestions.last ?? "")
-            } == true &&
-            appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible
-        }
-
-        let persisted = try await database.dbQueue.read { db in
-            try String.fetchAll(
-                db,
-                sql: """
-                SELECT question_text
-                FROM detected_questions
-                WHERE session_id = ?
-                ORDER BY created_at ASC
-                """,
-                arguments: [session.id]
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let pureQuestions = SystemAudioQuestionExtractor.extract(from: Self.fourQuestionRuntimeTranscript).map(\.text)
+            #expect(
+                pureQuestions.map(SemanticDuplicateKeyBuilder.key) ==
+                    Self.expectedFourQuestions.map(SemanticDuplicateKeyBuilder.key)
             )
+            guard pureQuestions.count == Self.expectedFourQuestions.count else { return }
+
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "four-question-runtime-segment",
+                sessionID: session.id,
+                text: Self.fourQuestionRuntimeTranscript
+            ))
+
+            try await waitUntil(
+                timeout: Self.runtimeWaitTimeout,
+                label: "four split detected questions",
+                stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+            ) {
+                appState.detectedQuestionsInSessionCount == 4 &&
+                appState.lastTranscriptQuestionGenerationTrace.extractedQuestionCount == 4
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == Self.expectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
+            #expect(detected.map(\.questionText).allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
+            #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("diffusion") }.count == 1)
+            #expect(detected.map(\.questionText).filter { $0.localizedCaseInsensitiveContains("Atlas migration") }.count == 1)
+
+            try await waitUntil(
+                timeout: Self.runtimeWaitTimeout,
+                label: "latest answer for four split questions",
+                stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+            ) {
+                appState.currentSuggestion.map {
+                    SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedFourQuestions.last ?? "")
+                } == true &&
+                (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
+                    SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", Self.expectedFourQuestions.last ?? "")
+                } == true &&
+                appState.visibleAnswerExists &&
+                !appState.currentSpinnerVisible
+            }
+
+            let persisted = try await database.dbQueue.read { db in
+                try String.fetchAll(
+                    db,
+                    sql: """
+                    SELECT question_text
+                    FROM detected_questions
+                    WHERE session_id = ?
+                    ORDER BY created_at ASC
+                    """,
+                    arguments: [session.id]
+                )
+            }
+            #expect(persisted.map(SemanticDuplicateKeyBuilder.key) == Self.expectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
+            #expect(persisted.count == Self.expectedFourQuestions.count)
+            #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
         }
-        #expect(persisted.map(SemanticDuplicateKeyBuilder.key) == Self.expectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
-        #expect(persisted.count == Self.expectedFourQuestions.count)
-        #expect(persisted.allSatisfy { !$0.localizedCaseInsensitiveContains("from end to end when you") })
     }
 
     @Test
     func separateFourQuestionRuntimeSequencePersistsExactlyFourAlignedCards() async throws {
         let (appState, _, session, client) = try makeAppState()
-        let segments = [
-            "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
-            "could you explain your LeoRover project from end to end",
-            "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile",
-            "why do you want to join our team"
-        ]
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let segments = [
+                "Why might a diffusion based policy be more stable for robotic manipulation than an auto regressive policy",
+                "could you explain your LeoRover project from end to end",
+                "when you moved from a clean demo to real robot execution which part of the pipeline was most fragile",
+                "why do you want to join our team"
+            ]
 
-        for (index, text) in segments.enumerated() {
-            await appState.handleTranscriptSegment(systemAudioSegment(
-                id: "separate-four-question-\(index)",
-                sessionID: session.id,
-                text: text
-            ))
-            try await waitUntil(
-                timeout: Self.runtimeWaitTimeout,
-                label: "separate question \(index + 1) answer",
-                stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
-            ) {
-                appState.currentSuggestion.map {
-                    SemanticDuplicateKeyBuilder.areDuplicates(
-                        $0.questionText ?? "",
-                        Self.separateExpectedFourQuestions[index]
-                    )
-                } == true &&
-                appState.visibleAnswerExists &&
-                !appState.currentSpinnerVisible &&
-                appState.generationUIState.isTerminal
+            for (index, text) in segments.enumerated() {
+                await appState.handleTranscriptSegment(systemAudioSegment(
+                    id: "separate-four-question-\(index)",
+                    sessionID: session.id,
+                    text: text
+                ))
+                try await waitUntil(
+                    timeout: Self.runtimeWaitTimeout,
+                    label: "separate question \(index + 1) answer",
+                    stateSnapshot: { stateSnapshot(appState: appState, session: session, client: client) }
+                ) {
+                    appState.currentSuggestion.map {
+                        SemanticDuplicateKeyBuilder.areDuplicates(
+                            $0.questionText ?? "",
+                            Self.separateExpectedFourQuestions[index]
+                        )
+                    } == true &&
+                    appState.visibleAnswerExists &&
+                    !appState.currentSpinnerVisible &&
+                    appState.generationUIState.isTerminal
+                }
+                try await waitUntil(
+                    timeout: 5.0,
+                    label: "separate question \(index + 1) persistence"
+                ) {
+                    (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == index + 1
+                }
+                let persistedCount = try appState.suggestionRepository.suggestions(sessionID: session.id).count
+                #expect(persistedCount == index + 1)
             }
-            try await waitUntil(
-                timeout: 5.0,
-                label: "separate question \(index + 1) persistence"
-            ) {
-                (try? appState.suggestionRepository.suggestions(sessionID: session.id).count) == index + 1
-            }
-            let persistedCount = try appState.suggestionRepository.suggestions(sessionID: session.id).count
-            #expect(persistedCount == index + 1)
+
+            let cards = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(cards.count == 4)
+            #expect(cards.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText ?? "") } == Self.separateExpectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
+            #expect(cards.map { SemanticDuplicateKeyBuilder.key(for: $0.promptPrimaryQuestion ?? "") } == Self.separateExpectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
+            #expect(cards.map { $0.questionIntent?.rawValue ?? "" } == ["model_comparison", "project_walkthrough", "technical_challenge", "why_role"])
+            #expect(cards.allSatisfy { $0.alignmentVerdict == .aligned })
+            #expect(cards.map { $0.questionText ?? "" }.filter { $0.localizedCaseInsensitiveContains("fragile") }.count == 1)
+            #expect(cards.map { $0.questionText ?? "" }.joined(separator: " ").localizedCaseInsensitiveContains("when you moved from a clean demo to real robot execution which part of the pipeline was most fragile when you moved") == false)
         }
-
-        let cards = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(cards.count == 4)
-        #expect(cards.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText ?? "") } == Self.separateExpectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
-        #expect(cards.map { SemanticDuplicateKeyBuilder.key(for: $0.promptPrimaryQuestion ?? "") } == Self.separateExpectedFourQuestions.map(SemanticDuplicateKeyBuilder.key))
-        #expect(cards.map { $0.questionIntent?.rawValue ?? "" } == ["model_comparison", "project_walkthrough", "technical_challenge", "why_role"])
-        #expect(cards.allSatisfy { $0.alignmentVerdict == .aligned })
-        #expect(cards.map { $0.questionText ?? "" }.filter { $0.localizedCaseInsensitiveContains("fragile") }.count == 1)
-        #expect(cards.map { $0.questionText ?? "" }.joined(separator: " ").localizedCaseInsensitiveContains("when you moved from a clean demo to real robot execution which part of the pipeline was most fragile when you moved") == false)
     }
 
     @Test
     func diffusionQuestionSplitDoesNotDisplayWhyRoleAnswer() async throws {
         let (appState, _, session, _) = try makeAppState()
-        let transcript = "Why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let transcript = "Why do you want to join our team now let us switch to your technical project experience why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "role-then-diffusion",
-            sessionID: session.id,
-            text: transcript
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "role-then-diffusion",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
-            appState.detectedQuestionsInSessionCount == 2 &&
-            appState.currentSuggestion.map {
-                SemanticDuplicateKeyBuilder.areDuplicates(
-                    $0.questionText ?? "",
-                    "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy"
-                )
-            } == true &&
-            (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
-                SemanticDuplicateKeyBuilder.areDuplicates(
-                    $0.questionText ?? "",
-                    "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
-                )
-            } == true &&
-            appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible
+            try await waitUntil(timeout: Self.runtimeWaitTimeout) {
+                appState.detectedQuestionsInSessionCount == 2 &&
+                appState.currentSuggestion.map {
+                    SemanticDuplicateKeyBuilder.areDuplicates(
+                        $0.questionText ?? "",
+                        "Why might a diffusion policy be more stable for robotic manipulation than an autoregressive policy"
+                    )
+                } == true &&
+                (try? appState.suggestionRepository.suggestions(sessionID: session.id).last).map {
+                    SemanticDuplicateKeyBuilder.areDuplicates(
+                        $0.questionText ?? "",
+                        "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
+                    )
+                } == true &&
+                appState.visibleAnswerExists &&
+                !appState.currentSpinnerVisible
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == [
+                "Why do you want to join our team",
+                "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
+            ].map(SemanticDuplicateKeyBuilder.key))
+            let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
+            #expect(persisted.isEmpty == false)
+            #expect(persisted.allSatisfy { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", detected.last?.questionText ?? "") })
+            let answer = try #require(appState.currentSuggestion?.sayFirst)
+            #expect(answer.localizedCaseInsensitiveContains("diffusion"))
+            #expect(answer.localizedCaseInsensitiveContains("autoregressive"))
+            #expect(answer.localizedCaseInsensitiveContains("continuous action"))
+            #expect(answer.localizedCaseInsensitiveContains("join our team") == false)
         }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        #expect(detected.map { SemanticDuplicateKeyBuilder.key(for: $0.questionText) } == [
-            "Why do you want to join our team",
-            "Why might a diffusion based policy be more stable for robotic manipulation than an autoregressive policy"
-        ].map(SemanticDuplicateKeyBuilder.key))
-        let persisted = try appState.suggestionRepository.suggestions(sessionID: session.id)
-        #expect(persisted.isEmpty == false)
-        #expect(persisted.allSatisfy { SemanticDuplicateKeyBuilder.areDuplicates($0.questionText ?? "", detected.last?.questionText ?? "") })
-        let answer = try #require(appState.currentSuggestion?.sayFirst)
-        #expect(answer.localizedCaseInsensitiveContains("diffusion"))
-        #expect(answer.localizedCaseInsensitiveContains("autoregressive"))
-        #expect(answer.localizedCaseInsensitiveContains("continuous action"))
-        #expect(answer.localizedCaseInsensitiveContains("join our team") == false)
     }
 
     @Test
     func providerMergedQuestionIsCleanedBeforePersistenceWhenLLMDetectionPathRuns() async throws {
         let (appState, _, session, client) = try makeAppState()
-        let transcript = "Why do you want to join our team now let us switch to your technical project experience"
-        let expectedCleanQuestion = "Why do you want to join our team"
+        let fixture = ControlledGenerationWatchdogFixture(app: appState)
+        try await fixture.run {
+            let transcript = "Why do you want to join our team now let us switch to your technical project experience"
+            let expectedCleanQuestion = "Why do you want to join our team"
 
-        await appState.handleTranscriptSegment(systemAudioSegment(
-            id: "provider-merged-single-question",
-            sessionID: session.id,
-            text: transcript
-        ))
+            await appState.handleTranscriptSegment(systemAudioSegment(
+                id: "provider-merged-single-question",
+                sessionID: session.id,
+                text: transcript
+            ))
 
-        try await waitUntil(timeout: Self.runtimeWaitTimeout) {
-            appState.detectedQuestionsInSessionCount == 1 &&
-            appState.currentSuggestion?.questionText == expectedCleanQuestion &&
-            appState.visibleAnswerExists &&
-            !appState.currentSpinnerVisible
+            try await waitUntil(timeout: Self.runtimeWaitTimeout) {
+                appState.detectedQuestionsInSessionCount == 1 &&
+                appState.currentSuggestion?.questionText == expectedCleanQuestion &&
+                appState.visibleAnswerExists &&
+                !appState.currentSpinnerVisible
+            }
+
+            let detected = try appState.suggestionRepository.questions(sessionID: session.id)
+            #expect(detected.map(\.questionText) == [expectedCleanQuestion])
+            #expect(appState.currentSuggestion?.promptPrimaryQuestion == expectedCleanQuestion)
+            #expect(appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("now let us switch") == false)
+            #expect(client.detectionCallCount == 0)
         }
-
-        let detected = try appState.suggestionRepository.questions(sessionID: session.id)
-        #expect(detected.map(\.questionText) == [expectedCleanQuestion])
-        #expect(appState.currentSuggestion?.promptPrimaryQuestion == expectedCleanQuestion)
-        #expect(appState.currentSuggestion?.questionText?.localizedCaseInsensitiveContains("now let us switch") == false)
-        #expect(client.detectionCallCount == 0)
     }
 
     private func makeAppState() throws -> (AppState, AppDatabase, InterviewSession, MergedQuestionLLMClient) {
@@ -411,7 +428,7 @@ struct SystemAudioMergedQuestionSegmentationTests {
         )
     }
 
-    nonisolated private func waitUntil(
+    private func waitUntil(
         timeout: TimeInterval,
         label: String = "merged question segmentation state",
         stateSnapshot: (@MainActor () -> String)? = nil,
@@ -420,10 +437,10 @@ struct SystemAudioMergedQuestionSegmentationTests {
         let pollIntervalNanoseconds: UInt64 = 25_000_000
         let maxAttempts = max(1, Int(timeout / 0.025))
         var attempts = 0
-        while !(await predicate()) {
+        while !predicate() {
             attempts += 1
             if attempts > maxAttempts {
-                let snapshot = await stateSnapshot?() ?? ""
+                let snapshot = stateSnapshot?() ?? ""
                 let suffix = snapshot.isEmpty ? "" : " State: \(snapshot)"
                 throw NSError(
                     domain: "SystemAudioMergedQuestionSegmentationTests",

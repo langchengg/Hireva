@@ -1,13 +1,21 @@
 import SwiftUI
 
 struct ProviderEditorView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var settingsState: SettingsState
+    let feedbacks: [ActionFeedback]
+    let loadingStates: [String: Bool]
+    let requestFeedback: (ActionFeedback) -> Void
     @State private var draft: LLMProviderConfiguration
     @State private var apiKey = ""
     @State private var confirmDeleteProvider = false
 
-    init(appState: AppState, provider: LLMProviderConfiguration) {
-        self.appState = appState
+    init(settingsState: SettingsState, provider: LLMProviderConfiguration,
+         feedbacks: [ActionFeedback], loadingStates: [String: Bool],
+         requestFeedback: @escaping (ActionFeedback) -> Void) {
+        self.settingsState = settingsState
+        self.feedbacks = feedbacks
+        self.loadingStates = loadingStates
+        self.requestFeedback = requestFeedback
         _draft = State(initialValue: provider)
     }
 
@@ -39,16 +47,16 @@ struct ProviderEditorView: View {
                 HStack {
                     SecureField("API key for \(draft.name)", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
-                    ActionButton(
-                        appState: appState,
-                        actionID: saveKeyActionID,
+                    ActionButtonContent(
+                        isLoading: loadingStates[saveKeyActionID] == true,
+                        feedback: latestFeedback(for: saveKeyActionID),
                         title: "Save Key",
                         loadingTitle: "Saving securely...",
                         successTitle: "Saved",
                         systemImage: "key.fill",
                         disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
-                        appState.saveAPIKey(apiKey, for: draft)
+                        settingsState.saveAPIKey(apiKey, for: draft)
                         apiKey = ""
                     }
                 }
@@ -64,58 +72,58 @@ struct ProviderEditorView: View {
             InlineStatusBanner(providerFeedback)
 
             HStack {
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.providerSwitch,
+                ActionButtonContent(
+                    isLoading: loadingStates[ActionID.providerSwitch] == true,
+                    feedback: latestFeedback(for: ActionID.providerSwitch),
                     title: "Use for Realtime",
                     loadingTitle: "Switching...",
                     successTitle: "Using realtime",
                     systemImage: "dot.radiowaves.left.and.right"
                 ) {
-                    appState.setActiveRealtimeProvider(draft)
+                    settingsState.setActiveRealtimeProvider(draft)
                 }
-                .tint(appState.activeRealtimeProvider?.id == draft.id ? .accentColor : .secondary)
+                .tint(settingsState.activeRealtimeProvider?.id == draft.id ? .accentColor : .secondary)
 
-                ActionButton(
-                    appState: appState,
-                    actionID: saveActionID,
+                ActionButtonContent(
+                    isLoading: loadingStates[saveActionID] == true,
+                    feedback: latestFeedback(for: saveActionID),
                     title: "Use for Recap",
                     loadingTitle: "Saving...",
                     successTitle: "Using recap",
                     systemImage: "doc.text"
                 ) {
-                    appState.setActiveRecapProvider(draft)
+                    settingsState.setActiveRecapProvider(draft)
                 }
-                .tint(appState.activeRecapProvider?.id == draft.id ? .accentColor : .secondary)
+                .tint(settingsState.activeRecapProvider?.id == draft.id ? .accentColor : .secondary)
 
                 Spacer()
 
-                ActionButton(
-                    appState: appState,
-                    actionID: testActionID,
+                ActionButtonContent(
+                    isLoading: loadingStates[testActionID] == true,
+                    feedback: latestFeedback(for: testActionID),
                     title: "Test",
                     loadingTitle: "Testing...",
                     successTitle: "Connected",
                     systemImage: "network"
                 ) {
-                    appState.testProviderConnection(draft)
+                    settingsState.testProviderConnection(draft)
                 }
 
-                ActionButton(
-                    appState: appState,
-                    actionID: saveActionID,
+                ActionButtonContent(
+                    isLoading: loadingStates[saveActionID] == true,
+                    feedback: latestFeedback(for: saveActionID),
                     title: "Save",
                     loadingTitle: "Saving...",
                     successTitle: "Saved",
                     systemImage: "checkmark.circle",
                     isProminent: true
                 ) {
-                    appState.saveProviderConfiguration(draft)
+                    settingsState.saveProviderConfiguration(draft)
                 }
 
-                ActionButton(
-                    appState: appState,
-                    actionID: deleteActionID,
+                ActionButtonContent(
+                    isLoading: loadingStates[deleteActionID] == true,
+                    feedback: latestFeedback(for: deleteActionID),
                     title: "Delete",
                     loadingTitle: "Deleting...",
                     successTitle: "Deleted",
@@ -123,12 +131,12 @@ struct ProviderEditorView: View {
                     role: .destructive,
                     controlSize: .small
                 ) {
-                    appState.infoAction(deleteActionID, title: "Confirm provider delete", message: "Confirm before removing \(draft.name).", autoDismissAfter: nil)
+                    infoAction(deleteActionID, title: "Confirm provider delete", message: "Confirm before removing \(draft.name).", autoDismissAfter: nil)
                     confirmDeleteProvider = true
                 }
             }
 
-            if let result = appState.providerConnectionResults[draft.id] {
+            if let result = settingsState.providerConnectionResults[draft.id] {
                 Text(result)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -149,10 +157,10 @@ struct ProviderEditorView: View {
         }
         .confirmationDialog("Delete provider?", isPresented: $confirmDeleteProvider) {
             Button("Delete Provider", role: .destructive) {
-                appState.deleteProviderConfiguration(draft)
+                settingsState.deleteProviderConfiguration(draft)
             }
             Button("Cancel", role: .cancel) {
-                appState.infoAction(deleteActionID, title: "Delete cancelled", message: "\(draft.name) was left unchanged.")
+                infoAction(deleteActionID, title: "Delete cancelled", message: "\(draft.name) was left unchanged.")
             }
         } message: {
             Text("This removes \(draft.name) from normal provider choices. Saved keys remain hidden.")
@@ -180,12 +188,25 @@ struct ProviderEditorView: View {
     }
 
     private var providerFeedback: ActionFeedback? {
-        appState.latestActionFeedback(matching: [
+        latestFeedback(matching: [
             saveKeyActionID,
             testActionID,
             saveActionID,
             deleteActionID,
             ActionID.providerSwitch
         ])
+    }
+
+    private func latestFeedback(for actionID: String) -> ActionFeedback? {
+        feedbacks.last { $0.actionID == actionID }
+    }
+    private func latestFeedback(matching actionIDs: [String]) -> ActionFeedback? {
+        let ids = Set(actionIDs)
+        return feedbacks.last { ids.contains($0.actionID) }
+    }
+
+    private func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4) {
+        requestFeedback(ActionFeedback(actionID: id, title: title, message: message,
+            kind: .info, autoDismissAfter: autoDismissAfter))
     }
 }

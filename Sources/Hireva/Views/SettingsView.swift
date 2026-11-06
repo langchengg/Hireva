@@ -1,7 +1,17 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var settingsState: SettingsState
+    let relevantContextStatus: String
+    @ObservedObject var embeddingState: DocumentEmbeddingState
+    let feedbacks: [ActionFeedback]
+    let loadingStates: [String: Bool]
+    let requestFeedback: (ActionFeedback) -> Void
+    let addProvider: (LLMProviderConfiguration) -> Void
+    let rebuildCleanRAGIndex: () -> Void
+    let clearTrace: () -> Void
+    let deleteAllLocalData: (Bool) -> Void
+    let showError: (String) -> Void
     @ObservedObject private var audioDeviceManager = AudioDeviceManager.shared
     @State private var settings = AppSettings.default
     @State private var includeAPIKeyInDelete = false
@@ -27,9 +37,9 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .onAppear {
-            settings = appState.settings
+            settings = settingsState.settings
         }
-        .onChange(of: appState.settings) { _, newValue in
+        .onChange(of: settingsState.settings) { _, newValue in
             settings = newValue
         }
     }
@@ -39,36 +49,36 @@ struct SettingsView: View {
             HStack {
                 statusLine("DeepSeek key", deepSeekKeyStatusText)
                 Spacer()
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.testDeepSeek,
+                ActionButtonContent(
+                    isLoading: loadingStates[ActionID.testDeepSeek] == true,
+                    feedback: latestFeedback(for: ActionID.testDeepSeek),
                     title: "Test Connection",
                     loadingTitle: "Testing...",
                     successTitle: "Connected",
                     systemImage: "network",
-                    disabled: !appState.keychainDeepSeekKeyExists || appState.isTestingConnection
+                    disabled: !settingsState.keychainDeepSeekKeyExists || settingsState.isTestingConnection
                 ) {
-                    appState.testDeepSeekConnection()
+                    settingsState.testDeepSeekConnection()
                 }
             }
 
-            if let warning = appState.keychainAuthorizationWarning {
+            if let warning = settingsState.keychainAuthorizationWarning {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            statusLine("Realtime model", appState.activeRealtimeProvider?.model ?? settings.realtimeModel.displayName)
-            statusLine("Full answer model", appState.activeRecapProvider?.model ?? settings.recapModel.displayName)
+            statusLine("Realtime model", settingsState.activeRealtimeProvider?.model ?? settings.realtimeModel.displayName)
+            statusLine("Full answer model", settingsState.activeRecapProvider?.model ?? settings.recapModel.displayName)
 
             InlineStatusBanner(aiProviderFeedback)
 
-            if appState.isTestingConnection {
+            if settingsState.isTestingConnection {
                 ProgressView()
                     .controlSize(.small)
             }
-            if let result = appState.connectionResult {
+            if let result = settingsState.connectionResult {
                 Text(result)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -78,7 +88,8 @@ struct SettingsView: View {
             Divider()
 
             ForEach(visibleProviderConfigurations) { provider in
-                ProviderEditorView(appState: appState, provider: provider)
+                ProviderEditorView(settingsState: settingsState, provider: provider,
+                    feedbacks: feedbacks, loadingStates: loadingStates, requestFeedback: requestFeedback)
             }
 
             if visibleProviderConfigurations.isEmpty {
@@ -94,18 +105,16 @@ struct SettingsView: View {
                         Text(kind.displayName).tag(kind)
                     }
                 }
-                ActionButton(
-                    appState: appState,
-                    actionID: ActionID.providerSave,
+                ActionButtonContent(
+                    isLoading: loadingStates[ActionID.providerSave] == true,
+                    feedback: latestFeedback(for: ActionID.providerSave),
                     title: "Add Provider",
                     loadingTitle: "Adding...",
                     successTitle: "Provider added",
                     systemImage: "plus"
                 ) {
                     let provider = makeNewProvider(kind: newProviderKind)
-                    appState.beginAction(ActionID.providerSave, title: "Adding provider", message: "Creating \(provider.name)...")
-                    appState.saveProviderConfiguration(provider)
-                    appState.completeAction(ActionID.providerSave, title: "Provider added", message: "\(provider.name) is ready to configure.")
+                    addProvider(provider)
                 }
             }
         }
@@ -135,22 +144,22 @@ struct SettingsView: View {
                 HStack {
                     SecureField("Embedding API key", text: $embeddingAPIKey)
                         .textFieldStyle(.roundedBorder)
-                    ActionButton(
-                        appState: appState,
-                        actionID: ActionID.saveEmbeddingKey,
+                    ActionButtonContent(
+                        isLoading: loadingStates[ActionID.saveEmbeddingKey] == true,
+                        feedback: latestFeedback(for: ActionID.saveEmbeddingKey),
                         title: "Save Key",
                         loadingTitle: "Saving securely...",
                         successTitle: "Saved",
                         systemImage: "key.fill",
                         disabled: embeddingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
-                        appState.saveSettings(settings)
-                        appState.saveEmbeddingAPIKey(embeddingAPIKey, account: settings.embeddingApiKeyAccount)
+                        settingsState.saveSettings(settings)
+                        settingsState.saveEmbeddingAPIKey(embeddingAPIKey, account: settings.embeddingApiKeyAccount)
                         embeddingAPIKey = ""
                     }
                 }
 
-                statusLine("Embedding key", appState.embeddingKeyStatus(account: settings.embeddingApiKeyAccount))
+                statusLine("Embedding key", settingsState.embeddingKeyStatus(account: settings.embeddingApiKeyAccount))
             } else {
                 Text("Keyword search is local and ready after documents are saved. Cloud embeddings are optional.")
                     .font(.callout)
@@ -158,54 +167,54 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            statusLine("Current context", appState.userFacingRelevantContextStatus)
-            if let coverage = appState.embeddingCoverage {
+            statusLine("Current context", relevantContextStatus)
+            if let coverage = embeddingState.coverage {
                 statusLine("Embedding coverage", "\(coverage.chunksWithEmbeddings) / \(coverage.totalChunks) chunks (\(Int(coverage.coveragePercent))%)")
             }
 
             InlineStatusBanner(relevantContextFeedback)
 
-            if appState.isRebuildingEmbeddings {
-                ProgressView(value: appState.rebuildProgress, total: 1.0)
+            if embeddingState.isRebuilding {
+                ProgressView(value: embeddingState.progress, total: 1.0)
                 Button("Cancel Rebuild") {
-                    appState.cancelEmbeddingRebuild()
+                    embeddingState.cancelRebuild()
                 }
                 .buttonStyle(.bordered)
             } else {
                 HStack {
-                    ActionButton(
-                        appState: appState,
-                        actionID: ActionID.rebuildCleanRAG,
+                    ActionButtonContent(
+                        isLoading: loadingStates[ActionID.rebuildCleanRAG] == true,
+                        feedback: latestFeedback(for: ActionID.rebuildCleanRAG),
                         title: "Rebuild Clean Context Index",
                         loadingTitle: "Rebuilding...",
                         successTitle: "Context rebuilt",
                         systemImage: "arrow.triangle.2.circlepath"
                     ) {
-                        appState.rebuildCleanRAGIndex()
+                        rebuildCleanRAGIndex()
                     }
 
-                    ProgressButton(
-                        appState: appState,
-                        actionID: ActionID.rebuildEmbeddings,
+                    ProgressButtonContent(
+                        isLoading: loadingStates[ActionID.rebuildEmbeddings] == true,
+                        feedback: latestFeedback(for: ActionID.rebuildEmbeddings),
                         title: "Rebuild Embeddings",
                         loadingTitle: "Rebuilding...",
                         systemImage: "square.stack.3d.up",
-                        progress: appState.rebuildProgress,
+                        progress: embeddingState.progress,
                         disabled: !settings.enableVectorRAG
                     ) {
-                        appState.rebuildAllEmbeddings()
+                        embeddingState.rebuildAll()
                     }
 
-                    ActionButton(
-                        appState: appState,
-                        actionID: ActionID.saveSettings,
+                    ActionButtonContent(
+                        isLoading: loadingStates[ActionID.saveSettings] == true,
+                        feedback: latestFeedback(for: ActionID.saveSettings),
                         title: "Save Context Settings",
                         loadingTitle: "Saving...",
                         successTitle: "Saved",
                         systemImage: "checkmark.circle",
                         isProminent: true
                     ) {
-                        appState.saveSettings(settings)
+                        settingsState.saveSettings(settings)
                     }
                 }
             }
@@ -249,46 +258,42 @@ struct SettingsView: View {
             }
 
             Button("Clear Diagnostic Trace", role: .destructive) {
-                do {
-                    try appState.clearRuntimeTranscriptTrace()
-                } catch {
-                    appState.showError("Could not clear diagnostic trace: \(error.localizedDescription)")
-                }
+                clearTrace()
             }
 
-            InlineStatusBanner(appState.latestActionFeedback(for: ActionID.saveSettings))
+            InlineStatusBanner(latestFeedback(for: ActionID.saveSettings))
 
-            ActionButton(
-                appState: appState,
-                actionID: ActionID.saveSettings,
+            ActionButtonContent(
+                isLoading: loadingStates[ActionID.saveSettings] == true,
+                feedback: latestFeedback(for: ActionID.saveSettings),
                 title: "Save Audio Settings",
                 loadingTitle: "Saving...",
                 successTitle: "Saved",
                 systemImage: "checkmark.circle",
                 isProminent: true
             ) {
-                appState.saveSettings(settings)
+                settingsState.saveSettings(settings)
             }
         }
     }
 
     private var dialogueCard: some View {
         settingsCard("Interview Dialogue", icon: "person.3.fill") {
-            Picker("Interview Mode", selection: $appState.interviewSessionMode) {
+            Picker("Interview Mode", selection: $settingsState.interviewSessionMode) {
                 ForEach(InterviewSessionMode.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
 
-            Toggle("Answer panel questions", isOn: $appState.answerPanelQuestionsEnabled)
+            Toggle("Answer panel questions", isOn: $settingsState.answerPanelQuestionsEnabled)
             Toggle("Suppress presentation", isOn: Binding(
-                get: { appState.candidatePresentationMode == .suppressAnswers },
-                set: { appState.candidatePresentationMode = $0 ? .suppressAnswers : .normal }
+                get: { settingsState.candidatePresentationMode == .suppressAnswers },
+                set: { settingsState.candidatePresentationMode = $0 ? .suppressAnswers : .normal }
             ))
             Toggle("Suppress candidate questions to panel", isOn: Binding(
-                get: { appState.candidateAsksPanelMode == .suppressAnswers },
-                set: { appState.candidateAsksPanelMode = $0 ? .suppressAnswers : .normal }
+                get: { settingsState.candidateAsksPanelMode == .suppressAnswers },
+                set: { settingsState.candidateAsksPanelMode = $0 ? .suppressAnswers : .normal }
             ))
         }
     }
@@ -320,18 +325,18 @@ struct SettingsView: View {
 
             statusLine("Always on top", "On")
 
-            InlineStatusBanner(appState.latestActionFeedback(matching: [ActionID.saveSettings, ActionID.floatingDisplayMode]))
+            InlineStatusBanner(latestFeedback(matching: [ActionID.saveSettings, ActionID.floatingDisplayMode]))
 
-            ActionButton(
-                appState: appState,
-                actionID: ActionID.saveSettings,
+            ActionButtonContent(
+                isLoading: loadingStates[ActionID.saveSettings] == true,
+                feedback: latestFeedback(for: ActionID.saveSettings),
                 title: "Save Floating Window Settings",
                 loadingTitle: "Saving...",
                 successTitle: "Saved",
                 systemImage: "checkmark.circle",
                 isProminent: true
             ) {
-                appState.saveSettings(settings)
+                settingsState.saveSettings(settings)
             }
         }
     }
@@ -349,31 +354,31 @@ struct SettingsView: View {
                 do {
                     try AppPaths.ensureDirectoriesExist()
                     NSWorkspace.shared.open(AppPaths.exportsDirectory)
-                } catch { appState.showError(error.localizedDescription) }
+                } catch { showError(error.localizedDescription) }
             }
             Toggle("Also delete securely saved provider keys", isOn: $includeAPIKeyInDelete)
 
-            InlineStatusBanner(appState.latestActionFeedback(for: ActionID.clearLocalData))
+            InlineStatusBanner(latestFeedback(for: ActionID.clearLocalData))
 
-            ActionButton(
-                appState: appState,
-                actionID: ActionID.clearLocalData,
+            ActionButtonContent(
+                isLoading: loadingStates[ActionID.clearLocalData] == true,
+                feedback: latestFeedback(for: ActionID.clearLocalData),
                 title: "Clear Local Data",
                 loadingTitle: "Clearing...",
                 successTitle: "Cleared",
                 systemImage: "trash",
                 role: .destructive
             ) {
-                appState.infoAction(ActionID.clearLocalData, title: "Confirm clear local data", message: "Confirm before deleting local documents, sessions, and transcripts.", autoDismissAfter: nil)
+                infoAction(ActionID.clearLocalData, title: "Confirm clear local data", message: "Confirm before deleting local documents, sessions, and transcripts.", autoDismissAfter: nil)
                 confirmClearLocalData = true
             }
         }
         .confirmationDialog("Clear local app data?", isPresented: $confirmClearLocalData) {
             Button("Clear Local Data", role: .destructive) {
-                appState.deleteAllLocalData(includeAPIKey: includeAPIKeyInDelete)
+                deleteAllLocalData(includeAPIKeyInDelete)
             }
             Button("Cancel", role: .cancel) {
-                appState.infoAction(ActionID.clearLocalData, title: "Clear cancelled", message: "Local documents, sessions, transcripts, and keys were left unchanged.")
+                infoAction(ActionID.clearLocalData, title: "Clear cancelled", message: "Local documents, sessions, transcripts, and keys were left unchanged.")
             }
         } message: {
             Text(includeAPIKeyInDelete ? "This clears local documents, sessions, transcripts, and securely saved provider keys." : "This clears local documents, sessions, and transcripts. Securely saved provider keys are kept.")
@@ -418,7 +423,7 @@ struct SettingsView: View {
     }
 
     private var visibleProviderConfigurations: [LLMProviderConfiguration] {
-        appState.providerConfigurations.filter { $0.kind != .ollamaLocal }
+        settingsState.providerConfigurations.filter { $0.kind != .ollamaLocal }
     }
 
     private var visibleProviderKinds: [LLMProviderKind] {
@@ -434,21 +439,21 @@ struct SettingsView: View {
                 ActionID.provider(ActionID.providerDelete, provider.id)
             ]
         }
-        return appState.latestActionFeedback(matching: [ActionID.testDeepSeek, ActionID.providerSave, ActionID.providerSwitch] + providerIDs)
+        return latestFeedback(matching: [ActionID.testDeepSeek, ActionID.providerSave, ActionID.providerSwitch] + providerIDs)
     }
 
     private var deepSeekKeyStatusText: String {
-        if appState.keychainDeepSeekKeyExists {
+        if settingsState.keychainDeepSeekKeyExists {
             return "Securely saved"
         }
-        if appState.keychainAuthorizationWarning != nil {
+        if settingsState.keychainAuthorizationWarning != nil {
             return "Needs re-authorization"
         }
         return "Missing"
     }
 
     private var relevantContextFeedback: ActionFeedback? {
-        appState.latestActionFeedback(matching: [
+        latestFeedback(matching: [
             ActionID.saveEmbeddingKey,
             ActionID.rebuildCleanRAG,
             ActionID.rebuildEmbeddings,
@@ -501,5 +506,18 @@ struct SettingsView: View {
                 updatedAt: now
             )
         }
+    }
+
+    private func latestFeedback(for actionID: String) -> ActionFeedback? {
+        feedbacks.last { $0.actionID == actionID }
+    }
+    private func latestFeedback(matching actionIDs: [String]) -> ActionFeedback? {
+        let ids = Set(actionIDs)
+        return feedbacks.last { ids.contains($0.actionID) }
+    }
+
+    private func infoAction(_ id: String, title: String, message: String, autoDismissAfter: TimeInterval? = 4) {
+        requestFeedback(ActionFeedback(actionID: id, title: title, message: message,
+            kind: .info, autoDismissAfter: autoDismissAfter))
     }
 }

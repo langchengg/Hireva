@@ -1,12 +1,27 @@
 import SwiftUI
 
 struct SessionsView: View {
-    @ObservedObject var appState: AppState
+    let appState: AppState
+    @ObservedObject private var history: HistoryState
+
+    init(appState: AppState) {
+        self.appState = appState
+        history = appState.historyState
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $appState.selectedSessionID) {
-                ForEach(appState.sessions) { session in
+            List(selection: Binding(
+                get: { history.selectedSessionID },
+                set: { sessionID in
+                    if let sessionID {
+                        appState.loadSessionDetails(sessionID: sessionID)
+                    } else {
+                        history.clearSelection()
+                    }
+                }
+            )) {
+                ForEach(history.sessions) { session in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(session.title)
                             .lineLimit(1)
@@ -19,16 +34,12 @@ struct SessionsView: View {
             }
             .listStyle(.sidebar)
             .navigationTitle("Sessions")
-            .onChange(of: appState.selectedSessionID) { _, newValue in
-                if let newValue {
-                    appState.loadSessionDetails(sessionID: newValue)
-                }
-            }
+
         } detail: {
-            if let sessionID = appState.selectedSessionID,
-               let session = appState.sessions.first(where: { $0.id == sessionID }) {
+            if let sessionID = history.selectedSessionID,
+               let session = history.sessions.first(where: { $0.id == sessionID }) {
                 SessionDetailView(appState: appState, session: session)
-            } else if appState.sessions.isEmpty {
+            } else if history.sessions.isEmpty {
                 EmptyStateView(title: "No sessions yet", message: "Create one from Live Interview or Mock Mode.", systemImage: "clock")
             } else {
                 EmptyStateView(title: "Select a session", message: "Review transcript, suggestions, and recap.", systemImage: "sidebar.left")

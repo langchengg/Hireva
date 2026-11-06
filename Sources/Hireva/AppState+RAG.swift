@@ -8,24 +8,11 @@ import Foundation
 extension AppState {
     // MARK: - Realtime Context Selection
 
-    private func normalizedTextHash(_ text: String) -> String {
-        let clean = text.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
-        return String(clean.hashValue)
-    }
-
-    // internal for AppState extension access only
-    func ragPrecomputeCacheKey(
-        segmentID: String,
-        questionText: String,
-        intent: AnswerRelevanceIntent
-    ) -> String {
-        let normalized = AnswerRelevancePolicy.normalizedQuestionText(for: questionText)
-        return [
-            activeContextSnapshot?.id ?? currentSession?.contextSnapshotID ?? "legacy-context",
-            segmentID,
-            intent.rawValue,
-            normalizedTextHash(normalized)
-        ].joined(separator: "_")
+    // Compatibility for existing key consumers; the cache owner defines it.
+    func ragPrecomputeCacheKey(segmentID: String, questionText: String,
+        intent: AnswerRelevanceIntent) -> String {
+        LiveRAGPrefetch.cacheKey(contextID: activeContextSnapshot?.id ?? currentSession?.contextSnapshotID ?? "legacy-context",
+            segmentID: segmentID, questionText: questionText, intent: intent)
     }
 
     // internal for AppState extension access only
@@ -56,7 +43,9 @@ extension AppState {
 
     // MARK: - Embedding Providers
 
-    func resolveEmbeddingProvider() -> EmbeddingProvider? {
+    func resolveEmbeddingProvider(settings snapshot: AppSettings? = nil) -> EmbeddingProvider? {
+        let settings = snapshot ?? self.settings
+        if let resolve = embeddingProviderResolverOverride { return resolve(settings) }
         let kind = settings.embeddingProviderKind
         let model = settings.embeddingModelName
         let timeout = TimeInterval(settings.embeddingTimeoutSeconds)
@@ -105,214 +94,28 @@ extension AppState {
     }
 
     private func recordEmbeddingResolutionError(_ message: String) {
-        Task { @MainActor [weak self] in
-            self?.lastEmbeddingError = message
-        }
+        lastEmbeddingError = message
     }
 
-    func triggerEmbeddingGeneration(for type: DocumentType) {
-        guard settings.autoGenerateEmbeddingsOnDocumentSave else { return }
-        guard let provider = resolveEmbeddingProvider() else { return }
-
-        let providerID = provider.providerID
-        let modelName = provider.modelName
-
-        Task {
-            do {
-                let dim = try await provider.dimension
-                let chunks = try documentRepository.chunks(type: type)
-
-                for chunk in chunks {
-                    let expectedHash = documentRepository.calculateContentHash(
-                        content: chunk.content,
-                        sectionTitle: chunk.sectionTitle,
-                        provider: providerID,
-                        modelName: modelName,
-                        dimension: dim
-                    )
-
-                    if chunk.embeddingContentHash == expectedHash && chunk.embedding != nil {
-                        continue
-                    }
-
-                    let vector = try await provider.embed(text: chunk.content)
-                    try documentRepository.updateChunkEmbedding(
-                        chunkID: chunk.id,
-                        embedding: vector,
-                        model: modelName,
-                        provider: providerID,
-                        dimension: dim,
-                        contentHash: expectedHash
-                    )
-                }
-
-                refreshAll()
-            } catch {
-                print("[AppState] Background embedding generation failed: code=\((error as NSError).code)")
-                showError("Background embedding generation failed: \(error.localizedDescription)")
-            }
-        }
+    @discardableResult
+    func triggerEmbeddingGeneration(for type: DocumentType) -> Task<Void, Never>? {
+        documentsState.embeddings.generateAutomatically(type: type)
     }
 
-    func rebuildAllEmbeddings() {
-        let actionID = ActionID.rebuildEmbeddings
-        guard !isActionLoading(actionID) else { return }
-        guard let provider = resolveEmbeddingProvider() else {
-            isRebuildingEmbeddings = false
-            rebuildProgress = 1.0
-            lastEmbeddingTestStatus = "Keyword RAG ready; vector embeddings not configured."
-            refreshAll()
-            infoAction(actionID, title: "Keyword search ready", message: "Embedding provider not configured; keyword context is ready.")
-            return
-        }
-
-        cancelEmbeddingRebuild()
-        beginAction(actionID, title: "Rebuilding embeddings", message: "Preparing clean context chunks for cloud embeddings...")
-        isRebuildingEmbeddings = true
-        rebuildProgress = 0.0
-
-        let providerID = provider.providerID
-        let modelName = provider.modelName
-
-        activeEmbeddingRebuildTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let dim = try await provider.dimension
-                let all = try self.documentRepository.allChunks()
-
-                if all.isEmpty {
-                    await MainActor.run {
-                        self.isRebuildingEmbeddings = false
-                        self.rebuildProgress = 1.0
-                        self.warnAction(actionID, title: "No chunks to embed", message: "Save documents or rebuild the clean context index first.")
-                    }
-                    return
-                }
-
-                for (index, chunk) in all.enumerated() {
-                    if Task.isCancelled { break }
-
-                    let expectedHash = self.documentRepository.calculateContentHash(
-                        content: chunk.content,
-                        sectionTitle: chunk.sectionTitle,
-                        provider: providerID,
-                        modelName: modelName,
-                        dimension: dim
-                    )
-
-                    if chunk.embeddingContentHash == expectedHash && chunk.embedding != nil {
-                        await MainActor.run {
-                            self.rebuildProgress = Double(index + 1) / Double(all.count)
-                        }
-                        continue
-                    }
-
-                    do {
-                        let vector = try await provider.embed(text: chunk.content)
-                        try self.documentRepository.updateChunkEmbedding(
-                            chunkID: chunk.id,
-                            embedding: vector,
-                            model: modelName,
-                            provider: providerID,
-                            dimension: dim,
-                            contentHash: expectedHash
-                        )
-                    } catch {
-                        print("[AppState] Failed to embed chunk \(chunk.id): code=\((error as NSError).code)")
-                    }
-
-                    await MainActor.run {
-                        self.rebuildProgress = Double(index + 1) / Double(all.count)
-                    }
-                }
-
-                await MainActor.run {
-                    self.isRebuildingEmbeddings = false
-                    self.lastEmbeddingTestStatus = "Embedding rebuild complete."
-                    self.refreshAll()
-                    self.completeAction(actionID, title: "Embeddings rebuilt", message: "\(all.count) chunks checked for cloud embeddings.")
-                }
-            } catch {
-                await MainActor.run {
-                    self.isRebuildingEmbeddings = false
-                    self.lastEmbeddingError = error.localizedDescription
-                    let message = "Failed to rebuild embeddings: \(error.localizedDescription)"
-                    self.failAction(actionID, title: "Embedding rebuild failed", message: message)
-                    self.showError(message)
-                }
-            }
-        }
-    }
-
-    // internal for AppState extension access only
+    func rebuildAllEmbeddings() { documentsState.embeddings.rebuildAll() }
     func currentEmbeddingProviderID(for settings: AppSettings) -> String {
-        switch settings.embeddingProviderKind {
-        case .openAICompatibleCloud:
-            return "cloudOpenAICompatible"
-        case .customCloud:
-            return "cloudCustom"
-        case .mock:
-            return "controlled-mock"
-        case .disabled:
-            return "disabled"
-        case .localOllama:
-            return "legacyLocalProviderDisabled"
-        }
+        DocumentEmbeddingState.providerID(for: settings)
     }
+    func cancelEmbeddingRebuild() { documentsState.embeddings.cancelRebuild() }
+    func rebuildCleanRAGIndex() { documentsState.rebuildCleanIndex() }
 
-    func cancelEmbeddingRebuild() {
-        activeEmbeddingRebuildTask?.cancel()
-        activeEmbeddingRebuildTask = nil
-        isRebuildingEmbeddings = false
-        warnAction(ActionID.rebuildEmbeddings, title: "Embedding rebuild cancelled", message: "Existing context remains available.")
-    }
-
-    func rebuildCleanRAGIndex() {
-        let actionID = ActionID.rebuildCleanRAG
-        guard !isActionLoading(actionID) else { return }
-        beginAction(actionID, title: "Rebuilding clean index", message: "Sanitizing documents and rebuilding chunks...")
-        Task {
-            do {
-                let result = try documentRepository.rebuildCleanRAGIndex()
-                await MainActor.run {
-                    self.refreshAll()
-                    let polluted = self.latexPollutedChunkCount
-                    if self.settings.enableVectorRAG {
-                        self.completeAction(actionID, title: "Clean index rebuilt", message: "\(result.chunksRebuilt) clean chunks ready. Updating embeddings next...")
-                        self.rebuildAllEmbeddings()
-                    } else {
-                        self.completeAction(actionID, title: "Clean index rebuilt", message: "\(result.chunksRebuilt) clean chunks ready. \(polluted) LaTeX warnings remain.")
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    let message = "Failed to rebuild clean RAG index: \(error.localizedDescription)"
-                    self.failAction(actionID, title: "Rebuild failed", message: "Existing index preserved. \(message)")
-                    self.showError(message)
-                }
-            }
-        }
-    }
-
-    public func refreshLatencyAverages() {
-        let repository = suggestionRepository
+    @discardableResult
+    public func refreshLatencyAverages() -> Task<Void, Never>? {
+        guard !isShuttingDown else { return nil }
         markSQLiteOperation("Refreshing latency averages in background")
-        Task.detached(priority: .utility) { [weak self] in
-            do {
-                let overall = try repository.fetchLatencyAverages(last: 10)
-                let deepSeek = try repository.fetchLatencyAverages(last: 10, provider: "DeepSeek")
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.latencyAveragesOverall = overall
-                    self.latencyAveragesDeepSeek = deepSeek
-                    self.lastSQLiteOperation = "Refreshed latency averages"
-                }
-            } catch {
-                print("[AppState] Failed to refresh latency averages: code=\((error as NSError).code)")
-                await MainActor.run { [weak self] in
-                    self?.lastSQLiteOperation = "Latency averages refresh failed: \(error.localizedDescription)"
-                }
-            }
+        return diagnosticsState.refreshLatencyAverages { [weak self] status in
+            guard let self, !self.isShuttingDown else { return }
+            self.lastSQLiteOperation = status
         }
     }
 }
